@@ -19,6 +19,17 @@
 3. Откройте http://localhost:3847
 4. Войдите: **admin** / **Admin123!@Green**
 
+## GitHub и автообновление на сервере
+
+Как у сайта **greengrouplogistics.com** (папка SeoGeo / репозиторий GreenGroup):
+
+1. Запустите **`PUSH-TO-GITHUB.bat`** — создаст репозиторий и отправит код на GitHub.
+2. На cPanel настройте clone + cron по инструкции **`docs/DEPLOY-GITHUB.md`**.
+
+Репозиторий: `https://github.com/GreenLogisticsLLC/GreenLogistics-Attendance`
+
+После настройки: `git push origin main` → сервер подтянет изменения автоматически (cron каждые 5 мин).
+
 ## Интеграция с устройствами доступа
 
 Настройте в системе контроля доступа webhook:
