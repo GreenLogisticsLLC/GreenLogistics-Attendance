@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Green Logistics — Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="login-screen" class="screen">
+        <div class="login-card">
+            <div class="logo">
+                <div class="logo-icon">GL</div>
+                <h1>Green Logistics</h1>
+                <p>Attendance Management System</p>
+            </div>
+            <form id="login-form">
+                <label>Username</label>
+                <input type="text" id="username" autocomplete="username" required>
+                <label>Password</label>
+                <input type="password" id="password" autocomplete="current-password" required>
+                <button type="submit" class="btn-primary">Sign In</button>
+                <p id="login-error" class="error hidden"></p>
+            </form>
+        </div>
+    </div>
+
+    <div id="app-screen" class="screen hidden">
+        <header class="header">
+            <div class="header-left">
+                <div class="logo-small">GL</div>
+                <div>
+                    <h2>Green Logistics Attendance</h2>
+                    <span id="current-date"></span>
+                </div>
+            </div>
+            <div class="header-right">
+                <nav class="main-nav" id="main-nav">
+                    <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+                    <button class="nav-btn" data-view="reports" id="nav-reports">Reports</button>
+                    <button class="nav-btn hidden" data-view="admin" id="nav-admin">Administration</button>
+                </nav>
+                <span id="logged-user"></span>
+                <button id="logout-btn" class="btn-secondary">Logout</button>
+            </div>
+        </header>
+
+        <div id="dashboard-view">
+        <section class="stats-panel" id="stats-panel"></section>
+
+        <div class="main-layout">
+            <main class="content">
+                <div class="toolbar">
+                    <input type="search" id="search-input" placeholder="Search employee...">
+                    <select id="status-filter">
+                        <option value="">All statuses</option>
+                        <option value="INSIDE_OFFICE">Inside Office</option>
+                        <option value="OUTSIDE_OFFICE">Outside Office</option>
+                        <option value="SCHEDULED">Not Arrived</option>
+                        <option value="COMPLETED">Left</option>
+                        <option value="EXCEPTION">Exception</option>
+                    </select>
+                    <button id="refresh-btn" class="btn-secondary">Refresh</button>
+                </div>
+                <div class="table-wrap">
+                    <table id="employees-table">
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Department</th>
+                                <th>Shift</th>
+                                <th>First Entry</th>
+                                <th>Status</th>
+                                <th>In Office Now</th>
+                                <th>Outside Now</th>
+                                <th>Total Outside</th>
+                                <th>Late</th>
+                                <th>Exits</th>
+                                <th>Last Activity</th>
+                            </tr>
+                        </thead>
+                        <tbody id="employees-body"></tbody>
+                    </table>
+                </div>
+            </main>
+
+            <aside class="sidebar">
+                <section class="panel">
+                    <h3>Notifications</h3>
+                    <ul id="notifications-list"></ul>
+                </section>
+                <section class="panel">
+                    <h3>System Status</h3>
+                    <div id="system-status"></div>
+                </section>
+                <section class="panel">
+                    <h3>Recent Webhooks</h3>
+                    <p id="webhook-last-received" class="webhook-hint"></p>
+                    <ul id="webhooks-list"></ul>
+                </section>
+            </aside>
+        </div>
+        </div>
+
+        <div id="reports-view" class="hidden">
+            <section class="admin-panel reports-panel">
+                <h3>Отчёт по посещаемости / Attendance Report</h3>
+                <form id="report-range-form" class="report-range-form">
+                    <div class="report-range-row">
+                        <div>
+                            <label>С даты / From</label>
+                            <input type="date" id="report-from" required>
+                        </div>
+                        <div>
+                            <label>По дату / To</label>
+                            <input type="date" id="report-to" required>
+                        </div>
+                        <div class="report-presets">
+                            <label>Быстрый выбор</label>
+                            <div class="preset-btns">
+                                <button type="button" class="btn-secondary btn-sm" data-preset="today">Сегодня</button>
+                                <button type="button" class="btn-secondary btn-sm" data-preset="week">7 дней</button>
+                                <button type="button" class="btn-secondary btn-sm" data-preset="month">Месяц</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="report-actions">
+                        <button type="submit" class="btn-primary btn-sm">Показать онлайн</button>
+                        <button type="button" id="report-pdf-btn" class="btn-secondary btn-sm">Скачать PDF</button>
+                        <label class="checkbox-label report-live-label">
+                            <input type="checkbox" id="report-live" checked>
+                            Автообновление (онлайн)
+                        </label>
+                    </div>
+                </form>
+                <p id="report-status" class="sync-status"></p>
+            </section>
+
+            <section class="stats-panel" id="report-stats-panel"></section>
+
+            <div class="table-wrap">
+                <table id="report-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Employee</th>
+                            <th>Department</th>
+                            <th>Shift</th>
+                            <th>First Entry</th>
+                            <th>Last Exit</th>
+                            <th>In Office</th>
+                            <th>Outside</th>
+                            <th>Late</th>
+                            <th>Status</th>
+                            <th>Exits</th>
+                        </tr>
+                    </thead>
+                    <tbody id="report-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="admin-view" class="hidden">
+            <div class="admin-layout">
+                <section class="admin-panel fresh-start-panel">
+                    <h3>Начать с нуля — 5 шагов</h3>
+                    <ol class="setup-steps fresh-steps">
+                        <li><strong>Удалите</strong> старого сотрудника — кнопка <em>Delete</em> (красная) в таблице справа.</li>
+                        <li><strong>RESTART.bat</strong> — перезапустите сервер. Окно терминала не закрывайте.</li>
+                        <li><strong>Test Webhook (local)</strong> — в блоке выше. Если Dashboard меняется — программа работает.</li>
+                        <li><strong>Зарегистрируйте сотрудника</strong> — «Быстрая регистрация»: кнопка «Сгенерировать временный UID», имя, фамилия, смена. Карта привяжется позже через Edit.</li>
+                        <li><strong>Legacy Reader</strong> — без webhook от считывателя реальные проходы не попадут в Dashboard (дверь открывается отдельно).</li>
+                    </ol>
+                    <p class="panel-hint">Логин: <code>admin</code> / <code>Admin123!@Green</code></p>
+                </section>
+
+                <section class="admin-panel card-register-panel">
+                    <h3>Регистрация сотрудников / Employee Registration</h3>
+
+                    <div class="offline-register-box">
+                        <h4>Режим без считывателя (сейчас у вас так)</h4>
+                        <p class="panel-hint">
+                            Программа на вашем компьютере <strong>не связана</strong> со считывателями в офисе, пока
+                            поставщик не настроит webhook. Карты без наклейки с UID — это нормально: номер хранится
+                            только в чипе карты. Пока связи нет, используйте один из способов ниже.
+                        </p>
+                        <ol class="setup-steps offline-steps">
+                            <li><strong>Способ A (быстро):</strong> нажмите «Сгенерировать временный UID», введите имя и фамилию, выберите смену → «Сохранить». После привязки карты замените UID в Edit.</li>
+                            <li><strong>Способ B (если знаете UID):</strong> прочитайте UID через приложение NFC Tools (Android) или панель Legacy Reader → вставьте в поле Card UID.</li>
+                            <li><strong>Способ C (когда webhook заработает):</strong> сотрудник приложит карту к двери → UID появится в списке «Недавние сканы» или после «Scan Card Now».</li>
+                            <li>После регистрации нажмите <strong>Test Entry</strong> в таблице — так проверяется посещаемость без двери.</li>
+                        </ol>
+                    </div>
+
+                    <div class="manual-card-row">
+                        <form id="quick-register-form" class="quick-register-form">
+                            <h4>Быстрая регистрация</h4>
+                            <div class="form-grid">
+                                <div class="card-uid-field">
+                                    <label>Card UID *</label>
+                                    <div class="card-uid-row">
+                                        <input id="quick-card" required placeholder="любой уникальный код, напр. gl002 или a1b2c3d4">
+                                        <button type="button" id="generate-temp-uid-btn" class="btn-secondary btn-sm">Сгенерировать временный UID</button>
+                                    </div>
+                                    <p class="field-hint">Можно любой уникальный код — не обязательно hex с карты</p>
+                                </div>
+                                <div><label>First Name *</label><input id="quick-first" required></div>
+                                <div><label>Last Name *</label><input id="quick-last" required></div>
+                                <div><label>Shift *</label><select id="quick-shift" required></select></div>
+                            </div>
+                            <p class="panel-hint">Номер сотрудника (GL-00X) назначается автоматически.</p>
+                            <button type="submit" class="btn-primary btn-sm">Сохранить сотрудника</button>
+                            <p id="quick-register-status" class="sync-status"></p>
+                        </form>
+                    </div>
+
+                    <details class="scan-tools-details">
+                        <summary>Скан через считыватель (когда webhook настроен)</summary>
+                        <p class="panel-hint warn-hint">
+                            Кнопка «Scan Card Now» работает только если считыватель отправляет данные на
+                            <code id="admin-webhook-url">—</code>
+                        </p>
+                        <div class="card-scan-box" id="card-scan-box">
+                            <div class="scan-icon">📡</div>
+                            <p id="card-scan-status">Нажмите кнопку и приложите карту к считывателю</p>
+                            <button type="button" id="start-card-scan-btn" class="btn-primary btn-sm">Scan Card Now</button>
+                        </div>
+                        <ul id="pending-scans-list" class="pending-scans"></ul>
+                        <form id="manual-uid-form" class="manual-uid-form">
+                            <h4>Записать UID вручную (NFC / панель Legacy)</h4>
+                            <div class="copy-row">
+                                <input id="manual-uid-input" placeholder="UID с NFC Tools или панели считывателя">
+                                <button type="submit" class="btn-secondary btn-sm">Записать UID</button>
+                            </div>
+                            <p id="manual-uid-status" class="sync-status"></p>
+                        </form>
+                    </details>
+                </section>
+
+                <section class="admin-panel">
+                    <div class="admin-header">
+                        <h3>Employees</h3>
+                        <div class="admin-actions">
+                            <button id="add-employee-btn" class="btn-primary btn-sm">+ Add Employee</button>
+                            <button id="sync-all-btn" class="btn-secondary btn-sm">Sync All Cards</button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table id="admin-employees-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Number</th>
+                                    <th>Card</th>
+                                    <th>Shift</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-employees-body"></tbody>
+                        </table>
+                    </div>
+                    <p id="admin-sync-status" class="sync-status"></p>
+                </section>
+
+                <section class="admin-panel setup-panel">
+                    <h3>⚠ Подключение считывателей — обязательно</h3>
+                    <p class="panel-hint warn-hint">
+                        Дверь открывается — это работает <strong>считыватель</strong>. Наша программа получает данные
+                        только если сервер Legacy Reader <strong>отправляет webhook</strong> на этот компьютер.
+                        Без этой настройки Dashboard не изменится.
+                    </p>
+                    <div class="setup-box">
+                        <label>1. Webhook URL (передайте администратору Legacy Reader):</label>
+                        <div class="copy-row">
+                            <code id="setup-webhook-url">загрузка…</code>
+                            <button type="button" id="copy-webhook-btn" class="btn-secondary btn-sm">Copy</button>
+                        </div>
+                        <label>2. Bearer-токен (WEBHOOK_SECRET из файла .env):</label>
+                        <code id="setup-webhook-token">change-this-webhook-bearer-token</code>
+                        <p class="panel-hint" id="setup-network-ips"></p>
+                        <label>3. Проверка — откройте на телефоне в той же Wi‑Fi сети:</label>
+                        <code id="setup-health-url">—</code>
+                        <div class="form-actions" style="margin-top:0.75rem">
+                            <button type="button" id="test-webhook-local-btn" class="btn-primary btn-sm">Test Webhook (local)</button>
+                            <button type="button" id="refresh-network-btn" class="btn-secondary btn-sm">Refresh IP</button>
+                        </div>
+                        <p id="setup-status" class="sync-status"></p>
+                    </div>
+                    <ol class="setup-steps">
+                        <li>Запустите <strong>OPEN-FIREWALL.bat</strong> от имени администратора (разрешить порт 3847).</li>
+                        <li>Скопируйте Webhook URL и токен → передайте тому, кто настраивает Legacy Reader.</li>
+                        <li>В панели Legacy Reader укажите этот URL и токен (Partner Integration).</li>
+                        <li>После каждого скана в Dashboard → Recent Webhooks должна появляться строка SUCCESS.</li>
+                    </ol>
+                </section>
+
+                <section class="admin-panel">
+                    <h3>Device Integration (Legacy Reader)</h3>
+                    <form id="settings-form" class="settings-form">
+                        <label>Legacy API URL</label>
+                        <input type="url" id="legacy-api-url" placeholder="https://reader.example.com">
+                        <label>Ingest Token</label>
+                        <input type="password" id="legacy-ingest-token" placeholder="Bearer token from partner">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="legacy-auto-sync">
+                            Auto-sync cards when employee is created/updated
+                        </label>
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary btn-sm">Save Settings</button>
+                            <button type="button" id="test-legacy-btn" class="btn-secondary btn-sm">Test Connection</button>
+                        </div>
+                        <p id="settings-status" class="sync-status"></p>
+                    </form>
+                    <div class="info-box">
+                        <strong>Webhook URL</strong> (for device to send events to us):<br>
+                        <code id="webhook-url-display">http://localhost:3847/api/v1/webhook/attendance</code>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div id="employee-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Add Employee</h3>
+                <button id="close-modal" class="btn-icon">&times;</button>
+            </div>
+            <form id="employee-form">
+                <input type="hidden" id="emp-id">
+                <div class="form-grid">
+                    <div><label>Employee Number *</label><input id="emp-number" required></div>
+                    <div><label>First Name *</label><input id="emp-first" required></div>
+                    <div><label>Last Name *</label><input id="emp-last" required></div>
+                    <div><label>Department</label><input id="emp-dept"></div>
+                    <div><label>Position</label><input id="emp-position"></div>
+                    <div><label>Card Number (UID) *</label><input id="emp-card" required placeholder="уникальный UID карты"></div>
+                    <div><label>External Ref</label><input id="emp-extref" placeholder="ORD-10045"></div>
+                    <div><label>Shift *</label><select id="emp-shift" required></select></div>
+                    <div><label>Card Type</label>
+                        <select id="emp-cardtype">
+                            <option value="2">Normal (2)</option>
+                            <option value="1">Master (1)</option>
+                        </select>
+                    </div>
+                    <div><label>Status</label>
+                        <select id="emp-status">
+                            <option value="ACTIVE">Active</option>
+                            <option value="INACTIVE">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="emp-sync">
+                    Sync card to access device after save (needs Legacy API configured)
+                </label>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Save</button>
+                    <button type="button" id="cancel-modal" class="btn-secondary">Cancel</button>
+                </div>
+                <p id="modal-status" class="sync-status"></p>
+            </form>
+        </div>
+    </div>
+
+    <div id="employee-drawer" class="drawer hidden">
+        <div class="drawer-header">
+            <h3 id="drawer-title">Employee</h3>
+            <button id="close-drawer" class="btn-icon">&times;</button>
+        </div>
+        <div id="drawer-content" class="drawer-content"></div>
+    </div>
+
+    <script src="app.js?v=13"></script>
+</body>
+</html>

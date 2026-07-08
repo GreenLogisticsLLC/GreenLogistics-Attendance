@@ -1,0 +1,46 @@
+name: Deploy to live site
+
+# Deployment is handled on the server by cPanel Git Version Control + Cron:
+#   /bin/bash /home/ijh19zqesepn/repositories/GreenLogistics-Attendance/tools/cpanel-cron-deploy.sh
+# The cron runs `git reset --hard origin/main`, builds the app, and restarts Node.js.
+# This workflow only verifies the live site picked up the pushed commit.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show pushed commit
+        run: |
+          echo "Pushed commit: ${{ github.sha }}"
+          echo "cPanel cron will sync origin/main and deploy within its schedule."
+          echo "Manual run: /bin/bash /home/ijh19zqesepn/repositories/GreenLogistics-Attendance/tools/cpanel-cron-deploy.sh"
+
+      - name: Verify live site picked up the commit (via cPanel cron)
+        continue-on-error: true
+        env:
+          DEPLOY_URL: ${{ vars.ATTENDANCE_DEPLOY_URL || 'https://attendance.greengrouplogistics.com' }}
+        run: |
+          short="$(echo "${{ github.sha }}" | cut -c1-7)"
+          echo "Looking for commit $short on $DEPLOY_URL (waiting for cron)..."
+          found=""
+          for i in $(seq 1 10); do
+            sleep 30
+            health="$(curl -fsSL "$DEPLOY_URL/api/health?cachebust=$(date +%s)" || true)"
+            version="$(curl -fsSL "$DEPLOY_URL/deploy-version.txt?cachebust=$(date +%s)" || true)"
+            if echo "$health" | grep -q "$short" || echo "$version" | grep -q "$short"; then
+              found="yes"
+              echo "Live site is on commit $short."
+              break
+            fi
+            echo "Attempt $i/10: not deployed yet."
+          done
+          if [ -z "$found" ]; then
+            echo "::notice::Live site has not synced commit $short yet."
+            echo "::notice::Check cPanel: Git repo at /home/ijh19zqesepn/repositories/GreenLogistics-Attendance and cron is enabled."
+          fi

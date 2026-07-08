@@ -1,0 +1,6303 @@
+# Green Logistics Attendance
+
+# DATABASE_SCHEMA
+
+Version: 1.0
+
+Status: Approved
+
+---
+
+# Purpose
+
+This document defines the complete PostgreSQL database schema for the Green Logistics Attendance Management System.
+
+It specifies all tables, columns, data types, relationships, constraints, indexes and database rules.
+
+This document is the authoritative source for database implementation.
+
+---
+
+# Database Engine
+
+PostgreSQL 16+
+
+Encoding
+
+UTF-8
+
+Timezone
+
+Company Local Time
+
+Primary Keys
+
+UUID Version 4
+
+Naming Convention
+
+snake_case
+
+Plural Table Names
+
+Yes
+
+Soft Delete
+
+No
+
+Audit Logging
+
+Required
+
+---
+
+# Database Overview
+
+The database contains the following tables.
+
+employees
+
+shifts
+
+attendance_sessions
+
+attendance_events
+
+absence_intervals
+
+users
+
+roles
+
+user_roles
+
+settings
+
+notifications
+
+audit_logs
+
+webhook_logs
+
+---
+
+# Entity Relationship
+
+employees
+
+↓
+
+attendance_sessions
+
+↓
+
+attendance_events
+
+↓
+
+absence_intervals
+
+employees
+
+↓
+
+notifications
+
+users
+
+↓
+
+audit_logs
+
+roles
+
+↓
+
+users
+
+shifts
+
+↓
+
+employees
+
+---
+
+# TABLE
+
+employees
+
+Purpose
+
+Stores employee master information.
+
+Columns
+
+employee_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+employee_number
+
+VARCHAR(50)
+
+NOT NULL
+
+UNIQUE
+
+---
+
+first_name
+
+VARCHAR(100)
+
+NOT NULL
+
+---
+
+last_name
+
+VARCHAR(100)
+
+NOT NULL
+
+---
+
+department
+
+VARCHAR(100)
+
+NULL
+
+---
+
+position
+
+VARCHAR(100)
+
+NULL
+
+---
+
+card_number
+
+VARCHAR(100)
+
+UNIQUE
+
+NOT NULL
+
+---
+
+shift_id
+
+UUID
+
+NOT NULL
+
+REFERENCES shifts(shift_id)
+
+---
+
+status
+
+VARCHAR(20)
+
+NOT NULL
+
+DEFAULT 'ACTIVE'
+
+Allowed Values
+
+ACTIVE
+
+INACTIVE
+
+---
+
+created_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+updated_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+Indexes
+
+employee_number
+
+card_number
+
+shift_id
+
+status
+
+---
+
+Constraints
+
+employee_number UNIQUE
+
+card_number UNIQUE
+
+status CHECK
+
+---
+
+Relationships
+
+One Employee
+
+↓
+
+Many Attendance Sessions
+
+One Employee
+
+↓
+
+Many Notifications
+---
+
+# TABLE
+
+shifts
+
+Purpose
+
+Stores employee work schedules.
+
+Columns
+
+shift_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+shift_name
+
+VARCHAR(100)
+
+NOT NULL
+
+UNIQUE
+
+---
+
+start_time
+
+TIME
+
+NOT NULL
+
+---
+
+end_time
+
+TIME
+
+NOT NULL
+
+---
+
+grace_period_minutes
+
+INTEGER
+
+NOT NULL
+
+DEFAULT 15
+
+CHECK (grace_period_minutes >= 0)
+
+---
+
+cross_midnight
+
+BOOLEAN
+
+NOT NULL
+
+DEFAULT FALSE
+
+---
+
+is_active
+
+BOOLEAN
+
+NOT NULL
+
+DEFAULT TRUE
+
+---
+
+created_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+updated_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+Indexes
+
+shift_name
+
+is_active
+
+---
+
+Relationships
+
+One Shift
+
+↓
+
+Many Employees
+
+---
+
+Default Records
+
+Day Shift
+
+Start
+
+17:00
+
+End
+
+01:00
+
+Grace Period
+
+15
+
+Cross Midnight
+
+TRUE
+
+---
+
+Night Shift
+
+Start
+
+00:00
+
+End
+
+05:00
+
+Grace Period
+
+15
+
+Cross Midnight
+
+FALSE
+
+---
+
+# TABLE
+
+attendance_sessions
+
+Purpose
+
+Stores one working session for one employee.
+
+One Attendance Session represents one scheduled work shift.
+
+---
+
+Columns
+
+session_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+employee_id
+
+UUID
+
+NOT NULL
+
+REFERENCES employees(employee_id)
+
+ON DELETE RESTRICT
+
+---
+
+shift_id
+
+UUID
+
+NOT NULL
+
+REFERENCES shifts(shift_id)
+
+ON DELETE RESTRICT
+
+---
+
+work_date
+
+DATE
+
+NOT NULL
+
+---
+
+scheduled_start
+
+TIMESTAMP
+
+NOT NULL
+
+---
+
+scheduled_end
+
+TIMESTAMP
+
+NOT NULL
+
+---
+
+first_entry
+
+TIMESTAMP
+
+NULL
+
+---
+
+last_exit
+
+TIMESTAMP
+
+NULL
+
+---
+
+current_status
+
+VARCHAR(30)
+
+NOT NULL
+
+DEFAULT 'SCHEDULED'
+
+Allowed Values
+
+SCHEDULED
+
+INSIDE_OFFICE
+
+OUTSIDE_OFFICE
+
+COMPLETED
+
+EXCEPTION
+
+---
+
+late
+
+BOOLEAN
+
+NOT NULL
+
+DEFAULT FALSE
+
+---
+
+late_minutes
+
+INTEGER
+
+NOT NULL
+
+DEFAULT 0
+
+CHECK (late_minutes >= 0)
+
+---
+
+total_absence_minutes
+
+INTEGER
+
+NOT NULL
+
+DEFAULT 0
+
+CHECK (total_absence_minutes >= 0)
+
+---
+
+exit_count
+
+INTEGER
+
+NOT NULL
+
+DEFAULT 0
+
+CHECK (exit_count >= 0)
+
+---
+
+last_activity
+
+TIMESTAMP
+
+NULL
+
+---
+
+created_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+updated_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+Indexes
+
+employee_id
+
+shift_id
+
+work_date
+
+current_status
+
+late
+
+---
+
+Unique Constraint
+
+employee_id
+
+work_date
+
+---
+
+Relationships
+
+One Attendance Session
+
+↓
+
+Many Attendance Events
+
+---
+
+One Attendance Session
+
+↓
+
+Many Absence Intervals
+
+---
+
+Business Rules
+Every Attendance Session belongs to exactly one Employee.
+
+Every Attendance Session belongs to exactly one Shift.
+
+Only one Attendance Session may exist for one Employee for one Work Date.
+
+Attendance Sessions are never deleted.
+
+Attendance Sessions are never overwritten.
+
+Completed Attendance Sessions are read-only.
+
+---
+
+# TABLE
+
+attendance_events
+
+Purpose
+
+Stores every attendance event received from the Access Control System.
+
+Each card scan creates exactly one Attendance Event.
+
+Attendance Events are immutable.
+
+---
+
+Columns
+
+event_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+session_id
+
+UUID
+
+NOT NULL
+
+REFERENCES attendance_sessions(session_id)
+
+ON DELETE RESTRICT
+
+---
+
+employee_id
+
+UUID
+
+NOT NULL
+
+REFERENCES employees(employee_id)
+
+ON DELETE RESTRICT
+
+---
+
+event_time
+
+TIMESTAMP
+
+NOT NULL
+
+---
+
+direction
+
+VARCHAR(10)
+
+NOT NULL
+
+Allowed Values
+
+ENTRY
+
+EXIT
+
+---
+
+event_type
+
+VARCHAR(30)
+
+NOT NULL
+
+DEFAULT 'NORMAL'
+
+Allowed Values
+
+NORMAL
+
+DUPLICATE_ENTRY
+
+DUPLICATE_EXIT
+
+UNKNOWN
+
+MANUAL_CORRECTION
+
+SYSTEM_CORRECTION
+
+---
+
+device_id
+
+VARCHAR(100)
+
+NOT NULL
+
+---
+
+webhook_id
+
+VARCHAR(255)
+
+NOT NULL
+
+UNIQUE
+
+---
+
+source
+
+VARCHAR(100)
+
+NOT NULL
+
+DEFAULT 'ACCESS_CONTROL'
+
+---
+
+created_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+Indexes
+
+session_id
+
+employee_id
+
+event_time
+
+direction
+
+webhook_id
+
+event_type
+
+---
+
+Relationships
+
+Many Attendance Events
+
+↓
+
+One Attendance Session
+
+---
+
+Many Attendance Events
+
+↓
+
+One Employee
+
+---
+
+Business Rules
+
+Attendance Events are immutable.
+
+Attendance Events are never deleted.
+
+Attendance Events cannot be updated.
+
+Duplicate webhook requests shall never create duplicate Attendance Events.
+
+Every Attendance Event shall belong to one Attendance Session.
+
+Events are stored in chronological order.
+
+---
+
+# TABLE
+
+absence_intervals
+
+Purpose
+
+Stores every period during which an employee is outside the office.
+
+An Absence Interval starts with an EXIT event.
+
+An Absence Interval ends with the next ENTRY event.
+
+---
+
+Columns
+
+interval_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+session_id
+
+UUID
+
+NOT NULL
+
+REFERENCES attendance_sessions(session_id)
+
+ON DELETE RESTRICT
+
+---
+
+exit_event_id
+
+UUID
+
+NOT NULL
+
+REFERENCES attendance_events(event_id)
+
+ON DELETE RESTRICT
+
+---
+
+return_event_id
+
+UUID
+
+NULL
+
+REFERENCES attendance_events(event_id)
+
+ON DELETE RESTRICT
+
+---
+
+start_time
+
+TIMESTAMP
+
+NOT NULL
+
+---
+
+end_time
+
+TIMESTAMP
+
+NULL
+
+---
+
+duration_minutes
+
+INTEGER
+
+NULL
+
+CHECK (duration_minutes >= 0)
+
+---
+
+created_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+updated_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+Indexes
+
+session_id
+
+start_time
+
+end_time
+
+---
+
+Relationships
+
+Many Absence Intervals
+
+↓
+
+One Attendance Session
+
+---
+
+Business Rules
+
+Every EXIT creates one Absence Interval.
+
+Every ENTRY closes the current open Absence Interval.
+
+Only one open Absence Interval may exist per Attendance Session.
+
+Duration is calculated automatically.
+
+Completed Absence Intervals are immutable.
+
+Absence Intervals are never deleted.
+
+```
+---
+
+# TABLE
+
+users
+
+Purpose
+
+Stores application user accounts.
+
+Users are authorized to access the Attendance Management System.
+
+Employees and Users are independent entities.
+
+One employee may or may not have a user account.
+
+---
+
+Columns
+
+user_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+username
+
+VARCHAR(100)
+
+NOT NULL
+
+UNIQUE
+
+---
+
+password_hash
+
+VARCHAR(255)
+
+NOT NULL
+
+---
+
+first_name
+
+VARCHAR(100)
+
+NOT NULL
+
+---
+
+last_name
+
+VARCHAR(100)
+
+NOT NULL
+
+---
+
+email
+
+VARCHAR(255)
+
+NULL
+
+UNIQUE
+
+---
+
+role_id
+
+UUID
+
+NOT NULL
+
+REFERENCES roles(role_id)
+
+ON DELETE RESTRICT
+
+---
+
+is_active
+
+BOOLEAN
+
+NOT NULL
+
+DEFAULT TRUE
+
+---
+
+last_login
+
+TIMESTAMP
+
+NULL
+
+---
+
+created_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+updated_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+Indexes
+
+username
+
+email
+
+role_id
+
+is_active
+
+---
+
+Business Rules
+
+Usernames must be unique.
+
+Passwords are stored only as hashes.
+
+Inactive users cannot authenticate.
+
+Users are never physically deleted.
+
+---
+
+# TABLE
+
+roles
+
+Purpose
+
+Stores application roles.
+
+---
+
+Columns
+
+role_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+role_name
+
+VARCHAR(100)
+
+NOT NULL
+
+UNIQUE
+
+---
+
+description
+
+TEXT
+
+NULL
+
+---
+
+created_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+Indexes
+
+role_name
+
+---
+
+Default Records
+
+Administrator
+
+Manager
+
+Viewer
+
+---
+
+Business Rules
+
+Roles define application permissions.
+
+Role names must be unique.
+
+---
+
+# TABLE
+
+settings
+
+Purpose
+
+Stores configurable system settings.
+
+---
+
+Columns
+
+setting_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+category
+
+VARCHAR(100)
+
+NOT NULL
+
+---
+
+setting_key
+
+VARCHAR(100)
+
+NOT NULL
+
+---
+
+setting_value
+
+TEXT
+
+NOT NULL
+
+---
+
+description
+
+TEXT
+
+NULL
+
+---
+
+updated_by
+
+UUID
+
+REFERENCES users(user_id)
+
+---
+
+updated_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+Indexes
+
+category
+
+setting_key
+
+---
+
+Unique Constraint
+
+category
+
+setting_key
+
+---
+
+Business Rules
+
+Configuration changes are logged in Audit Logs.
+
+Configuration changes take effect immediately unless otherwise specified.
+
+Settings are never hardcoded when configuration exists.
+
+---
+
+# TABLE
+
+notifications
+
+Purpose
+
+Stores application notifications.
+
+---
+
+Columns
+
+notification_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+employee_id
+
+UUID
+
+NULL
+
+REFERENCES employees(employee_id)
+
+ON DELETE RESTRICT
+
+---
+
+notification_type
+
+VARCHAR(50)
+
+NOT NULL
+
+Allowed Values
+
+LATE
+
+UNKNOWN_EMPLOYEE
+
+DUPLICATE_EVENT
+
+WEBHOOK_FAILURE
+
+SYSTEM_ERROR
+
+---
+
+priority
+
+VARCHAR(20)
+
+NOT NULL
+
+Allowed Values
+
+LOW
+
+MEDIUM
+
+HIGH
+
+CRITICAL
+
+---
+
+status
+
+VARCHAR(20)
+
+NOT NULL
+
+DEFAULT 'UNREAD'
+
+Allowed Values
+
+UNREAD
+
+READ
+
+ARCHIVED
+
+---
+
+message
+
+TEXT
+
+NOT NULL
+
+---
+
+created_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+Indexes
+
+employee_id
+
+notification_type
+
+priority
+
+status
+
+created_at
+
+---
+
+Business Rules
+
+Notifications are generated automatically.
+
+Archived notifications remain in the database.
+
+Notifications are never physically deleted.
+
+```
+---
+
+# TABLE
+
+audit_logs
+
+Purpose
+
+Stores every administrative action performed within the system.
+
+Audit Logs provide a permanent history of all configuration and management changes.
+
+Audit Logs are immutable.
+
+---
+
+Columns
+
+audit_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+user_id
+
+UUID
+
+NOT NULL
+
+REFERENCES users(user_id)
+
+ON DELETE RESTRICT
+
+---
+
+module
+
+VARCHAR(100)
+
+NOT NULL
+
+---
+
+action
+
+VARCHAR(100)
+
+NOT NULL
+
+---
+
+entity_name
+
+VARCHAR(100)
+
+NOT NULL
+
+---
+
+entity_id
+
+UUID
+
+NULL
+
+---
+
+old_value
+
+JSONB
+
+NULL
+
+---
+
+new_value
+
+JSONB
+
+NULL
+
+---
+
+ip_address
+
+INET
+
+NULL
+
+---
+
+user_agent
+
+TEXT
+
+NULL
+
+---
+
+created_at
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+Indexes
+
+user_id
+
+module
+
+action
+
+entity_name
+
+created_at
+
+---
+
+Business Rules
+
+Audit Logs are never modified.
+
+Audit Logs are never deleted.
+
+Every administrative action creates one Audit Log.
+
+System-generated actions are also recorded.
+
+---
+
+# TABLE
+
+webhook_logs
+
+Purpose
+
+Stores every webhook request received from the Access Control System.
+
+This table is used for diagnostics, troubleshooting, and duplicate request detection.
+
+---
+
+Columns
+
+log_id
+
+UUID
+
+PRIMARY KEY
+
+NOT NULL
+
+DEFAULT gen_random_uuid()
+
+---
+
+webhook_id
+
+VARCHAR(255)
+
+NOT NULL
+
+---
+
+request_time
+
+TIMESTAMP
+
+NOT NULL
+
+DEFAULT NOW()
+
+---
+
+employee_identifier
+
+VARCHAR(100)
+
+NULL
+
+---
+
+request_payload
+
+JSONB
+
+NOT NULL
+
+---
+
+response_code
+
+INTEGER
+
+NOT NULL
+
+---
+
+processing_status
+
+VARCHAR(30)
+
+NOT NULL
+
+Allowed Values
+
+SUCCESS
+
+FAILED
+
+DUPLICATE
+
+VALIDATION_ERROR
+
+---
+
+processing_time_ms
+
+INTEGER
+
+NOT NULL
+
+DEFAULT 0
+
+---
+
+error_message
+
+TEXT
+
+NULL
+
+---
+
+Indexes
+
+webhook_id
+
+request_time
+
+processing_status
+
+employee_identifier
+
+---
+
+Business Rules
+
+Every webhook request is stored.
+
+Duplicate webhook requests are stored.
+
+Failed webhook requests are stored.
+
+Webhook Logs are never deleted automatically.
+
+---
+
+# Foreign Key Relationships
+
+employees.shift_id
+
+↓
+
+shifts.shift_id
+
+---
+
+attendance_sessions.employee_id
+
+↓
+
+employees.employee_id
+
+---
+
+attendance_sessions.shift_id
+
+↓
+
+shifts.shift_id
+
+---
+
+attendance_events.session_id
+
+↓
+
+attendance_sessions.session_id
+
+---
+
+attendance_events.employee_id
+
+↓
+
+employees.employee_id
+
+---
+
+absence_intervals.session_id
+
+↓
+
+attendance_sessions.session_id
+
+---
+
+absence_intervals.exit_event_id
+
+↓
+
+attendance_events.event_id
+
+---
+
+absence_intervals.return_event_id
+
+↓
+
+attendance_events.event_id
+
+---
+
+users.role_id
+
+↓
+
+roles.role_id
+
+---
+
+settings.updated_by
+
+↓
+
+users.user_id
+
+---
+
+notifications.employee_id
+
+↓
+
+employees.employee_id
+
+---
+
+audit_logs.user_id
+
+↓
+
+users.user_id
+
+---
+
+# Referential Integrity Rules
+
+Foreign Key deletion behavior
+
+Employees
+
+RESTRICT
+
+Shifts
+
+RESTRICT
+
+Attendance Sessions
+
+RESTRICT
+
+Attendance Events
+
+RESTRICT
+
+Absence Intervals
+
+RESTRICT
+
+Users
+
+RESTRICT
+
+Roles
+
+RESTRICT
+
+---
+
+No parent record may be deleted while dependent records exist.
+
+Attendance history must remain permanently consistent.
+
+---
+
+# Database Naming Convention
+
+Tables
+
+Plural
+
+snake_case
+
+Examples
+
+employees
+
+attendance_sessions
+
+attendance_events
+
+absence_intervals
+
+---
+
+Columns
+
+snake_case
+
+Examples
+
+employee_id
+
+first_name
+
+last_exit
+
+late_minutes
+
+created_at
+
+updated_at
+
+---
+
+Primary Keys
+
+table_name_id
+
+Examples
+
+employee_id
+
+session_id
+
+event_id
+
+notification_id
+
+---
+
+Timestamp Fields
+
+created_at
+
+updated_at
+
+event_time
+
+request_time
+
+start_time
+
+end_time
+
+---
+
+End of DATABASE_SCHEMA.md Version 1.0
+# Database Index Strategy
+
+## Purpose
+
+This section defines the indexing strategy for the PostgreSQL database.
+
+Indexes are required to ensure high performance for Dashboard updates, attendance processing, employee searches, and report generation.
+
+---
+
+# employees
+
+Primary Key
+
+employee_id
+
+Unique Index
+
+employee_number
+
+Unique Index
+
+card_number
+
+Index
+
+shift_id
+
+Index
+
+status
+
+Composite Index
+
+status, shift_id
+
+---
+
+# shifts
+
+Primary Key
+
+shift_id
+
+Unique Index
+
+shift_name
+
+Index
+
+is_active
+
+---
+
+# attendance_sessions
+
+Primary Key
+
+session_id
+
+Index
+
+employee_id
+
+Index
+
+shift_id
+
+Index
+
+work_date
+
+Index
+
+current_status
+
+Index
+
+late
+
+Composite Index
+
+employee_id, work_date
+
+Composite Index
+
+work_date, current_status
+
+Composite Index
+
+employee_id, current_status
+
+---
+
+# attendance_events
+
+Primary Key
+
+event_id
+
+Unique Index
+
+webhook_id
+
+Index
+
+session_id
+
+Index
+
+employee_id
+
+Index
+
+event_time
+
+Index
+
+direction
+
+Index
+
+event_type
+
+Composite Index
+
+employee_id, event_time
+
+Composite Index
+
+session_id, event_time
+
+Composite Index
+
+direction, event_time
+
+---
+
+# absence_intervals
+
+Primary Key
+
+interval_id
+
+Index
+
+session_id
+
+Index
+
+start_time
+
+Index
+
+end_time
+
+Composite Index
+
+session_id, start_time
+
+---
+
+# users
+
+Primary Key
+
+user_id
+
+Unique Index
+
+username
+
+Unique Index
+
+email
+
+Index
+
+role_id
+
+Index
+
+is_active
+
+---
+
+# roles
+
+Primary Key
+
+role_id
+
+Unique Index
+
+role_name
+
+---
+
+# settings
+
+Primary Key
+
+setting_id
+
+Unique Index
+
+category, setting_key
+
+---
+
+# notifications
+
+Primary Key
+
+notification_id
+
+Index
+
+employee_id
+
+Index
+
+status
+
+Index
+
+priority
+
+Index
+
+created_at
+
+Composite Index
+
+status, priority
+
+---
+
+# audit_logs
+
+Primary Key
+
+audit_id
+
+Index
+
+user_id
+
+Index
+
+module
+
+Index
+
+action
+
+Index
+
+created_at
+
+Composite Index
+
+module, created_at
+
+Composite Index
+
+user_id, created_at
+
+---
+
+# webhook_logs
+
+Primary Key
+
+log_id
+
+Index
+
+webhook_id
+
+Index
+
+request_time
+
+Index
+
+processing_status
+
+Composite Index
+
+processing_status, request_time
+
+---
+
+# Database Constraints
+
+Every Primary Key uses UUID Version 4.
+
+Every Foreign Key uses ON DELETE RESTRICT.
+
+Attendance history is immutable.
+
+Attendance Events cannot be updated.
+
+Attendance Sessions cannot be deleted.
+
+Audit Logs cannot be deleted.
+
+Webhook Logs cannot be deleted.
+
+Notifications cannot be physically deleted.
+
+---
+
+# Database Performance Rules
+
+Dashboard queries shall use indexed columns only.
+
+Attendance processing shall use indexed lookups.
+
+Employee lookup shall use card_number.
+
+Attendance Session lookup shall use employee_id + work_date.
+
+Webhook duplicate detection shall use webhook_id.
+
+Reports shall use work_date indexes.
+
+No table scan is allowed during normal attendance processing.
+
+---
+
+End of Database Index Strategy
+# Database Query Optimization
+
+## Purpose
+
+This section defines how the database shall be queried to achieve maximum performance.
+
+All application queries shall use indexed columns whenever possible.
+
+---
+
+# Employee Lookup
+
+Primary Search
+
+Card Number
+
+---
+
+Secondary Search
+
+Employee Number
+
+---
+
+Search Result
+
+Single Employee
+
+---
+
+# Attendance Session Lookup
+
+Primary Search
+
+Employee ID
+
++
+
+Work Date
+
+---
+
+Expected Result
+
+Single Attendance Session
+
+---
+
+# Current Attendance Session
+
+Search Conditions
+
+Employee ID
+
+Current Status
+
+NOT COMPLETED
+
+---
+
+Expected Result
+
+Maximum One Record
+
+---
+
+# Attendance Event Lookup
+
+Search Conditions
+
+Session ID
+
+ORDER BY Event Time ASC
+
+---
+
+Expected Result
+
+Complete Attendance Timeline
+
+---
+
+# Current Employees Inside Office
+
+Search Conditions
+
+Attendance Session
+
+Current Status
+
+INSIDE_OFFICE
+
+---
+
+Sort
+
+Employee Name
+
+---
+
+# Current Employees Outside Office
+
+Search Conditions
+
+Attendance Session
+
+Current Status
+
+OUTSIDE_OFFICE
+
+---
+
+Sort
+
+Current Absence DESC
+
+---
+
+# Late Employees
+
+Search Conditions
+
+Late = TRUE
+
+Work Date = Today
+
+---
+
+Sort
+
+Late Minutes DESC
+
+---
+
+# Employees Not Arrived
+
+Search Conditions
+
+Attendance Session
+
+First Entry IS NULL
+
+---
+
+Sort
+
+Employee Name
+
+---
+
+# Dashboard Statistics Query
+
+Calculate
+
+Employees Scheduled
+
+Employees Present
+
+Employees Outside
+
+Employees Late
+
+Completed Sessions
+
+---
+
+Dashboard statistics shall never scan Attendance Events.
+
+Dashboard statistics shall use Attendance Sessions only.
+
+---
+
+# Employee History Query
+
+Search Conditions
+
+Employee ID
+
+Date Range
+
+---
+
+Return
+
+Attendance Sessions
+
+Ordered by
+
+Work Date DESC
+
+---
+
+# Attendance Timeline Query
+
+Search Conditions
+
+Session ID
+
+---
+
+Return
+
+Attendance Events
+
+Ordered by
+
+Event Time ASC
+
+---
+
+# Absence History Query
+
+Search Conditions
+
+Session ID
+
+---
+
+Return
+
+Absence Intervals
+
+Ordered by
+
+Start Time ASC
+
+---
+
+# Report Queries
+
+Reports shall use Attendance Sessions as the primary source.
+
+Attendance Events shall only be used for Timeline Reports.
+
+Absence Intervals shall only be used for Absence Reports.
+
+---
+
+# Webhook Duplicate Detection
+
+Search
+
+Webhook ID
+
+---
+
+Expected Result
+
+Zero
+
+or
+
+One Record
+
+---
+
+# Audit Log Query
+
+Search Conditions
+
+Date Range
+
+User
+
+Module
+
+---
+
+Sort
+
+Created At DESC
+
+---
+
+# Notification Query
+
+Status
+
+UNREAD
+
+---
+
+Sort
+
+Priority DESC
+
+Created At DESC
+
+---
+
+# Pagination Rules
+
+Employee List
+
+50 Records
+
+per Page
+
+---
+
+Attendance Sessions
+
+100 Records
+
+per Page
+
+---
+
+Attendance Events
+
+100 Records
+
+per Page
+
+---
+
+Audit Logs
+
+100 Records
+
+per Page
+
+---
+
+Webhook Logs
+
+100 Records
+
+per Page
+
+---
+
+# Database Performance Targets
+
+Employee Lookup
+
+< 50 ms
+
+Attendance Session Lookup
+
+< 50 ms
+
+Attendance Event Lookup
+
+< 100 ms
+
+Dashboard Refresh
+
+< 500 ms
+
+Webhook Processing
+
+< 1000 ms
+
+Report Generation
+
+< 5 seconds
+
+---
+
+End of Database Query Optimization
+# Database Views Specification
+
+## Purpose
+
+Database Views provide optimized read-only access for the Dashboard, Reports, and Administration screens.
+
+Views shall never contain business logic.
+
+Views shall never modify data.
+
+---
+
+# VIEW
+
+vw_current_attendance
+
+Purpose
+
+Returns the current attendance status of every employee.
+
+Columns
+
+Employee ID
+
+Employee Number
+
+Employee Name
+
+Department
+
+Position
+
+Shift
+
+Work Date
+
+Current Status
+
+First Entry
+
+Last Exit
+
+Late
+
+Late Minutes
+
+Current Absence
+
+Total Absence
+
+Exit Count
+
+---
+
+Source Tables
+
+employees
+
+attendance_sessions
+
+shifts
+
+---
+
+Refresh
+
+Real Time
+
+---
+
+# VIEW
+
+vw_dashboard_statistics
+
+Purpose
+
+Returns Dashboard summary statistics.
+
+Columns
+
+Employees Scheduled
+
+Employees Present
+
+Employees Outside
+
+Employees Late
+
+Employees Not Arrived
+
+Completed Sessions
+
+Attendance Rate
+
+Average Late Minutes
+
+Average Absence
+
+---
+
+Source Tables
+
+attendance_sessions
+
+employees
+
+---
+
+Refresh
+
+Real Time
+
+---
+
+# VIEW
+
+vw_late_employees
+
+Purpose
+
+Returns all late employees for the selected day.
+
+Columns
+
+Employee
+
+Department
+
+Shift
+
+Scheduled Start
+
+First Entry
+
+Late Minutes
+
+---
+
+Sort
+
+Late Minutes DESC
+
+---
+
+# VIEW
+
+vw_employees_outside
+
+Purpose
+
+Returns employees currently outside the office.
+
+Columns
+
+Employee
+
+Department
+
+Exit Time
+
+Current Absence
+
+Current Status
+
+---
+
+Sort
+
+Current Absence DESC
+
+---
+
+# VIEW
+
+vw_employee_history
+
+Purpose
+
+Returns attendance history for one employee.
+
+Columns
+
+Work Date
+
+Shift
+
+First Entry
+
+Last Exit
+
+Late
+
+Late Minutes
+
+Total Absence
+
+Exit Count
+
+Status
+
+---
+
+Sort
+
+Work Date DESC
+
+---
+
+# VIEW
+
+vw_absence_history
+
+Purpose
+
+Returns all absence intervals.
+
+Columns
+
+Employee
+
+Work Date
+
+Exit Time
+
+Return Time
+
+Duration
+
+---
+
+Sort
+
+Work Date DESC
+
+Start Time ASC
+
+---
+
+# VIEW
+
+vw_today_events
+
+Purpose
+
+Returns today's attendance events.
+
+Columns
+
+Employee
+
+Time
+
+Direction
+
+Device
+
+Event Type
+
+---
+
+Sort
+
+Event Time ASC
+
+---
+
+# VIEW
+
+vw_notifications
+
+Purpose
+
+Returns active notifications.
+
+Columns
+
+Priority
+
+Type
+
+Employee
+
+Message
+
+Created At
+
+Status
+
+---
+
+Sort
+
+Priority DESC
+
+Created At DESC
+
+---
+
+# VIEW
+
+vw_webhook_activity
+
+Purpose
+
+Returns webhook processing information.
+
+Columns
+
+Webhook ID
+
+Request Time
+
+Status
+
+Response Code
+
+Processing Time
+
+Employee Identifier
+
+---
+
+Sort
+
+Request Time DESC
+
+---
+
+# VIEW
+
+vw_audit_history
+
+Purpose
+
+Returns administrator activity.
+
+Columns
+
+User
+
+Module
+
+Action
+
+Entity
+
+Timestamp
+
+---
+
+Sort
+
+Timestamp DESC
+
+---
+
+# View Rules
+
+Views are read-only.
+
+Views shall not contain INSERT statements.
+
+Views shall not contain UPDATE statements.
+
+Views shall not contain DELETE statements.
+
+Views shall be optimized for SELECT performance.
+
+Views shall use indexed columns whenever possible.
+
+Dashboard shall use Views whenever possible.
+
+Reports shall use Views whenever possible.
+
+---
+
+End of Database Views Specification
+# Database Triggers Specification
+
+## Purpose
+
+Database Triggers maintain database integrity, automatically update timestamps, and generate audit information.
+
+Business logic shall remain in the Backend.
+
+Triggers shall perform only database maintenance tasks.
+
+---
+
+# Trigger
+
+trg_employees_updated_at
+
+Table
+
+employees
+
+Event
+
+BEFORE UPDATE
+
+Action
+
+Automatically update
+
+updated_at = NOW()
+
+---
+
+# Trigger
+
+trg_shifts_updated_at
+
+Table
+
+shifts
+
+Event
+
+BEFORE UPDATE
+
+Action
+
+Automatically update
+
+updated_at = NOW()
+
+---
+
+# Trigger
+
+trg_attendance_sessions_updated_at
+
+Table
+
+attendance_sessions
+
+Event
+
+BEFORE UPDATE
+
+Action
+
+Automatically update
+
+updated_at = NOW()
+
+---
+
+# Trigger
+
+trg_absence_intervals_updated_at
+
+Table
+
+absence_intervals
+
+Event
+
+BEFORE UPDATE
+
+Action
+
+Automatically update
+
+updated_at = NOW()
+
+---
+
+# Trigger
+
+trg_users_updated_at
+
+Table
+
+users
+
+Event
+
+BEFORE UPDATE
+
+Action
+
+Automatically update
+
+updated_at = NOW()
+
+---
+
+# Trigger
+
+trg_settings_updated_at
+
+Table
+
+settings
+
+Event
+
+BEFORE UPDATE
+
+Action
+
+Automatically update
+
+updated_at = NOW()
+
+---
+
+# Trigger Rules
+
+Every UPDATE automatically updates
+
+updated_at
+
+No application code shall manually update
+
+updated_at
+
+---
+
+# Database Integrity Rules
+
+Attendance Events
+
+UPDATE
+
+Not Allowed
+
+---
+
+Attendance Events
+
+DELETE
+
+Not Allowed
+
+---
+
+Attendance Sessions
+
+DELETE
+
+Not Allowed
+
+---
+
+Audit Logs
+
+UPDATE
+
+Not Allowed
+
+---
+
+Audit Logs
+
+DELETE
+
+Not Allowed
+
+---
+
+Webhook Logs
+
+DELETE
+
+Not Allowed
+
+---
+
+Absence Intervals
+
+DELETE
+
+Not Allowed
+
+---
+
+# Check Constraints
+
+employees
+
+status
+
+Allowed Values
+
+ACTIVE
+
+INACTIVE
+
+---
+
+attendance_sessions
+
+current_status
+
+Allowed Values
+
+SCHEDULED
+
+INSIDE_OFFICE
+
+OUTSIDE_OFFICE
+
+COMPLETED
+
+EXCEPTION
+
+---
+
+attendance_events
+
+direction
+
+Allowed Values
+
+ENTRY
+
+EXIT
+
+---
+
+attendance_events
+
+event_type
+
+Allowed Values
+
+NORMAL
+
+DUPLICATE_ENTRY
+
+DUPLICATE_EXIT
+
+UNKNOWN
+
+MANUAL_CORRECTION
+
+SYSTEM_CORRECTION
+
+---
+
+notifications
+
+priority
+
+Allowed Values
+
+LOW
+
+MEDIUM
+
+HIGH
+
+CRITICAL
+
+---
+
+notifications
+
+status
+
+Allowed Values
+
+UNREAD
+
+READ
+
+ARCHIVED
+
+---
+
+# Default Values
+
+employees.status
+
+ACTIVE
+
+---
+
+shifts.grace_period_minutes
+
+15
+
+---
+
+shifts.is_active
+
+TRUE
+
+---
+
+attendance_sessions.current_status
+
+SCHEDULED
+
+---
+
+attendance_sessions.late
+
+FALSE
+
+---
+
+attendance_sessions.late_minutes
+
+0
+
+---
+
+attendance_sessions.total_absence_minutes
+
+0
+
+---
+
+attendance_sessions.exit_count
+
+0
+
+---
+
+attendance_events.event_type
+
+NORMAL
+
+---
+
+attendance_events.source
+
+ACCESS_CONTROL
+
+---
+
+users.is_active
+
+TRUE
+
+---
+
+notifications.status
+
+UNREAD
+
+---
+
+# Database Transactions
+
+The following operations shall always execute inside one database transaction.
+
+Create Attendance Session
+
+Store Attendance Event
+
+Create Absence Interval
+
+Close Absence Interval
+
+Update Attendance Session
+
+Create Notification
+
+Create Audit Log
+
+---
+
+If any operation fails
+
+Rollback Entire Transaction
+
+Return Error
+
+Log Failure
+
+---
+
+# Transaction Rules
+
+Partial database updates are prohibited.
+
+Attendance data consistency has the highest priority.
+
+Database integrity shall always be preserved.
+
+---
+
+End of Database Triggers Specification
+# Database Backup and Recovery Specification
+
+## Purpose
+
+This section defines the backup, restore and recovery strategy for the Green Logistics Attendance Management System.
+
+The objective is to guarantee that no attendance history is lost.
+
+---
+
+# Backup Policy
+
+Database Backup
+
+Daily
+
+02:00
+
+---
+
+Incremental Backup
+
+Every Hour
+
+---
+
+Configuration Backup
+
+Daily
+
+---
+
+Application Logs Backup
+
+Daily
+
+---
+
+Audit Logs Backup
+
+Daily
+
+---
+
+Webhook Logs Backup
+
+Daily
+
+---
+
+# Backup Retention
+
+Daily Backups
+
+30 Days
+
+---
+
+Weekly Backups
+
+12 Weeks
+
+---
+
+Monthly Backups
+
+12 Months
+
+---
+
+Annual Backup
+
+Permanent
+
+---
+
+# Backup Content
+
+Employees
+
+Shifts
+
+Attendance Sessions
+
+Attendance Events
+
+Absence Intervals
+
+Users
+
+Roles
+
+Settings
+
+Notifications
+
+Audit Logs
+
+Webhook Logs
+
+---
+
+# Backup Rules
+
+Every backup shall be verified after creation.
+
+Backup failures shall generate administrator notifications.
+
+Backups shall be encrypted.
+
+Backups shall contain a checksum.
+
+---
+
+# Restore Rules
+
+Restore shall never overwrite an existing production database.
+
+Restore shall always create a recovery log.
+
+Restore operations shall be recorded in Audit Logs.
+
+Only Administrators may execute restore operations.
+
+---
+
+# Recovery Objectives
+
+Recovery Point Objective (RPO)
+
+Maximum
+
+1 Hour
+
+---
+
+Recovery Time Objective (RTO)
+
+Maximum
+
+30 Minutes
+
+---
+
+# Disaster Recovery
+
+Database Failure
+
+↓
+
+Restore Latest Backup
+
+↓
+
+Restore Incremental Backup
+
+↓
+
+Verify Database Integrity
+
+↓
+
+Restart Services
+
+↓
+
+Verify Dashboard
+
+↓
+
+Resume Operations
+
+---
+
+# Integrity Verification
+
+After every restore the system shall verify
+
+Employee Count
+
+Attendance Session Count
+
+Attendance Event Count
+
+Absence Interval Count
+
+Audit Log Count
+
+Webhook Log Count
+
+---
+
+Database integrity verification must complete successfully before production is resumed.
+
+---
+
+# Backup Security
+
+Backups shall be encrypted.
+
+Backup files shall be access restricted.
+
+Backup files shall never be publicly accessible.
+
+Backup credentials shall not be stored in source code.
+
+---
+
+# Backup Monitoring
+
+The system shall monitor
+
+Backup Success
+
+Backup Failure
+
+Backup Duration
+
+Backup Size
+
+Last Successful Backup
+
+---
+
+Administrator shall be notified immediately if
+
+Backup Fails
+
+Backup Verification Fails
+
+Backup File Missing
+
+Backup File Corrupted
+
+---
+
+# Recovery Testing
+
+Backup restoration shall be tested quarterly.
+
+Recovery testing results shall be documented.
+
+Recovery testing shall verify
+
+Database Integrity
+
+Attendance History
+
+Dashboard Functionality
+
+Webhook Processing
+
+Report Generation
+
+Authentication
+
+---
+
+End of Database Backup and Recovery Specification
+# Database Security Specification
+
+## Purpose
+
+This section defines database security requirements for the Green Logistics Attendance Management System.
+
+The database shall protect attendance data from unauthorized access, accidental modification and data loss.
+
+---
+
+# Security Principles
+
+Least Privilege
+
+Role-Based Access
+
+Secure Authentication
+
+Encrypted Communication
+
+Immutable Attendance History
+
+Permanent Audit Trail
+
+---
+
+# Database Roles
+
+Application
+
+Read
+
+Write
+
+---
+
+Administrator
+
+Full Access
+
+---
+
+ReadOnly
+
+SELECT Only
+
+---
+
+Backup
+
+Backup Only
+
+---
+
+No database user shall use the PostgreSQL SUPERUSER account during normal application operation.
+
+---
+
+# Connection Security
+
+All database connections shall use SSL/TLS.
+
+Database credentials shall never be stored inside source code.
+
+Credentials shall be stored in environment variables.
+
+---
+
+# Password Policy
+
+Minimum Length
+
+16 Characters
+
+---
+
+Randomly Generated
+
+Required
+
+---
+
+Rotation
+
+Every 180 Days
+
+---
+
+Passwords shall never be logged.
+
+Passwords shall never be displayed.
+
+Passwords shall never be stored in plain text.
+
+---
+
+# Database Permissions
+
+Application Account
+
+SELECT
+
+INSERT
+
+UPDATE
+
+---
+
+DELETE
+
+Prohibited
+
+---
+
+ReadOnly Account
+
+SELECT Only
+
+---
+
+Backup Account
+
+Backup Operations Only
+
+---
+
+# Attendance Data Protection
+
+Attendance Sessions
+
+Protected
+
+---
+
+Attendance Events
+
+Protected
+
+---
+
+Absence Intervals
+
+Protected
+
+---
+
+Audit Logs
+
+Protected
+
+---
+
+Webhook Logs
+
+Protected
+
+---
+
+Historical attendance information shall never be modified manually.
+
+---
+
+# Encryption
+
+Passwords
+
+bcrypt
+
+---
+
+JWT Secret
+
+Environment Variable
+
+---
+
+Webhook Secret
+
+Environment Variable
+
+---
+
+Sensitive configuration values shall never be committed to Git.
+
+---
+
+# Access Rules
+
+Only authenticated users may access the application.
+
+Only authorized users may perform administrative actions.
+
+Every administrative action shall generate an Audit Log.
+
+---
+
+# Login Protection
+
+Maximum Failed Attempts
+
+5
+
+---
+
+Account Lock Duration
+
+15 Minutes
+
+---
+
+Every failed login attempt shall be recorded.
+
+---
+
+# Session Security
+
+JWT Expiration
+
+8 Hours
+
+---
+
+Inactive Session Timeout
+
+30 Minutes
+
+---
+
+Logout shall invalidate the current session.
+
+---
+
+# Audit Protection
+
+Audit Logs are read-only.
+
+Audit Logs cannot be edited.
+
+Audit Logs cannot be deleted.
+
+Audit Logs cannot be exported without Administrator permission.
+
+---
+
+# Webhook Protection
+
+Webhook requests shall require authentication.
+
+Webhook requests shall include a valid secret.
+
+Duplicate webhook requests shall not be processed twice.
+
+Every webhook request shall be logged.
+
+---
+
+# Security Monitoring
+
+Monitor
+
+Failed Login Attempts
+
+Invalid JWT Tokens
+
+Webhook Authentication Failures
+
+Database Connection Failures
+
+Unexpected Exceptions
+
+---
+
+Critical security events shall immediately notify the Administrator.
+
+---
+
+# Security Rules
+
+Attendance data shall never be exposed without authentication.
+
+Employee information shall never be accessible anonymously.
+
+Application shall never connect using PostgreSQL SUPERUSER.
+
+Every database access shall occur through the Backend API.
+
+Direct browser access to the database is prohibited.
+
+---
+
+End of Database Security Specification
+# Database Maintenance Specification
+
+## Purpose
+
+This section defines database maintenance procedures to ensure long-term stability, performance, and data integrity.
+
+Maintenance tasks shall never modify attendance history.
+
+---
+
+# Daily Maintenance
+
+Verify Database Connection
+
+Verify Table Integrity
+
+Verify Index Health
+
+Verify Backup Completion
+
+Verify Scheduler Execution
+
+Verify Webhook Processing
+
+Verify Available Disk Space
+
+---
+
+# Weekly Maintenance
+
+Analyze Tables
+
+Reindex Fragmented Indexes
+
+Update Database Statistics
+
+Verify Foreign Key Integrity
+
+Verify Audit Log Integrity
+
+Verify Webhook Log Integrity
+
+---
+
+# Monthly Maintenance
+
+VACUUM ANALYZE
+
+Verify Query Performance
+
+Verify Index Usage
+
+Archive Temporary Application Logs
+
+Review Database Growth
+
+Review Storage Usage
+
+---
+
+# Attendance Data Maintenance
+
+Attendance Sessions
+
+Permanent
+
+---
+
+Attendance Events
+
+Permanent
+
+---
+
+Absence Intervals
+
+Permanent
+
+---
+
+Audit Logs
+
+Permanent
+
+---
+
+Webhook Logs
+
+Permanent
+
+---
+
+Notifications
+
+Permanent
+
+Archived when no longer active.
+
+---
+
+# Automatic Maintenance
+
+The Scheduler shall execute
+
+Database Health Check
+
+Daily
+
+---
+
+Statistics Update
+
+Weekly
+
+---
+
+VACUUM ANALYZE
+
+Monthly
+
+---
+
+Backup Verification
+
+Daily
+
+---
+
+Log Integrity Verification
+
+Daily
+
+---
+
+# Database Health Checks
+
+Verify
+
+Database Availability
+
+Table Count
+
+Index Count
+
+Foreign Keys
+
+Constraints
+
+Storage Capacity
+
+Connection Pool
+
+Replication Status (Future)
+
+---
+
+# Database Integrity Verification
+
+Verify
+
+Every Attendance Session has one Employee.
+
+Every Attendance Event belongs to one Attendance Session.
+
+Every Attendance Event belongs to one Employee.
+
+Every Absence Interval belongs to one Attendance Session.
+
+Every User belongs to one Role.
+
+Every Employee belongs to one Shift.
+
+No orphan records exist.
+
+---
+
+# Performance Monitoring
+
+Monitor
+
+Average Query Time
+
+Slow Queries
+
+Blocked Queries
+
+Deadlocks
+
+Connection Count
+
+CPU Usage
+
+Memory Usage
+
+Disk Usage
+
+---
+
+Performance Thresholds
+
+Average Query
+
+< 100 ms
+
+---
+
+Dashboard Query
+
+< 500 ms
+
+---
+
+Webhook Processing
+
+< 1000 ms
+
+---
+
+Employee Search
+
+< 50 ms
+
+---
+
+Attendance Session Lookup
+
+< 50 ms
+
+---
+
+# Storage Monitoring
+
+Monitor
+
+Database Size
+
+AttendanceSessions Table Size
+
+AttendanceEvents Table Size
+
+AuditLogs Table Size
+
+WebhookLogs Table Size
+
+Available Disk Space
+
+---
+
+Administrator Notification
+
+Notify Administrator when
+
+Available Disk Space
+
+< 20%
+
+---
+
+Database Size Growth
+
+> 10%
+
+within one week
+
+---
+
+Average Query Time
+
+> 500 ms
+
+---
+
+Database Connection Failure
+
+Immediate
+
+---
+
+Backup Failure
+
+Immediate
+
+---
+
+# Database Maintenance Rules
+
+Attendance history shall never be archived.
+
+Attendance history shall never be deleted.
+
+Audit Logs shall remain permanently available.
+
+Database maintenance shall never interrupt attendance processing.
+
+Maintenance tasks shall execute outside working hours whenever possible.
+
+Every maintenance operation shall be recorded in Audit Logs.
+
+---
+
+End of Database Maintenance Specification
+# Database Migration Specification
+
+## Purpose
+
+This section defines database migration standards for the Green Logistics Attendance Management System.
+
+Database migrations shall provide a safe, repeatable and version-controlled method of updating the database schema.
+
+---
+
+# Migration Principles
+
+Every schema change shall be performed using a migration.
+
+Database schema shall never be modified manually in Production.
+
+Every migration shall be version controlled.
+
+Every migration shall be reversible whenever technically possible.
+
+---
+
+# Migration Naming Convention
+
+YYYYMMDD_HHMMSS_description.sql
+
+Examples
+
+20260702_170000_create_employees_table.sql
+
+20260702_171500_create_shifts_table.sql
+
+20260702_173000_create_attendance_sessions_table.sql
+
+---
+
+# Migration Order
+
+001_create_roles
+
+002_create_users
+
+003_create_shifts
+
+004_create_employees
+
+005_create_attendance_sessions
+
+006_create_attendance_events
+
+007_create_absence_intervals
+
+008_create_notifications
+
+009_create_audit_logs
+
+010_create_webhook_logs
+
+011_create_settings
+
+---
+
+# Migration Rules
+
+Each migration shall perform only one logical change.
+
+Every migration shall execute inside a transaction whenever supported.
+
+Every migration shall include rollback instructions.
+
+Every migration shall be idempotent whenever possible.
+
+---
+
+# Rollback Rules
+
+Rollback shall restore the previous database structure.
+
+Rollback shall never remove attendance history unintentionally.
+
+Rollback shall be tested before deployment.
+
+---
+
+# Seed Data
+
+Initial data shall be inserted using dedicated seed scripts.
+
+Required Seed Data
+
+Roles
+
+Administrator
+
+Manager
+
+Viewer
+
+---
+
+Shifts
+
+Day Shift
+
+17:00
+
+01:00
+
+Grace Period
+
+15
+
+---
+
+Night Shift
+
+00:00
+
+05:00
+
+Grace Period
+
+15
+
+---
+
+Default Settings
+
+Dashboard Refresh
+
+5 Seconds
+
+---
+
+JWT Session Timeout
+
+8 Hours
+
+---
+
+Application Time Zone
+
+Company Local Time
+
+---
+
+# Production Migration Procedure
+
+Step 1
+
+Verify Backup
+
+---
+
+Step 2
+
+Verify Database Version
+
+---
+
+Step 3
+
+Enable Maintenance Mode
+
+---
+
+Step 4
+
+Execute Migrations
+
+---
+
+Step 5
+
+Verify Schema
+
+---
+
+Step 6
+
+Execute Seed Updates
+
+---
+
+Step 7
+
+Verify Data Integrity
+
+---
+
+Step 8
+
+Disable Maintenance Mode
+
+---
+
+Step 9
+
+Verify Application Startup
+
+---
+
+# Migration Validation
+
+Verify
+
+Tables Created
+
+Indexes Created
+
+Foreign Keys Created
+
+Constraints Created
+
+Views Created
+
+Triggers Created
+
+Seed Data Inserted
+
+---
+
+# Migration Failure
+
+If any migration fails
+
+Rollback Current Transaction
+
+Log Failure
+
+Notify Administrator
+
+Stop Deployment
+
+---
+
+# Version Tracking
+
+Database Version shall be stored inside
+
+schema_migrations
+
+Table Structure
+
+migration_id
+
+UUID
+
+---
+
+version
+
+VARCHAR(50)
+
+---
+
+migration_name
+
+VARCHAR(255)
+
+---
+
+executed_at
+
+TIMESTAMP
+
+---
+
+execution_time_ms
+
+INTEGER
+
+---
+
+status
+
+SUCCESS
+
+FAILED
+
+ROLLED_BACK
+
+---
+
+Business Rules
+
+Every migration shall be recorded.
+
+A migration shall never execute twice.
+
+Migration history shall never be deleted.
+
+---
+
+End of Database Migration Specification
+# Database Naming Standards
+
+## Purpose
+
+This section defines mandatory naming standards for the Green Logistics Attendance Management System database.
+
+These standards ensure consistency, readability, and maintainability.
+
+---
+
+# General Rules
+
+Use English only.
+
+Use lowercase letters only.
+
+Use snake_case.
+
+Do not use spaces.
+
+Do not use special characters.
+
+Do not use reserved SQL keywords.
+
+Names shall be descriptive.
+
+Abbreviations shall be avoided unless universally accepted.
+
+---
+
+# Table Naming
+
+Tables shall use plural nouns.
+
+Examples
+
+employees
+
+shifts
+
+attendance_sessions
+
+attendance_events
+
+absence_intervals
+
+users
+
+roles
+
+settings
+
+notifications
+
+audit_logs
+
+webhook_logs
+
+---
+
+# Column Naming
+
+Columns shall use snake_case.
+
+Examples
+
+employee_id
+
+first_name
+
+last_name
+
+card_number
+
+shift_id
+
+current_status
+
+late_minutes
+
+created_at
+
+updated_at
+
+---
+
+# Primary Keys
+
+Every table shall have one primary key.
+
+Naming
+
+table_name_singular_id
+
+Examples
+
+employee_id
+
+shift_id
+
+session_id
+
+event_id
+
+interval_id
+
+user_id
+
+role_id
+
+notification_id
+
+audit_id
+
+log_id
+
+setting_id
+
+---
+
+# Foreign Keys
+
+Foreign Keys shall reference the Primary Key name of the related table.
+
+Examples
+
+employee_id
+
+shift_id
+
+session_id
+
+event_id
+
+role_id
+
+user_id
+
+---
+
+# Boolean Columns
+
+Boolean columns shall begin with
+
+is_
+
+or
+
+has_
+
+Examples
+
+is_active
+
+is_deleted
+
+has_access
+
+is_processed
+
+---
+
+# Date Columns
+
+Examples
+
+work_date
+
+start_date
+
+end_date
+
+created_at
+
+updated_at
+
+request_time
+
+event_time
+
+---
+
+# Time Columns
+
+Examples
+
+start_time
+
+end_time
+
+scheduled_start
+
+scheduled_end
+
+first_entry
+
+last_exit
+
+---
+
+# Duration Columns
+
+Duration values shall always use minutes.
+
+Examples
+
+late_minutes
+
+duration_minutes
+
+total_absence_minutes
+
+processing_time_ms
+
+---
+
+# Status Columns
+
+Status columns shall end with
+
+_status
+
+Examples
+
+current_status
+
+processing_status
+
+notification_status
+
+---
+
+# Index Naming
+
+Format
+
+idx_table_column
+
+Examples
+
+idx_employees_card_number
+
+idx_attendance_sessions_work_date
+
+idx_attendance_events_event_time
+
+---
+
+Composite Index
+
+Format
+
+idx_table_column_column
+
+Examples
+
+idx_sessions_employee_work_date
+
+idx_events_session_event_time
+
+---
+
+# Unique Constraints
+
+Format
+
+uq_table_column
+
+Examples
+
+uq_employees_employee_number
+
+uq_employees_card_number
+
+uq_roles_role_name
+
+---
+
+# Foreign Keys
+
+Format
+
+fk_child_parent
+
+Examples
+
+fk_employees_shifts
+
+fk_sessions_employees
+
+fk_events_sessions
+
+fk_intervals_sessions
+
+---
+
+# Check Constraints
+
+Format
+
+chk_table_column
+
+Examples
+
+chk_sessions_status
+
+chk_events_direction
+
+chk_notifications_priority
+
+---
+
+# Views
+
+Views shall begin with
+
+vw_
+
+Examples
+
+vw_current_attendance
+
+vw_dashboard_statistics
+
+vw_employee_history
+
+---
+
+# Triggers
+
+Triggers shall begin with
+
+trg_
+
+Examples
+
+trg_employees_updated_at
+
+trg_sessions_updated_at
+
+trg_settings_updated_at
+
+---
+
+# Functions
+
+Functions shall begin with
+
+fn_
+
+Examples
+
+fn_update_timestamp
+
+fn_generate_attendance_session
+
+---
+
+# Stored Procedures
+
+Stored Procedures shall begin with
+
+sp_
+
+Examples
+
+sp_close_attendance_session
+
+sp_generate_daily_report
+
+---
+
+# Sequences
+
+Sequences shall begin with
+
+seq_
+
+Examples
+
+seq_employee_number
+
+---
+
+# Naming Rules
+
+Naming conventions are mandatory.
+
+All new database objects shall follow these standards.
+
+Existing objects shall not violate these standards.
+
+Consistency has higher priority than abbreviation.
+
+---
+
+End of Database Naming Standards
+# Database Coding Standards
+
+## Purpose
+
+This section defines mandatory database development standards for the Green Logistics Attendance Management System.
+
+Every SQL script, migration, function, trigger, and query shall follow these standards.
+
+---
+
+# General Standards
+
+The database shall be deterministic.
+
+The database shall be predictable.
+
+The database shall be maintainable.
+
+The database shall be fully documented.
+
+---
+
+# SQL Formatting
+
+All SQL keywords shall be uppercase.
+
+Examples
+
+SELECT
+
+INSERT
+
+UPDATE
+
+DELETE
+
+CREATE
+
+ALTER
+
+DROP
+
+FROM
+
+WHERE
+
+ORDER BY
+
+GROUP BY
+
+---
+
+Table names
+
+lowercase
+
+snake_case
+
+---
+
+Column names
+
+lowercase
+
+snake_case
+
+---
+
+Indentation
+
+4 Spaces
+
+---
+
+Maximum Line Length
+
+120 Characters
+
+---
+
+# Query Standards
+
+SELECT *
+
+Prohibited
+
+Always specify required columns.
+
+---
+
+Every query shall use WHERE whenever applicable.
+
+---
+
+Every query shall use indexes whenever possible.
+
+---
+
+Cartesian joins are prohibited.
+
+---
+
+Implicit joins are prohibited.
+
+Use explicit JOIN syntax.
+
+---
+
+# INSERT Standards
+
+Every INSERT shall specify column names.
+
+Example
+
+INSERT INTO employees
+
+(
+
+employee_number,
+
+first_name,
+
+last_name
+
+)
+
+VALUES
+
+(...)
+
+---
+
+# UPDATE Standards
+
+Every UPDATE shall contain a WHERE clause.
+
+UPDATE without WHERE is prohibited.
+
+---
+
+Every UPDATE shall be executed inside a transaction when multiple tables are affected.
+
+---
+
+# DELETE Standards
+
+DELETE from Attendance tables is prohibited.
+
+DELETE from Audit Logs is prohibited.
+
+DELETE from Webhook Logs is prohibited.
+
+DELETE from Absence Intervals is prohibited.
+
+DELETE from Attendance Sessions is prohibited.
+
+DELETE from Attendance Events is prohibited.
+
+---
+
+# Transaction Standards
+
+BEGIN
+
+↓
+
+SQL Statements
+
+↓
+
+COMMIT
+
+---
+
+On Failure
+
+ROLLBACK
+
+---
+
+Nested transactions shall be avoided.
+
+---
+
+# Function Standards
+
+Functions shall perform one task only.
+
+Functions shall not modify unrelated tables.
+
+Functions shall return deterministic results.
+
+---
+
+# Trigger Standards
+
+Triggers shall be lightweight.
+
+Triggers shall not contain business logic.
+
+Triggers shall never call external services.
+
+Triggers shall only maintain database consistency.
+
+---
+
+# Index Standards
+
+Every frequently searched column shall have an index.
+
+Indexes shall be reviewed monthly.
+
+Unused indexes shall be removed only after analysis.
+
+Duplicate indexes are prohibited.
+
+---
+
+# Constraint Standards
+
+Every table shall contain
+
+Primary Key
+
+Foreign Keys
+
+Required Constraints
+
+CHECK Constraints
+
+UNIQUE Constraints where applicable
+
+---
+
+# JSON Standards
+
+JSONB shall be used instead of JSON.
+
+JSON shall never replace relational database design.
+
+JSON shall only store dynamic payloads.
+
+---
+
+# Performance Standards
+
+Long-running queries
+
+> 1000 ms
+
+shall be reviewed.
+
+---
+
+Sequential scans on large tables
+
+shall be investigated.
+
+---
+
+Dashboard queries
+
+shall use indexed views whenever possible.
+
+---
+
+# Documentation Standards
+
+Every table
+
+Documented
+
+---
+
+Every column
+
+Documented
+
+---
+
+Every index
+
+Documented
+
+---
+
+Every trigger
+
+Documented
+
+---
+
+Every migration
+
+Documented
+
+---
+
+Every function
+
+Documented
+
+---
+
+# Change Management
+
+Every database modification requires
+
+Updated Documentation
+
+Migration Script
+
+Rollback Script
+
+Testing
+
+Code Review
+
+Approval
+
+---
+
+End of Database Coding Standards
+# Database Implementation Rules
+
+## Purpose
+
+This section defines mandatory implementation rules for the PostgreSQL database.
+
+These rules are mandatory for all future development.
+
+---
+
+# Rule DB-001
+
+The database is the single source of truth.
+
+Application memory shall never be treated as persistent storage.
+
+---
+
+# Rule DB-002
+
+Attendance Events shall always be inserted.
+
+Attendance Events shall never be updated.
+
+Attendance Events shall never be deleted.
+
+---
+
+# Rule DB-003
+
+Attendance Sessions may be updated only by the Attendance Engine.
+
+Manual database updates are prohibited.
+
+---
+
+# Rule DB-004
+
+Absence Intervals shall always be generated automatically.
+
+Manual creation of Absence Intervals is prohibited.
+
+---
+
+# Rule DB-005
+
+Dashboard shall never calculate attendance information.
+
+Dashboard shall display information already calculated by the Backend.
+
+---
+
+# Rule DB-006
+
+Business logic shall never exist inside SQL Views.
+
+Views shall be read-only.
+
+---
+
+# Rule DB-007
+
+Business logic shall never exist inside database Triggers.
+
+Triggers are limited to
+
+Timestamp Updates
+
+Integrity Validation
+
+Audit Support
+
+---
+
+# Rule DB-008
+
+Stored Procedures shall never contain attendance calculations.
+
+Attendance calculations belong exclusively to the Backend.
+
+---
+
+# Rule DB-009
+
+Every Attendance Session shall contain
+
+One Employee
+
+One Shift
+
+One Work Date
+
+One Current Status
+
+---
+
+# Rule DB-010
+
+Every Attendance Event shall reference
+
+One Employee
+
+One Attendance Session
+
+---
+
+# Rule DB-011
+
+Every Absence Interval shall reference
+
+One Attendance Session
+
+One Exit Event
+
+One Return Event
+
+---
+
+# Rule DB-012
+
+Webhook Logs shall always be written before attendance processing starts.
+
+---
+
+# Rule DB-013
+
+Audit Logs shall always be written after successful administrative operations.
+
+---
+
+# Rule DB-014
+
+Database transactions shall always be ACID compliant.
+
+---
+
+# Rule DB-015
+
+Every foreign key shall use RESTRICT deletion.
+
+Cascade Delete is prohibited.
+
+---
+
+# Rule DB-016
+
+Every production database change requires
+
+Migration
+
+Rollback
+
+Documentation
+
+Testing
+
+Approval
+
+---
+
+# Rule DB-017
+
+Every production deployment requires a verified backup before migration.
+
+---
+
+# Rule DB-018
+
+Attendance history is permanent.
+
+Historical attendance information shall never be removed.
+
+---
+
+# Rule DB-019
+
+Database clocks shall use the company local timezone.
+
+All attendance calculations shall use the same timezone.
+
+---
+
+# Rule DB-020
+
+Duplicate webhook requests shall never create duplicate attendance records.
+
+Webhook ID is the authoritative duplicate detection key.
+
+---
+
+# Rule DB-021
+
+Every Attendance Session shall be uniquely identified by
+
+Employee
+
+Work Date
+
+Shift
+
+---
+
+# Rule DB-022
+
+The first ENTRY event determines employee lateness.
+
+Subsequent ENTRY events shall not modify Late Status.
+
+---
+
+# Rule DB-023
+
+The final EXIT event completes the Attendance Session.
+
+---
+
+# Rule DB-024
+
+An Attendance Session may have many Attendance Events.
+
+An Attendance Event belongs to only one Attendance Session.
+
+---
+
+# Rule DB-025
+
+An Attendance Session may have many Absence Intervals.
+
+An Absence Interval belongs to only one Attendance Session.
+
+---
+
+# Rule DB-026
+
+All database timestamps shall be stored with second precision.
+
+---
+
+# Rule DB-027
+
+UUID shall be generated by PostgreSQL.
+
+Application-generated UUIDs are prohibited.
+
+---
+
+# Rule DB-028
+
+Every table shall contain a Primary Key.
+
+Tables without Primary Keys are prohibited.
+
+---
+
+# Rule DB-029
+
+Every frequently searched field shall be indexed.
+
+---
+
+# Rule DB-030
+
+Database consistency has higher priority than processing speed.
+
+End of Database Implementation Rules
+# Database Design Decisions
+
+## Purpose
+
+This section documents the architectural decisions used while designing the database.
+
+These decisions are mandatory and shall not be changed without updating the architecture documentation.
+
+---
+
+# Decision DBD-001
+
+Attendance data is event-driven.
+
+Every attendance record originates from an event received from the Access Control System.
+
+No attendance record shall be manually generated by the application.
+
+---
+
+# Decision DBD-002
+
+Attendance Sessions are the central business entity.
+
+Attendance Events
+
+↓
+
+Attendance Session
+
+↓
+
+Dashboard
+
+↓
+
+Reports
+
+---
+
+Attendance calculations are performed at the Attendance Session level.
+
+---
+
+# Decision DBD-003
+
+Attendance Events are immutable.
+
+Once stored, an Attendance Event shall never be modified.
+
+Corrections shall create additional records.
+
+Original records remain unchanged.
+
+---
+
+# Decision DBD-004
+
+Attendance Sessions represent one scheduled work shift.
+
+A session begins with the first ENTRY.
+
+A session ends with the final EXIT.
+
+One employee may have only one Attendance Session for the same shift on the same Work Date.
+
+---
+
+# Decision DBD-005
+
+Absence is calculated only from EXIT and ENTRY events.
+
+EXIT
+
+↓
+
+Start Absence Interval
+
+ENTRY
+
+↓
+
+Close Absence Interval
+
+No other event affects absence calculations.
+
+---
+
+# Decision DBD-006
+
+Late status is calculated once.
+
+Only the first ENTRY event determines lateness.
+
+Subsequent ENTRY events shall not recalculate lateness.
+
+---
+
+# Decision DBD-007
+
+Dashboard is read-only.
+
+Dashboard never performs calculations.
+
+Dashboard only displays processed information received from the Backend.
+
+---
+
+# Decision DBD-008
+
+Database stores facts only.
+
+The database stores
+
+Attendance Events
+
+Attendance Sessions
+
+Absence Intervals
+
+Notifications
+
+Audit Logs
+
+Webhook Logs
+
+The database shall not store calculated temporary values unless required for performance.
+
+---
+
+# Decision DBD-009
+
+Webhook processing is idempotent.
+
+The same Webhook ID may be received multiple times.
+
+Business processing shall occur only once.
+
+Duplicate requests shall be logged.
+
+---
+
+# Decision DBD-010
+
+Historical information is permanent.
+
+Attendance history shall remain available for the lifetime of the system.
+
+Historical information shall never be removed during normal operation.
+
+---
+
+# Decision DBD-011
+
+The database shall remain independent of the user interface.
+
+Changes to the Dashboard shall not require database changes.
+
+Changes to Reports shall not require database changes.
+
+---
+
+# Decision DBD-012
+
+The database shall remain independent of the API.
+
+API version changes shall not require database redesign.
+
+---
+
+# Decision DBD-013
+
+Business logic belongs to the Backend.
+
+The database is responsible for
+
+Storage
+
+Relationships
+
+Integrity
+
+Constraints
+
+The Backend is responsible for
+
+Attendance calculations
+
+Late detection
+
+Absence calculations
+
+Dashboard calculations
+
+Report generation
+
+---
+
+# Decision DBD-014
+
+Cross-midnight shifts are stored as one Attendance Session.
+
+Example
+
+Shift
+
+17:00
+
+↓
+
+01:00
+
+The Attendance Session belongs to one Work Date.
+
+The date does not change after midnight.
+
+---
+
+# Decision DBD-015
+
+Database optimization favors operational performance.
+
+The primary optimization target is
+
+Webhook Processing
+
+Dashboard Refresh
+
+Employee Lookup
+
+Attendance Session Lookup
+
+Operational reports
+
+Analytical queries have lower priority.
+
+---
+
+End of Database Design Decisions
+# SQL Implementation Standards
+
+## Purpose
+
+This section defines the mandatory SQL implementation rules for the Green Logistics Attendance Management System.
+
+These rules shall be followed during database implementation.
+
+---
+
+## SQL Standard
+
+PostgreSQL Version
+
+16+
+
+---
+
+SQL Dialect
+
+PostgreSQL Native SQL
+
+---
+
+Character Encoding
+
+UTF-8
+
+---
+
+Time Zone
+
+Company Local Time
+
+---
+
+Primary Keys
+
+UUID Version 4
+
+---
+
+## Required PostgreSQL Extensions
+
+pgcrypto
+
+Purpose
+
+UUID Generation
+
+---
+
+## SQL File Structure
+
+The implementation shall be divided into the following SQL files.
+
+001_create_roles.sql
+
+002_create_users.sql
+
+003_create_shifts.sql
+
+004_create_employees.sql
+
+005_create_attendance_sessions.sql
+
+006_create_attendance_events.sql
+
+007_create_absence_intervals.sql
+
+008_create_notifications.sql
+
+009_create_audit_logs.sql
+
+010_create_webhook_logs.sql
+
+011_create_settings.sql
+
+012_create_indexes.sql
+
+013_create_views.sql
+
+014_create_triggers.sql
+
+015_seed_data.sql
+
+---
+
+## Table Creation Order
+
+roles
+
+↓
+
+users
+
+↓
+
+shifts
+
+↓
+
+employees
+
+↓
+
+attendance_sessions
+
+↓
+
+attendance_events
+
+↓
+
+absence_intervals
+
+↓
+
+notifications
+
+↓
+
+audit_logs
+
+↓
+
+webhook_logs
+
+↓
+
+settings
+
+---
+
+## Object Creation Order
+
+Tables
+
+↓
+
+Primary Keys
+
+↓
+
+Foreign Keys
+
+↓
+
+Constraints
+
+↓
+
+Indexes
+
+↓
+
+Views
+
+↓
+
+Triggers
+
+↓
+
+Seed Data
+
+---
+
+## Transaction Rules
+
+Every migration shall execute inside one transaction.
+
+If any statement fails
+
+ROLLBACK
+
+shall be executed.
+
+No partial migration is allowed.
+
+---
+
+## UUID Rules
+
+Every Primary Key shall use
+
+gen_random_uuid()
+
+No sequential identifiers shall be used.
+
+---
+
+## Timestamp Rules
+
+Every table shall include
+
+created_at
+
+updated_at
+
+except immutable log tables where only
+
+created_at
+
+is required.
+
+---
+
+## Foreign Key Rules
+
+All Foreign Keys shall use
+
+ON DELETE RESTRICT
+
+ON UPDATE CASCADE
+
+---
+
+## Index Rules
+
+Create indexes immediately after table creation.
+
+Composite indexes shall be created after single-column indexes.
+
+Duplicate indexes are prohibited.
+
+---
+
+## Seed Data Rules
+
+Seed data shall be idempotent.
+
+Running the seed script multiple times shall not create duplicate records.
+
+---
+
+## Validation Rules
+
+After migration completes, verify
+
+All tables exist.
+
+All indexes exist.
+
+All foreign keys exist.
+
+All constraints exist.
+
+All views exist.
+
+All triggers exist.
+
+Required seed data exists.
+
+---
+
+## Production Rules
+
+Production deployment requires
+
+Verified Backup
+
+Successful Migration
+
+Successful Validation
+
+Successful Rollback Test
+
+Administrator Approval
+
+---
+
+End of SQL Implementation Standards
+# Database Implementation Summary
+
+## Purpose
+
+This section defines the final implementation requirements before backend development begins.
+
+The database must be considered complete before any application code is written.
+
+---
+
+## Database Deliverables
+
+The database implementation shall include
+
+Tables
+
+Relationships
+
+Primary Keys
+
+Foreign Keys
+
+Constraints
+
+Indexes
+
+Views
+
+Triggers
+
+Seed Data
+
+Migration Scripts
+
+Rollback Scripts
+
+Backup Configuration
+
+Documentation
+
+---
+
+## Required Tables
+
+employees
+
+shifts
+
+attendance_sessions
+
+attendance_events
+
+absence_intervals
+
+users
+
+roles
+
+settings
+
+notifications
+
+audit_logs
+
+webhook_logs
+
+---
+
+## Required Views
+
+vw_current_attendance
+
+vw_dashboard_statistics
+
+vw_late_employees
+
+vw_employees_outside
+
+vw_employee_history
+
+vw_absence_history
+
+vw_today_events
+
+vw_notifications
+
+vw_webhook_activity
+
+vw_audit_history
+
+---
+
+## Required Triggers
+
+Automatic updated_at maintenance
+
+Database integrity validation
+
+Audit support
+
+---
+
+## Required Seed Data
+
+Roles
+
+Administrator
+
+Manager
+
+Viewer
+
+---
+
+Shifts
+
+Day Shift
+
+17:00 → 01:00
+
+Grace Period
+
+15 Minutes
+
+---
+
+Night Shift
+
+00:00 → 05:00
+
+Grace Period
+
+15 Minutes
+
+---
+
+System Settings
+
+Dashboard Refresh
+
+5 Seconds
+
+JWT Lifetime
+
+8 Hours
+
+Session Timeout
+
+30 Minutes
+
+---
+
+## Required Documentation
+
+MASTER_SPECIFICATION.md
+
+DATABASE_SCHEMA.md
+
+SQL_SCHEMA.sql
+
+OPENAPI.yaml
+
+UI_DESIGN.md
+
+CURSOR_IMPLEMENTATION_GUIDE.md
+
+---
+
+## Definition of Database Completion
+
+The database implementation is complete only if
+
+All tables have been created.
+
+All relationships have been verified.
+
+All constraints have been verified.
+
+All indexes have been created.
+
+All views have been created.
+
+All triggers have been created.
+
+Seed data has been loaded.
+
+Database security has been configured.
+
+Backup strategy has been implemented.
+
+Performance requirements have been verified.
+
+Documentation has been completed.
+
+---
+
+## Next Development Phase
+
+After successful completion of the database implementation, development shall continue in the following order.
+
+1. Authentication
+
+2. Employee Module
+
+3. Webhook Receiver
+
+4. Attendance Engine
+
+5. Attendance Session Manager
+
+6. Dashboard
+
+7. Reports
+
+8. Administration
+
+9. Testing
+
+10. Production Deployment
+
+---
+
+End of DATABASE_SCHEMA.md

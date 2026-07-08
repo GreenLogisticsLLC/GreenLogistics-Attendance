@@ -1,0 +1,575 @@
+# 04. Business Rules
+
+## Green Logistics Attendance Management System
+
+Version: 1.0
+
+Status: Draft
+
+---
+
+# Introduction
+
+This document defines the business rules used by the Attendance Management System.
+
+Business rules describe how the system must behave when processing attendance events.
+
+Every software component must follow these rules.
+
+If implementation conflicts with this document, this document has priority.
+
+---
+
+# Chapter 1 — Attendance Rules
+
+## BR-001 — Attendance Source
+
+Attendance information is received only from the Access Control System through the official API.
+
+Manual attendance creation is not allowed.
+
+---
+
+## BR-002 — Event Recording
+
+Every received attendance event must be stored permanently.
+
+Attendance events are never deleted.
+
+---
+
+## BR-003 — Event Order
+
+Events are processed in chronological order.
+
+If two events have identical timestamps, they are processed in the order received.
+
+---
+
+## BR-004 — Employee Identification
+
+Every attendance event must belong to one employee.
+
+If the employee cannot be identified, the event is marked as Unknown and stored for administrator review.
+
+---
+
+## BR-005 — Working Schedule
+
+Every employee must have one active working schedule.
+
+Attendance calculations use only the assigned working schedule.
+
+---
+
+## BR-006 — Overtime
+
+The Attendance Management System does not calculate overtime.
+
+Early arrivals and late departures are recorded but do not affect attendance calculations.
+
+---
+
+## BR-007 — Attendance History
+
+Attendance history is permanent.
+
+Historical attendance records cannot be removed.
+
+Only administrative correction records may be added.
+
+BR-015 — Late Arrival
+
+Description:
+Employee is considered late if the first entry is recorded after the 15-minute grace period.
+
+Example:
+Shift: 17:00
+Entry: 17:16
+
+Expected Result:
+Late = Yes
+Late Minutes = 1
+Dashboard Status = Red
+History = Create Late Record
+
+---
+
+# Chapter 2 — Shift Rules
+
+## BR-008 — Work Shift Assignment
+
+Every employee must be assigned exactly one active work shift.
+
+Attendance calculations are always based on the assigned work shift.
+
+If no active shift is assigned, attendance cannot be calculated and the event must be marked for administrator review.
+
+---
+
+## BR-009 — Day Shift
+
+Official Day Shift:
+
+Start Time: 17:00
+
+End Time: 01:00 (next calendar day)
+
+Grace Period: 15 minutes
+
+Late After: 17:15
+
+---
+
+## BR-010 — Night Shift
+
+Official Night Shift:
+
+Start Time: 00:00
+
+End Time: 05:00
+
+Grace Period: 15 minutes
+
+Late After: 00:15
+
+---
+
+## BR-011 — Grace Period
+
+Every work shift includes a 15-minute grace period.
+
+Employees arriving during the grace period are considered On Time.
+
+Examples:
+
+17:00 → On Time
+
+17:08 → On Time
+
+17:15 → On Time
+
+17:16 → Late
+
+---
+
+## BR-012 — Late Arrival
+
+An employee becomes Late immediately after the grace period expires.
+
+Late Minutes are calculated from the end of the grace period.
+
+Example:
+
+Shift Start
+
+17:00
+
+Grace Period Ends
+
+17:15
+
+Employee Entry
+
+17:21
+
+Late Minutes
+
+6
+
+---
+
+## BR-013 — Early Arrival
+
+Employees may arrive before the scheduled shift.
+
+Early arrival is recorded.
+
+Early arrival does not affect attendance calculations.
+
+No overtime is calculated.
+
+---
+
+## BR-014 — Late Departure
+
+Employees may leave after the scheduled shift end.
+
+The event is recorded.
+
+Late departure does not create overtime.
+
+Late departure does not modify attendance calculations.
+
+---
+
+## BR-015 — Official Schedule
+
+Only the official employee schedule is used for attendance calculations.
+
+The system must ignore early arrivals and late departures when determining attendance results.
+
+---
+
+# Chapter 3 — Office Exit and Return Rules
+
+## BR-016 — Office Exit
+
+Every exit from the office during the employee's working shift must be recorded.
+
+The system stores:
+
+- Exit Time
+- Employee
+- Current Shift
+- Event Source
+- Event ID
+
+---
+
+## BR-017 — Office Return
+
+Every return to the office must be recorded.
+
+The return event closes the current absence interval.
+
+---
+
+## BR-018 — Absence Interval
+
+An absence interval starts when the employee exits the office.
+
+The interval ends when the employee returns.
+
+Example:
+
+Exit:
+18:42
+
+Return:
+18:49
+
+Absence:
+7 minutes
+
+---
+
+## BR-019 — Multiple Absences
+
+An employee may leave and return multiple times during the same working shift.
+
+Every absence interval must be stored independently.
+
+Example:
+
+18:42 → 18:49
+
+20:15 → 20:57
+
+22:08 → 22:14
+
+The system stores all intervals.
+
+---
+
+## BR-020 — Total Absence Time
+
+The system automatically calculates:
+
+Total Absence Time =
+Sum of all absence intervals during the working shift.
+
+Example:
+
+7 min
+
+42 min
+
+6 min
+
+Total:
+55 minutes
+
+---
+
+## BR-021 — Current Absence
+
+If an employee is currently outside the office, the Dashboard shall display:
+
+Current Status
+
+Outside Office
+
+Current Absence Duration
+
+Running Timer
+
+Example:
+
+Outside Office
+
+18 minutes
+
+---
+
+## BR-022 — Number of Exits
+
+The system automatically counts every office exit during the working shift.
+
+Example:
+
+Today
+
+3 exits
+
+---
+
+## BR-023 — Office Presence
+
+The employee may have only one of the following statuses:
+
+Inside Office
+
+Outside Office
+
+Working Day Finished
+
+Not Arrived
+
+Unknown
+
+Only one status may be active at any moment.
+
+---
+
+## BR-024 — Dashboard Display
+
+The Dashboard shall display:
+
+Current Status
+
+First Entry Time
+
+Last Exit Time
+
+Current Absence (if applicable)
+
+Total Absence Time
+
+Late Status
+
+The Dashboard shall not display overtime information.
+
+---
+
+## BR-025 — Attendance History
+
+Every office exit and every office return must remain permanently stored.
+
+Historical records cannot be deleted.
+
+Administrative corrections must be stored separately.
+---
+
+# Chapter 4 — Exception Rules
+
+## BR-026 — Unknown Employee
+
+If an attendance event is received for an unknown employee, the event must not be discarded.
+
+The system shall:
+
+- Store the event.
+- Mark the event as Unknown Employee.
+- Create an administrator notification.
+- Keep the event available for future investigation.
+
+---
+
+## BR-027 — Duplicate Entry
+
+If an employee is already inside the office and another Entry event is received, the system shall:
+
+- Store the event.
+- Mark it as Duplicate Entry.
+- Keep the employee status as Inside Office.
+- Do not create a new attendance session.
+
+---
+
+## BR-028 — Duplicate Exit
+
+If an employee is already outside the office and another Exit event is received, the system shall:
+
+- Store the event.
+- Mark it as Duplicate Exit.
+- Keep the employee status as Outside Office.
+
+---
+
+## BR-029 — Missing Exit
+
+If the employee enters the office while the previous attendance session has no recorded exit, the system shall:
+
+- Close the previous attendance session automatically.
+- Mark the session as Missing Exit.
+- Notify the administrator.
+
+---
+
+## BR-030 — Missing Entry
+
+If an Exit event is received but no Entry event exists for the current working day, the system shall:
+
+- Store the event.
+- Mark it as Missing Entry.
+- Notify the administrator.
+
+---
+
+## BR-031 — Invalid Event
+
+If an event cannot be validated, the system shall:
+
+- Store the original payload.
+- Mark the event as Invalid.
+- Generate an administrator notification.
+
+The event must never be deleted.
+
+---
+
+## BR-032 — Webhook Failure
+
+If the webhook request cannot be processed:
+
+- Save the request in the system log.
+- Record the error message.
+- Return the appropriate HTTP response.
+- Never lose the received payload.
+
+---
+
+## BR-033 — Manual Review
+
+Every exception requires manual administrator review.
+
+The administrator may:
+
+- Approve the event.
+- Correct the event.
+- Ignore the event.
+
+Every administrative action must be logged.
+
+---
+
+## BR-034 — Audit Trail
+
+Every correction performed by an administrator shall create an audit record.
+
+The original attendance event must remain unchanged.
+
+The system shall always preserve the original history.
+04_Business_Rules.md
+
+SECTION 1
+Attendance Rules
+
+SECTION 2
+Shift Rules
+
+SECTION 3
+Late Rules
+
+SECTION 4
+Office Exit Rules
+
+SECTION 5
+Office Return Rules
+
+SECTION 6
+Employee Status Rules
+
+SECTION 7
+Dashboard Rules
+
+SECTION 8
+History Rules
+
+SECTION 9
+Exception Rules
+
+SECTION 10
+Administrator Rules
+
+SECTION 11
+System Rules
+
+SECTION 12
+Future Extensions
+Attendance Session
+
+Employee
+
+Art Grig
+
+Shift
+
+17:00 - 01:00
+
+Date
+
+02 Jul 2026
+17:02 Entry
+
+18:31 Exit
+
+18:38 Entry
+
+20:11 Exit
+
+20:56 Entry
+
+01:08 Exit
+Entry
+
+Exit
+
+Entry
+
+Exit
+
+Entry
+
+Exit
+Attendance Session
+
+↓
+
+Events
+
+↓
+
+Absence Intervals
+
+↓
+
+Statistics
+Employee
+
+↓
+
+Attendance Session
+
+↓
+
+Attendance Events
+
+↓
+
+Absence Intervals
+
+↓
+
+Statistics

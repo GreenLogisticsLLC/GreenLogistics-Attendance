@@ -1,0 +1,10517 @@
+# Green Logistics Attendance Management System
+
+# MASTER SPECIFICATION
+
+Version 1.0
+
+Project Status: Architecture Phase
+
+Company:
+Green Logistics LLC
+
+Author:
+System Architecture Team
+
+Document Type:
+Software Architecture Specification (SAS)
+
+---
+
+# TABLE OF CONTENTS
+
+PART I
+
+1. Vision
+
+2. Goals
+
+3. Scope
+
+4. Project Principles
+
+---
+
+PART II
+
+5. High-Level Architecture
+
+6. Modules
+
+7. System Components
+
+8. Data Flow
+
+---
+
+PART III
+
+9. Attendance Engine
+
+10. Attendance Session
+
+11. Attendance Events
+
+12. Attendance Status
+
+13. Business Rules
+
+---
+
+PART IV
+
+14. Database
+
+15. API
+
+16. Backend
+
+17. Frontend
+
+---
+
+PART V
+
+18. Dashboard
+
+19. Reports
+
+20. Administration
+
+---
+
+PART VI
+
+21. Security
+
+22. Logging
+
+23. Testing
+
+24. Deployment
+
+25. Future CRM Integration
+
+---
+
+# PART I
+
+# 1 Vision
+
+Green Logistics Attendance Management System is the first software module of the future Green Logistics Platform.
+
+The purpose of this system is to provide reliable, real-time employee attendance management while maintaining complete historical records of every attendance event.
+
+The system is designed for long-term scalability.
+
+Every architectural decision must support future expansion without redesign.
+
+---
+
+# 2 Primary Goals
+
+The system shall:
+
+• Receive attendance events from the access control system.
+
+• Process attendance events.
+
+• Store all events permanently.
+
+• Calculate employee attendance.
+
+• Detect late arrivals.
+
+• Track employee office exits.
+
+• Track employee returns.
+
+• Calculate total office absence time.
+
+• Display real-time employee status.
+
+• Generate attendance reports.
+
+• Provide historical records.
+
+• Integrate with future CRM.
+
+---
+
+# 3 Core Principles
+
+The architecture follows these principles.
+
+Documentation First.
+
+Business Rules First.
+
+API First.
+
+Event Driven.
+
+Permanent History.
+
+No Data Loss.
+
+Modular Design.
+
+Scalable Architecture.
+
+Single Responsibility.
+
+Security by Design.
+
+---
+
+# 4 System Philosophy
+
+The system never guesses.
+
+The system never assumes.
+
+The system only processes verified events received from the access control system.
+
+Every calculation originates from recorded events.
+
+Every event remains permanently stored.
+
+The history is immutable.
+
+Corrections never overwrite history.
+
+Corrections create additional records.
+
+---
+
+# PART II
+
+# 5 High-Level Architecture
+
+External Access Control System
+
+↓
+
+Webhook API
+
+↓
+
+Integration Layer
+
+↓
+
+Attendance Engine
+
+↓
+
+Attendance Session Manager
+
+↓
+
+Business Rules Engine
+
+↓
+
+Database
+
+↓
+
+Dashboard
+
+↓
+
+Reports
+
+↓
+
+Administration
+
+---
+
+# 6 System Modules
+
+Module 1
+
+Integration Layer
+
+Module 2
+
+Attendance Engine
+
+Module 3
+
+Attendance Session Manager
+
+Module 4
+
+Business Rules Engine
+
+Module 5
+
+Dashboard
+
+Module 6
+
+Reporting
+
+Module 7
+
+Administration
+
+Module 8
+
+Notification Center
+
+Module 9
+
+Audit System
+
+Module 10
+
+Configuration
+---
+
+# 7 Attendance Engine
+
+## Overview
+
+The Attendance Engine is the core component of the Green Logistics Attendance Management System.
+
+Its responsibility is to transform raw attendance events into structured attendance sessions.
+
+The Attendance Engine never communicates directly with users.
+
+Its only responsibility is business processing.
+
+---
+
+## Responsibilities
+
+The Attendance Engine shall:
+
+• Receive validated attendance events
+
+• Identify employee
+
+• Determine employee shift
+
+• Create attendance sessions
+
+• Update attendance sessions
+
+• Detect late arrivals
+
+• Calculate office absence intervals
+
+• Maintain employee current status
+
+• Generate dashboard information
+
+• Store all attendance events
+
+• Produce audit information
+
+---
+
+## Input
+
+The engine receives only validated events from the Integration Layer.
+
+Example:
+
+Employee ID
+
+Timestamp
+
+Direction (IN / OUT)
+
+Device ID
+
+Webhook Event ID
+
+---
+
+## Output
+
+Attendance Session
+
+Attendance Event
+
+Absence Interval
+
+Dashboard Update
+
+Audit Log
+
+Notification (if required)
+
+---
+
+# 8 Attendance Session
+
+Attendance Session is the central business object of the system.
+
+One employee may have many attendance sessions.
+
+Only one attendance session may exist for one employee during one scheduled work shift.
+
+---
+
+## Attendance Session contains
+
+Session ID
+
+Employee ID
+
+Shift ID
+
+Work Date
+
+Scheduled Start
+
+Scheduled End
+
+Actual First Entry
+
+Actual Last Exit
+
+Current Status
+
+Late Status
+
+Late Minutes
+
+Current Absence
+
+Total Absence Time
+
+Number of Exits
+
+Created At
+
+Updated At
+
+---
+
+## Session Lifecycle
+
+Scheduled
+
+↓
+
+Started
+
+↓
+
+Working
+
+↓
+
+Outside Office
+
+↓
+
+Working
+
+↓
+
+Outside Office
+
+↓
+
+Working
+
+↓
+
+Completed
+
+---
+
+## Session Statuses
+
+Scheduled
+
+Working
+
+Outside Office
+
+Completed
+
+Exception
+
+Cancelled
+
+---
+
+# 9 Attendance Events
+
+Attendance Events are immutable.
+
+Events are never edited.
+
+Events are never deleted.
+
+Each event belongs to exactly one Attendance Session.
+
+---
+
+## Event Types
+
+ENTRY
+
+EXIT
+
+UNKNOWN
+
+DUPLICATE_ENTRY
+
+DUPLICATE_EXIT
+
+MANUAL_CORRECTION
+
+SYSTEM_CORRECTION
+
+---
+
+## Event Fields
+
+Event ID
+
+Session ID
+
+Employee ID
+
+Timestamp
+
+Direction
+
+Device
+
+Source
+
+Webhook ID
+
+Created At
+
+---
+
+# 10 Absence Interval
+
+An Absence Interval begins when an employee exits the office.
+
+The interval ends when the employee enters again.
+
+Each interval belongs to exactly one Attendance Session.
+
+---
+
+## Absence Interval contains
+
+Interval ID
+
+Session ID
+
+Exit Event
+
+Return Event
+
+Start Time
+
+End Time
+
+Duration
+
+---
+
+## Example
+
+18:31 Exit
+
+↓
+
+18:39 Entry
+
+↓
+
+Duration
+
+8 minutes
+
+---
+
+# 11 Current Employee Status
+
+Every employee may have only one current status.
+
+Available statuses
+
+Not Arrived
+
+Inside Office
+
+Outside Office
+
+Completed
+
+Unknown
+
+Exception
+
+---
+
+Status changes only after processing a new attendance event.
+
+---
+
+# 12 Dashboard Engine
+
+The Dashboard never performs calculations.
+
+It displays calculated information produced by the Attendance Engine.
+
+---
+
+Dashboard shows
+
+Employee Name
+
+Current Status
+
+Shift
+
+First Entry
+
+Last Exit
+
+Current Absence
+
+Total Absence
+
+Late Status
+
+Late Minutes
+
+Number of Exits
+
+Current Office Presence
+
+---
+
+Dashboard refreshes automatically after every processed attendance event.
+
+---
+
+# 13 Business Rules Engine
+
+The Business Rules Engine is responsible for all attendance calculations.
+
+Rules include
+
+Late Detection
+
+Grace Period
+
+Shift Assignment
+
+Attendance Session Creation
+
+Attendance Session Completion
+
+Absence Calculation
+
+Duplicate Detection
+
+Exception Handling
+
+Dashboard Updates
+
+Audit Generation
+
+Notification Generation
+
+No business logic is implemented outside the Business Rules Engine.
+---
+
+# PART III
+
+# 14 Data Model
+
+## Overview
+
+The database is designed around one central entity:
+
+Attendance Session
+
+Every other entity belongs to, references, or supports an Attendance Session.
+
+No attendance calculations are permanently stored unless explicitly required for system performance.
+
+---
+
+# Core Entities
+
+Employee
+
+↓
+
+Shift
+
+↓
+
+Attendance Session
+
+↓
+
+Attendance Events
+
+↓
+
+Absence Intervals
+
+↓
+
+Audit Logs
+
+↓
+
+Notifications
+
+---
+
+# Employee
+
+Represents one company employee.
+
+Fields
+
+Employee ID
+
+Employee Number
+
+First Name
+
+Last Name
+
+Department
+
+Position
+
+Access Card
+
+Shift ID
+
+Status
+
+Created At
+
+Updated At
+
+---
+
+# Shift
+
+Represents employee work schedule.
+
+Fields
+
+Shift ID
+
+Shift Name
+
+Start Time
+
+End Time
+
+Grace Period
+
+Cross Midnight
+
+Active
+
+---
+
+Default shifts
+
+Day Shift
+
+17:00 → 01:00
+
+Grace Period
+
+15 Minutes
+
+Night Shift
+
+00:00 → 05:00
+
+Grace Period
+
+15 Minutes
+
+---
+
+# Attendance Session
+
+One working day.
+
+One employee.
+
+One shift.
+
+Fields
+
+Session ID
+
+Employee ID
+
+Shift ID
+
+Work Date
+
+Scheduled Start
+
+Scheduled End
+
+Actual First Entry
+
+Actual Last Exit
+
+Current Status
+
+Created At
+
+Updated At
+
+---
+
+# Attendance Event
+
+Represents every card scan.
+
+Fields
+
+Event ID
+
+Session ID
+
+Employee ID
+
+Timestamp
+
+Direction
+
+Device ID
+
+Webhook ID
+
+Source
+
+Event Type
+
+Created At
+
+---
+
+# Absence Interval
+
+Represents time outside the office.
+
+Fields
+
+Interval ID
+
+Session ID
+
+Exit Event ID
+
+Return Event ID
+
+Start Time
+
+End Time
+
+Duration Minutes
+
+Created At
+
+---
+
+# Notification
+
+Represents system notifications.
+
+Fields
+
+Notification ID
+
+Employee ID
+
+Type
+
+Priority
+
+Message
+
+Status
+
+Created At
+
+---
+
+# Audit Log
+
+Every administrative action.
+
+Fields
+
+Audit ID
+
+Employee ID
+
+Administrator
+
+Action
+
+Previous Value
+
+New Value
+
+Reason
+
+Timestamp
+
+---
+
+# Configuration
+
+Stores system settings.
+
+Fields
+
+Configuration ID
+
+Category
+
+Key
+
+Value
+
+Description
+
+Updated By
+
+Updated At
+
+---
+
+# Relationships
+
+Employee
+
+1
+
+↓
+
+Many
+
+Attendance Sessions
+
+Attendance Session
+
+1
+
+↓
+
+Many
+
+Attendance Events
+
+Attendance Session
+
+1
+
+↓
+
+Many
+
+Absence Intervals
+
+Employee
+
+1
+
+↓
+
+One
+
+Shift
+
+Shift
+
+1
+
+↓
+
+Many
+
+Employees
+
+---
+
+# Database Principles
+
+No event is deleted.
+
+No attendance session is deleted.
+
+No audit log is deleted.
+
+History is immutable.
+
+Updates create audit records.
+
+Soft delete is preferred over hard delete where applicable.
+
+---
+
+# Indexing
+
+Create indexes for
+
+Employee ID
+
+Session Date
+
+Shift ID
+
+Timestamp
+
+Webhook ID
+
+Current Status
+
+These indexes are required for performance.
+
+---
+
+# PART IV
+
+# 15 Integration Layer
+
+## Purpose
+
+The Integration Layer is responsible for communication between the external Access Control System and the Green Logistics Attendance Management System.
+
+This layer contains no attendance business logic.
+
+Its only responsibility is receiving, validating and forwarding events.
+
+---
+
+## Responsibilities
+
+Receive Webhook Requests
+
+Authenticate Requests
+
+Validate JSON
+
+Validate Required Fields
+
+Normalize Data
+
+Generate Internal Event
+
+Forward Event
+
+Log Request
+
+Log Response
+
+Handle Errors
+
+Prevent Duplicate Processing
+
+---
+
+# Input Source
+
+The Integration Layer accepts requests only from the official Access Control System.
+
+Supported method
+
+POST
+
+Content-Type
+
+application/json
+
+Authorization
+
+Bearer Token
+
+---
+
+# Event Processing Pipeline
+
+Webhook Request
+
+↓
+
+Authentication
+
+↓
+
+Authorization
+
+↓
+
+JSON Validation
+
+↓
+
+Field Validation
+
+↓
+
+Normalize Event
+
+↓
+
+Generate Internal Event
+
+↓
+
+Queue Processing
+
+↓
+
+Attendance Engine
+
+↓
+
+Database
+
+↓
+
+Dashboard
+
+---
+
+# Required Fields
+
+Employee Identifier
+
+Timestamp
+
+Direction
+
+Device ID
+
+Webhook ID
+
+Source
+
+---
+
+# Validation Rules
+
+Employee Identifier
+
+Required
+
+Timestamp
+
+Required
+
+Direction
+
+Required
+
+Device
+
+Required
+
+Webhook ID
+
+Required
+
+Authorization
+
+Required
+
+---
+
+# Duplicate Protection
+
+Every Webhook Event must have a unique identifier.
+
+If the same Webhook ID is received again:
+
+Store Request
+
+Mark Duplicate
+
+Ignore Business Processing
+
+Return Success
+
+---
+
+# Queue Processing
+
+Attendance processing shall be asynchronous.
+
+Webhook Response must be returned immediately.
+
+Attendance calculations happen in the background.
+
+---
+
+# Error Handling
+
+Invalid JSON
+
+↓
+
+HTTP 400
+
+Unauthorized
+
+↓
+
+HTTP 401
+
+Missing Fields
+
+↓
+
+HTTP 422
+
+Internal Error
+
+↓
+
+HTTP 500
+
+Every error must be logged.
+
+---
+
+# Integration Logs
+
+Every request shall be stored.
+
+Stored information
+
+Request Time
+
+Source IP
+
+Headers
+
+Payload
+
+Response Code
+
+Processing Time
+
+Status
+
+---
+
+# Retry Strategy
+
+If processing fails
+
+Retry automatically
+
+Maximum retries
+
+3
+
+After third failure
+
+Move to Dead Letter Queue
+
+Notify Administrator
+
+---
+
+# Dead Letter Queue
+
+Purpose
+
+Store failed webhook events.
+
+Administrator may
+
+Review
+
+Retry
+
+Ignore
+
+Export
+
+No event is permanently deleted.
+# 16 API Layer
+
+Purpose
+
+Provide secure communication between Attendance System and future Green Logistics Platform.
+
+---
+
+## Internal APIs
+
+Employee API
+
+Attendance API
+
+Dashboard API
+
+Administration API
+
+Reporting API
+
+Notification API
+
+Audit API
+
+Configuration API
+
+---
+
+## API Principles
+
+REST API
+
+JSON
+
+HTTPS Only
+
+Bearer Authentication
+
+Versioning
+
+/api/v1/
+
+Stateless
+
+---
+
+## Authentication
+
+Bearer Token
+
+JWT
+
+Future OAuth2 Support
+
+---
+
+## API Response
+
+Every API returns
+
+Success
+
+Data
+
+Errors
+
+Timestamp
+
+Request ID
+
+---
+
+## Example
+
+GET
+
+/api/v1/employees
+
+POST
+
+/api/v1/attendance
+
+GET
+
+/api/v1/dashboard
+
+GET
+
+/api/v1/reports
+
+GET
+
+/api/v1/sessions
+
+GET
+
+/api/v1/events
+
+POST
+
+/api/v1/admin/reprocess
+---
+
+# PART V
+
+# 17 Backend Architecture
+
+## Overview
+
+The Backend is responsible for executing all business logic defined in this specification.
+
+No business rules shall exist in the frontend.
+
+No direct database access is allowed outside backend services.
+
+The backend is the only component responsible for data consistency.
+
+---
+
+# Backend Layers
+
+API Layer
+
+↓
+
+Controllers
+
+↓
+
+Application Services
+
+↓
+
+Business Rules Engine
+
+↓
+
+Repositories
+
+↓
+
+Database
+
+---
+
+# Backend Components
+
+API Gateway
+
+Authentication Service
+
+Employee Service
+
+Attendance Service
+
+Attendance Session Service
+
+Attendance Event Service
+
+Absence Service
+
+Dashboard Service
+
+Reporting Service
+
+Notification Service
+
+Audit Service
+
+Configuration Service
+
+Webhook Service
+
+Queue Processor
+
+Background Scheduler
+
+Health Monitor
+
+Logging Service
+
+---
+
+# Authentication Service
+
+Responsibilities
+
+Validate JWT
+
+Validate Bearer Token
+
+Generate User Session
+
+Check Permissions
+
+Refresh Tokens
+
+Logout
+
+---
+
+# Employee Service
+
+Responsibilities
+
+Create Employee
+
+Update Employee
+
+Deactivate Employee
+
+Assign Shift
+
+Assign Card
+
+Assign Department
+
+Search Employee
+
+Current Status
+
+---
+
+# Attendance Service
+
+Responsibilities
+
+Create Attendance Session
+
+Process Attendance Event
+
+Update Current Status
+
+Close Session
+
+Recalculate Session
+
+Generate Statistics
+
+---
+
+# Attendance Session Service
+
+Responsibilities
+
+Open Session
+
+Update Session
+
+Close Session
+
+Validate Session
+
+Detect Inconsistencies
+
+---
+
+# Attendance Event Service
+
+Responsibilities
+
+Store Event
+
+Validate Event
+
+Assign Session
+
+Detect Duplicate
+
+Generate Audit
+
+---
+
+# Absence Service
+
+Responsibilities
+
+Open Absence Interval
+
+Close Absence Interval
+
+Calculate Duration
+
+Calculate Total Absence
+
+Current Absence
+
+---
+
+# Dashboard Service
+
+Responsibilities
+
+Live Dashboard
+
+Today's Employees
+
+Late Employees
+
+Employees Outside Office
+
+Current Presence
+
+Today's Statistics
+
+---
+
+# Reporting Service
+
+Responsibilities
+
+Daily Report
+
+Weekly Report
+
+Monthly Report
+
+Employee Report
+
+Late Report
+
+Attendance Report
+
+Absence Report
+
+CSV Export
+
+Excel Export
+
+PDF Export
+
+---
+
+# Notification Service
+
+Responsibilities
+
+Late Arrival Notification
+
+Webhook Failure
+
+Duplicate Event
+
+Unknown Employee
+
+System Error
+
+Administrator Notification
+
+---
+
+# Audit Service
+
+Responsibilities
+
+Track Every Change
+
+Track Manual Corrections
+
+Track Configuration Changes
+
+Track Login History
+
+Track API Access
+
+---
+
+# Configuration Service
+
+Responsibilities
+
+System Settings
+
+Shift Settings
+
+Grace Period
+
+Holiday Calendar
+
+Departments
+
+User Roles
+
+API Configuration
+
+---
+
+# Queue Processor
+
+Purpose
+
+Process events asynchronously.
+
+Queue Types
+
+Webhook Queue
+
+Attendance Queue
+
+Notification Queue
+
+Report Queue
+
+Retry Queue
+
+---
+
+# Background Scheduler
+
+Runs automatically.
+
+Tasks
+
+Close Open Sessions
+
+Generate Reports
+
+Cleanup Logs
+
+Health Checks
+
+Backup Database
+
+Archive Old Logs
+
+---
+
+# Health Monitor
+
+Checks
+
+Database Connection
+
+API Availability
+
+Webhook Availability
+
+Queue Status
+
+Disk Space
+
+Memory Usage
+
+CPU Usage
+
+Response Time
+
+---
+
+# Logging Service
+
+Application Logs
+
+Webhook Logs
+
+Security Logs
+
+Audit Logs
+
+Performance Logs
+
+Error Logs
+
+---
+
+# Design Principles
+
+Single Responsibility
+
+Dependency Injection
+
+Repository Pattern
+
+Service Layer
+
+Event Driven
+
+REST API
+
+Stateless Services
+
+Configuration Driven
+
+No Business Logic in Controllers
+
+No Business Logic in Frontend
+---
+
+# PART V
+
+# 17 Backend Architecture
+
+## Overview
+
+The Backend is responsible for executing all business logic defined in this specification.
+
+No business rules shall exist in the frontend.
+
+No direct database access is allowed outside backend services.
+
+The backend is the only component responsible for data consistency.
+
+---
+
+# Backend Layers
+
+API Layer
+
+↓
+
+Controllers
+
+↓
+
+Application Services
+
+↓
+
+Business Rules Engine
+
+↓
+
+Repositories
+
+↓
+
+Database
+
+---
+
+# Backend Components
+
+API Gateway
+
+Authentication Service
+
+Employee Service
+
+Attendance Service
+
+Attendance Session Service
+
+Attendance Event Service
+
+Absence Service
+
+Dashboard Service
+
+Reporting Service
+
+Notification Service
+
+Audit Service
+
+Configuration Service
+
+Webhook Service
+
+Queue Processor
+
+Background Scheduler
+
+Health Monitor
+
+Logging Service
+
+---
+
+# Authentication Service
+
+Responsibilities
+
+Validate JWT
+
+Validate Bearer Token
+
+Generate User Session
+
+Check Permissions
+
+Refresh Tokens
+
+Logout
+
+---
+
+# Employee Service
+
+Responsibilities
+
+Create Employee
+
+Update Employee
+
+Deactivate Employee
+
+Assign Shift
+
+Assign Card
+
+Assign Department
+
+Search Employee
+
+Current Status
+
+---
+
+# Attendance Service
+
+Responsibilities
+
+Create Attendance Session
+
+Process Attendance Event
+
+Update Current Status
+
+Close Session
+
+Recalculate Session
+
+Generate Statistics
+
+---
+
+# Attendance Session Service
+
+Responsibilities
+
+Open Session
+
+Update Session
+
+Close Session
+
+Validate Session
+
+Detect Inconsistencies
+
+---
+
+# Attendance Event Service
+
+Responsibilities
+
+Store Event
+
+Validate Event
+
+Assign Session
+
+Detect Duplicate
+
+Generate Audit
+
+---
+
+# Absence Service
+
+Responsibilities
+
+Open Absence Interval
+
+Close Absence Interval
+
+Calculate Duration
+
+Calculate Total Absence
+
+Current Absence
+
+---
+
+# Dashboard Service
+
+Responsibilities
+
+Live Dashboard
+
+Today's Employees
+
+Late Employees
+
+Employees Outside Office
+
+Current Presence
+
+Today's Statistics
+
+---
+
+# Reporting Service
+
+Responsibilities
+
+Daily Report
+
+Weekly Report
+
+Monthly Report
+
+Employee Report
+
+Late Report
+
+Attendance Report
+
+Absence Report
+
+CSV Export
+
+Excel Export
+
+PDF Export
+
+---
+
+# Notification Service
+
+Responsibilities
+
+Late Arrival Notification
+
+Webhook Failure
+
+Duplicate Event
+
+Unknown Employee
+
+System Error
+
+Administrator Notification
+
+---
+
+# Audit Service
+
+Responsibilities
+
+Track Every Change
+
+Track Manual Corrections
+
+Track Configuration Changes
+
+Track Login History
+
+Track API Access
+
+---
+
+# Configuration Service
+
+Responsibilities
+
+System Settings
+
+Shift Settings
+
+Grace Period
+
+Holiday Calendar
+
+Departments
+
+User Roles
+
+API Configuration
+
+---
+
+# Queue Processor
+
+Purpose
+
+Process events asynchronously.
+
+Queue Types
+
+Webhook Queue
+
+Attendance Queue
+
+Notification Queue
+
+Report Queue
+
+Retry Queue
+
+---
+
+# Background Scheduler
+
+Runs automatically.
+
+Tasks
+
+Close Open Sessions
+
+Generate Reports
+
+Cleanup Logs
+
+Health Checks
+
+Backup Database
+
+Archive Old Logs
+
+---
+
+# Health Monitor
+
+Checks
+
+Database Connection
+
+API Availability
+
+Webhook Availability
+
+Queue Status
+
+Disk Space
+
+Memory Usage
+
+CPU Usage
+
+Response Time
+
+---
+
+# Logging Service
+
+Application Logs
+
+Webhook Logs
+
+Security Logs
+
+Audit Logs
+
+Performance Logs
+
+Error Logs
+
+---
+
+# Design Principles
+
+Single Responsibility
+
+Dependency Injection
+
+Repository Pattern
+
+Service Layer
+
+Event Driven
+
+REST API
+
+Stateless Services
+
+Configuration Driven
+
+No Business Logic in Controllers
+
+No Business Logic in Frontend
+# 19 Dashboard Design
+
+## Live Dashboard
+
+The Dashboard refreshes automatically.
+
+Refresh Interval
+
+5 seconds
+
+---
+
+Sections
+
+Current Office
+
+Late Arrivals
+
+Outside Office
+
+Completed Shifts
+
+Attendance Summary
+
+Exceptions
+
+System Health
+
+---
+
+Employee Status Colors
+
+Green
+
+Inside Office
+
+Yellow
+
+Outside Office
+
+Red
+
+Late
+
+Blue
+
+Completed
+
+Gray
+
+Not Arrived
+
+Purple
+
+Exception
+
+---
+
+Dashboard KPI
+
+Employees Scheduled
+
+Employees Present
+
+Employees Outside
+
+Late Employees
+
+Completed Shifts
+
+Open Exceptions
+
+Webhook Status
+
+API Status
+
+Database Status
+
+---
+
+Office Statistics
+
+Current Occupancy
+
+Today's Attendance Rate
+
+Today's Late Rate
+
+Average Absence Time
+
+Current Active Sessions
+
+Today's Completed Sessions
+
+---
+
+Quick Actions
+
+Employee Search
+
+Open Attendance Session
+
+Generate Report
+
+Open Administration
+
+Refresh Dashboard
+---
+
+# PART VIII
+
+# 20 Security Architecture
+
+## Purpose
+
+The Security Architecture protects the Green Logistics Attendance Management System from unauthorized access, data loss, and security threats.
+
+Security applies to every layer of the application.
+
+---
+
+## Security Principles
+
+Least Privilege
+
+Role-Based Access Control
+
+Encrypted Communication
+
+Strong Authentication
+
+Audit Logging
+
+No Direct Database Access
+
+Secure API
+
+Immutable Audit Records
+
+---
+
+## Authentication
+
+The system shall support:
+
+JWT Authentication
+
+Bearer Tokens
+
+Refresh Tokens
+
+Session Expiration
+
+Future Single Sign-On (SSO)
+
+Future Multi-Factor Authentication (MFA)
+
+---
+
+## Authorization
+
+Every request must be authorized.
+
+Every user belongs to one or more roles.
+
+Permissions are checked before every protected operation.
+
+---
+
+## Password Policy
+
+Minimum Length
+
+12 Characters
+
+Uppercase Required
+
+Lowercase Required
+
+Number Required
+
+Special Character Required
+
+Password Expiration
+
+180 Days
+
+Password History
+
+Last 10 Passwords
+
+---
+
+## API Security
+
+HTTPS Only
+
+JWT Required
+
+Bearer Authentication
+
+API Versioning
+
+Rate Limiting
+
+Request Validation
+
+Response Validation
+
+Request Logging
+
+---
+
+## Data Protection
+
+Encrypt Sensitive Data
+
+Hash Passwords
+
+Secure API Tokens
+
+Never Store Plain Text Passwords
+
+Protect Personal Information
+
+Protect Access Card Numbers
+
+---
+
+## Audit Requirements
+
+Every login
+
+Every logout
+
+Every configuration change
+
+Every employee modification
+
+Every attendance correction
+
+Every API failure
+
+Every security event
+
+Must be recorded.
+
+---
+
+## Backup Policy
+
+Automatic Daily Backup
+
+Weekly Full Backup
+
+Monthly Archive
+
+Encrypted Storage
+
+Automatic Backup Verification
+
+---
+
+## Disaster Recovery
+
+Restore Database
+
+Restore Configuration
+
+Restore Audit Logs
+
+Restore API Configuration
+
+Maximum Recovery Time
+
+30 Minutes
+# 21 User Roles
+
+## Director
+
+Full system access.
+
+View all employees.
+
+View all reports.
+
+View dashboard.
+
+View attendance.
+
+View administration.
+
+Cannot delete audit history.
+
+---
+
+## Administrator
+
+Manage employees.
+
+Manage shifts.
+
+Manage API.
+
+Manage configuration.
+
+Review exceptions.
+
+Correct attendance.
+
+View reports.
+
+---
+
+## HR Manager
+
+View attendance.
+
+Generate reports.
+
+Review lateness.
+
+Review absence.
+
+Cannot modify attendance history.
+
+Cannot change system configuration.
+
+---
+
+## Team Leader
+
+View assigned department.
+
+View employee attendance.
+
+View late arrivals.
+
+View absence.
+
+Cannot modify attendance.
+
+---
+
+## Employee
+
+View own attendance.
+
+View own history.
+
+View own absence.
+
+View own reports.
+
+Cannot view other employees.
+
+---
+
+## Future Roles
+
+Payroll
+
+IT Support
+
+Security Officer
+
+CRM Operator
+
+Mobile User
+# 22 Logging Strategy
+
+The system logs every important activity.
+
+---
+
+## Application Logs
+
+System startup
+
+Shutdown
+
+Errors
+
+Warnings
+
+Performance
+
+---
+
+## Security Logs
+
+Login
+
+Logout
+
+Authentication Failure
+
+Permission Denied
+
+Invalid Token
+
+API Attack Detection
+
+---
+
+## Attendance Logs
+
+Session Created
+
+Session Closed
+
+Late Arrival
+
+Exit
+
+Return
+
+Manual Correction
+
+---
+
+## Integration Logs
+
+Webhook Received
+
+Webhook Failed
+
+Duplicate Webhook
+
+Retry
+
+Queue Failure
+
+Dead Letter Queue
+
+---
+
+## Audit Logs
+
+Configuration Changes
+
+Shift Changes
+
+Employee Changes
+
+Manual Attendance Changes
+
+Role Changes
+
+Permission Changes
+
+---
+
+## Log Retention
+
+Application Logs
+
+180 Days
+
+Audit Logs
+
+Permanent
+
+Attendance Logs
+
+Permanent
+
+Security Logs
+
+365 Days
+# PART IX
+
+# 23 Testing Strategy
+
+Testing is mandatory.
+
+---
+
+## Unit Testing
+
+Business Rules
+
+Attendance Engine
+
+Repositories
+
+Services
+
+API Validation
+
+Calculations
+
+---
+
+## Integration Testing
+
+Webhook
+
+Database
+
+API
+
+Queue
+
+Dashboard
+
+Notifications
+
+---
+
+## UI Testing
+
+Dashboard
+
+Employee Screen
+
+Reports
+
+Administration
+
+Responsive Layout
+
+Dark Mode
+
+---
+
+## Performance Testing
+
+100 Concurrent Users
+
+10,000 Attendance Events
+
+API Response Time
+
+Database Queries
+
+Dashboard Refresh
+
+---
+
+## Security Testing
+
+Authentication
+
+Authorization
+
+SQL Injection
+
+XSS
+
+CSRF
+
+Broken Authentication
+
+Rate Limiting
+
+---
+
+## Acceptance Testing
+
+Business Rules
+
+Late Detection
+
+Attendance Sessions
+
+Reports
+
+Dashboard
+
+API
+
+Employee Management
+---
+
+# PART X
+
+# 24 Deployment Architecture
+
+## Purpose
+
+The system shall be deployable in development, staging, and production environments without code changes.
+
+Configuration must be environment-specific.
+
+---
+
+## Environments
+
+Development
+
+Local development for programmers.
+
+---
+
+Staging
+
+Testing environment identical to production.
+
+Used for acceptance testing.
+
+---
+
+Production
+
+Live Green Logistics environment.
+
+High availability.
+
+Automatic backup.
+
+Continuous monitoring.
+
+---
+
+## Deployment Components
+
+Web Application
+
+Backend API
+
+Database Server
+
+Reverse Proxy
+
+Webhook Receiver
+
+Background Worker
+
+Scheduler
+
+Logging Service
+
+Backup Service
+
+---
+
+## Configuration
+
+All configuration values shall be stored outside the source code.
+
+Examples
+
+Database Connection
+
+JWT Secret
+
+API Keys
+
+Webhook Secret
+
+SMTP Settings
+
+Company Settings
+
+Working Hours
+
+Grace Period
+
+Notification Settings
+
+---
+
+## Monitoring
+
+Monitor
+
+Database
+
+Webhook
+
+API
+
+Queue
+
+CPU
+
+RAM
+
+Disk
+
+SSL Certificate
+
+Application Health
+
+---
+
+## Backup
+
+Database Backup
+
+Daily
+
+Configuration Backup
+
+Daily
+
+Application Backup
+
+Weekly
+
+Audit Backup
+
+Permanent
+
+---
+
+# 25 Coding Standards
+
+## General Principles
+
+Readable code.
+
+Maintainable code.
+
+Small methods.
+
+Small classes.
+
+One responsibility per class.
+
+One responsibility per service.
+
+---
+
+## Naming
+
+Use English only.
+
+Use meaningful names.
+
+No abbreviations.
+
+Examples
+
+AttendanceSession
+
+AttendanceEvent
+
+EmployeeService
+
+NotificationService
+
+---
+
+## Backend Standards
+
+REST API
+
+Dependency Injection
+
+Repository Pattern
+
+Service Pattern
+
+DTO Pattern
+
+Validation Layer
+
+Global Exception Handler
+
+Structured Logging
+
+---
+
+## Frontend Standards
+
+Reusable Components
+
+No Business Logic
+
+API Only
+
+Responsive Layout
+
+Component Isolation
+
+Role Based Navigation
+
+---
+
+## Database Standards
+
+Primary Keys
+
+Foreign Keys
+
+Indexes
+
+Soft Delete where applicable
+
+Audit Columns
+
+CreatedAt
+
+UpdatedAt
+
+CreatedBy
+
+UpdatedBy
+
+---
+
+## Git Standards
+
+Feature Branches
+
+Pull Requests
+
+Code Review
+
+No direct commits to Main branch.
+
+---
+
+# 26 Definition of Done
+
+A feature is completed only if:
+
+Business Rules implemented.
+
+Unit Tests passed.
+
+Integration Tests passed.
+
+API documented.
+
+Frontend completed.
+
+Logs implemented.
+
+Audit implemented.
+
+Security verified.
+
+Documentation updated.
+
+Code reviewed.
+
+Merged into Main.
+
+---
+
+# 27 Version Roadmap
+
+Version 1.0
+
+Attendance Management
+
+Employee Management
+
+Dashboard
+
+Reports
+
+Administration
+
+Webhook Integration
+
+---
+
+Version 1.5
+
+Email Notifications
+
+SMS Notifications
+
+Advanced Reports
+
+Mobile Responsive UI
+
+Holiday Calendar
+
+---
+
+Version 2.0
+
+CRM Integration
+
+Payroll Integration
+
+HR Module
+
+Task Management
+
+Performance Analytics
+
+Manager Dashboard
+
+---
+
+Version 3.0
+
+AI Analytics
+
+Attendance Forecasting
+
+Behavior Analytics
+
+Mobile Application
+
+Biometric Authentication
+
+Face Recognition
+
+Advanced API
+
+---
+
+# 28 Cursor Development Instructions
+
+Cursor must follow this specification exactly.
+
+Cursor is not allowed to redesign the architecture.
+
+Cursor must not introduce new business rules.
+
+Cursor must not bypass service layers.
+
+Cursor must not access the database directly from the frontend.
+
+Cursor must implement the project module by module.
+
+Development Order
+
+1. Database
+
+2. Backend Core
+
+3. Authentication
+
+4. Employee Module
+
+5. Attendance Engine
+
+6. Attendance Sessions
+
+7. Business Rules
+
+8. Dashboard
+
+9. Reports
+
+10. Administration
+
+11. Notifications
+
+12. Testing
+
+13. Production Deployment
+
+Every completed module must be fully tested before moving to the next module.
+
+---
+
+# 29 AI Development Rules
+
+AI assistants must:
+
+Read the complete specification before implementation.
+
+Follow architecture without modification.
+
+Never replace documented business rules.
+
+Generate clean, modular code.
+
+Avoid unnecessary dependencies.
+
+Use SOLID principles.
+
+Keep modules independent.
+
+Write readable code.
+
+Generate unit tests.
+
+Generate API documentation.
+
+Never delete audit history.
+
+Never remove historical attendance events.
+
+---
+
+# 30 Final Architecture Statement
+
+The Green Logistics Attendance Management System is designed as the first independent module of the future Green Logistics Platform.
+
+The architecture is based on:
+
+Event-Driven Processing
+
+Attendance Sessions
+
+Immutable History
+
+Business Rules Engine
+
+REST API
+
+Modular Services
+
+Role-Based Security
+
+Auditability
+
+Scalability
+
+Future CRM Integration
+
+Every future module of the Green Logistics Platform shall integrate through documented APIs.
+
+No future module may bypass the Attendance API or access the Attendance database directly.
+
+This specification is the single source of truth for the implementation of the Attendance Management System.
+
+End of Version 1.0
+---
+
+# PART XI
+
+# 31 Screen Specifications
+
+## 31.1 Login Screen
+
+Purpose
+
+Authenticate users before accessing the system.
+
+Components
+
+• Company Logo
+
+• Username
+
+• Password
+
+• Login Button
+
+• Remember Me
+
+• Forgot Password
+
+After successful authentication the user is redirected to Dashboard.
+
+---
+
+## 31.2 Dashboard
+
+Purpose
+
+Display the current office attendance in real time.
+
+Dashboard refreshes automatically every five seconds.
+
+The Dashboard is the primary working screen of the system.
+
+Every important attendance event must become visible immediately after processing.
+
+---
+
+Dashboard Layout
+
+Header
+
+↓
+
+Statistics Panel
+
+↓
+
+Employee Table
+
+↓
+
+Current Notifications
+
+↓
+
+System Status
+
+---
+
+Header
+
+Contains
+
+Company Logo
+
+Current Date
+
+Current Time
+
+Logged User
+
+Logout Button
+
+---
+
+Statistics Panel
+
+Display
+
+Employees Scheduled Today
+
+Employees Currently Inside Office
+
+Employees Currently Outside Office
+
+Employees Late
+
+Employees Not Arrived
+
+Completed Working Sessions
+
+---
+
+Employee Table
+
+Columns
+
+Employee
+
+Department
+
+Shift
+
+Scheduled Start
+
+First Entry
+
+Current Status
+
+Current Absence
+
+Today's Absence
+
+Late
+
+Last Event
+
+Last Event Time
+
+---
+
+Employee Status
+
+Inside Office
+
+Outside Office
+
+Late
+
+Not Arrived
+
+Completed
+
+Exception
+
+---
+
+Table Actions
+
+Search
+
+Filter
+
+Sort
+
+Refresh
+
+Open Employee
+
+---
+
+Color Legend
+
+Green
+
+Inside Office
+
+Yellow
+
+Outside Office
+
+Red
+
+Late
+
+Gray
+
+Not Arrived
+
+Blue
+
+Completed
+
+Purple
+
+Exception
+
+---
+
+Current Notifications
+
+Displays
+
+Unknown Card
+
+Webhook Failure
+
+Duplicate Entry
+
+Duplicate Exit
+
+Missing Entry
+
+Missing Exit
+
+API Connection Lost
+
+---
+
+System Status
+
+Database
+
+API
+
+Webhook
+
+Queue
+
+Server
+
+Each component displays
+
+Online
+
+Warning
+
+Offline
+# 32 Employee Screen
+
+Purpose
+
+Display complete attendance information for one employee.
+
+---
+
+Employee Information
+
+Employee Name
+
+Department
+
+Position
+
+Shift
+
+Access Card Number
+
+Status
+
+---
+
+Today's Attendance Session
+
+Scheduled Shift
+
+First Entry
+
+Last Exit
+
+Late Minutes
+
+Current Status
+
+Current Absence
+
+Today's Total Absence
+
+Number Of Exits
+
+Attendance Duration
+
+---
+
+Attendance Timeline
+
+Example
+
+17:02
+
+Entry
+
+18:36
+
+Exit
+
+18:43
+
+Entry
+
+20:18
+
+Exit
+
+20:31
+
+Entry
+
+01:04
+
+Exit
+
+---
+
+Absence Intervals
+
+Exit
+
+Return
+
+Duration
+
+18:36
+
+18:43
+
+7 minutes
+
+20:18
+
+20:31
+
+13 minutes
+
+---
+
+Attendance Summary
+
+Total Exits
+
+Total Absence
+
+Late
+
+Attendance Session Status
+
+Working Time
+# 33 Reports
+
+Purpose
+
+Generate attendance reports.
+
+Available Reports
+
+Daily Attendance
+
+Weekly Attendance
+
+Monthly Attendance
+
+Late Employees
+
+Absence Report
+
+Employee History
+
+Department Summary
+
+---
+
+Report Filters
+
+Employee
+
+Department
+
+Date
+
+Shift
+
+Late Only
+
+Completed Only
+
+---
+
+Export Formats
+
+Excel
+
+CSV
+
+PDF
+# 34 Settings
+
+Purpose
+
+Configure system behaviour.
+
+---
+
+Employees
+
+Create Employee
+
+Edit Employee
+
+Deactivate Employee
+
+Assign Card
+
+Assign Shift
+
+---
+
+Shifts
+
+Day Shift
+
+17:00
+
+01:00
+
+Grace Period
+
+15 Minutes
+
+Night Shift
+
+00:00
+
+05:00
+
+Grace Period
+
+15 Minutes
+
+---
+
+API Configuration
+
+Webhook URL
+
+Bearer Token
+
+Timeout
+
+Retry Count
+
+Test Connection
+
+---
+
+System
+
+Dashboard Refresh
+
+Language
+
+Time Zone
+
+Date Format
+
+Log Retention
+
+Backup Schedule
+
+---
+
+Users
+
+Administrator
+
+Manager
+
+Viewer
+---
+
+# PART XII
+
+# 32 Attendance Workflow
+
+## Purpose
+
+This section defines the complete processing flow for every attendance event received from the Access Control System.
+
+Every attendance event shall follow the same workflow.
+
+No business logic may bypass this workflow.
+
+---
+
+## Workflow
+
+Access Control Device
+
+↓
+
+API Webhook
+
+↓
+
+Webhook Validation
+
+↓
+
+Authentication
+
+↓
+
+JSON Validation
+
+↓
+
+Required Fields Validation
+
+↓
+
+Employee Identification
+
+↓
+
+Shift Identification
+
+↓
+
+Attendance Session Detection
+
+↓
+
+Business Rules Processing
+
+↓
+
+Attendance Session Update
+
+↓
+
+Attendance Event Storage
+
+↓
+
+Absence Interval Processing
+
+↓
+
+Dashboard Update
+
+↓
+
+Audit Log
+
+↓
+
+API Response
+
+---
+
+# Step 1
+
+Receive Webhook
+
+Input
+
+Employee Identifier
+
+Timestamp
+
+Direction
+
+Device ID
+
+Webhook ID
+
+Source
+
+---
+
+Validation
+
+Verify Bearer Token
+
+Verify Request Format
+
+Verify JSON
+
+Verify Required Fields
+
+Verify Timestamp
+
+Verify Employee
+
+---
+
+If Validation Fails
+
+Store Request
+
+Store Error
+
+Return HTTP Error
+
+Stop Processing
+
+---
+
+# Step 2
+
+Employee Identification
+
+Find Employee by
+
+Access Card
+
+Employee ID
+
+External Identifier
+
+If Employee Does Not Exist
+
+Create Exception
+
+Store Event
+
+Notify Administrator
+
+Stop Processing
+
+---
+
+# Step 3
+
+Determine Shift
+
+Find Employee Shift
+
+Determine Working Date
+
+Calculate Scheduled Start
+
+Calculate Scheduled End
+
+Load Grace Period
+
+---
+
+# Step 4
+
+Attendance Session
+
+Search Existing Attendance Session
+
+If Session Exists
+
+Update Session
+
+If Session Does Not Exist
+
+Create Attendance Session
+
+---
+
+Attendance Session Fields
+
+Employee
+
+Shift
+
+Work Date
+
+Scheduled Start
+
+Scheduled End
+
+Status
+
+---
+
+# Step 5
+
+Process Attendance Event
+
+Direction
+
+ENTRY
+
+or
+
+EXIT
+
+Store Attendance Event
+
+Assign Event To Attendance Session
+
+Update Current Status
+
+---
+
+# ENTRY Processing
+
+Store Entry Event
+
+If First Entry
+
+Update First Entry
+
+Calculate Late
+
+Update Attendance Session
+
+Update Dashboard
+
+---
+
+# EXIT Processing
+
+Store Exit Event
+
+Open Absence Interval
+
+Update Current Status
+
+Update Dashboard
+
+---
+
+# Return Processing
+
+If Employee Returns
+
+Close Absence Interval
+
+Calculate Duration
+
+Update Total Absence
+
+Update Dashboard
+
+---
+
+# Step 6
+
+Business Rules
+
+Execute
+
+Shift Rules
+
+Late Rules
+
+Attendance Rules
+
+Exit Rules
+
+Return Rules
+
+Exception Rules
+
+Dashboard Rules
+
+Audit Rules
+
+---
+
+# Step 7
+
+Attendance Session Update
+
+Update
+
+First Entry
+
+Last Exit
+
+Current Status
+
+Late Status
+
+Late Minutes
+
+Total Absence
+
+Number Of Exits
+
+Last Activity
+
+Updated At
+
+---
+
+# Step 8
+
+Dashboard Update
+
+Refresh
+
+Employee Status
+
+Current Presence
+
+Current Absence
+
+Late Status
+
+Today's Statistics
+
+Notifications
+
+---
+
+# Step 9
+
+Store History
+
+Store Attendance Session
+
+Store Attendance Event
+
+Store Absence Interval
+
+Store Audit Log
+
+Store Webhook Log
+
+---
+
+# Step 10
+
+Return Response
+
+HTTP 200
+
+Processing Completed
+
+Request ID
+
+Timestamp
+
+---
+
+# Workflow Rules
+
+Every attendance event must be processed exactly once.
+
+Every attendance event must belong to one Attendance Session.
+
+Every Attendance Session belongs to one employee.
+
+Attendance Events are immutable.
+
+Attendance Sessions remain permanently stored.
+
+Absence Intervals remain permanently stored.
+
+Audit Logs remain permanently stored.
+
+No attendance information shall be deleted.
+---
+
+# PART XIII
+
+# 33 Database Schema
+---
+
+# PART XIII
+
+# 33 Database Schema
+
+## Purpose
+
+This section defines the complete database structure of the Green Logistics Attendance Management System.
+
+The database stores all operational information required for attendance monitoring.
+
+Every attendance event received from the Access Control System must be stored.
+
+The database is the permanent source of attendance history.
+
+---
+
+# Database Overview
+
+The database consists of the following tables:
+
+Employees
+
+Shifts
+
+AttendanceSessions
+
+AttendanceEvents
+
+AbsenceIntervals
+
+Users
+
+Roles
+
+UserRoles
+
+Settings
+
+WebhookLogs
+
+AuditLogs
+
+Notifications
+
+---
+
+# Table
+
+Employees
+
+Purpose
+
+Stores employee information.
+
+Columns
+
+EmployeeID
+
+UUID
+
+Primary Key
+
+---
+
+EmployeeNumber
+
+VARCHAR(50)
+
+Unique
+
+Not Null
+
+---
+
+FirstName
+
+VARCHAR(100)
+
+Not Null
+
+---
+
+LastName
+
+VARCHAR(100)
+
+Not Null
+
+---
+
+Department
+
+VARCHAR(100)
+
+---
+
+Position
+
+VARCHAR(100)
+
+---
+
+CardNumber
+
+VARCHAR(100)
+
+Unique
+
+---
+
+ShiftID
+
+UUID
+
+Foreign Key
+
+---
+
+Status
+
+Active
+
+Inactive
+
+---
+
+CreatedAt
+
+DATETIME
+
+---
+
+UpdatedAt
+
+DATETIME
+
+---
+
+Indexes
+
+EmployeeNumber
+
+CardNumber
+
+ShiftID
+
+Status
+
+---
+
+# Table
+
+Shifts
+
+Purpose
+
+Stores employee work schedules.
+
+Columns
+
+ShiftID
+
+UUID
+
+Primary Key
+
+---
+
+ShiftName
+
+VARCHAR(100)
+
+---
+
+StartTime
+
+TIME
+
+---
+
+EndTime
+
+TIME
+
+---
+
+GracePeriodMinutes
+
+INTEGER
+
+---
+
+CrossMidnight
+
+BOOLEAN
+
+---
+
+Active
+
+BOOLEAN
+
+---
+
+Default Records
+
+Day Shift
+
+17:00
+
+01:00
+
+15
+
+True
+
+Night Shift
+
+00:00
+
+05:00
+
+15
+
+False
+
+---
+
+Indexes
+
+ShiftName
+
+Active
+
+---
+
+# Table
+
+AttendanceSessions
+
+Purpose
+
+Stores one attendance session for one employee for one workday.
+
+Columns
+
+SessionID
+
+UUID
+
+Primary Key
+
+---
+
+EmployeeID
+
+UUID
+
+Foreign Key
+
+---
+
+ShiftID
+
+UUID
+
+Foreign Key
+
+---
+
+WorkDate
+
+DATE
+
+---
+
+ScheduledStart
+
+DATETIME
+
+---
+
+ScheduledEnd
+
+DATETIME
+
+---
+
+FirstEntry
+
+DATETIME
+
+Nullable
+
+---
+
+LastExit
+
+DATETIME
+
+Nullable
+
+---
+
+Status
+
+Scheduled
+
+Working
+
+OutsideOffice
+
+Completed
+
+Exception
+
+---
+
+Late
+
+BOOLEAN
+
+---
+
+LateMinutes
+
+INTEGER
+
+---
+
+TotalAbsenceMinutes
+
+INTEGER
+
+---
+
+ExitCount
+
+INTEGER
+
+---
+
+CreatedAt
+
+DATETIME
+
+---
+
+UpdatedAt
+
+DATETIME
+
+---
+
+Indexes
+
+EmployeeID
+
+WorkDate
+
+Status
+
+ShiftID
+
+---
+
+Constraint
+
+One Attendance Session per Employee per WorkDate.
+
+---
+
+# Table
+
+AttendanceEvents
+
+Purpose
+
+Stores every attendance event received from the API.
+
+Columns
+
+EventID
+
+UUID
+
+Primary Key
+
+---
+
+SessionID
+
+UUID
+
+Foreign Key
+
+---
+
+EmployeeID
+
+UUID
+
+Foreign Key
+
+---
+
+Timestamp
+
+DATETIME
+
+---
+
+Direction
+
+ENTRY
+
+EXIT
+
+---
+
+DeviceID
+
+VARCHAR(100)
+
+---
+
+WebhookID
+
+VARCHAR(100)
+
+Unique
+
+---
+
+Source
+
+VARCHAR(100)
+
+---
+
+EventType
+
+Normal
+
+Duplicate
+
+Unknown
+
+ManualCorrection
+
+SystemCorrection
+
+---
+
+CreatedAt
+
+DATETIME
+
+---
+
+Indexes
+
+SessionID
+
+EmployeeID
+
+Timestamp
+
+WebhookID
+
+Direction
+
+---
+
+# Table
+
+AbsenceIntervals
+
+Purpose
+
+Stores every period when an employee is outside the office.
+
+Columns
+
+IntervalID
+
+UUID
+
+Primary Key
+
+---
+
+SessionID
+
+UUID
+
+Foreign Key
+
+---
+
+ExitEventID
+
+UUID
+
+Foreign Key
+
+---
+
+ReturnEventID
+
+UUID
+
+Foreign Key
+
+Nullable
+
+---
+
+StartTime
+
+DATETIME
+
+---
+
+EndTime
+
+DATETIME
+
+Nullable
+
+---
+
+DurationMinutes
+
+INTEGER
+
+Nullable
+
+---
+
+CreatedAt
+
+DATETIME
+
+---
+
+Indexes
+
+SessionID
+
+StartTime
+
+---
+
+# Table
+
+Users
+
+Purpose
+
+Stores system users.
+
+Columns
+
+UserID
+
+UUID
+
+Primary Key
+
+---
+
+Username
+
+VARCHAR(100)
+
+Unique
+
+---
+
+PasswordHash
+
+VARCHAR(500)
+
+---
+
+RoleID
+
+UUID
+
+---
+
+Active
+
+BOOLEAN
+
+---
+
+CreatedAt
+
+DATETIME
+
+---
+
+UpdatedAt
+
+DATETIME
+
+---
+
+Indexes
+
+Username
+
+RoleID
+
+---
+
+# Table
+
+Roles
+
+Purpose
+
+Stores user roles.
+
+Columns
+
+RoleID
+
+UUID
+
+Primary Key
+
+---
+
+RoleName
+
+VARCHAR(100)
+
+Unique
+
+---
+
+Default Roles
+
+Administrator
+
+Manager
+
+Viewer
+
+---
+
+# Table
+
+Settings
+
+Purpose
+
+Stores application configuration.
+
+Columns
+
+SettingID
+
+UUID
+
+Primary Key
+
+---
+
+Category
+
+VARCHAR(100)
+
+---
+
+Key
+
+VARCHAR(100)
+
+---
+
+Value
+
+TEXT
+
+---
+
+UpdatedAt
+
+DATETIME
+
+---
+
+Indexes
+
+Category
+
+Key
+
+---
+
+# Table
+
+WebhookLogs
+
+Purpose
+
+Stores every webhook request.
+
+Columns
+
+LogID
+
+UUID
+
+Primary Key
+
+---
+
+WebhookID
+
+VARCHAR(100)
+
+---
+
+RequestTime
+
+DATETIME
+
+---
+
+ResponseCode
+
+INTEGER
+
+---
+
+ProcessingTime
+
+INTEGER
+
+---
+
+Status
+
+Success
+
+Failed
+
+Duplicate
+
+---
+
+Payload
+
+JSON
+
+---
+
+Indexes
+
+WebhookID
+
+RequestTime
+
+Status
+
+---
+
+# Table
+
+AuditLogs
+
+Purpose
+
+Stores every administrative action.
+
+Columns
+
+AuditID
+
+UUID
+
+Primary Key
+
+---
+
+UserID
+
+UUID
+
+---
+
+Action
+
+VARCHAR(200)
+
+---
+
+Entity
+
+VARCHAR(100)
+
+---
+
+EntityID
+
+UUID
+
+---
+
+OldValue
+
+TEXT
+
+---
+
+NewValue
+
+TEXT
+
+---
+
+Timestamp
+
+DATETIME
+
+---
+
+Indexes
+
+UserID
+
+Timestamp
+
+Entity
+
+---
+
+# Table
+
+Notifications
+
+Purpose
+
+Stores system notifications.
+
+Columns
+
+NotificationID
+
+UUID
+
+Primary Key
+
+---
+
+EmployeeID
+
+UUID
+
+Nullable
+
+---
+
+Type
+
+Late
+
+MissingEntry
+
+MissingExit
+
+UnknownEmployee
+
+WebhookFailure
+
+DuplicateEvent
+
+SystemError
+
+---
+
+Priority
+
+Low
+
+Medium
+
+High
+
+Critical
+
+---
+
+Status
+
+Unread
+
+Read
+
+Archived
+
+---
+
+Message
+
+TEXT
+
+---
+
+CreatedAt
+
+DATETIME
+
+---
+
+Indexes
+
+Status
+
+Priority
+
+CreatedAt
+
+---
+
+# Database Relationships
+
+Employees
+
+1 → Many AttendanceSessions
+
+AttendanceSessions
+
+1 → Many AttendanceEvents
+
+AttendanceSessions
+
+1 → Many AbsenceIntervals
+
+Shifts
+
+1 → Many Employees
+
+Users
+
+Many → One Roles
+
+AttendanceEvents
+
+Many → One AttendanceSessions
+
+AbsenceIntervals
+
+Many → One AttendanceSessions
+
+AuditLogs
+
+Many → One Users
+
+Notifications
+
+Many → One Employees
+
+---
+
+# Database Rules
+
+Attendance Events are never deleted.
+
+Attendance Sessions are never deleted.
+
+Absence Intervals are never deleted.
+
+Audit Logs are never deleted.
+
+Webhook Logs are never deleted.
+
+Historical attendance information is immutable.
+
+Administrative corrections create new records and never overwrite original attendance events.
+
+End of Part XIII.
+---
+
+# PART XIV
+
+# 34 API Mapping
+
+## Purpose
+
+This section defines how the Attendance Management System maps incoming API events into internal business objects.
+
+The Attendance Management System does not modify external data.
+
+Every incoming event is transformed into an internal attendance event.
+
+---
+
+# External System
+
+The external Access Control System is the source of all attendance events.
+
+The Attendance Management System receives events only through the official API.
+
+No attendance event may be manually created by the system.
+
+---
+
+# Incoming Event
+
+Every webhook request shall contain the following information.
+
+Employee Identifier
+
+Timestamp
+
+Direction
+
+Device Identifier
+
+Webhook Identifier
+
+Source
+
+---
+
+# Internal Event
+
+After validation every webhook request becomes an internal Attendance Event.
+
+Internal Attendance Event contains
+
+Event ID
+
+Session ID
+
+Employee ID
+
+Timestamp
+
+Direction
+
+Device ID
+
+Webhook ID
+
+Processing Status
+
+Created At
+
+---
+
+# Direction Mapping
+
+External Value
+
+IN
+
+↓
+
+Internal Value
+
+ENTRY
+
+---
+
+External Value
+
+OUT
+
+↓
+
+Internal Value
+
+EXIT
+
+---
+
+# Attendance Session Mapping
+
+If no active Attendance Session exists
+
+↓
+
+Create Attendance Session
+
+---
+
+If active Attendance Session exists
+
+↓
+
+Update Attendance Session
+
+---
+
+# Entry Processing
+
+When Direction equals ENTRY
+
+The system shall
+
+Locate Employee
+
+Locate Shift
+
+Locate Attendance Session
+
+Create Session if necessary
+
+Store Attendance Event
+
+Calculate Late Status
+
+Update Dashboard
+
+Store Audit Record
+
+Return Success
+
+---
+
+# Exit Processing
+
+When Direction equals EXIT
+
+The system shall
+
+Locate Attendance Session
+
+Store Attendance Event
+
+Create Absence Interval
+
+Update Dashboard
+
+Store Audit Record
+
+Return Success
+
+---
+
+# Return Processing
+
+If employee status is Outside Office
+
+and Direction equals ENTRY
+
+The system shall
+
+Close current Absence Interval
+
+Calculate Interval Duration
+
+Recalculate Total Absence
+
+Update Attendance Session
+
+Update Dashboard
+
+Store Audit Record
+
+---
+
+# Employee Status Mapping
+
+First Entry
+
+↓
+
+Inside Office
+
+---
+
+Exit
+
+↓
+
+Outside Office
+
+---
+
+Return
+
+↓
+
+Inside Office
+
+---
+
+Last Exit After Shift
+
+↓
+
+Completed
+
+---
+
+# Late Status Mapping
+
+Employee
+Late Minutes <= Grace Period
+
+↓
+
+On Time
+
+---
+
+Late Minutes > Grace Period
+
+↓
+
+Late
+
+---
+
+# Exception Mapping
+
+Unknown Employee
+
+↓
+
+Create Exception
+
+Store Event
+
+Notify Administrator
+
+---
+
+Duplicate Webhook ID
+
+↓
+
+Store Request
+
+Mark Duplicate
+
+Stop Business Processing
+
+Return Success
+
+---
+
+Invalid JSON
+
+↓
+
+Reject Request
+
+Store Error
+
+Return HTTP 400
+
+---
+
+Invalid Authorization
+
+↓
+
+Reject Request
+
+Return HTTP 401
+
+---
+
+Missing Required Fields
+
+↓
+
+Reject Request
+
+Store Error
+
+Return HTTP 422
+
+---
+
+Internal Processing Error
+
+↓
+
+Store Error
+
+Return HTTP 500
+
+---
+
+# Dashboard Mapping
+
+Attendance Session Updated
+
+↓
+
+Refresh Employee Status
+
+Refresh Statistics
+
+Refresh Notifications
+
+Refresh Current Presence
+
+---
+
+Late Employee
+
+↓
+
+Show Red Status
+
+Update Late Counter
+
+---
+
+Employee Returned
+
+↓
+
+Update Current Status
+
+Recalculate Total Absence
+
+---
+
+Employee Exited
+
+↓
+
+Show Outside Office
+
+Start Current Absence Timer
+
+---
+
+# Notification Mapping
+
+Late Arrival
+
+↓
+
+Generate Notification
+
+---
+
+Unknown Employee
+
+↓
+
+Generate Notification
+
+---
+
+Missing Entry
+
+↓
+
+Generate Notification
+
+---
+
+Missing Exit
+
+↓
+
+Generate Notification
+
+---
+
+Webhook Failure
+
+↓
+
+Generate Notification
+
+---
+
+Duplicate Event
+
+↓
+
+Generate Notification
+
+---
+
+# Audit Mapping
+
+The following operations must always create audit records.
+
+Employee Created
+
+Employee Updated
+
+Employee Deactivated
+
+Shift Changed
+
+Card Assigned
+
+Attendance Corrected
+
+Settings Changed
+
+API Configuration Changed
+
+User Created
+
+User Permission Changed
+
+---
+
+# Processing Sequence
+
+Receive Request
+
+↓
+
+Authenticate Request
+
+↓
+
+Validate Payload
+
+↓
+
+Identify Employee
+
+↓
+
+Determine Shift
+
+↓
+
+Locate Attendance Session
+
+↓
+
+Create or Update Session
+
+↓
+
+Store Attendance Event
+
+↓
+
+Execute Business Rules
+
+↓
+
+Update Dashboard
+
+↓
+
+Store Audit Log
+
+↓
+
+Return Response
+
+---
+
+# Processing Rules
+
+Every request shall receive a response.
+
+Every valid event shall be stored.
+
+Every invalid request shall be logged.
+
+No attendance event shall be discarded.
+
+No attendance event shall be modified.
+
+Attendance history shall remain immutable.
+
+End of Part XIV.
+
+---
+
+# PART XV
+
+# 35 Error Handling
+
+## Purpose
+
+This section defines how the system handles operational errors, data inconsistencies, integration failures, and unexpected situations.
+
+The primary objective is to ensure that no attendance information is lost.
+
+---
+
+# Error Handling Principles
+
+Every error shall be logged.
+
+Every received request shall be stored.
+
+No attendance event shall be deleted.
+
+Errors shall never interrupt future processing.
+
+All critical failures shall generate administrator notifications.
+
+---
+
+# Error Categories
+
+Validation Errors
+
+Authentication Errors
+
+Authorization Errors
+
+Business Rule Errors
+
+Database Errors
+
+Webhook Errors
+
+Network Errors
+
+Unexpected System Errors
+
+---
+
+# Validation Errors
+
+Examples
+
+Invalid JSON
+
+Missing Employee Identifier
+
+Missing Timestamp
+
+Missing Direction
+
+Missing Device Identifier
+
+Missing Webhook Identifier
+
+Action
+
+Reject Request
+
+Store Error
+
+Return HTTP 422
+
+---
+
+# Authentication Errors
+
+Examples
+
+Missing Bearer Token
+
+Invalid Bearer Token
+
+Expired Token
+
+Action
+
+Reject Request
+
+Return HTTP 401
+
+Log Security Event
+
+---
+
+# Authorization Errors
+
+Examples
+
+Insufficient Permissions
+
+Blocked User
+
+Inactive User
+
+Action
+
+Return HTTP 403
+
+Store Security Log
+
+Notify Administrator
+
+---
+
+# Business Rule Errors
+
+Examples
+
+Employee Not Found
+
+No Assigned Shift
+
+Duplicate Entry
+
+Duplicate Exit
+
+Missing Entry
+
+Missing Exit
+
+Action
+
+Store Attendance Event
+
+Create Exception Record
+
+Notify Administrator
+
+Continue Processing When Possible
+
+---
+
+# Database Errors
+
+Examples
+
+Connection Lost
+
+Timeout
+
+Write Failure
+
+Deadlock
+
+Action
+
+Retry Operation
+
+If Retry Fails
+
+Store Error
+
+Generate Critical Notification
+
+Stop Current Transaction
+
+---
+
+# Webhook Errors
+
+Examples
+
+Invalid Payload
+
+Duplicate Webhook
+
+Timeout
+
+Source Unavailable
+
+Action
+
+Store Webhook Log
+
+Retry According to Retry Policy
+
+Notify Administrator if Retries Are Exhausted
+
+---
+
+# Network Errors
+
+Examples
+
+Connection Timeout
+
+Gateway Timeout
+
+DNS Failure
+
+Connection Refused
+
+Action
+
+Retry Request
+
+Log Error
+
+Notify Administrator if Required
+
+---
+
+# System Errors
+
+Examples
+
+Unhandled Exception
+
+Memory Error
+
+Unexpected Failure
+
+Action
+
+Rollback Transaction
+
+Store Error
+
+Generate Critical Notification
+
+Return HTTP 500
+
+---
+
+# Retry Policy
+
+Validation Errors
+
+No Retry
+
+Authentication Errors
+
+No Retry
+
+Webhook Delivery Errors
+
+3 Retries
+
+Database Temporary Errors
+
+3 Retries
+
+Network Errors
+
+3 Retries
+
+---
+
+# Error Logging
+
+Every error record shall contain
+
+Error ID
+
+Timestamp
+
+Severity
+
+Source
+
+Request ID
+
+Employee ID (if available)
+
+Webhook ID (if available)
+
+HTTP Status
+
+Error Message
+
+Stack Trace (internal only)
+
+Processing Status
+
+---
+
+# Error Severity
+
+Information
+
+Warning
+
+Error
+
+Critical
+
+---
+
+# Administrator Notifications
+
+The following errors require immediate notification.
+
+Database Offline
+
+Webhook Offline
+
+API Authentication Failure
+
+Repeated Database Errors
+
+Unexpected System Exception
+
+Server Unavailable
+
+---
+
+End of Part XV.
+Late Minutes <= Grace Period
+
+↓
+
+On Time
+
+---
+
+Late Minutes > Grace Period
+
+↓
+
+Late
+
+---
+
+# Exception Mapping
+
+Unknown Employee
+
+↓
+
+Create Exception
+
+Store Event
+
+Notify Administrator
+
+---
+
+Duplicate Webhook ID
+
+↓
+
+Store Request
+
+Mark Duplicate
+
+Stop Business Processing
+
+Return Success
+
+---
+
+Invalid JSON
+
+↓
+
+Reject Request
+
+Store Error
+
+Return HTTP 400
+
+---
+
+Invalid Authorization
+
+↓
+
+Reject Request
+
+Return HTTP 401
+
+---
+
+Missing Required Fields
+
+↓
+
+Reject Request
+
+Store Error
+
+Return HTTP 422
+
+---
+
+Internal Processing Error
+
+↓
+
+Store Error
+
+Return HTTP 500
+
+---
+
+# Dashboard Mapping
+
+Attendance Session Updated
+
+↓
+
+Refresh Employee Status
+
+Refresh Statistics
+
+Refresh Notifications
+
+Refresh Current Presence
+
+---
+
+Late Employee
+
+↓
+
+Show Red Status
+
+Update Late Counter
+
+---
+
+Employee Returned
+
+↓
+
+Update Current Status
+
+Recalculate Total Absence
+
+---
+
+Employee Exited
+
+↓
+
+Show Outside Office
+
+Start Current Absence Timer
+
+---
+
+# Notification Mapping
+
+Late Arrival
+
+↓
+
+Generate Notification
+
+---
+
+Unknown Employee
+
+↓
+
+Generate Notification
+
+---
+
+Missing Entry
+
+↓
+
+Generate Notification
+
+---
+
+Missing Exit
+
+↓
+
+Generate Notification
+
+---
+
+Webhook Failure
+
+↓
+
+Generate Notification
+
+---
+
+Duplicate Event
+
+↓
+
+Generate Notification
+
+---
+
+# Audit Mapping
+
+The following operations must always create audit records.
+
+Employee Created
+
+Employee Updated
+
+Employee Deactivated
+
+Shift Changed
+
+Card Assigned
+
+Attendance Corrected
+
+Settings Changed
+
+API Configuration Changed
+
+User Created
+
+User Permission Changed
+
+---
+
+# Processing Sequence
+
+Receive Request
+
+↓
+
+Authenticate Request
+
+↓
+
+Validate Payload
+
+↓
+
+Identify Employee
+
+↓
+
+Determine Shift
+
+↓
+
+Locate Attendance Session
+
+↓
+
+Create or Update Session
+
+↓
+
+Store Attendance Event
+
+↓
+
+Execute Business Rules
+
+↓
+
+Update Dashboard
+
+↓
+
+Store Audit Log
+
+↓
+
+Return Response
+
+---
+
+# Processing Rules
+
+Every request shall receive a response.
+
+Every valid event shall be stored.
+
+Every invalid request shall be logged.
+
+No attendance event shall be discarded.
+
+No attendance event shall be modified.
+
+Attendance history shall remain immutable.
+
+End of Part XIV.
+
+---
+
+# PART XV
+
+# 35 Error Handling
+
+## Purpose
+
+This section defines how the system handles operational errors, data inconsistencies, integration failures, and unexpected situations.
+
+The primary objective is to ensure that no attendance information is lost.
+
+---
+
+# Error Handling Principles
+
+Every error shall be logged.
+
+Every received request shall be stored.
+
+No attendance event shall be deleted.
+
+Errors shall never interrupt future processing.
+
+All critical failures shall generate administrator notifications.
+
+---
+
+# Error Categories
+
+Validation Errors
+
+Authentication Errors
+
+Authorization Errors
+
+Business Rule Errors
+
+Database Errors
+
+Webhook Errors
+
+Network Errors
+
+Unexpected System Errors
+
+---
+
+# Validation Errors
+
+Examples
+
+Invalid JSON
+
+Missing Employee Identifier
+
+Missing Timestamp
+
+Missing Direction
+
+Missing Device Identifier
+
+Missing Webhook Identifier
+
+Action
+
+Reject Request
+
+Store Error
+
+Return HTTP 422
+
+---
+
+# Authentication Errors
+
+Examples
+
+Missing Bearer Token
+
+Invalid Bearer Token
+
+Expired Token
+
+Action
+
+Reject Request
+
+Return HTTP 401
+
+Log Security Event
+
+---
+
+# Authorization Errors
+
+Examples
+
+Insufficient Permissions
+
+Blocked User
+
+Inactive User
+
+Action
+
+Return HTTP 403
+
+Store Security Log
+
+Notify Administrator
+
+---
+
+# Business Rule Errors
+
+Examples
+
+Employee Not Found
+
+No Assigned Shift
+
+Duplicate Entry
+
+Duplicate Exit
+
+Missing Entry
+
+Missing Exit
+
+Action
+
+Store Attendance Event
+
+Create Exception Record
+
+Notify Administrator
+
+Continue Processing When Possible
+
+---
+
+# Database Errors
+
+Examples
+
+Connection Lost
+
+Timeout
+
+Write Failure
+
+Deadlock
+
+Action
+
+Retry Operation
+
+If Retry Fails
+
+Store Error
+
+Generate Critical Notification
+
+Stop Current Transaction
+
+---
+
+# Webhook Errors
+
+Examples
+
+Invalid Payload
+
+Duplicate Webhook
+
+Timeout
+
+Source Unavailable
+
+Action
+
+Store Webhook Log
+
+Retry According to Retry Policy
+
+Notify Administrator if Retries Are Exhausted
+
+---
+
+# Network Errors
+
+Examples
+
+Connection Timeout
+
+Gateway Timeout
+
+DNS Failure
+
+Connection Refused
+
+Action
+
+Retry Request
+
+Log Error
+
+Notify Administrator if Required
+
+---
+
+# System Errors
+
+Examples
+
+Unhandled Exception
+
+Memory Error
+
+Unexpected Failure
+
+Action
+
+Rollback Transaction
+
+Store Error
+
+Generate Critical Notification
+
+Return HTTP 500
+
+---
+
+# Retry Policy
+
+Validation Errors
+
+No Retry
+
+Authentication Errors
+
+No Retry
+
+Webhook Delivery Errors
+
+3 Retries
+
+Database Temporary Errors
+
+3 Retries
+
+Network Errors
+
+3 Retries
+
+---
+
+# Error Logging
+
+Every error record shall contain
+
+Error ID
+
+Timestamp
+
+Severity
+
+Source
+
+Request ID
+
+Employee ID (if available)
+
+Webhook ID (if available)
+
+HTTP Status
+
+Error Message
+
+Stack Trace (internal only)
+
+Processing Status
+
+---
+
+# Error Severity
+
+Information
+
+Warning
+
+Error
+
+Critical
+
+---
+
+# Administrator Notifications
+
+The following errors require immediate notification.
+
+Database Offline
+
+Webhook Offline
+
+API Authentication Failure
+
+Repeated Database Errors
+
+Unexpected System Exception
+
+Server Unavailable
+
+---
+
+End of Part XV.
+---
+
+# PART XVI
+
+# 36 Reporting Module
+
+## Purpose
+
+The Reporting Module provides attendance reports based on stored attendance data.
+
+Reports are generated from Attendance Sessions, Attendance Events, and Absence Intervals.
+
+Reports never modify attendance data.
+
+---
+
+# Report Categories
+
+Daily Reports
+
+Weekly Reports
+
+Monthly Reports
+
+Employee Reports
+
+Department Reports
+
+Late Arrival Reports
+
+Absence Reports
+
+System Reports
+
+---
+
+# Daily Attendance Report
+
+Purpose
+
+Display attendance information for one working day.
+
+Information
+
+Employee
+
+Department
+
+Shift
+
+Scheduled Start
+
+First Entry
+
+Last Exit
+
+Late
+
+Late Minutes
+
+Total Absence
+
+Attendance Status
+
+---
+
+# Weekly Attendance Report
+
+Purpose
+
+Display attendance statistics for seven consecutive days.
+
+Information
+
+Days Worked
+
+Late Days
+
+Total Late Minutes
+
+Total Absence Time
+
+Attendance Rate
+
+---
+
+# Monthly Attendance Report
+
+Purpose
+
+Display monthly attendance summary.
+
+Information
+
+Working Days
+
+Days Present
+
+Late Days
+
+Total Late Minutes
+
+Total Office Absence
+
+Attendance Percentage
+
+---
+
+# Employee Report
+
+Purpose
+
+Display complete attendance history for one employee.
+
+Information
+
+Attendance Sessions
+
+Attendance Events
+
+Absence Intervals
+
+Late History
+
+Summary Statistics
+
+---
+
+# Department Report
+
+Purpose
+
+Display attendance statistics for one department.
+
+Information
+
+Scheduled Employees
+
+Present Employees
+
+Late Employees
+
+Employees Outside Office
+
+Completed Sessions
+
+Attendance Percentage
+
+---
+
+# Late Arrival Report
+
+Purpose
+
+Display all late arrivals.
+
+Columns
+
+Employee
+
+Department
+
+Shift
+
+Scheduled Start
+
+Actual Entry
+
+Late Minutes
+
+Date
+
+---
+
+# Absence Report
+
+Purpose
+
+Display all office absence intervals.
+
+Columns
+
+Employee
+
+Exit Time
+
+Return Time
+
+Duration
+
+Date
+
+Number Of Exits
+
+---
+
+# Dashboard Statistics
+
+The Dashboard shall display
+
+Employees Scheduled
+
+Employees Present
+
+Employees Outside
+
+Employees Late
+
+Employees Not Arrived
+
+Completed Sessions
+
+Average Late Minutes
+
+Average Office Absence
+
+---
+
+# Report Filters
+
+Date
+
+Date Range
+
+Employee
+
+Department
+
+Shift
+
+Attendance Status
+
+Late Status
+
+Current Status
+
+---
+
+# Sorting
+
+Employee Name
+
+Department
+
+Date
+
+Late Minutes
+
+Absence Duration
+
+First Entry
+
+Last Exit
+
+---
+
+# Export Formats
+
+Microsoft Excel (.xlsx)
+
+CSV (.csv)
+
+PDF (.pdf)
+
+---
+
+# Report Generation Rules
+
+Reports are generated only from stored attendance data.
+
+Reports never modify attendance records.
+
+Reports always use Attendance Sessions as the primary source.
+
+Historical reports are read-only.
+
+---
+
+# Report Retention
+
+Reports may be regenerated at any time.
+
+Generated report files are optional.
+
+Attendance data remains the permanent source.
+
+---
+
+# PART XVII
+
+# 37 Scheduler
+
+## Purpose
+
+The Scheduler executes automatic background tasks.
+
+The Scheduler does not perform attendance calculations.
+
+It executes predefined maintenance tasks.
+
+---
+
+# Scheduled Tasks
+
+Close Completed Attendance Sessions
+
+Archive Logs
+
+Generate Daily Reports
+
+Generate Weekly Reports
+
+Generate Monthly Reports
+
+Backup Database
+
+Health Check
+
+Cleanup Temporary Files
+
+---
+
+# Automatic Attendance Session Completion
+
+The Scheduler shall identify attendance sessions that have reached the scheduled end time.
+
+If the employee has no further attendance events, the session shall be marked as Completed.
+
+No attendance data shall be removed.
+
+---
+
+# Daily Report Generation
+
+Execution Time
+
+06:00
+
+Tasks
+
+Generate Daily Attendance Report
+
+Generate Late Report
+
+Generate Absence Report
+
+---
+
+# Weekly Report Generation
+
+Execution
+
+Monday
+
+06:30
+
+---
+
+# Monthly Report Generation
+
+Execution
+
+First Day of Month
+
+07:00
+
+---
+
+# Database Backup
+
+Execution
+
+Daily
+
+02:00
+
+---
+
+# Log Cleanup
+
+Execution
+
+Monthly
+
+Delete only temporary application logs.
+
+Audit Logs remain permanent.
+
+Attendance records remain permanent.
+
+---
+
+# Health Check
+
+Execution Interval
+
+Every 5 Minutes
+
+Checks
+
+Database
+
+API
+
+Webhook
+
+Background Queue
+
+Disk Space
+
+Memory
+
+CPU
+
+---
+
+# Scheduler Failure
+
+If a scheduled task fails
+
+Store Error
+
+Retry
+
+Notify Administrator
+
+Continue Remaining Tasks
+
+---
+
+# PART XVIII
+
+# 38 System Configuration
+
+## Purpose
+
+The Configuration Module stores all configurable values.
+
+Business rules shall use configuration values whenever possible.
+
+---
+
+# Company Configuration
+
+Company Name
+
+Office Time Zone
+
+Language
+
+Date Format
+
+Time Format
+
+---
+
+# Attendance Configuration
+
+Grace Period
+
+15 Minutes
+
+Dashboard Refresh Interval
+
+5 Seconds
+
+Attendance Session Auto Close
+
+Enabled
+
+---
+
+# Shift Configuration
+
+Day Shift
+
+17:00
+
+01:00
+
+Night Shift
+
+00:00
+
+05:00
+
+Cross Midnight
+
+Enabled
+
+---
+
+# API Configuration
+
+Webhook URL
+
+Bearer Token
+
+Request Timeout
+
+Retry Count
+
+API Version
+
+---
+
+# Notification Configuration
+
+Enable Notifications
+
+Notification Retention
+
+Critical Notification
+
+Administrator Email
+
+---
+
+# Security Configuration
+
+Password Policy
+
+JWT Lifetime
+
+Session Timeout
+
+Login Attempts
+
+---
+
+# Logging Configuration
+
+Application Logs
+
+Enabled
+
+Webhook Logs
+
+Enabled
+
+Audit Logs
+
+Enabled
+
+Security Logs
+
+Enabled
+
+---
+
+# Backup Configuration
+
+Automatic Backup
+
+Enabled
+
+Daily Backup
+
+Enabled
+
+Backup Time
+
+02:00
+
+Retention
+
+90 Days
+
+---
+
+# Configuration Rules
+
+Every configuration change shall be stored in Audit Logs.
+
+Configuration changes require Administrator permission.
+
+Configuration changes take effect immediately unless otherwise specified.
+
+End of Part XVIII.
+---
+
+# PART XIX
+
+# 39 Installation and Deployment
+
+## Purpose
+
+This section defines the installation procedure for the Green Logistics Attendance Management System.
+
+The application shall be deployable on a single Windows server inside the company network.
+
+---
+
+# Deployment Architecture
+
+Access Control System
+
+↓
+
+Webhook API
+
+↓
+
+Attendance Backend
+
+↓
+
+Database
+
+↓
+
+Dashboard
+
+↓
+
+Web Browser
+
+---
+
+# Minimum Hardware Requirements
+
+CPU
+
+4 Cores
+
+RAM
+
+8 GB
+
+Storage
+
+100 GB SSD
+
+Network
+
+1 Gbps
+
+---
+
+# Recommended Hardware
+
+CPU
+
+8 Cores
+
+RAM
+
+16 GB
+
+Storage
+
+500 GB SSD
+
+Operating System
+
+Windows Server 2022
+
+---
+
+# Software Requirements
+
+Node.js LTS
+
+PostgreSQL
+
+Git
+
+Docker (Optional)
+
+Nginx (Optional)
+
+---
+
+# Environment Variables
+
+DATABASE_URL
+
+JWT_SECRET
+
+WEBHOOK_SECRET
+
+API_PORT
+
+TIMEZONE
+
+COMPANY_NAME
+
+LOG_LEVEL
+
+---
+
+# Startup Sequence
+
+Start Database
+
+↓
+
+Load Configuration
+
+↓
+
+Initialize Services
+
+↓
+
+Connect Database
+
+↓
+
+Initialize Scheduler
+
+↓
+
+Initialize Webhook Listener
+
+↓
+
+Initialize Dashboard API
+
+↓
+
+Ready
+
+---
+
+# Health Check
+
+The application shall expose a Health Check endpoint.
+
+GET
+
+/health
+
+Response
+
+Database
+
+Webhook
+
+API
+
+Scheduler
+
+Version
+
+Status
+
+---
+
+# Shutdown Procedure
+
+Stop Receiving Webhooks
+
+↓
+
+Finish Active Processing
+
+↓
+
+Save Pending Logs
+
+↓
+
+Close Database Connections
+
+↓
+
+Shutdown
+
+---
+
+# PART XX
+
+# 40 Acceptance Criteria
+
+## General
+
+The system is considered complete only if every requirement defined in this specification has been implemented.
+
+---
+
+## Functional Acceptance
+
+The system shall:
+
+Receive webhook requests.
+
+Authenticate requests.
+
+Validate incoming data.
+
+Identify employees.
+
+Determine work shifts.
+
+Create attendance sessions.
+
+Store attendance events.
+
+Store absence intervals.
+
+Calculate late arrivals.
+
+Calculate total office absence.
+
+Update dashboard.
+
+Generate reports.
+
+Store audit logs.
+
+Generate notifications.
+
+---
+
+## User Acceptance
+
+The Director shall be able to determine at any moment:
+
+Who is currently inside the office.
+
+Who is currently outside the office.
+
+Who arrived late.
+
+Who has not yet arrived.
+
+Who completed today's work.
+
+How long every employee has been outside the office.
+
+---
+
+## Performance Acceptance
+
+Dashboard update
+
+Less than 2 seconds
+
+Webhook processing
+
+Less than 1 second
+
+Employee search
+
+Less than 1 second
+
+Report generation
+
+Less than 5 seconds
+
+---
+
+## Reliability Acceptance
+
+No attendance event may be lost.
+
+No duplicate webhook shall be processed.
+
+Attendance history shall remain immutable.
+
+Every administrative action shall be logged.
+
+---
+
+## Security Acceptance
+
+JWT Authentication
+
+HTTPS Communication
+
+Role Based Authorization
+
+Audit Logging
+
+Secure Password Storage
+
+---
+
+# PART XXI
+
+# 41 Future Maintenance
+
+## Maintenance Objectives
+
+Maintain application stability.
+
+Maintain database integrity.
+
+Maintain API compatibility.
+
+Maintain documentation.
+
+---
+
+## Versioning
+
+Version
+
+1.0.0
+
+Initial Release
+
+---
+
+Future versions shall preserve backward compatibility whenever possible.
+
+---
+
+## Documentation Updates
+
+Every software change requires documentation updates.
+
+Architecture documentation shall always reflect the implemented system.
+
+Business Rules shall remain synchronized with implementation.
+
+Database documentation shall remain synchronized with schema.
+
+---
+
+## Change Management
+
+Every functional change shall include:
+
+Updated Specification
+
+Updated Tests
+
+Updated Database Documentation
+
+Updated API Documentation
+
+Updated Release Notes
+
+---
+
+# PART XXII
+
+# 42 Project Development Roadmap
+
+## Phase 1
+
+Project Initialization
+
+Repository
+
+Folder Structure
+
+Documentation
+
+Development Environment
+
+Completed
+
+---
+
+## Phase 2
+
+Database
+
+Tables
+
+Relationships
+
+Indexes
+
+Completed
+
+---
+
+## Phase 3
+
+Backend
+
+Authentication
+
+Webhook
+
+Attendance Engine
+
+Business Rules
+
+Reports
+
+Scheduler
+
+Pending
+
+---
+
+## Phase 4
+
+Frontend
+
+Login
+
+Dashboard
+
+Employees
+
+Reports
+
+Settings
+
+Pending
+
+---
+
+## Phase 5
+
+Integration
+
+Connect Access Control API
+
+Webhook Testing
+
+Attendance Validation
+
+Pending
+
+---
+
+## Phase 6
+
+Testing
+
+Unit Tests
+
+Integration Tests
+
+Acceptance Tests
+
+Performance Tests
+
+Pending
+
+---
+
+## Phase 7
+
+Production Deployment
+
+Install Server
+
+Database Migration
+
+API Configuration
+
+Webhook Configuration
+
+User Accounts
+
+Production Validation
+
+Pending
+
+---
+
+# FINAL STATEMENT
+
+This specification defines the complete architecture of the Green Logistics Attendance Management System Version 1.0.
+
+The system is dedicated exclusively to employee attendance monitoring.
+
+The application shall:
+
+Receive attendance events from the Access Control System.
+
+Maintain permanent attendance history.
+
+Provide real-time office visibility.
+
+Track employee entry and exit.
+
+Calculate late arrivals.
+
+Calculate office absence intervals.
+
+Generate attendance reports.
+
+Provide secure administration.
+
+No functionality outside attendance management is included in this project.
+
+This document serves as the official implementation specification for development.
+
+END OF MASTER SPECIFICATION
+---
+
+# PART XXIII
+
+# 43 Development Standards
+
+## Purpose
+
+This section defines mandatory development standards for the Green Logistics Attendance Management System.
+
+Every developer working on this project must follow these standards.
+
+---
+
+# General Principles
+
+The project shall be developed using a modular architecture.
+
+Every module shall have a single responsibility.
+
+Code duplication is prohibited.
+
+Business logic shall never be duplicated.
+
+Every component shall be reusable.
+
+---
+
+# Folder Structure
+
+backend/
+
+controllers/
+
+services/
+
+repositories/
+
+middlewares/
+
+validators/
+
+models/
+
+routes/
+
+config/
+
+utils/
+
+jobs/
+
+tests/
+
+frontend/
+
+components/
+
+pages/
+
+layouts/
+
+services/
+
+hooks/
+
+types/
+
+styles/
+
+database/
+
+migrations/
+
+seeds/
+
+scripts/
+
+docs/
+
+---
+
+# Source Code Rules
+
+Use English for all code.
+
+Use PascalCase for Classes.
+
+Use camelCase for Variables.
+
+Use UPPER_CASE for Constants.
+
+Use meaningful names.
+
+Avoid abbreviations.
+
+---
+
+# Controllers
+
+Controllers shall
+
+Receive Requests
+
+Validate Requests
+
+Call Services
+
+Return Responses
+
+Controllers shall never contain business logic.
+
+---
+
+# Services
+
+Services contain all business logic.
+
+Services communicate with repositories.
+
+Services shall never access HTTP requests directly.
+
+---
+
+# Repositories
+
+Repositories are responsible only for database communication.
+
+Repositories shall not contain business rules.
+
+---
+
+# Validation
+
+Every incoming request shall be validated.
+
+Validation shall occur before business logic execution.
+
+---
+
+# Error Handling
+
+Every exception shall be handled.
+
+Unhandled exceptions are prohibited.
+
+Every exception shall be logged.
+
+---
+
+# Logging
+
+Every important action shall be logged.
+
+Logs shall contain
+
+Timestamp
+
+User
+
+Module
+
+Action
+
+Result
+
+---
+
+# Transactions
+
+Database transactions shall be used whenever multiple tables are modified.
+
+Failed transactions shall be rolled back.
+
+---
+
+# API Rules
+
+Every endpoint shall
+
+Validate Authentication
+
+Validate Authorization
+
+Validate Payload
+
+Return Standard Response
+
+Log Request
+
+Log Errors
+
+---
+
+# Response Format
+
+Every API response shall contain
+
+Success
+
+Message
+
+Data
+
+Errors
+
+Timestamp
+
+RequestID
+
+---
+
+# Database Rules
+
+Primary Keys
+
+UUID
+
+Foreign Keys
+
+Required
+
+Indexes
+
+Optimized
+
+Soft Delete
+
+Only where applicable
+
+Audit Columns
+
+CreatedAt
+
+UpdatedAt
+
+---
+
+# Frontend Rules
+
+Frontend shall never calculate attendance.
+
+Frontend shall display data received from Backend.
+
+Frontend shall never access database directly.
+
+---
+
+# Dashboard Rules
+
+Dashboard refresh interval
+
+5 seconds
+
+Dashboard shall display only current information.
+
+Dashboard shall never execute calculations.
+
+---
+
+# Security Rules
+
+HTTPS only
+
+JWT Authentication
+
+Role Based Authorization
+
+Audit Logging
+
+Password Hashing
+
+Rate Limiting
+
+---
+
+# Performance Rules
+
+Average API Response
+
+< 500 ms
+
+Dashboard Refresh
+
+< 2 seconds
+
+Attendance Processing
+
+< 1 second
+
+Database Query
+
+< 100 ms
+
+---
+
+# Code Review
+
+Every Pull Request shall be reviewed.
+
+Code shall compile successfully.
+
+All tests shall pass.
+
+Documentation shall be updated.
+
+---
+
+# Release Rules
+
+No release without
+
+Database Migration
+
+Updated Documentation
+
+Successful Testing
+
+Production Checklist
+
+Approval
+
+---
+
+# PART XXIV
+
+# 44 Development Checklist
+
+## Phase 1
+
+Project Structure
+
+Repository
+
+Folder Structure
+
+Configuration
+
+Completed
+
+---
+
+## Phase 2
+
+Database
+
+Create Tables
+
+Create Relationships
+
+Create Indexes
+
+Seed Initial Data
+
+Completed
+
+---
+
+## Phase 3
+
+Authentication
+
+JWT
+
+Login
+
+Logout
+
+Permissions
+
+Pending
+
+---
+
+## Phase 4
+
+Employee Module
+
+CRUD
+
+Assign Card
+
+Assign Shift
+
+Department
+
+Pending
+
+---
+
+## Phase 5
+
+Webhook Module
+
+Receive Request
+
+Validate
+
+Authenticate
+
+Store Log
+
+Pending
+
+---
+
+## Phase 6
+
+Attendance Engine
+
+Attendance Session
+
+Attendance Event
+
+Absence Interval
+
+Late Calculation
+
+Pending
+
+---
+
+## Phase 7
+
+Dashboard
+
+Live Dashboard
+
+Employee Drawer
+
+Statistics
+
+Filters
+
+Pending
+
+---
+
+## Phase 8
+
+Reports
+
+Daily
+
+Weekly
+
+Monthly
+
+Employee
+
+Department
+
+Pending
+
+---
+
+## Phase 9
+
+Administration
+
+Users
+
+Roles
+
+Settings
+
+API Configuration
+
+Audit
+
+Pending
+
+---
+
+## Phase 10
+
+Testing
+
+Unit Tests
+
+Integration Tests
+
+API Tests
+
+Acceptance Tests
+
+Pending
+
+---
+
+## Phase 11
+
+Production
+
+Database Migration
+
+Environment Configuration
+
+Webhook Configuration
+
+User Creation
+
+Go Live
+
+Pending
+
+---
+
+# PART XXV
+
+# 45 Definition of Complete System
+
+The Green Logistics Attendance Management System shall be considered complete only when all of the following requirements are satisfied.
+
+The system successfully receives attendance events from the Access Control System.
+
+Every attendance event is permanently stored.
+
+Attendance Sessions are created automatically.
+
+Attendance Events are linked to Attendance Sessions.
+
+Absence Intervals are calculated automatically.
+
+Late arrivals are calculated correctly.
+
+The Dashboard displays live attendance information.
+
+Employee information is searchable.
+
+Reports are generated successfully.
+
+Audit Logs record every administrative action.
+
+Webhook Logs record every request.
+
+Authentication is enabled.
+
+Authorization is enforced.
+
+The system passes all acceptance tests.
+
+Documentation matches the implemented software.
+
+Version 1.0 is approved.
+
+---
+
+END OF DOCUMENT
+---
+
+# APPENDIX A
+
+# Business Rules Catalog
+
+## BR-001
+
+Every employee must have exactly one active work shift.
+
+---
+
+## BR-002
+
+Every attendance event must belong to one employee.
+
+---
+
+## BR-003
+
+Every attendance event must belong to one Attendance Session.
+
+---
+
+## BR-004
+
+Only one Attendance Session may exist for one employee during one workday.
+
+---
+
+## BR-005
+
+Attendance Sessions are created automatically.
+
+---
+
+## BR-006
+
+Attendance Sessions are completed automatically.
+
+---
+
+## BR-007
+
+Attendance Events are immutable.
+
+---
+
+## BR-008
+
+Attendance Sessions are immutable after completion.
+
+---
+
+## BR-009
+
+Every Entry event shall update the employee status.
+
+---
+
+## BR-010
+
+Every Exit event shall update the employee status.
+
+---
+
+## BR-011
+
+The first Entry determines attendance.
+
+---
+
+## BR-012
+
+Late status is calculated only from the first Entry.
+
+---
+
+## BR-013
+
+The grace period is 15 minutes.
+
+---
+
+## BR-014
+
+Entry at 17:15 is considered On Time.
+
+---
+
+## BR-015
+
+Entry at 17:16 is considered Late.
+
+---
+
+## BR-016
+
+Overtime is not calculated.
+
+---
+
+## BR-017
+
+Early arrival is recorded but ignored in attendance calculations.
+
+---
+
+## BR-018
+
+Late departure is recorded but ignored in attendance calculations.
+
+---
+
+## BR-019
+
+Every Exit creates an Absence Interval.
+
+---
+
+## BR-020
+
+Every Return closes an Absence Interval.
+
+---
+
+## BR-021
+
+Total Absence equals the sum of all completed Absence Intervals.
+
+---
+
+## BR-022
+
+Only one employee status may be active at a time.
+
+---
+
+## BR-023
+
+Dashboard information is generated by the backend.
+
+---
+
+## BR-024
+
+Dashboard performs no attendance calculations.
+
+---
+
+## BR-025
+
+Attendance history is permanent.
+
+---
+
+## BR-026
+
+Attendance history cannot be edited.
+
+---
+
+## BR-027
+
+Administrative corrections never overwrite original data.
+
+---
+
+## BR-028
+
+Every correction creates an Audit Log.
+
+---
+
+## BR-029
+
+Every webhook request shall be logged.
+
+---
+
+## BR-030
+
+Duplicate webhook requests shall not be processed twice.
+
+---
+
+## BR-031
+
+Every invalid request shall be stored.
+
+---
+
+## BR-032
+
+Unknown employees create an Exception.
+
+---
+
+## BR-033
+
+Unknown employees never create Attendance Sessions.
+
+---
+
+## BR-034
+
+Attendance calculations require an assigned shift.
+
+---
+
+## BR-035
+
+Employees without shifts create Exceptions.
+
+---
+
+## BR-036
+
+Every Attendance Session belongs to one Shift.
+
+---
+
+## BR-037
+
+Attendance calculations use scheduled time only.
+
+---
+
+## BR-038
+
+Attendance calculations ignore overtime.
+
+---
+
+## BR-039
+
+Attendance calculations ignore salary.
+
+---
+
+## BR-040
+
+Attendance calculations ignore payroll.
+
+---
+
+## BR-041
+
+Attendance calculations ignore vacations.
+
+---
+
+## BR-042
+
+Attendance calculations ignore sick leave.
+
+---
+
+## BR-043
+
+Attendance calculations ignore business trips.
+
+---
+
+## BR-044
+
+Attendance calculations are based only on attendance events.
+
+---
+
+## BR-045
+
+Every Attendance Session has one Work Date.
+
+---
+
+## BR-046
+
+Every Attendance Session stores the first Entry.
+
+---
+
+## BR-047
+
+Every Attendance Session stores the last Exit.
+
+---
+
+## BR-048
+
+Every Attendance Session stores the current status.
+
+---
+
+## BR-049
+
+Every Attendance Session stores total absence.
+
+---
+
+## BR-050
+
+Every Attendance Session stores total exits.
+
+---
+
+# APPENDIX B
+
+# Employee Status Definitions
+
+Status
+
+Description
+
+Not Arrived
+
+Employee has not entered the office.
+
+---
+
+Inside Office
+
+Employee is currently inside the office.
+
+---
+
+Outside Office
+
+Employee has exited the office and has not yet returned.
+
+---
+
+Completed
+
+Attendance Session is finished.
+
+---
+
+Exception
+
+Attendance requires administrator review.
+
+---
+
+# APPENDIX C
+
+# Attendance Event Types
+
+ENTRY
+
+Employee entered the office.
+
+---
+
+EXIT
+
+Employee exited the office.
+
+---
+
+MANUAL_CORRECTION
+
+Administrative attendance correction.
+
+---
+
+SYSTEM_CORRECTION
+
+Automatic system correction.
+
+---
+
+UNKNOWN
+
+Unknown attendance event.
+
+---
+
+DUPLICATE_ENTRY
+
+Duplicate entry event.
+
+---
+
+DUPLICATE_EXIT
+
+Duplicate exit event.
+
+---
+
+# APPENDIX D
+
+# Default Shift Configuration
+
+Day Shift
+
+Start
+
+17:00
+
+End
+
+01:00
+
+Grace Period
+
+15 Minutes
+
+Cross Midnight
+
+Yes
+
+---
+
+Night Shift
+
+Start
+
+00:00
+
+End
+
+05:00
+
+Grace Period
+
+15 Minutes
+
+Cross Midnight
+
+No
+
+---
+
+# APPENDIX E
+
+# Default Dashboard Columns
+
+Employee
+
+Department
+
+Shift
+
+Scheduled Start
+
+First Entry
+
+Current Status
+
+Current Absence
+
+Today's Absence
+
+Late
+
+Late Minutes
+
+Last Event
+
+Last Event Time
+
+---
+
+END OF MASTER SPECIFICATION VERSION 1.0
+---
+
+# APPENDIX F
+
+# User Interface Specification
+
+## Login Screen
+
+Components
+
+Company Logo
+
+Username
+
+Password
+
+Remember Me
+
+Login Button
+
+Forgot Password
+
+---
+
+## Dashboard
+
+Components
+
+Header
+
+Statistics Panel
+
+Employee Grid
+
+Notifications Panel
+
+System Status Panel
+
+Footer
+
+---
+
+## Dashboard Widgets
+
+Employees Scheduled Today
+
+Employees Inside Office
+
+Employees Outside Office
+
+Employees Late
+
+Employees Not Arrived
+
+Completed Sessions
+
+Current Attendance
+
+System Health
+
+---
+
+## Employee Drawer
+
+Tabs
+
+Today
+
+History
+
+---
+
+Today
+
+Employee Information
+
+Attendance Session
+
+Attendance Timeline
+
+Absence Intervals
+
+Session Summary
+
+---
+
+History
+
+Attendance Sessions
+
+Attendance Statistics
+
+Late History
+
+Absence History
+
+---
+
+## Administration
+
+Employees
+
+Shifts
+
+Users
+
+Roles
+
+Settings
+
+Webhook
+
+Audit Logs
+
+---
+
+## Reports
+
+Daily Report
+
+Weekly Report
+
+Monthly Report
+
+Employee Report
+
+Late Report
+
+Absence Report
+
+---
+
+# APPENDIX G
+
+# Dashboard Calculations
+
+## Employees Scheduled
+
+Count of employees assigned to shifts for the selected day.
+
+---
+
+## Employees Present
+
+Employees with status
+
+Inside Office
+
+---
+
+## Employees Outside
+
+Employees with status
+
+Outside Office
+
+---
+
+## Employees Late
+
+Employees where
+
+Late = True
+
+---
+
+## Employees Not Arrived
+
+Employees without first Entry.
+
+---
+
+## Completed Sessions
+
+Attendance Sessions with status
+
+Completed.
+
+---
+
+## Current Occupancy
+
+Employees Inside Office
+
+---
+
+## Total Office Absence
+
+Sum of all completed Absence Intervals.
+
+---
+
+## Current Absence
+
+Current time
+
+minus
+
+Last Exit Time
+
+for employees currently outside.
+
+---
+
+# APPENDIX H
+
+# API Response Standards
+
+Every endpoint returns JSON.
+
+---
+
+Success Response
+
+success
+
+message
+
+data
+
+timestamp
+
+requestId
+
+---
+
+Error Response
+
+success
+
+false
+
+error
+
+code
+
+message
+
+timestamp
+
+requestId
+
+---
+
+HTTP Status Codes
+
+200
+
+Success
+
+201
+
+Created
+
+400
+
+Bad Request
+
+401
+
+Unauthorized
+
+403
+
+Forbidden
+
+404
+
+Not Found
+
+409
+
+Conflict
+
+422
+
+Validation Error
+
+500
+
+Internal Server Error
+
+---
+
+# APPENDIX I
+
+# Naming Standards
+
+Database Tables
+
+Plural
+
+Examples
+
+Employees
+
+AttendanceSessions
+
+AttendanceEvents
+
+AbsenceIntervals
+
+Notifications
+
+AuditLogs
+
+WebhookLogs
+
+---
+
+Classes
+
+PascalCase
+
+Examples
+
+AttendanceService
+
+EmployeeRepository
+
+DashboardController
+
+WebhookProcessor
+
+---
+
+Variables
+
+camelCase
+
+Examples
+
+employeeId
+
+attendanceSession
+
+currentStatus
+
+lateMinutes
+
+---
+
+Constants
+
+UPPER_CASE
+
+Examples
+
+DEFAULT_GRACE_PERIOD
+
+MAX_RETRY_COUNT
+
+DEFAULT_REFRESH_INTERVAL
+
+---
+
+API Endpoints
+
+Lower Case
+
+Plural
+
+Examples
+
+/api/v1/employees
+
+/api/v1/sessions
+
+/api/v1/events
+
+/api/v1/reports
+
+---
+
+# APPENDIX J
+
+# Time Calculation Rules
+
+All timestamps shall use the company time zone.
+
+The company time zone shall be configurable.
+
+All attendance calculations shall use local company time.
+
+The system clock shall be synchronized with the server.
+
+Cross-midnight shifts shall be processed as one Attendance Session.
+
+---
+
+# APPENDIX K
+
+# Audit Requirements
+
+The following actions must always create an Audit Log.
+
+User Login
+
+User Logout
+
+Employee Created
+
+Employee Updated
+
+Employee Deactivated
+
+Shift Updated
+
+Settings Updated
+
+Webhook Configuration Updated
+
+Attendance Corrected
+
+Report Generated
+
+User Permission Changed
+
+---
+
+Audit Log Fields
+
+Audit ID
+
+Timestamp
+
+User
+
+Action
+
+Module
+
+Entity
+
+Entity ID
+
+Previous Value
+
+New Value
+
+IP Address
+
+---
+
+# APPENDIX L
+
+# Non-Functional Requirements
+
+Maximum Dashboard Load Time
+
+2 Seconds
+
+Maximum API Response
+
+500 Milliseconds
+
+Maximum Attendance Processing
+
+1 Second
+
+Maximum Report Generation
+
+5 Seconds
+
+System Availability
+
+99.9%
+
+Maximum Concurrent Users
+
+100
+
+Maximum Employees
+
+10,000
+
+Maximum Attendance Events
+
+Unlimited
+
+Database Engine
+
+PostgreSQL
+
+Authentication
+
+JWT
+
+Communication
+
+HTTPS
+
+Language
+
+English
+
+Time Format
+
+24 Hour
+
+Date Format
+
+YYYY-MM-DD
+
+---
+
+# APPENDIX M
+
+# Final Project Scope
+
+Included
+
+Employee Management
+
+Shift Management
+
+Attendance Monitoring
+
+Entry Processing
+
+Exit Processing
+
+Absence Tracking
+
+Late Detection
+
+Attendance Sessions
+
+Attendance Events
+
+Reports
+
+Dashboard
+
+Administration
+
+Webhook Integration
+
+Audit Logs
+
+Notifications
+
+User Authentication
+
+Role Management
+
+Settings
+
+---
+
+Not Included
+
+Payroll
+
+Salary Calculation
+
+CRM
+
+Accounting
+
+Fleet Management
+
+Dispatch
+
+Customer Management
+
+Carrier Management
+
+Vacation Management
+
+Business Trips
+
+Performance Evaluation
+
+KPI Calculation
+
+Face Recognition
+
+Biometric Processing
+
+Mobile Application
+
+Artificial Intelligence
+
+---
+
+END OF GREEN LOGISTICS ATTENDANCE MASTER SPECIFICATION
+VERSION 1.0
+---
+
+# APPENDIX N
+
+# User Stories
+
+## US-001
+
+As a Director,
+
+I want to see who is currently inside the office,
+
+so that I always know who is present.
+
+---
+
+## US-002
+
+As a Director,
+
+I want to immediately see which employees are late,
+
+so that I can monitor attendance discipline.
+
+---
+
+## US-003
+
+As a Director,
+
+I want to see which employees are currently outside the office,
+
+so that I know who has temporarily left.
+
+---
+
+## US-004
+
+As a Director,
+
+I want to see how long an employee has been outside,
+
+so that I can monitor office absence.
+
+---
+
+## US-005
+
+As a Director,
+
+I want to open an employee card,
+
+so that I can view today's attendance session.
+
+---
+
+## US-006
+
+As a Director,
+
+I want to view all attendance events,
+
+so that I can understand employee movement.
+
+---
+
+## US-007
+
+As an Administrator,
+
+I want to configure work shifts,
+
+so that attendance calculations are correct.
+
+---
+
+## US-008
+
+As an Administrator,
+
+I want to assign access cards,
+
+so that employees can be identified.
+
+---
+
+## US-009
+
+As an Administrator,
+
+I want to configure API settings,
+
+so that the attendance system receives webhook events.
+
+---
+
+## US-010
+
+As an Administrator,
+
+I want to review webhook failures,
+
+so that integration problems can be resolved.
+
+---
+
+# APPENDIX O
+
+# Attendance Session State Machine
+
+State
+
+Scheduled
+
+↓
+
+Waiting For First Entry
+
+↓
+
+Working
+
+↓
+
+Outside Office
+
+↓
+
+Working
+
+↓
+
+Outside Office
+
+↓
+
+Working
+
+↓
+
+Completed
+
+---
+
+Possible Transitions
+
+Scheduled
+
+↓
+
+Working
+
+Working
+
+↓
+
+Outside Office
+
+Outside Office
+
+↓
+
+Working
+
+Working
+
+↓
+
+Completed
+
+Working
+
+↓
+
+Exception
+
+Outside Office
+
+↓
+
+Exception
+
+---
+
+# APPENDIX P
+
+# Attendance Event State Machine
+
+Webhook Received
+
+↓
+
+Validated
+
+↓
+
+Employee Identified
+
+↓
+
+Shift Identified
+
+↓
+
+Attendance Session Found
+
+↓
+
+Attendance Event Stored
+
+↓
+
+Business Rules Executed
+
+↓
+
+Dashboard Updated
+
+↓
+
+Completed
+
+---
+
+Failure Path
+
+Webhook Received
+
+↓
+
+Validation Failed
+
+↓
+
+Store Error
+
+↓
+
+Notify Administrator
+
+↓
+
+Completed
+
+---
+
+# APPENDIX Q
+
+# Default System Settings
+
+Dashboard Refresh
+
+5 Seconds
+
+---
+
+Grace Period
+
+15 Minutes
+
+---
+
+Webhook Timeout
+
+30 Seconds
+
+---
+
+Retry Count
+
+3
+
+---
+
+JWT Lifetime
+
+8 Hours
+
+---
+
+Session Timeout
+
+30 Minutes
+
+---
+
+Application Language
+
+English
+
+---
+
+Time Zone
+
+Company Local Time
+
+---
+
+Date Format
+
+YYYY-MM-DD
+
+---
+
+Time Format
+
+24 Hour
+
+---
+
+# APPENDIX R
+
+# Notification Types
+
+Late Arrival
+
+Employee Outside Office
+
+Unknown Employee
+
+Missing Entry
+
+Missing Exit
+
+Duplicate Entry
+
+Duplicate Exit
+
+Webhook Failure
+
+Database Failure
+
+API Failure
+
+Server Failure
+
+Configuration Changed
+
+---
+
+# APPENDIX S
+
+# Dashboard Filters
+
+Date
+
+Department
+
+Employee
+
+Shift
+
+Current Status
+
+Late Status
+
+Inside Office
+
+Outside Office
+
+Completed
+
+Not Arrived
+
+---
+
+# APPENDIX T
+
+# Search Fields
+
+Employee Name
+
+Employee Number
+
+Department
+
+Card Number
+
+Attendance Session
+
+Attendance Event
+
+Date
+
+Shift
+
+---
+
+# APPENDIX U
+
+# Keyboard Shortcuts
+
+Ctrl + F
+
+Search Employee
+
+---
+
+F5
+
+Refresh Dashboard
+
+---
+
+Esc
+
+Close Employee Drawer
+
+---
+
+Enter
+
+Open Selected Employee
+
+---
+
+Ctrl + P
+
+Print Report
+
+---
+
+Ctrl + E
+
+Export Report
+
+---
+
+# APPENDIX V
+
+# Supported Browsers
+
+Google Chrome
+
+Microsoft Edge
+
+Mozilla Firefox
+
+Safari
+
+Latest Stable Versions Only
+
+---
+
+# APPENDIX W
+
+# Version Information
+
+Product Name
+
+Green Logistics Attendance
+
+Version
+
+1.0.0
+
+Architecture
+
+Client - Server
+
+Database
+
+PostgreSQL
+
+Authentication
+
+JWT
+
+API
+
+REST
+
+Communication
+
+HTTPS
+
+Deployment
+
+Windows Server
+
+Status
+
+Ready For Development
+
+---
+
+END OF DOCUMENT
+---
+
+# APPENDIX X
+
+# Functional Requirements
+
+## FR-001 Employee Management
+
+The system shall maintain a list of employees.
+
+The system shall allow:
+
+Create Employee
+
+Edit Employee
+
+Deactivate Employee
+
+Assign Shift
+
+Assign Access Card
+
+View Employee Information
+
+Search Employee
+
+---
+
+## FR-002 Shift Management
+
+The system shall support multiple work shifts.
+
+Each shift shall contain
+
+Shift Name
+
+Start Time
+
+End Time
+
+Grace Period
+
+Cross Midnight
+
+Status
+
+---
+
+## FR-003 Attendance Processing
+
+The system shall process every attendance event received from the Access Control System.
+
+Every attendance event shall
+
+Be validated
+
+Be stored
+
+Be assigned to an Attendance Session
+
+Update Employee Status
+
+Update Dashboard
+
+---
+
+## FR-004 Attendance Sessions
+
+The system shall automatically create Attendance Sessions.
+
+The system shall automatically close Attendance Sessions.
+
+Only one Attendance Session may exist for one employee for one workday.
+
+---
+
+## FR-005 Attendance Events
+
+Every attendance event shall contain
+
+Timestamp
+
+Direction
+
+Employee
+
+Device
+
+Webhook ID
+
+Source
+
+Session
+
+---
+
+## FR-006 Absence Tracking
+
+The system shall calculate
+
+Current Absence
+
+Total Absence
+
+Number Of Exits
+
+Absence History
+
+---
+
+## FR-007 Late Detection
+
+The system shall determine
+
+On Time
+
+Late
+
+Late Minutes
+
+Grace Period
+
+---
+
+## FR-008 Dashboard
+
+Dashboard shall display
+
+Current Presence
+
+Late Employees
+
+Outside Employees
+
+Not Arrived
+
+Completed Sessions
+
+Current Statistics
+
+---
+
+## FR-009 Reports
+
+The system shall generate
+
+Daily Reports
+
+Weekly Reports
+
+Monthly Reports
+
+Employee Reports
+
+Department Reports
+
+Late Reports
+
+Absence Reports
+
+---
+
+## FR-010 Administration
+
+Administrator shall manage
+
+Employees
+
+Shifts
+
+Users
+
+Roles
+
+Settings
+
+API
+
+Webhook
+
+---
+
+# APPENDIX Y
+
+# Technical Requirements
+
+Application Type
+
+Web Application
+
+---
+
+Architecture
+
+Three-Tier Architecture
+
+---
+
+Communication
+
+REST API
+
+---
+
+Authentication
+
+JWT
+
+---
+
+Authorization
+
+Role Based
+
+---
+
+Database
+
+PostgreSQL
+
+---
+
+Hosting
+
+Windows Server
+
+---
+
+API Format
+
+JSON
+
+---
+
+Encoding
+
+UTF-8
+
+---
+
+Date Standard
+
+ISO-8601
+
+---
+
+UUID Version
+
+Version 4
+
+---
+
+HTTPS
+
+Required
+
+---
+
+# APPENDIX Z
+
+# Project Acceptance Checklist
+
+Documentation
+
+Completed
+
+Architecture
+
+Completed
+
+Business Rules
+
+Completed
+
+Database Design
+
+Completed
+
+API Design
+
+Completed
+
+Backend Design
+
+Completed
+
+Frontend Design
+
+Completed
+
+Dashboard Design
+
+Completed
+
+Security Design
+
+Completed
+
+Reporting Design
+
+Completed
+
+Deployment Design
+
+Completed
+
+Testing Strategy
+
+Completed
+
+Development Standards
+
+Completed
+
+Functional Requirements
+
+Completed
+
+Technical Requirements
+
+Completed
+
+Project Ready For Development
+
+YES
+
+---
+
+END OF GREEN LOGISTICS ATTENDANCE SPECIFICATION
+
+VERSION 1.0
+
+STATUS
+
+APPROVED FOR IMPLEMENTATION
+---
+
+# APPENDIX AA
+
+# User Interface Requirements
+
+## General Requirements
+
+The application shall provide a clean and responsive user interface.
+
+The interface shall be optimized for desktop usage.
+
+The interface shall support Full HD resolution (1920 × 1080) as the primary working resolution.
+
+The interface shall automatically adapt to larger monitors.
+
+---
+
+## Dashboard Requirements
+
+The Dashboard shall open immediately after successful login.
+
+The Dashboard shall be the default application screen.
+
+Dashboard data shall refresh automatically without requiring manual page reload.
+
+The refresh interval shall be configurable.
+
+Default refresh interval
+
+5 seconds.
+
+---
+
+## Employee List
+
+The Employee List shall display
+
+Employee Photo
+
+Employee Name
+
+Department
+
+Position
+
+Current Shift
+
+Current Status
+
+First Entry
+
+Last Activity
+
+Late Status
+
+Current Absence
+
+Today's Total Absence
+
+---
+
+## Employee Drawer
+
+Selecting an employee shall open a side panel.
+
+The Dashboard shall remain visible while the employee information is displayed.
+
+The Employee Drawer shall contain
+
+Employee Information
+
+Today's Attendance Session
+
+Attendance Timeline
+
+Absence Intervals
+
+Attendance Summary
+
+Attendance History
+
+---
+
+## Attendance Timeline
+
+Attendance events shall be displayed in chronological order.
+
+Each event shall display
+
+Time
+
+Direction
+
+Device
+
+Event Type
+
+---
+
+Example
+
+17:02
+
+ENTRY
+
+Main Door
+
+---
+
+18:31
+
+EXIT
+
+Main Door
+
+---
+
+18:39
+
+ENTRY
+
+Main Door
+
+---
+
+## Attendance History
+
+Attendance History shall allow filtering by
+
+Date
+
+Week
+
+Month
+
+Custom Period
+
+---
+
+## Reports Screen
+
+Reports shall support
+
+Preview
+
+Export
+
+Print
+
+---
+
+## Administration Screen
+
+Administration shall include
+
+Employees
+
+Shifts
+
+Users
+
+Roles
+
+Settings
+
+API Configuration
+
+Webhook Configuration
+
+Audit Logs
+
+---
+
+# APPENDIX AB
+
+# Performance Requirements
+
+Maximum Dashboard Load Time
+
+2 Seconds
+
+Maximum Login Time
+
+2 Seconds
+
+Maximum Attendance Processing
+
+1 Second
+
+Maximum Employee Search
+
+500 Milliseconds
+
+Maximum Report Generation
+
+5 Seconds
+
+Maximum Database Query
+
+100 Milliseconds
+
+Maximum Dashboard Refresh
+
+2 Seconds
+
+---
+
+# APPENDIX AC
+
+# Availability Requirements
+
+Target Availability
+
+99.9%
+
+Application shall automatically recover after temporary failures.
+
+Database connection shall automatically reconnect.
+
+Webhook listener shall restart automatically if interrupted.
+
+Background Scheduler shall automatically restart after unexpected failure.
+
+---
+
+# APPENDIX AD
+
+# Security Requirements
+
+Passwords shall never be stored in plain text.
+
+JWT tokens shall expire automatically.
+
+Inactive sessions shall expire automatically.
+
+Every login attempt shall be logged.
+
+Every failed login shall be logged.
+
+API shall require HTTPS.
+
+All sensitive configuration values shall be stored securely.
+
+Audit Logs shall be protected from modification.
+
+---
+
+# APPENDIX AE
+
+# Documentation Requirements
+
+Every source code module shall contain descriptive comments.
+
+Every public API endpoint shall be documented.
+
+Every database table shall be documented.
+
+Every business rule shall be documented.
+
+Every configuration option shall be documented.
+
+The implementation shall always remain synchronized with this specification.
+
+---
+
+END OF SPECIFICATION
+---
+
+# APPENDIX AF
+
+# User Acceptance Scenarios
+
+## Scenario 1
+
+Employee Arrives On Time
+
+Shift
+
+17:00
+
+Grace Period
+
+15 Minutes
+
+Employee Entry
+
+17:08
+
+Expected Result
+
+Attendance Session Created
+
+Late = No
+
+Late Minutes = 0
+
+Status = Inside Office
+
+Dashboard Updated
+
+Audit Record Created
+
+---
+
+## Scenario 2
+
+Employee Arrives Late
+
+Shift
+
+17:00
+
+Grace Period
+
+15 Minutes
+
+Employee Entry
+
+17:18
+
+Expected Result
+
+Attendance Session Created
+
+Late = Yes
+
+Late Minutes = 3
+
+Status = Inside Office
+
+Dashboard Updated
+
+Notification Created
+
+Audit Record Created
+
+---
+
+## Scenario 3
+
+Employee Leaves Office
+
+Employee Status
+
+Inside Office
+
+Employee Exit
+
+18:25
+
+Expected Result
+
+Attendance Event Created
+
+Absence Interval Started
+
+Status = Outside Office
+
+Dashboard Updated
+
+---
+
+## Scenario 4
+
+Employee Returns
+
+Employee Entry
+
+18:37
+
+Expected Result
+
+Absence Interval Closed
+
+Duration
+
+12 Minutes
+
+Total Absence Updated
+
+Status = Inside Office
+
+Dashboard Updated
+
+---
+
+## Scenario 5
+
+Employee Leaves Multiple Times
+
+Expected Result
+
+Every Exit creates a new Absence Interval.
+
+Every Return closes the current Absence Interval.
+
+Total Absence equals the sum of all completed Absence Intervals.
+
+---
+
+## Scenario 6
+
+Duplicate Entry
+
+Expected Result
+
+Attendance Event Stored
+
+Event marked as Duplicate Entry
+
+Attendance Session unchanged
+
+Dashboard unchanged
+
+Administrator Notification created
+
+---
+
+## Scenario 7
+
+Duplicate Exit
+
+Expected Result
+
+Attendance Event Stored
+
+Event marked as Duplicate Exit
+
+Attendance Session unchanged
+
+Administrator Notification created
+
+---
+
+## Scenario 8
+
+Unknown Employee
+
+Expected Result
+
+Attendance Event Stored
+
+Attendance Session not created
+
+Exception created
+
+Administrator Notification created
+
+---
+
+## Scenario 9
+
+Webhook Retry
+
+Expected Result
+
+Duplicate Webhook ID detected
+
+Business processing skipped
+
+Webhook Log updated
+
+HTTP 200 returned
+
+---
+
+## Scenario 10
+
+Shift Crossing Midnight
+
+Shift
+
+17:00
+
+↓
+
+01:00
+
+Employee Exit
+
+00:48
+
+Employee Return
+
+00:55
+
+Expected Result
+
+Attendance Session remains the same.
+
+Work Date does not change.
+
+Absence Interval stored normally.
+
+Attendance Session completed after final Exit.
+
+---
+
+# APPENDIX AG
+
+# Administrator Manual
+
+Administrator Responsibilities
+
+Create Employees
+
+Assign Access Cards
+
+Assign Shifts
+
+Configure API
+
+Configure Webhook
+
+Review Exceptions
+
+Review Audit Logs
+
+Generate Reports
+
+Manage Users
+
+Configure Settings
+
+Backup Database
+
+Restore Database
+
+---
+
+Administrator Restrictions
+
+Administrator cannot delete
+
+Attendance Events
+
+Attendance Sessions
+
+Absence Intervals
+
+Audit Logs
+
+Webhook Logs
+
+Historical Attendance
+
+---
+
+# APPENDIX AH
+
+# Director Dashboard Specification
+
+The Director Dashboard shall display only operational information.
+
+Widgets
+
+Employees Scheduled
+
+Employees Present
+
+Employees Outside
+
+Employees Late
+
+Employees Not Arrived
+
+Completed Sessions
+
+System Health
+
+Webhook Status
+
+Database Status
+
+API Status
+
+---
+
+Employee Table
+
+Columns
+
+Employee
+
+Department
+
+Shift
+
+Status
+
+Late
+
+Current Absence
+
+Today's Absence
+
+Last Activity
+
+---
+
+Dashboard Auto Refresh
+
+Default
+
+5 Seconds
+
+---
+
+Dashboard shall never require manual refresh during normal operation.
+
+---
+
+END OF APPENDIX AH
+
+END OF GREEN LOGISTICS ATTENDANCE MASTER SPECIFICATION VERSION 1.0

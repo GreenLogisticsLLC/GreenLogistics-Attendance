@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  roleId      String   @id @default(uuid()) @map("role_id")
+  roleName    String   @unique @map("role_name")
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  users       User[]
+
+  @@map("roles")
+}
+
+model User {
+  userId       String     @id @default(uuid()) @map("user_id")
+  username     String     @unique
+  passwordHash String     @map("password_hash")
+  firstName    String     @map("first_name")
+  lastName     String     @map("last_name")
+  email        String?    @unique
+  roleId       String     @map("role_id")
+  isActive     Boolean    @default(true) @map("is_active")
+  lastLogin    DateTime?  @map("last_login")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  role         Role       @relation(fields: [roleId], references: [roleId])
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Shift {
+  shiftId            String              @id @default(uuid()) @map("shift_id")
+  shiftName          String              @unique @map("shift_name")
+  startTime          String              @map("start_time")
+  endTime            String              @map("end_time")
+  gracePeriodMinutes Int                 @default(15) @map("grace_period_minutes")
+  crossMidnight      Boolean             @default(false) @map("cross_midnight")
+  isActive           Boolean             @default(true) @map("is_active")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  employees          Employee[]
+  attendanceSessions AttendanceSession[]
+
+  @@map("shifts")
+}
+
+model Employee {
+  employeeId         String              @id @default(uuid()) @map("employee_id")
+  employeeNumber     String              @unique @map("employee_number")
+  firstName          String              @map("first_name")
+  lastName           String              @map("last_name")
+  department         String?
+  position           String?
+  cardNumber         String              @unique @map("card_number")
+  externalRef        String?             @unique @map("external_ref")
+  cardType           Int                 @default(2) @map("card_type")
+  shiftId            String              @map("shift_id")
+  status             String              @default("ACTIVE")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  shift              Shift               @relation(fields: [shiftId], references: [shiftId])
+  attendanceSessions AttendanceSession[]
+  attendanceEvents   AttendanceEvent[]
+  notifications      Notification[]
+
+  @@index([cardNumber])
+  @@index([shiftId])
+  @@index([status])
+  @@map("employees")
+}
+
+model AttendanceSession {
+  sessionId           String             @id @default(uuid()) @map("session_id")
+  employeeId          String             @map("employee_id")
+  shiftId             String             @map("shift_id")
+  workDate            String             @map("work_date")
+  scheduledStart      DateTime           @map("scheduled_start")
+  scheduledEnd        DateTime           @map("scheduled_end")
+  firstEntry          DateTime?          @map("first_entry")
+  lastExit            DateTime?          @map("last_exit")
+  currentStatus       String             @default("SCHEDULED") @map("current_status")
+  late                Boolean            @default(false)
+  lateMinutes         Int                @default(0) @map("late_minutes")
+  totalAbsenceMinutes Int                @default(0) @map("total_absence_minutes")
+  exitCount           Int                @default(0) @map("exit_count")
+  lastActivity        DateTime?          @map("last_activity")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  employee            Employee           @relation(fields: [employeeId], references: [employeeId])
+  shift               Shift              @relation(fields: [shiftId], references: [shiftId])
+  attendanceEvents    AttendanceEvent[]
+  absenceIntervals    AbsenceInterval[]
+
+  @@unique([employeeId, workDate])
+  @@index([workDate])
+  @@index([currentStatus])
+  @@map("attendance_sessions")
+}
+
+model AttendanceEvent {
+  eventId    String            @id @default(uuid()) @map("event_id")
+  sessionId  String            @map("session_id")
+  employeeId String            @map("employee_id")
+  eventTime  DateTime          @map("event_time")
+  direction  String
+  eventType  String            @default("NORMAL") @map("event_type")
+  deviceId   String            @map("device_id")
+  webhookId  String            @unique @map("webhook_id")
+  source     String            @default("ACCESS_CONTROL")
+  createdAt  DateTime          @default(now()) @map("created_at")
+  session    AttendanceSession @relation(fields: [sessionId], references: [sessionId])
+  employee   Employee          @relation(fields: [employeeId], references: [employeeId])
+  exitFor    AbsenceInterval[] @relation("ExitEvent")
+  returnFor  AbsenceInterval[] @relation("ReturnEvent")
+
+  @@index([sessionId])
+  @@index([employeeId])
+  @@index([eventTime])
+  @@map("attendance_events")
+}
+
+model AbsenceInterval {
+  intervalId      String            @id @default(uuid()) @map("interval_id")
+  sessionId       String            @map("session_id")
+  exitEventId     String            @map("exit_event_id")
+  returnEventId   String?           @map("return_event_id")
+  startTime       DateTime          @map("start_time")
+  endTime         DateTime?         @map("end_time")
+  durationMinutes Int?              @map("duration_minutes")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  session         AttendanceSession @relation(fields: [sessionId], references: [sessionId])
+  exitEvent       AttendanceEvent   @relation("ExitEvent", fields: [exitEventId], references: [eventId])
+  returnEvent     AttendanceEvent?  @relation("ReturnEvent", fields: [returnEventId], references: [eventId])
+
+  @@index([sessionId])
+  @@map("absence_intervals")
+}
+
+model Notification {
+  notificationId   String    @id @default(uuid()) @map("notification_id")
+  employeeId       String?   @map("employee_id")
+  notificationType String    @map("notification_type")
+  priority         String
+  status           String    @default("UNREAD")
+  message          String
+  createdAt        DateTime  @default(now()) @map("created_at")
+  employee         Employee? @relation(fields: [employeeId], references: [employeeId])
+
+  @@index([status])
+  @@map("notifications")
+}
+
+model AuditLog {
+  auditId    String   @id @default(uuid()) @map("audit_id")
+  userId     String   @map("user_id")
+  module     String
+  action     String
+  entityName String   @map("entity_name")
+  entityId   String?  @map("entity_id")
+  oldValue   String?  @map("old_value")
+  newValue   String?  @map("new_value")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User     @relation(fields: [userId], references: [userId])
+
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model WebhookLog {
+  logId              String   @id @default(uuid()) @map("log_id")
+  webhookId          String   @map("webhook_id")
+  requestTime        DateTime @default(now()) @map("request_time")
+  employeeIdentifier String?  @map("employee_identifier")
+  requestPayload     String   @map("request_payload")
+  responseCode       Int      @map("response_code")
+  processingStatus   String   @map("processing_status")
+  processingTimeMs   Int      @default(0) @map("processing_time_ms")
+  errorMessage       String?  @map("error_message")
+
+  @@index([webhookId])
+  @@index([processingStatus])
+  @@map("webhook_logs")
+}
+
+model Setting {
+  settingId    String   @id @default(uuid()) @map("setting_id")
+  category     String
+  settingKey   String   @map("setting_key")
+  settingValue String   @map("setting_value")
+  description  String?
+  updatedBy    String?  @map("updated_by")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([category, settingKey])
+  @@map("settings")
+}
+
+model PendingCardScan {
+  scanId     String   @id @default(uuid()) @map("scan_id")
+  cardToken  String   @unique @map("card_token")
+  deviceId   String?  @map("device_id")
+  scannedAt  DateTime @map("scanned_at")
+  registered Boolean  @default(false) @map("registered")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([registered])
+  @@map("pending_card_scans")
+}

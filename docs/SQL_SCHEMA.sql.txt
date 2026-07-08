@@ -1,0 +1,847 @@
+-- ============================================================
+-- Green Logistics Attendance Management System
+-- SQL_SCHEMA.sql
+-- Version: 1.0
+-- Database: PostgreSQL 16+
+-- ============================================================
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- ============================================================
+-- TABLE: roles
+-- ============================================================
+
+CREATE TABLE roles (
+
+    role_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    role_name VARCHAR(100) NOT NULL UNIQUE,
+
+    description TEXT,
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+
+);
+
+-- ============================================================
+-- TABLE: users
+-- ============================================================
+
+CREATE TABLE users (
+
+    user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    username VARCHAR(100) NOT NULL UNIQUE,
+
+    password_hash VARCHAR(255) NOT NULL,
+
+    first_name VARCHAR(100) NOT NULL,
+
+    last_name VARCHAR(100) NOT NULL,
+
+    email VARCHAR(255) UNIQUE,
+
+    role_id UUID NOT NULL,
+
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+    last_login TIMESTAMP,
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_users_roles
+
+        FOREIGN KEY (role_id)
+
+        REFERENCES roles(role_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE
+
+);
+
+-- ============================================================
+-- TABLE: shifts
+-- ============================================================
+
+CREATE TABLE shifts (
+
+    shift_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    shift_name VARCHAR(100) NOT NULL UNIQUE,
+
+    start_time TIME NOT NULL,
+
+    end_time TIME NOT NULL,
+
+    grace_period_minutes INTEGER NOT NULL DEFAULT 15,
+
+    cross_midnight BOOLEAN NOT NULL DEFAULT FALSE,
+
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_shift_grace
+
+        CHECK (grace_period_minutes >= 0)
+
+);
+
+-- ============================================================
+-- TABLE: employees
+-- ============================================================
+
+CREATE TABLE employees (
+
+    employee_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    employee_number VARCHAR(50) NOT NULL UNIQUE,
+
+    first_name VARCHAR(100) NOT NULL,
+
+    last_name VARCHAR(100) NOT NULL,
+
+    department VARCHAR(100),
+
+    position VARCHAR(100),
+
+    card_number VARCHAR(100) NOT NULL UNIQUE,
+
+    shift_id UUID NOT NULL,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_employee_shift
+
+        FOREIGN KEY (shift_id)
+
+        REFERENCES shifts(shift_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE,
+
+    CONSTRAINT chk_employee_status
+
+        CHECK (
+
+            status IN
+
+            (
+
+                'ACTIVE',
+
+                'INACTIVE'
+
+            )
+
+        )
+
+);
+-- ============================================================
+-- TABLE: attendance_sessions
+-- ============================================================
+
+CREATE TABLE attendance_sessions (
+
+    session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    employee_id UUID NOT NULL,
+
+    shift_id UUID NOT NULL,
+
+    work_date DATE NOT NULL,
+
+    scheduled_start TIMESTAMP NOT NULL,
+
+    scheduled_end TIMESTAMP NOT NULL,
+
+    first_entry TIMESTAMP,
+
+    last_exit TIMESTAMP,
+
+    current_status VARCHAR(30) NOT NULL DEFAULT 'SCHEDULED',
+
+    late BOOLEAN NOT NULL DEFAULT FALSE,
+
+    late_minutes INTEGER NOT NULL DEFAULT 0,
+
+    total_absence_minutes INTEGER NOT NULL DEFAULT 0,
+
+    exit_count INTEGER NOT NULL DEFAULT 0,
+
+    last_activity TIMESTAMP,
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_session_employee
+
+        FOREIGN KEY (employee_id)
+
+        REFERENCES employees(employee_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_session_shift
+
+        FOREIGN KEY (shift_id)
+
+        REFERENCES shifts(shift_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE,
+
+    CONSTRAINT uq_employee_workday
+
+        UNIQUE
+
+        (
+
+            employee_id,
+
+            work_date
+
+        ),
+
+    CONSTRAINT chk_session_status
+
+        CHECK
+
+        (
+
+            current_status IN
+
+            (
+
+                'SCHEDULED',
+
+                'INSIDE_OFFICE',
+
+                'OUTSIDE_OFFICE',
+
+                'COMPLETED',
+
+                'EXCEPTION'
+
+            )
+
+        ),
+
+    CONSTRAINT chk_late_minutes
+
+        CHECK
+
+        (
+
+            late_minutes >= 0
+
+        ),
+
+    CONSTRAINT chk_total_absence
+
+        CHECK
+
+        (
+
+            total_absence_minutes >= 0
+
+        ),
+
+    CONSTRAINT chk_exit_count
+
+        CHECK
+
+        (
+
+            exit_count >= 0
+
+        )
+
+);
+
+-- ============================================================
+-- TABLE: attendance_events
+-- ============================================================
+
+CREATE TABLE attendance_events (
+
+    event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    session_id UUID NOT NULL,
+
+    employee_id UUID NOT NULL,
+
+    event_time TIMESTAMP NOT NULL,
+
+    direction VARCHAR(10) NOT NULL,
+
+    event_type VARCHAR(30) NOT NULL DEFAULT 'NORMAL',
+
+    device_id VARCHAR(100) NOT NULL,
+
+    webhook_id VARCHAR(255) NOT NULL UNIQUE,
+
+    source VARCHAR(100) NOT NULL DEFAULT 'ACCESS_CONTROL',
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_event_session
+
+        FOREIGN KEY (session_id)
+
+        REFERENCES attendance_sessions(session_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_event_employee
+
+        FOREIGN KEY (employee_id)
+
+        REFERENCES employees(employee_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE,
+
+    CONSTRAINT chk_direction
+
+        CHECK
+
+        (
+
+            direction IN
+
+            (
+
+                'ENTRY',
+
+                'EXIT'
+
+            )
+
+        ),
+
+    CONSTRAINT chk_event_type
+
+        CHECK
+
+        (
+
+            event_type IN
+
+            (
+
+                'NORMAL',
+
+                'DUPLICATE_ENTRY',
+
+                'DUPLICATE_EXIT',
+
+                'UNKNOWN',
+
+                'MANUAL_CORRECTION',
+
+                'SYSTEM_CORRECTION'
+
+            )
+
+        )
+
+);
+-- ============================================================
+-- TABLE: absence_intervals
+-- ============================================================
+
+CREATE TABLE absence_intervals (
+
+    interval_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    session_id UUID NOT NULL,
+
+    exit_event_id UUID NOT NULL,
+
+    return_event_id UUID,
+
+    start_time TIMESTAMP NOT NULL,
+
+    end_time TIMESTAMP,
+
+    duration_minutes INTEGER,
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_interval_session
+
+        FOREIGN KEY (session_id)
+
+        REFERENCES attendance_sessions(session_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_interval_exit
+
+        FOREIGN KEY (exit_event_id)
+
+        REFERENCES attendance_events(event_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_interval_return
+
+        FOREIGN KEY (return_event_id)
+
+        REFERENCES attendance_events(event_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE,
+
+    CONSTRAINT chk_duration
+
+        CHECK
+
+        (
+
+            duration_minutes IS NULL
+
+            OR
+
+            duration_minutes >= 0
+
+        )
+
+);
+
+-- ============================================================
+-- TABLE: notifications
+-- ============================================================
+
+CREATE TABLE notifications (
+
+    notification_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    employee_id UUID,
+
+    notification_type VARCHAR(50) NOT NULL,
+
+    priority VARCHAR(20) NOT NULL,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'UNREAD',
+
+    message TEXT NOT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_notification_employee
+
+        FOREIGN KEY (employee_id)
+
+        REFERENCES employees(employee_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE,
+
+    CONSTRAINT chk_notification_type
+
+        CHECK
+
+        (
+
+            notification_type IN
+
+            (
+
+                'LATE',
+
+                'UNKNOWN_EMPLOYEE',
+
+                'DUPLICATE_EVENT',
+
+                'WEBHOOK_FAILURE',
+
+                'SYSTEM_ERROR'
+
+            )
+
+        ),
+
+    CONSTRAINT chk_notification_priority
+
+        CHECK
+
+        (
+
+            priority IN
+
+            (
+
+                'LOW',
+
+                'MEDIUM',
+
+                'HIGH',
+
+                'CRITICAL'
+
+            )
+
+        ),
+
+    CONSTRAINT chk_notification_status
+
+        CHECK
+
+        (
+
+            status IN
+
+            (
+
+                'UNREAD',
+
+                'READ',
+
+                'ARCHIVED'
+
+            )
+
+        )
+
+);
+
+-- ============================================================
+-- TABLE: audit_logs
+-- ============================================================
+
+CREATE TABLE audit_logs (
+
+    audit_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    user_id UUID NOT NULL,
+
+    module VARCHAR(100) NOT NULL,
+
+    action VARCHAR(100) NOT NULL,
+
+    entity_name VARCHAR(100) NOT NULL,
+
+    entity_id UUID,
+
+    old_value JSONB,
+
+    new_value JSONB,
+
+    ip_address INET,
+
+    user_agent TEXT,
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_audit_user
+
+        FOREIGN KEY (user_id)
+
+        REFERENCES users(user_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE
+
+);
+-- ============================================================
+-- TABLE: webhook_logs
+-- ============================================================
+
+CREATE TABLE webhook_logs (
+
+    log_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    webhook_id VARCHAR(255) NOT NULL,
+
+    request_time TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    employee_identifier VARCHAR(100),
+
+    request_payload JSONB NOT NULL,
+
+    response_code INTEGER NOT NULL,
+
+    processing_status VARCHAR(30) NOT NULL,
+
+    processing_time_ms INTEGER NOT NULL DEFAULT 0,
+
+    error_message TEXT,
+
+    CONSTRAINT chk_processing_status
+
+        CHECK (
+
+            processing_status IN (
+
+                'SUCCESS',
+
+                'FAILED',
+
+                'DUPLICATE',
+
+                'VALIDATION_ERROR'
+
+            )
+
+        )
+
+);
+
+-- ============================================================
+-- TABLE: settings
+-- ============================================================
+
+CREATE TABLE settings (
+
+    setting_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    category VARCHAR(100) NOT NULL,
+
+    setting_key VARCHAR(100) NOT NULL,
+
+    setting_value TEXT NOT NULL,
+
+    description TEXT,
+
+    updated_by UUID,
+
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_settings
+
+        UNIQUE (
+
+            category,
+
+            setting_key
+
+        ),
+
+    CONSTRAINT fk_settings_user
+
+        FOREIGN KEY (updated_by)
+
+        REFERENCES users(user_id)
+
+        ON DELETE RESTRICT
+
+        ON UPDATE CASCADE
+
+);
+
+-- ============================================================
+-- INDEXES
+-- ============================================================
+
+CREATE INDEX idx_employees_employee_number
+ON employees(employee_number);
+
+CREATE INDEX idx_employees_card_number
+ON employees(card_number);
+
+CREATE INDEX idx_employees_shift
+ON employees(shift_id);
+
+CREATE INDEX idx_sessions_employee
+ON attendance_sessions(employee_id);
+
+CREATE INDEX idx_sessions_work_date
+ON attendance_sessions(work_date);
+
+CREATE INDEX idx_sessions_status
+ON attendance_sessions(current_status);
+
+CREATE INDEX idx_events_session
+ON attendance_events(session_id);
+
+CREATE INDEX idx_events_employee
+ON attendance_events(employee_id);
+
+CREATE INDEX idx_events_time
+ON attendance_events(event_time);
+
+CREATE INDEX idx_events_direction
+ON attendance_events(direction);
+
+CREATE INDEX idx_intervals_session
+ON absence_intervals(session_id);
+
+CREATE INDEX idx_notifications_employee
+ON notifications(employee_id);
+
+CREATE INDEX idx_notifications_status
+ON notifications(status);
+
+CREATE INDEX idx_audit_user
+ON audit_logs(user_id);
+
+CREATE INDEX idx_audit_created
+ON audit_logs(created_at);
+
+CREATE INDEX idx_webhook_webhook_id
+ON webhook_logs(webhook_id);
+
+CREATE INDEX idx_webhook_status
+ON webhook_logs(processing_status);
+
+CREATE INDEX idx_settings_category
+ON settings(category);
+
+-- ============================================================
+-- END OF SQL SCHEMA - PART 3
+-- ============================================================
+-- ============================================================
+-- INITIAL SEED DATA
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- ROLES
+-- ------------------------------------------------------------
+
+INSERT INTO roles
+(
+    role_name,
+    description
+)
+VALUES
+(
+    'Administrator',
+    'Full system access'
+),
+(
+    'Manager',
+    'Operational management'
+),
+(
+    'Viewer',
+    'Read only access'
+)
+ON CONFLICT DO NOTHING;
+
+-- ------------------------------------------------------------
+-- SHIFTS
+-- ------------------------------------------------------------
+
+INSERT INTO shifts
+(
+    shift_name,
+    start_time,
+    end_time,
+    grace_period_minutes,
+    cross_midnight,
+    is_active
+)
+VALUES
+(
+    'Day Shift',
+    '17:00',
+    '01:00',
+    15,
+    TRUE,
+    TRUE
+),
+(
+    'Night Shift',
+    '00:00',
+    '05:00',
+    15,
+    FALSE,
+    TRUE
+)
+ON CONFLICT DO NOTHING;
+
+-- ------------------------------------------------------------
+-- SYSTEM SETTINGS
+-- ------------------------------------------------------------
+
+INSERT INTO settings
+(
+    category,
+    setting_key,
+    setting_value,
+    description
+)
+VALUES
+(
+    'attendance',
+    'grace_period_minutes',
+    '15',
+    'Grace period before employee becomes late'
+),
+(
+    'dashboard',
+    'refresh_interval_seconds',
+    '5',
+    'Dashboard auto refresh interval'
+),
+(
+    'attendance',
+    'auto_close_session_minutes',
+    '15',
+    'Minutes after shift end before session closes automatically'
+),
+(
+    'security',
+    'jwt_expiration_hours',
+    '8',
+    'JWT token lifetime'
+),
+(
+    'security',
+    'session_timeout_minutes',
+    '30',
+    'Inactive session timeout'
+),
+(
+    'application',
+    'timezone',
+    'Asia/Yerevan',
+    'Company local timezone'
+),
+(
+    'application',
+    'company_name',
+    'Green Logistics',
+    'Company display name'
+)
+ON CONFLICT
+(
+    category,
+    setting_key
+)
+DO NOTHING;
+
+-- ============================================================
+-- END OF SQL_SCHEMA.sql
+-- VERSION 1.0
+-- STATUS: APPROVED FOR DEVELOPMENT
+-- ============================================================

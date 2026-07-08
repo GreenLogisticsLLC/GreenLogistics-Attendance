@@ -1,0 +1,189 @@
+# 01. Project Overview
+
+## Green Logistics Attendance Management System
+
+Version: 1.0
+
+Status: Approved
+
+---
+
+# 1. Purpose
+
+The Green Logistics Attendance Management System is a standalone software module responsible for tracking employee attendance inside the office.
+
+The system receives access events from the building access control system through an API integration, processes those events according to company business rules, stores every event permanently, and provides real-time attendance information.
+
+The system is designed to become the Attendance Module of the future Green Logistics Platform.
+
+---
+
+# 2. Project Scope
+
+This project includes:
+
+• Employee attendance tracking
+
+• Entry detection
+
+• Exit detection
+
+• Late arrival detection
+
+• Presence monitoring
+
+• Office absence tracking
+
+• Attendance history
+
+• Attendance reports
+
+• Real-time dashboard
+
+• API integration with the access control system
+
+---
+
+# 3. Out of Scope
+
+The following features are NOT part of this module:
+
+Payroll
+
+Salary calculation
+
+Vacation management
+
+Task management
+
+HR evaluation
+
+CRM functionality
+
+Accounting
+
+Load Management
+
+Customer Management
+
+Carrier Management
+
+These features will belong to separate future modules.
+
+---
+
+# 4. Primary Goal
+
+The primary objective of the system is to provide an accurate real-time view of employee attendance while maintaining a complete historical record of every attendance event.
+
+---
+
+# 5. Secondary Goals
+
+Detect late arrivals.
+
+Monitor employee presence.
+
+Calculate office absence time.
+
+Maintain complete attendance history.
+
+Generate attendance reports.
+
+Support future CRM integration.
+
+---
+
+# 6. Source of Information
+
+The system does not generate attendance information.
+
+It only processes verified events received from the access control system.
+
+The access control system is the single source of attendance events.
+
+---
+
+# 7. Event Types
+
+The system processes the following event types:
+
+Employee Entry
+
+Employee Exit
+
+Repeated Entry
+
+Repeated Exit
+
+Unknown Event
+
+Invalid Event
+
+Future event types may be added.
+
+---
+
+# 8. Attendance Lifecycle
+
+Every employee can be in one of the following states:
+
+Not Arrived
+
+Inside Office
+
+Outside Office
+
+Working Day Finished
+
+Unknown
+
+The system automatically changes employee state after every event.
+
+---
+
+# 9. Business Philosophy
+
+The system never assumes attendance.
+
+Attendance is determined only by recorded events.
+
+---
+
+# 10. Documentation Priority
+
+The following priority applies:
+
+Project Constitution
+
+Project Documentation
+
+Business Rules
+
+Implementation
+
+Source Code
+
+---
+
+# 11. Success Criteria
+
+The system shall:
+
+Display current office status in real time.
+
+Store every attendance event.
+
+Detect late arrivals automatically.
+
+Calculate absence duration.
+
+Support historical reporting.
+
+Remain independent from CRM.
+
+Support future integration.
+
+---
+
+End of Document
