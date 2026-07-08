@@ -4,6 +4,8 @@ dist/
 .env.local
 data/*.db
 data/*.db-journal
+prisma/data/*.db
+prisma/data/*.db-journal
 *.log
 tmp/
 .DS_Store
