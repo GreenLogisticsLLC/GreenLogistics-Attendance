@@ -81,6 +81,7 @@ form select:focus { outline: none; border-color: var(--accent); }
 .btn-secondary:hover { background: var(--border); }
 
 .error { color: var(--red); font-size: 0.85rem; margin-top: 0.5rem; text-align: center; }
+.success { color: var(--green); font-size: 0.9rem; margin-top: 0.75rem; text-align: center; line-height: 1.4; }
 
 /* Header */
 .header {

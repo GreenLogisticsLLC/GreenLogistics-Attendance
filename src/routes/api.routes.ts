@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { loginController, registerController, meController } from "../controllers/auth.controller.js";
+import { loginController, registerController, approveRegistrationController, rejectRegistrationController, meController } from "../controllers/auth.controller.js";
 import {
     getDashboardController,
     getEmployeeDetailController,
@@ -47,6 +47,8 @@ apiRouter.get("/v1/network-info", networkInfoController);
 
 apiRouter.post("/v1/auth/login", loginController);
 apiRouter.post("/v1/auth/register", registerController);
+apiRouter.get("/v1/auth/registration/approve", approveRegistrationController);
+apiRouter.get("/v1/auth/registration/reject", rejectRegistrationController);
 apiRouter.get("/v1/auth/me", authMiddleware, meController);
 
 apiRouter.post("/v1/webhook/attendance", legacyWebhookController);

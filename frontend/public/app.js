@@ -23,6 +23,7 @@ const loginForm = $("#login-form");
 const signupForm = $("#signup-form");
 const loginError = $("#login-error");
 const signupError = $("#signup-error");
+const signupSuccess = $("#signup-success");
 
 function showLogin() {
     loginScreen.classList.remove("hidden");
@@ -260,18 +261,21 @@ $("#show-signup-btn").addEventListener("click", () => {
     signupForm.classList.remove("hidden");
     loginError.classList.add("hidden");
     signupError.classList.add("hidden");
+    signupSuccess.classList.add("hidden");
 });
 
 $("#show-login-btn").addEventListener("click", () => {
     signupForm.classList.add("hidden");
     loginForm.classList.remove("hidden");
     signupError.classList.add("hidden");
+    signupSuccess.classList.add("hidden");
     loginError.classList.add("hidden");
 });
 
 signupForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     signupError.classList.add("hidden");
+    signupSuccess.classList.add("hidden");
     try {
         const res = await fetch(`${API}/auth/register`, {
             method: "POST",
@@ -280,7 +284,7 @@ signupForm.addEventListener("submit", async (e) => {
                 firstName: $("#signup-first-name").value,
                 lastName: $("#signup-last-name").value,
                 username: $("#signup-username").value,
-                email: $("#signup-email").value || undefined,
+                email: $("#signup-email").value,
                 password: $("#signup-password").value,
                 role: $("#signup-role").value,
             }),
@@ -291,9 +295,11 @@ signupForm.addEventListener("submit", async (e) => {
             signupError.classList.remove("hidden");
             return;
         }
-        token = data.data.token;
-        localStorage.setItem("gl_token", token);
-        showApp(data.data.user);
+        signupForm.reset();
+        signupSuccess.textContent =
+            data.message ||
+            "Request sent. Wait for administrator approval by email, then sign in.";
+        signupSuccess.classList.remove("hidden");
     } catch {
         signupError.textContent = "Connection error";
         signupError.classList.remove("hidden");
