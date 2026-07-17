@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GREEN LOGISTICS — Operation System</title>
+    <title>GREEN LOGISTICS — GreenOS</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="greenos.css">
 </head>
 <body>
     <div id="login-screen" class="screen">
@@ -60,25 +61,45 @@
         </div>
     </div>
 
-    <div id="app-screen" class="screen hidden">
-        <header class="header">
-            <div class="header-left">
-                <img class="logo-small-img" src="images/logo.png" alt="Green Logistics" width="40" height="40">
+    <div id="app-screen" class="screen hidden gos-app">
+        <aside id="gos-sidebar" class="gos-sidebar">
+            <div class="gos-sidebar-brand">
+                <img src="images/logo.png" alt="Green Logistics">
                 <div>
-                    <h2>GREEN LOGISTICS Operation System</h2>
-                    <span id="current-date"></span>
+                    <strong>Green Logistics</strong>
+                    <span>GreenOS Platform</span>
                 </div>
             </div>
-            <div class="header-right">
-                <nav class="main-nav" id="main-nav">
-                    <button class="nav-btn active" data-view="dashboard">Dashboard</button>
-                    <button class="nav-btn" data-view="reports" id="nav-reports">Reports</button>
-                    <button class="nav-btn hidden" data-view="admin" id="nav-admin">Administration</button>
-                </nav>
-                <span id="logged-user"></span>
-                <button id="logout-btn" class="btn-secondary">Logout</button>
-            </div>
-        </header>
+            <nav id="gos-nav" class="gos-nav" aria-label="Main modules"></nav>
+        </aside>
+
+        <div class="gos-main">
+            <header class="gos-topbar">
+                <button type="button" class="gos-icon-btn gos-mobile-toggle" id="gos-sidebar-toggle" aria-label="Menu">☰</button>
+                <div class="gos-topbar-title">GreenOS</div>
+                <span id="current-date" style="color:var(--gos-muted);font-size:0.8rem;white-space:nowrap"></span>
+                <div class="gos-search">
+                    <input type="search" id="gos-global-search" placeholder="Global search…">
+                </div>
+                <div class="gos-topbar-actions">
+                    <button type="button" class="gos-icon-btn" id="gos-notifications-btn" title="Notifications">🔔</button>
+                    <button type="button" class="gos-icon-btn" id="gos-ai-top-btn" title="AI Assistant">🤖</button>
+                    <div class="gos-user-chip">
+                        <span id="logged-user"></span>
+                    </div>
+                    <button id="logout-btn" class="btn-secondary">Logout</button>
+                </div>
+            </header>
+
+            <div class="gos-content">
+                <div id="gos-module-host" class="gos-module-host hidden"></div>
+
+                <div id="gos-attendance-host" class="hidden">
+                    <nav class="gos-att-subnav main-nav" id="main-nav">
+                        <button class="nav-btn active" data-view="dashboard">Live Board</button>
+                        <button class="nav-btn" data-view="reports" id="nav-reports">Reports</button>
+                        <button class="nav-btn hidden" data-view="admin" id="nav-admin">Administration</button>
+                    </nav>
 
         <div id="dashboard-view">
         <section class="stats-panel" id="stats-panel"></section>
@@ -354,6 +375,9 @@
                 </section>
             </div>
         </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div id="employee-modal" class="modal hidden">
@@ -407,6 +431,20 @@
         <div id="drawer-content" class="drawer-content"></div>
     </div>
 
-    <script src="app.js?v=14"></script>
+    <script src="modules/registry.js"></script>
+    <script src="modules/crm/pages.js"></script>
+    <script src="modules/dispatch/pages.js"></script>
+    <script src="modules/loads/pages.js"></script>
+    <script src="modules/car-transport/pages.js"></script>
+    <script src="modules/employees/pages.js"></script>
+    <script src="modules/accounting/pages.js"></script>
+    <script src="modules/invoices/pages.js"></script>
+    <script src="modules/contracts/pages.js"></script>
+    <script src="modules/documents/pages.js"></script>
+    <script src="modules/communications/pages.js"></script>
+    <script src="modules/reports/pages.js"></script>
+    <script src="modules/administration/pages.js"></script>
+    <script src="js/greenos-shell.js"></script>
+    <script src="app.js?v=15"></script>
 </body>
 </html>

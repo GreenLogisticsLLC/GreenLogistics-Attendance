@@ -30,9 +30,16 @@ function showLogin() {
     appScreen.classList.add("hidden");
     loginForm.classList.remove("hidden");
     signupForm.classList.add("hidden");
+    stopAttendanceTimers();
+}
+
+function stopAttendanceTimers() {
     if (refreshTimer) clearInterval(refreshTimer);
     if (reportRefreshTimer) clearInterval(reportRefreshTimer);
+    refreshTimer = null;
+    reportRefreshTimer = null;
 }
+window.stopAttendanceTimers = stopAttendanceTimers;
 
 function showApp(user) {
     currentUser = user;
@@ -47,9 +54,13 @@ function showApp(user) {
     }
 
     updateWebhookUrlDisplays();
-
-    switchView("dashboard");
     updateClock();
+
+    if (window.GreenOS && typeof window.GreenOS.initShell === "function") {
+        window.GreenOS.initShell();
+    } else {
+        switchView("dashboard");
+    }
 }
 
 async function updateWebhookUrlDisplays() {
@@ -137,8 +148,7 @@ function switchView(view) {
     $("#reports-view").classList.toggle("hidden", view !== "reports");
     $("#admin-view").classList.toggle("hidden", view !== "admin");
 
-    if (refreshTimer) clearInterval(refreshTimer);
-    if (reportRefreshTimer) clearInterval(reportRefreshTimer);
+    stopAttendanceTimers();
 
     if (view === "dashboard") {
         loadDashboard();
@@ -160,14 +170,17 @@ function switchView(view) {
         }
     }
 }
+window.switchView = switchView;
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => switchView(btn.dataset.view));
 });
 
 function updateClock() {
+    const el = $("#current-date");
+    if (!el) return;
     const now = new Date();
-    $("#current-date").textContent = now.toLocaleString("en-GB", {
+    el.textContent = now.toLocaleString("en-GB", {
         weekday: "long", year: "numeric", month: "long", day: "numeric",
         hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
     });
