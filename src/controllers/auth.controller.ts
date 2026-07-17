@@ -18,6 +18,24 @@ export async function loginController(req: Request, res: Response) {
     return res.json(apiResponse(true, "Login successful", result));
 }
 
+export async function registerController(req: Request, res: Response) {
+    const { username, password, firstName, lastName, email, role } = req.body;
+    const result = await authService.register({
+        username: username || "",
+        password: password || "",
+        firstName: firstName || "",
+        lastName: lastName || "",
+        email,
+        role: role || "",
+    });
+
+    if (!result.ok) {
+        return res.status(result.status).json(apiResponse(false, result.message));
+    }
+
+    return res.status(201).json(apiResponse(true, "Registration successful", result.data));
+}
+
 export async function meController(req: AuthRequest, res: Response) {
     if (!req.user) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { loginController, meController } from "../controllers/auth.controller.js";
+import { loginController, registerController, meController } from "../controllers/auth.controller.js";
 import {
     getDashboardController,
     getEmployeeDetailController,
@@ -46,6 +46,7 @@ apiRouter.get("/health", healthController);
 apiRouter.get("/v1/network-info", networkInfoController);
 
 apiRouter.post("/v1/auth/login", loginController);
+apiRouter.post("/v1/auth/register", registerController);
 apiRouter.get("/v1/auth/me", authMiddleware, meController);
 
 apiRouter.post("/v1/webhook/attendance", legacyWebhookController);
@@ -59,82 +60,82 @@ apiRouter.get("/v1/employees", authMiddleware, listEmployeesController);
 apiRouter.post(
     "/v1/employees",
     authMiddleware,
-    requireRole("Administrator", "Manager"),
+    requireRole("Administrator", "Owner", "Manager"),
     createEmployeeController
 );
 apiRouter.put(
     "/v1/employees/:employeeId",
     authMiddleware,
-    requireRole("Administrator", "Manager"),
+    requireRole("Administrator", "Owner", "Manager"),
     updateEmployeeController
 );
 apiRouter.delete(
     "/v1/employees/:employeeId",
     authMiddleware,
-    requireRole("Administrator"),
+    requireRole("Administrator", "Owner"),
     deleteEmployeeController
 );
 apiRouter.post(
     "/v1/employees/:employeeId/deactivate",
     authMiddleware,
-    requireRole("Administrator", "Manager"),
+    requireRole("Administrator", "Owner", "Manager"),
     deactivateEmployeeController
 );
 apiRouter.post(
     "/v1/employees/:employeeId/test-scan",
     authMiddleware,
-    requireRole("Administrator", "Manager"),
+    requireRole("Administrator", "Owner", "Manager"),
     testEmployeeScanController
 );
 apiRouter.post(
     "/v1/employees/:employeeId/mark-left",
     authMiddleware,
-    requireRole("Administrator", "Manager"),
+    requireRole("Administrator", "Owner", "Manager"),
     markEmployeeLeftController
 );
 apiRouter.post(
     "/v1/employees/:employeeId/sync",
     authMiddleware,
-    requireRole("Administrator", "Manager"),
+    requireRole("Administrator", "Owner", "Manager"),
     syncEmployeeController
 );
 apiRouter.post(
     "/v1/employees/sync-all",
     authMiddleware,
-    requireRole("Administrator", "Manager"),
+    requireRole("Administrator", "Owner", "Manager"),
     syncAllEmployeesController
 );
 
 apiRouter.get(
     "/v1/card-registration/pending",
     authMiddleware,
-    requireRole("Administrator", "Manager"),
+    requireRole("Administrator", "Owner", "Manager"),
     listPendingCardScansController
 );
 apiRouter.get(
     "/v1/card-registration/poll",
     authMiddleware,
-    requireRole("Administrator", "Manager"),
+    requireRole("Administrator", "Owner", "Manager"),
     pollCardScanController
 );
 apiRouter.post(
     "/v1/card-registration/register-uid",
     authMiddleware,
-    requireRole("Administrator", "Manager"),
+    requireRole("Administrator", "Owner", "Manager"),
     registerCardUidController
 );
 
-apiRouter.get("/v1/settings", authMiddleware, requireRole("Administrator"), getSettingsController);
+apiRouter.get("/v1/settings", authMiddleware, requireRole("Administrator", "Owner"), getSettingsController);
 apiRouter.put(
     "/v1/settings",
     authMiddleware,
-    requireRole("Administrator"),
+    requireRole("Administrator", "Owner"),
     updateSettingsController
 );
 apiRouter.post(
     "/v1/settings/test-legacy",
     authMiddleware,
-    requireRole("Administrator"),
+    requireRole("Administrator", "Owner"),
     testLegacyConnectionController
 );
 
@@ -146,6 +147,6 @@ apiRouter.get("/v1/notifications", authMiddleware, listNotificationsController);
 apiRouter.get(
     "/v1/webhook-logs",
     authMiddleware,
-    requireRole("Administrator"),
+    requireRole("Administrator", "Owner"),
     listWebhookLogsController
 );

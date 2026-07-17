@@ -22,6 +22,24 @@ async function main() {
         create: { roleName: "Viewer", description: "Read only access" },
     });
 
+    await prisma.role.upsert({
+        where: { roleName: "Owner" },
+        update: {},
+        create: { roleName: "Owner", description: "Company owner — full access" },
+    });
+
+    await prisma.role.upsert({
+        where: { roleName: "Accounting" },
+        update: {},
+        create: { roleName: "Accounting", description: "Accounting — reports and finance view" },
+    });
+
+    await prisma.role.upsert({
+        where: { roleName: "Broker" },
+        update: {},
+        create: { roleName: "Broker", description: "Broker — logistics coordination view" },
+    });
+
     const dayShift = await prisma.shift.upsert({
         where: { shiftName: "Day Shift" },
         update: {},

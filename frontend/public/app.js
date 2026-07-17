@@ -1,5 +1,16 @@
 const API = "/api/v1";
 let token = localStorage.getItem("gl_token");
+
+function consumeTokenFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get("token");
+    if (!urlToken) return;
+    token = urlToken;
+    localStorage.setItem("gl_token", urlToken);
+    window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+consumeTokenFromUrl();
 let refreshTimer = null;
 let currentUser = null;
 let adminEmployees = [];
@@ -9,11 +20,15 @@ const $ = (sel) => document.querySelector(sel);
 const loginScreen = $("#login-screen");
 const appScreen = $("#app-screen");
 const loginForm = $("#login-form");
+const signupForm = $("#signup-form");
 const loginError = $("#login-error");
+const signupError = $("#signup-error");
 
 function showLogin() {
     loginScreen.classList.remove("hidden");
     appScreen.classList.add("hidden");
+    loginForm.classList.remove("hidden");
+    signupForm.classList.add("hidden");
     if (refreshTimer) clearInterval(refreshTimer);
     if (reportRefreshTimer) clearInterval(reportRefreshTimer);
 }
@@ -24,9 +39,9 @@ function showApp(user) {
     appScreen.classList.remove("hidden");
     $("#logged-user").textContent = `${user.firstName} ${user.lastName} (${user.role})`;
 
-    const canAdmin = user.role === "Administrator" || user.role === "Manager";
+    const canAdmin = ["Administrator", "Manager", "Owner"].includes(user.role);
     $("#nav-admin").classList.toggle("hidden", !canAdmin);
-    if (user.role === "Administrator") {
+    if (user.role === "Administrator" || user.role === "Owner") {
         loadSettings();
     }
 
@@ -237,6 +252,51 @@ loginForm.addEventListener("submit", async (e) => {
     } catch {
         loginError.textContent = "Connection error";
         loginError.classList.remove("hidden");
+    }
+});
+
+$("#show-signup-btn").addEventListener("click", () => {
+    loginForm.classList.add("hidden");
+    signupForm.classList.remove("hidden");
+    loginError.classList.add("hidden");
+    signupError.classList.add("hidden");
+});
+
+$("#show-login-btn").addEventListener("click", () => {
+    signupForm.classList.add("hidden");
+    loginForm.classList.remove("hidden");
+    signupError.classList.add("hidden");
+    loginError.classList.add("hidden");
+});
+
+signupForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    signupError.classList.add("hidden");
+    try {
+        const res = await fetch(`${API}/auth/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                firstName: $("#signup-first-name").value,
+                lastName: $("#signup-last-name").value,
+                username: $("#signup-username").value,
+                email: $("#signup-email").value || undefined,
+                password: $("#signup-password").value,
+                role: $("#signup-role").value,
+            }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            signupError.textContent = data.message || "Registration failed";
+            signupError.classList.remove("hidden");
+            return;
+        }
+        token = data.data.token;
+        localStorage.setItem("gl_token", token);
+        showApp(data.data.user);
+    } catch {
+        signupError.textContent = "Connection error";
+        signupError.classList.remove("hidden");
     }
 });
 

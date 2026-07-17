@@ -64,6 +64,15 @@ form input:focus { outline: none; border-color: var(--accent); }
 }
 .btn-primary:hover { background: var(--accent-hover); }
 
+.btn-block { width: 100%; margin-top: 0.75rem; }
+
+form select {
+    width: 100%; padding: 0.75rem 1rem; margin-bottom: 1rem;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-size: 1rem;
+}
+form select:focus { outline: none; border-color: var(--accent); }
+
 .btn-secondary {
     padding: 0.5rem 1rem; background: var(--surface2);
     color: var(--text); border: 1px solid var(--border);
