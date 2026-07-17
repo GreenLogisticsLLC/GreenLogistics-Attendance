@@ -36,5 +36,6 @@ jobs:
           npm run build
           pm2 restart greenos
           pm2 save
+          sleep 5
           curl --fail http://localhost:3847/api/health
           EOF
