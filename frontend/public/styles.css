@@ -57,6 +57,30 @@ form input {
 }
 form input:focus { outline: none; border-color: var(--accent); }
 
+.password-field {
+    position: relative;
+    margin-bottom: 1rem;
+}
+.password-field input {
+    margin-bottom: 0;
+    padding-right: 2.75rem;
+}
+.password-toggle {
+    position: absolute;
+    right: 0.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.password-toggle:hover { color: var(--text); }
+
 .btn-primary {
     width: 100%; padding: 0.85rem;
     background: var(--accent); color: white; border: none;

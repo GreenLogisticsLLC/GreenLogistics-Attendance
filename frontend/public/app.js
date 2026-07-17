@@ -256,6 +256,17 @@ loginForm.addEventListener("submit", async (e) => {
     }
 });
 
+$("#toggle-login-password").addEventListener("click", () => {
+    const input = $("#password");
+    const btn = $("#toggle-login-password");
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+    btn.setAttribute("title", show ? "Hide password" : "Show password");
+    btn.querySelector(".eye-open").classList.toggle("hidden", show);
+    btn.querySelector(".eye-closed").classList.toggle("hidden", !show);
+});
+
 $("#show-signup-btn").addEventListener("click", () => {
     loginForm.classList.add("hidden");
     signupForm.classList.remove("hidden");

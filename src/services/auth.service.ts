@@ -290,13 +290,13 @@ export class AuthService {
 
     async login(username: string, password: string) {
         const identifier = username.trim();
+        if (!identifier || !password) return null;
+
+        const looksLikeEmail = identifier.includes("@");
         const user = await prisma.user.findFirst({
-            where: {
-                OR: [
-                    { username: identifier },
-                    { email: identifier.toLowerCase() },
-                ],
-            },
+            where: looksLikeEmail
+                ? { email: identifier.toLowerCase() }
+                : { username: identifier },
             include: { role: true },
         });
 
