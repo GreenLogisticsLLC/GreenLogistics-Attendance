@@ -40,16 +40,14 @@ body {
 }
 
 .logo { text-align: center; margin-bottom: 2rem; }
-.logo-icon {
-    width: 64px; height: 64px;
-    background: linear-gradient(135deg, var(--accent), #047857);
-    border-radius: 16px;
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 1.4rem;
+.logo-img {
+    width: 96px; height: 96px;
+    object-fit: contain;
+    display: block;
     margin: 0 auto 1rem;
 }
-.logo h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
-.logo p { color: var(--muted); font-size: 0.9rem; }
+.logo h1 { font-size: 1.5rem; margin-bottom: 0.25rem; letter-spacing: 0.02em; }
+.logo p { color: var(--muted); font-size: 0.95rem; }
 
 form label { display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--muted); }
 form input {
@@ -82,10 +80,11 @@ form input:focus { outline: none; border-color: var(--accent); }
     border-bottom: 1px solid var(--border);
 }
 .header-left { display: flex; align-items: center; gap: 1rem; }
-.logo-small {
-    width: 40px; height: 40px; background: var(--accent);
-    border-radius: 10px; display: flex; align-items: center;
-    justify-content: center; font-weight: 700; font-size: 0.85rem;
+.logo-small-img {
+    width: 40px; height: 40px;
+    object-fit: contain;
+    border-radius: 8px;
+    flex-shrink: 0;
 }
 .header h2 { font-size: 1.1rem; }
 #current-date { color: var(--muted); font-size: 0.85rem; }
