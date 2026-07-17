@@ -31,15 +31,15 @@ function approvalPage(title: string, message: string, ok: boolean) {
 export async function loginController(req: Request, res: Response) {
     const { username, password } = req.body;
     if (!username || !password) {
-        return res.status(422).json(apiResponse(false, "Username and password required"));
+        return res.status(422).json(apiResponse(false, "Username or email and password required"));
     }
 
     const result = await authService.login(username, password);
-    if (!result) {
-        return res.status(401).json(apiResponse(false, "Invalid credentials"));
+    if (!result.ok) {
+        return res.status(result.status).json(apiResponse(false, result.message));
     }
 
-    return res.json(apiResponse(true, "Login successful", result));
+    return res.json(apiResponse(true, "Login successful", result.data));
 }
 
 export async function registerController(req: Request, res: Response) {

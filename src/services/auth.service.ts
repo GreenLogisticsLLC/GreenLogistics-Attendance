@@ -290,29 +290,56 @@ export class AuthService {
 
     async login(username: string, password: string) {
         const identifier = username.trim();
-        if (!identifier || !password) return null;
+        if (!identifier || !password) {
+            return { ok: false as const, status: 422, message: "Username or email and password are required" };
+        }
 
-        const looksLikeEmail = identifier.includes("@");
+        const normalizedEmail = identifier.toLowerCase();
+
         const user = await prisma.user.findFirst({
-            where: looksLikeEmail
-                ? { email: identifier.toLowerCase() }
-                : { username: identifier },
+            where: {
+                OR: [{ username: identifier }, { email: normalizedEmail }],
+            },
             include: { role: true },
         });
 
-        if (!user || !user.isActive) {
-            return null;
+        if (!user) {
+            try {
+                const pending = await prisma.pendingRegistration.findFirst({
+                    where: {
+                        status: "PENDING",
+                        OR: [{ email: normalizedEmail }, { username: identifier }],
+                    },
+                });
+                if (pending) {
+                    return {
+                        ok: false as const,
+                        status: 403,
+                        message:
+                            "Your registration is waiting for administrator approval. Check back after you receive approval.",
+                    };
+                }
+            } catch {
+                // pending_registrations table may not exist yet
+            }
+            return { ok: false as const, status: 401, message: "Invalid credentials" };
+        }
+
+        if (!user.isActive) {
+            return { ok: false as const, status: 403, message: "Account is disabled" };
         }
 
         const valid = await bcrypt.compare(password, user.passwordHash);
-        if (!valid) return null;
+        if (!valid) {
+            return { ok: false as const, status: 401, message: "Invalid credentials" };
+        }
 
         await prisma.user.update({
             where: { userId: user.userId },
             data: { lastLogin: new Date() },
         });
 
-        return this.issueToken(user);
+        return { ok: true as const, data: await this.issueToken(user) };
     }
 
     verifyToken(token: string) {
