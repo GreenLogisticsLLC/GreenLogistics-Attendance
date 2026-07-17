@@ -1,11 +1,13 @@
 import { Request, Response } from "express";
 import { prisma } from "../config/database.js";
+import { config } from "../config/env.js";
 import { authService } from "../services/auth.service.js";
 import { apiResponse } from "../utils/helpers.js";
 import type { AuthRequest } from "../middlewares/auth.middleware.js";
 
 function approvalPage(title: string, message: string, ok: boolean) {
     const color = ok ? "#10b981" : "#ef4444";
+    const loginUrl = config.publicAppUrl || "/";
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -16,13 +18,19 @@ function approvalPage(title: string, message: string, ok: boolean) {
     body { font-family: Segoe UI, Arial, sans-serif; background:#0f1419; color:#e8edf4; display:flex; min-height:100vh; align-items:center; justify-content:center; margin:0; }
     .card { max-width:480px; background:#1a2332; border:1px solid #2d3f56; border-radius:16px; padding:2rem; text-align:center; }
     h1 { color:${color}; font-size:1.4rem; margin:0 0 1rem; }
-    p { color:#8b9cb3; line-height:1.5; }
+    p { color:#8b9cb3; line-height:1.5; margin:0 0 1.5rem; }
+    a.login-btn {
+      display:inline-block; background:#10b981; color:#fff; text-decoration:none;
+      padding:0.85rem 1.4rem; border-radius:8px; font-weight:600;
+    }
+    a.login-btn:hover { background:#059669; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>${title}</h1>
     <p>${message}</p>
+    <a class="login-btn" href="${loginUrl}">Go to Login</a>
   </div>
 </body>
 </html>`;
