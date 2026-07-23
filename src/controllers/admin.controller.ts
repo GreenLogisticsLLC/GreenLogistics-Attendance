@@ -8,6 +8,7 @@ import { legacyIngestService } from "../services/legacy-ingest.service.js";
 import { settingsService } from "../services/settings.service.js";
 import { cardRegistrationService } from "../services/card-registration.service.js";
 import { attendanceService } from "../services/attendance.service.js";
+import { ensureFlexibleShiftId } from "../services/shift-default.service.js";
 import { apiResponse, normalizeCardToken, getWebhookUrls, getAllNetworkIps } from "../utils/helpers.js";
 import { config } from "../config/env.js";
 import type { AuthRequest } from "../middlewares/auth.middleware.js";
@@ -46,7 +47,7 @@ export async function createEmployeeController(req: AuthRequest, res: Response) 
         syncToDevice,
     } = req.body;
 
-    if (!employeeNumber || !firstName || !lastName || !cardNumber || !shiftId) {
+    if (!employeeNumber || !firstName || !lastName || !cardNumber) {
         return res.status(422).json(apiResponse(false, "Missing required fields"));
     }
 
@@ -56,6 +57,10 @@ export async function createEmployeeController(req: AuthRequest, res: Response) 
     }
 
     try {
+        const resolvedShiftId = shiftId
+            ? String(shiftId)
+            : await ensureFlexibleShiftId();
+
         const employee = await employeeRepository.create({
             employeeNumber: String(employeeNumber).trim(),
             firstName: String(firstName).trim(),
@@ -65,7 +70,7 @@ export async function createEmployeeController(req: AuthRequest, res: Response) 
             cardNumber: normalizedCard,
             externalRef: externalRef ? String(externalRef).trim() : String(employeeNumber).trim(),
             cardType: cardType === 1 ? 1 : 2,
-            shiftId,
+            shiftId: resolvedShiftId,
         });
 
         try {
@@ -109,6 +114,11 @@ export async function updateEmployeeController(req: AuthRequest, res: Response) 
         updateData.cardNumber = normalizeCardToken(String(updateData.cardNumber).trim());
         if (!updateData.cardNumber) {
             return res.status(422).json(apiResponse(false, "Invalid card UID"));
+        }
+    }
+    if (updateData.shiftId === "" || updateData.shiftId === null || updateData.shiftId === undefined) {
+        if ("shiftId" in updateData) {
+            updateData.shiftId = await ensureFlexibleShiftId();
         }
     }
 

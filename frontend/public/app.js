@@ -736,7 +736,7 @@ async function loadShiftsForForm() {
             return false;
         }
         shifts = data.data;
-        const options = `<option value="">— выберите смену —</option>` + shifts.map((s) =>
+        const options = `<option value="">— не обязательно —</option>` + shifts.map((s) =>
             `<option value="${s.shiftId}">${s.shiftName} (${s.startTime}–${s.endTime})</option>`
         ).join("");
         const empShift = $("#emp-shift");
@@ -882,11 +882,6 @@ $("#quick-register-form")?.addEventListener("submit", async (e) => {
         setSyncStatus(statusEl, "Введите UID или нажмите «Сгенерировать временный UID»", false);
         return;
     }
-    if (!shiftId) {
-        setSyncStatus(statusEl, "Выберите смену", false);
-        await loadShiftsForForm();
-        return;
-    }
 
     await loadAdminEmployees();
     const dupMsg = validateUniqueCard(cardNumber);
@@ -900,9 +895,9 @@ $("#quick-register-form")?.addEventListener("submit", async (e) => {
         firstName,
         lastName,
         cardNumber,
-        shiftId,
         syncToDevice: false,
     };
+    if (shiftId) payload.shiftId = shiftId;
 
     setSyncStatus(statusEl, "Saving...", true);
     try {
@@ -966,11 +961,6 @@ $("#employee-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#emp-id").value;
     const shiftId = $("#emp-shift").value;
-    if (!shiftId) {
-        alert("Выберите смену. Подождите загрузку и попробуйте снова.");
-        await loadShiftsForForm();
-        return;
-    }
     const payload = {
         employeeNumber: $("#emp-number").value.trim(),
         firstName: $("#emp-first").value.trim(),
@@ -979,7 +969,7 @@ $("#employee-form").addEventListener("submit", async (e) => {
         position: $("#emp-position").value.trim() || undefined,
         cardNumber: normalizeCardInput($("#emp-card").value),
         externalRef: $("#emp-extref").value.trim() || undefined,
-        shiftId,
+        shiftId: shiftId || "",
         cardType: parseInt($("#emp-cardtype").value, 10),
         status: $("#emp-status").value,
         syncToDevice: $("#emp-sync").checked,

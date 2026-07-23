@@ -3,27 +3,12 @@ import { prisma } from "../config/database.js";
 import { diffMinutes, formatDateTime, getWorkDateString } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
-import { businessRulesEngine } from "./business-rules.engine.js";
 import type {
     DashboardEmployeeRow,
     DashboardStatistics,
 } from "../types/attendance.types.js";
 
 export class DashboardService {
-    private shiftInfo(shift: {
-        startTime: string;
-        endTime: string;
-        gracePeriodMinutes: number;
-        crossMidnight: boolean;
-    }) {
-        return {
-            startTime: shift.startTime,
-            endTime: shift.endTime,
-            gracePeriodMinutes: shift.gracePeriodMinutes,
-            crossMidnight: shift.crossMidnight,
-        };
-    }
-
     async getDashboard(date?: string) {
         const now = new Date();
         const employees = await employeeRepository.findAllActive();
@@ -35,14 +20,16 @@ export class DashboardService {
         const rows: DashboardEmployeeRow[] = [];
 
         for (const emp of employees) {
-            const shift = this.shiftInfo(emp.shift);
-            const employeeWorkDate =
-                date || businessRulesEngine.determineWorkDate(now, shift);
-
-            let session = await attendanceSessionRepository.findLatestSessionForEmployee(
-                emp.employeeId,
-                employeeWorkDate
+            // Presence uses calendar day + latest active session — not day/night shift windows.
+            let session = await attendanceSessionRepository.findRecentActiveSession(
+                emp.employeeId
             );
+            if (!session) {
+                session = await attendanceSessionRepository.findLatestSessionForEmployee(
+                    emp.employeeId,
+                    workDate
+                );
+            }
 
             const openInterval = session?.absenceIntervals?.[0];
 
@@ -63,9 +50,8 @@ export class DashboardService {
                 employeeName: `${emp.firstName} ${emp.lastName}`,
                 department: emp.department,
                 position: emp.position,
-                shiftName: emp.shift.shiftName,
-                scheduledStart: formatDateTime(session?.scheduledStart ?? null) ||
-                    `${emp.shift.startTime}`,
+                shiftName: emp.shift?.shiftName || "Flexible",
+                scheduledStart: formatDateTime(session?.scheduledStart ?? null) || "—",
                 firstEntry: formatDateTime(session?.firstEntry ?? null),
                 lastExit: formatDateTime(session?.lastExit ?? null),
                 currentStatus: session?.currentStatus ?? "SCHEDULED",
@@ -128,19 +114,15 @@ export class DashboardService {
         const employee = await employeeRepository.findById(employeeId);
         if (!employee) return null;
 
-        const date =
-            workDate ||
-            businessRulesEngine.determineWorkDate(now, {
-                startTime: employee.shift.startTime,
-                endTime: employee.shift.endTime,
-                gracePeriodMinutes: employee.shift.gracePeriodMinutes,
-                crossMidnight: employee.shift.crossMidnight,
-            });
+        const date = workDate || getWorkDateString(now, config.timezone);
 
-        const session = await attendanceSessionRepository.findLatestSessionForEmployee(
-            employeeId,
-            date
-        );
+        let session = await attendanceSessionRepository.findRecentActiveSession(employeeId);
+        if (!session) {
+            session = await attendanceSessionRepository.findLatestSessionForEmployee(
+                employeeId,
+                date
+            );
+        }
 
         let events: Awaited<ReturnType<typeof prisma.attendanceEvent.findMany>> = [];
         let intervals: Awaited<ReturnType<typeof prisma.absenceInterval.findMany>> = [];

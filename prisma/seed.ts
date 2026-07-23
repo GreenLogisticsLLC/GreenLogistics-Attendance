@@ -64,6 +64,18 @@ async function main() {
         },
     });
 
+    await prisma.shift.upsert({
+        where: { shiftName: "Flexible" },
+        update: {},
+        create: {
+            shiftName: "Flexible",
+            startTime: "00:00",
+            endTime: "23:59",
+            gracePeriodMinutes: 0,
+            crossMidnight: false,
+        },
+    });
+
     const passwordHash = await bcrypt.hash("Admin123!@Green", 12);
     await prisma.user.upsert({
         where: { username: "admin" },

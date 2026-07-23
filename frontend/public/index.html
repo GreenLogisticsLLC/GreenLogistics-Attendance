@@ -262,7 +262,12 @@
                                 </div>
                                 <div><label>First Name *</label><input id="quick-first" required></div>
                                 <div><label>Last Name *</label><input id="quick-last" required></div>
-                                <div><label>Shift *</label><select id="quick-shift" required></select></div>
+                                <div>
+                                    <label>Shift (optional)</label>
+                                    <select id="quick-shift">
+                                        <option value="">— не обязательно —</option>
+                                    </select>
+                                </div>
                             </div>
                             <p class="panel-hint">Номер сотрудника (GL-00X) назначается автоматически.</p>
                             <button type="submit" class="btn-primary btn-sm">Сохранить сотрудника</button>
@@ -396,7 +401,12 @@
                     <div><label>Position</label><input id="emp-position"></div>
                     <div><label>Card Number (UID) *</label><input id="emp-card" required placeholder="уникальный UID карты"></div>
                     <div><label>External Ref</label><input id="emp-extref" placeholder="ORD-10045"></div>
-                    <div><label>Shift *</label><select id="emp-shift" required></select></div>
+                    <div>
+                        <label>Shift (optional)</label>
+                        <select id="emp-shift">
+                            <option value="">— не обязательно —</option>
+                        </select>
+                    </div>
                     <div><label>Card Type</label>
                         <select id="emp-cardtype">
                             <option value="2">Normal (2)</option>
@@ -445,6 +455,6 @@
     <script src="modules/reports/pages.js"></script>
     <script src="modules/administration/pages.js"></script>
     <script src="js/greenos-shell.js"></script>
-    <script src="app.js?v=15"></script>
+    <script src="app.js?v=16"></script>
 </body>
 </html>

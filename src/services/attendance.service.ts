@@ -1,6 +1,6 @@
 import { prisma } from "../config/database.js";
-import { diffMinutes } from "../utils/helpers.js";
-import { businessRulesEngine } from "./business-rules.engine.js";
+import { config } from "../config/env.js";
+import { diffMinutes, getWorkDateString, combineDateAndTime } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
 import { attendanceEventRepository } from "../repositories/attendance-event.repository.js";
@@ -15,8 +15,13 @@ interface ProcessEventInput {
     source?: string;
 }
 
+/**
+ * Presence is driven only by card reader toggles:
+ * swipe while not inside → INSIDE_OFFICE
+ * swipe while inside → OUTSIDE_OFFICE
+ * Day/night shift schedules are NOT used for status.
+ */
 export class AttendanceService {
-    /** Each scan toggles: not inside → enter; inside → leave. Ignores reader decision field. */
     private resolveToggleDirection(currentStatus: EmployeeStatus): "ENTRY" | "EXIT" {
         if (currentStatus === "INSIDE_OFFICE") {
             return "EXIT";
@@ -24,37 +29,44 @@ export class AttendanceService {
         return "ENTRY";
     }
 
+    private calendarWorkDate(eventTime: Date): string {
+        return getWorkDateString(eventTime, config.timezone);
+    }
+
+    private dayBounds(workDate: string) {
+        return {
+            scheduledStart: combineDateAndTime(workDate, "00:00"),
+            scheduledEnd: combineDateAndTime(workDate, "23:59"),
+        };
+    }
+
     async processEvent(input: ProcessEventInput) {
         const employee = await employeeRepository.findById(input.employeeId);
-        if (!employee?.shift) {
-            throw new Error("Employee or shift not found");
+        if (!employee) {
+            throw new Error("Employee not found");
         }
 
-        const shift = employee.shift;
-        const workDate = businessRulesEngine.determineWorkDate(input.eventTime, {
-            startTime: shift.startTime,
-            endTime: shift.endTime,
-            gracePeriodMinutes: shift.gracePeriodMinutes,
-            crossMidnight: shift.crossMidnight,
-        });
+        // Prefer the latest open presence session so shift schedules cannot split In/Out.
+        let session = await attendanceSessionRepository.findRecentActiveSession(employee.employeeId);
 
-        const { scheduledStart, scheduledEnd } =
-            businessRulesEngine.calculateScheduledTimes(workDate, {
-                startTime: shift.startTime,
-                endTime: shift.endTime,
-                gracePeriodMinutes: shift.gracePeriodMinutes,
-                crossMidnight: shift.crossMidnight,
-            });
-
-        let session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
-            employee.employeeId,
-            workDate
-        );
+        const workDate = this.calendarWorkDate(input.eventTime);
+        const { scheduledStart, scheduledEnd } = this.dayBounds(workDate);
 
         if (!session) {
+            session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+                employee.employeeId,
+                workDate
+            );
+        }
+
+        if (!session) {
+            const shiftId = employee.shiftId;
+            if (!shiftId) {
+                throw new Error("Employee has no shift assigned — cannot create session");
+            }
             await attendanceSessionRepository.create({
                 employeeId: employee.employeeId,
-                shiftId: shift.shiftId,
+                shiftId,
                 workDate,
                 scheduledStart,
                 scheduledEnd,
@@ -118,22 +130,9 @@ export class AttendanceService {
 
             if (!activeSession.firstEntry) {
                 updates.firstEntry = input.eventTime;
-                const lateResult = businessRulesEngine.calculateLateStatus(
-                    input.eventTime,
-                    scheduledStart,
-                    shift.gracePeriodMinutes
-                );
-                updates.late = lateResult.late;
-                updates.lateMinutes = lateResult.lateMinutes;
-
-                if (lateResult.late) {
-                    await this.createNotification(
-                        employee.employeeId,
-                        "LATE",
-                        "HIGH",
-                        `${employee.firstName} ${employee.lastName} arrived ${lateResult.lateMinutes} min late`
-                    );
-                }
+                // Presence is card-driven — do not mark late from shift schedules.
+                updates.late = false;
+                updates.lateMinutes = 0;
             }
 
             const openInterval = await prisma.absenceInterval.findFirst({
@@ -156,28 +155,18 @@ export class AttendanceService {
                 updates.totalAbsenceMinutes = totalAbsence;
             }
         } else {
-            updates.currentStatus = "COMPLETED";
+            // Card exit → Out of office (not shift-based completion)
+            updates.currentStatus = "OUTSIDE_OFFICE";
             updates.lastExit = input.eventTime;
             updates.exitCount = activeSession.exitCount + 1;
 
-            const openInterval = await prisma.absenceInterval.findFirst({
-                where: { sessionId: activeSession.sessionId, endTime: null },
-                orderBy: { startTime: "desc" },
+            await prisma.absenceInterval.create({
+                data: {
+                    sessionId: activeSession.sessionId,
+                    exitEventId: event.eventId,
+                    startTime: input.eventTime,
+                },
             });
-
-            if (openInterval) {
-                const duration = diffMinutes(openInterval.startTime, input.eventTime);
-                await prisma.absenceInterval.update({
-                    where: { intervalId: openInterval.intervalId },
-                    data: {
-                        returnEventId: event.eventId,
-                        endTime: input.eventTime,
-                        durationMinutes: duration,
-                    },
-                });
-                const totalAbsence = await this.sumAbsenceMinutes(activeSession.sessionId);
-                updates.totalAbsenceMinutes = totalAbsence;
-            }
         }
 
         const updatedSession = await attendanceSessionRepository.update(
@@ -190,22 +179,19 @@ export class AttendanceService {
 
     async markEmployeeLeft(employeeId: string) {
         const employee = await employeeRepository.findById(employeeId);
-        if (!employee?.shift) {
-            throw new Error("Employee or shift not found");
+        if (!employee) {
+            throw new Error("Employee not found");
         }
 
         const now = new Date();
-        const workDate = businessRulesEngine.determineWorkDate(now, {
-            startTime: employee.shift.startTime,
-            endTime: employee.shift.endTime,
-            gracePeriodMinutes: employee.shift.gracePeriodMinutes,
-            crossMidnight: employee.shift.crossMidnight,
-        });
-
-        const session = await attendanceSessionRepository.findLatestSessionForEmployee(
-            employeeId,
-            workDate
-        );
+        let session = await attendanceSessionRepository.findRecentActiveSession(employeeId);
+        if (!session) {
+            const workDate = this.calendarWorkDate(now);
+            session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+                employeeId,
+                workDate
+            );
+        }
 
         if (!session || session.currentStatus !== "INSIDE_OFFICE") {
             return { updated: false, message: "Employee is not marked as inside office" };
@@ -224,23 +210,9 @@ export class AttendanceService {
         return { updated: true, message: "Employee marked as left", session: result.session };
     }
 
+    /** Shift schedules must not auto-close presence. Card events own In/Out status. */
     async closeExpiredSessions() {
-        const now = new Date();
-        const openSessions = await prisma.attendanceSession.findMany({
-            where: {
-                currentStatus: { in: ["INSIDE_OFFICE", "OUTSIDE_OFFICE", "SCHEDULED"] },
-                scheduledEnd: { lt: now },
-            },
-        });
-
-        for (const session of openSessions) {
-            const minutesPast = diffMinutes(session.scheduledEnd, now);
-            if (minutesPast >= 15) {
-                await attendanceSessionRepository.update(session.sessionId, {
-                    currentStatus: "COMPLETED",
-                });
-            }
-        }
+        return;
     }
 
     private async sumAbsenceMinutes(sessionId: string): Promise<number> {
