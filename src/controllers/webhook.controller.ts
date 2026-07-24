@@ -1,15 +1,24 @@
 import { Request, Response } from "express";
 import { webhookService } from "../services/webhook.service.js";
 import { apiResponse } from "../utils/helpers.js";
+import { logWebhookReceived } from "../utils/webhook-logger.js";
 import type { LegacyWebhookPayload, StandardWebhookPayload } from "../types/attendance.types.js";
 
 export async function legacyWebhookController(req: Request, res: Response) {
+    logWebhookReceived({
+        path: req.path,
+        headers: req.headers,
+        body: req.body,
+    });
+
     if (!webhookService.validateBearerToken(req.headers.authorization)) {
+        console.log("[WEBHOOK] Unauthorized — missing/invalid Bearer token");
         return res.status(401).json({ code: "WEBHOOK_UNAUTHORIZED" });
     }
 
     const payload = req.body as LegacyWebhookPayload;
     if (!payload.device_id || !payload.token || !payload.decision || !payload.scanned_at) {
+        console.log("[WEBHOOK] Validation failed — missing required fields");
         return res.status(422).json(apiResponse(false, "Missing required fields"));
     }
 
@@ -24,13 +33,21 @@ export async function legacyWebhookController(req: Request, res: Response) {
                 duplicate: result.duplicate,
             })
         );
-    } catch {
+    } catch (err) {
+        console.error("[WEBHOOK] Processing error:", err);
         return res.status(500).json(apiResponse(false, "Internal processing error"));
     }
 }
 
 export async function standardWebhookController(req: Request, res: Response) {
+    logWebhookReceived({
+        path: req.path,
+        headers: req.headers,
+        body: req.body,
+    });
+
     if (!webhookService.validateBearerToken(req.headers.authorization)) {
+        console.log("[WEBHOOK] Unauthorized — missing/invalid Bearer token");
         return res.status(401).json(apiResponse(false, "Unauthorized"));
     }
 
@@ -42,6 +59,7 @@ export async function standardWebhookController(req: Request, res: Response) {
         !payload.deviceId ||
         !payload.webhookId
     ) {
+        console.log("[WEBHOOK] Validation failed — missing required fields");
         return res.status(422).json(apiResponse(false, "Missing required fields"));
     }
 
@@ -56,7 +74,8 @@ export async function standardWebhookController(req: Request, res: Response) {
                 duplicate: result.duplicate,
             })
         );
-    } catch {
+    } catch (err) {
+        console.error("[WEBHOOK] Processing error:", err);
         return res.status(500).json(apiResponse(false, "Internal processing error"));
     }
 }

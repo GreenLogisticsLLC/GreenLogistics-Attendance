@@ -7,6 +7,7 @@ import { webhookLogRepository } from "../repositories/webhook-log.repository.js"
 import { attendanceEventRepository } from "../repositories/attendance-event.repository.js";
 import { attendanceService } from "./attendance.service.js";
 import { cardRegistrationService } from "./card-registration.service.js";
+import { logWebhookDecision } from "../utils/webhook-logger.js";
 import type {
     LegacyWebhookPayload,
     StandardWebhookPayload,
@@ -18,6 +19,9 @@ export class WebhookService {
         const webhookId = buildWebhookId(payload);
         const employeeIdentifier =
             payload.external_ref || normalizeCardToken(payload.token);
+        const directionHint =
+            payload.direction ||
+            (payload.decision?.toLowerCase().startsWith("ex") ? "out" : "in");
 
         try {
             const existing = await webhookLogRepository.findByWebhookId(webhookId);
@@ -29,6 +33,15 @@ export class WebhookService {
                     responseCode: 200,
                     processingStatus: "DUPLICATE",
                     processingTimeMs: Date.now() - startTime,
+                });
+                logWebhookDecision({
+                    deviceId: payload.device_id,
+                    token: payload.token,
+                    decision: payload.decision,
+                    directionHint,
+                    scannedAt: payload.scanned_at,
+                    action: "DUPLICATE",
+                    note: "Duplicate webhook ignored",
                 });
                 return { status: 200, duplicate: true, webhookId };
             }
@@ -42,6 +55,15 @@ export class WebhookService {
                     responseCode: 200,
                     processingStatus: "DUPLICATE",
                     processingTimeMs: Date.now() - startTime,
+                });
+                logWebhookDecision({
+                    deviceId: payload.device_id,
+                    token: payload.token,
+                    decision: payload.decision,
+                    directionHint,
+                    scannedAt: payload.scanned_at,
+                    action: "DUPLICATE",
+                    note: "Duplicate event ignored",
                 });
                 return { status: 200, duplicate: true, webhookId };
             }
@@ -78,6 +100,17 @@ export class WebhookService {
                     processingTimeMs: Date.now() - startTime,
                     errorMessage: "Unknown employee",
                 });
+                logWebhookDecision({
+                    deviceId: payload.device_id,
+                    token: payload.token,
+                    decision: payload.decision,
+                    directionHint,
+                    scannedAt: payload.scanned_at,
+                    employeeName: null,
+                    action: "NOT_FOUND",
+                    status: null,
+                    note: "Unknown employee / card",
+                });
                 return { status: 422, error: "Unknown employee", webhookId };
             }
 
@@ -90,8 +123,26 @@ export class WebhookService {
                 source: `LEGACY_READER:${payload.profile_id || "default"}`,
             });
 
-            const action =
-                result.direction === "EXIT" ? "left" : "entered";
+            const appliedDirection = result.direction || businessRulesEngine.mapLegacyDirection(payload);
+            const action = result.duplicate
+                ? "DUPLICATE"
+                : appliedDirection === "EXIT"
+                  ? "OUT"
+                  : "IN";
+            const status = result.session?.currentStatus ?? null;
+            const employeeName = `${employee.firstName} ${employee.lastName}`;
+
+            logWebhookDecision({
+                deviceId: payload.device_id,
+                token: payload.token,
+                decision: payload.decision,
+                directionHint: appliedDirection === "EXIT" ? "out" : "in",
+                scannedAt: payload.scanned_at,
+                employeeName,
+                action,
+                status,
+                note: result.duplicate ? "Duplicate scan — status unchanged" : undefined,
+            });
 
             await webhookLogRepository.create({
                 webhookId,
@@ -100,7 +151,9 @@ export class WebhookService {
                 responseCode: 200,
                 processingStatus: result.duplicate ? "DUPLICATE" : "SUCCESS",
                 processingTimeMs: Date.now() - startTime,
-                errorMessage: result.duplicate ? undefined : `→ ${action}`,
+                errorMessage: result.duplicate
+                    ? undefined
+                    : `→ ${action} / ${status}`,
             });
 
             return { status: 200, duplicate: result.duplicate, webhookId, result, action };
@@ -122,6 +175,7 @@ export class WebhookService {
                     message: `Webhook failed: ${message}`,
                 },
             });
+            console.error("[WEBHOOK] FAILED", message);
             throw error;
         }
     }
@@ -141,6 +195,15 @@ export class WebhookService {
                     processingStatus: "DUPLICATE",
                     processingTimeMs: Date.now() - startTime,
                 });
+                logWebhookDecision({
+                    deviceId: payload.deviceId,
+                    token: payload.employeeIdentifier,
+                    decision: payload.direction,
+                    directionHint: payload.direction,
+                    scannedAt: payload.timestamp,
+                    action: "DUPLICATE",
+                    note: "Duplicate webhook ignored",
+                });
                 return { status: 200, duplicate: true, webhookId };
             }
 
@@ -159,6 +222,16 @@ export class WebhookService {
                     processingTimeMs: Date.now() - startTime,
                     errorMessage: "Unknown employee",
                 });
+                logWebhookDecision({
+                    deviceId: payload.deviceId,
+                    token: payload.employeeIdentifier,
+                    decision: payload.direction,
+                    directionHint: payload.direction,
+                    scannedAt: payload.timestamp,
+                    employeeName: null,
+                    action: "NOT_FOUND",
+                    note: "Unknown employee / card",
+                });
                 return { status: 422, error: "Unknown employee", webhookId };
             }
 
@@ -172,12 +245,31 @@ export class WebhookService {
                 source: payload.source || "ACCESS_CONTROL",
             });
 
+            const appliedDirection = result.direction || direction;
+            const action = result.duplicate
+                ? "DUPLICATE"
+                : appliedDirection === "EXIT"
+                  ? "OUT"
+                  : "IN";
+
+            logWebhookDecision({
+                deviceId: payload.deviceId,
+                token: payload.employeeIdentifier,
+                decision: payload.direction,
+                directionHint: appliedDirection === "EXIT" ? "out" : "in",
+                scannedAt: payload.timestamp,
+                employeeName: `${employee.firstName} ${employee.lastName}`,
+                action,
+                status: result.session?.currentStatus ?? null,
+                note: result.duplicate ? "Duplicate scan — status unchanged" : undefined,
+            });
+
             await webhookLogRepository.create({
                 webhookId,
                 employeeIdentifier: payload.employeeIdentifier,
                 requestPayload: rawBody,
                 responseCode: 200,
-                processingStatus: "SUCCESS",
+                processingStatus: result.duplicate ? "DUPLICATE" : "SUCCESS",
                 processingTimeMs: Date.now() - startTime,
             });
 
@@ -193,6 +285,7 @@ export class WebhookService {
                 processingTimeMs: Date.now() - startTime,
                 errorMessage: message,
             });
+            console.error("[WEBHOOK] FAILED", message);
             throw error;
         }
     }
