@@ -10,7 +10,7 @@ export function startEmailImportScheduler(intervalMs = 30_000) {
 
     const tick = async () => {
         if (running) return;
-        if (!gmailListener.isConfigured()) return;
+        if (!(await gmailListener.ensureCredentials())) return;
         running = true;
         try {
             const result = await emailImportService.checkInbox({ maxMessages: 20 });

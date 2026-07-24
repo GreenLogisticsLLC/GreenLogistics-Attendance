@@ -8,7 +8,7 @@ import { shipmentLeadService } from "./shipment-lead.service.js";
 
 export class EmailImportService {
     async checkInbox(options?: { maxMessages?: number }) {
-        if (!gmailListener.isConfigured()) {
+        if (!(await gmailListener.ensureCredentials())) {
             return {
                 configured: false,
                 processed: 0,
@@ -17,7 +17,7 @@ export class EmailImportService {
                 duplicates: 0,
                 errors: 0,
                 message:
-                    "Gmail API is not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, GMAIL_USER.",
+                    "Gmail is not connected. Open /api/email/auth (after setting GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET), or set GMAIL_REFRESH_TOKEN.",
             };
         }
 

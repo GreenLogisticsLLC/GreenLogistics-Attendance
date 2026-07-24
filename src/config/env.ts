@@ -45,6 +45,9 @@ export const config = {
         refreshToken: process.env.GMAIL_REFRESH_TOKEN || "",
         user: process.env.GMAIL_USER || "",
         processedLabelId: process.env.GMAIL_PROCESSED_LABEL_ID || "",
+        redirectUri:
+            process.env.GMAIL_REDIRECT_URI ||
+            `${(process.env.PUBLIC_APP_URL || "http://localhost:3847").replace(/\/$/, "")}/api/email/callback`,
     },
     emailPollIntervalMs: parseInt(process.env.EMAIL_POLL_INTERVAL_MS || "30000", 10),
 };

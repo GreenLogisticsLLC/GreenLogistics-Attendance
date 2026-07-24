@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { config } from "../../../config/env.js";
+import { gmailOAuthService } from "./gmail-oauth.service.js";
 import type { RawEmailMessage } from "../models/types.js";
 
 function decodeBase64Url(data?: string | null): string {
@@ -38,6 +39,7 @@ function headerValue(
 }
 
 export class GmailListener {
+    /** Sync check using in-memory / env values (may be stale until ensureCredentials). */
     isConfigured(): boolean {
         return Boolean(
             config.gmail.clientId &&
@@ -47,18 +49,33 @@ export class GmailListener {
         );
     }
 
-    private getClient() {
+    async ensureCredentials(): Promise<boolean> {
+        if (!gmailOAuthService.isClientConfigured()) return false;
+        const [refreshToken, user] = await Promise.all([
+            gmailOAuthService.getStoredRefreshToken(),
+            gmailOAuthService.getStoredUser(),
+        ]);
+        if (refreshToken) gmailOAuthService.applyRuntimeCredentials(refreshToken, user || undefined);
+        return this.isConfigured();
+    }
+
+    private async getClient() {
+        const ok = await this.ensureCredentials();
+        if (!ok) {
+            throw new Error("Gmail is not configured");
+        }
         const oauth2 = new google.auth.OAuth2(
             config.gmail.clientId,
-            config.gmail.clientSecret
+            config.gmail.clientSecret,
+            config.gmail.redirectUri
         );
         oauth2.setCredentials({ refresh_token: config.gmail.refreshToken });
         return google.gmail({ version: "v1", auth: oauth2 });
     }
 
     async listUnreadMessageIds(maxResults = 25): Promise<string[]> {
-        if (!this.isConfigured()) return [];
-        const gmail = this.getClient();
+        if (!(await this.ensureCredentials())) return [];
+        const gmail = await this.getClient();
         const res = await gmail.users.messages.list({
             userId: config.gmail.user,
             q: "is:unread",
@@ -68,7 +85,7 @@ export class GmailListener {
     }
 
     async fetchMessage(gmailMessageId: string): Promise<RawEmailMessage> {
-        const gmail = this.getClient();
+        const gmail = await this.getClient();
         const res = await gmail.users.messages.get({
             userId: config.gmail.user,
             id: gmailMessageId,
@@ -101,8 +118,8 @@ export class GmailListener {
     }
 
     async markProcessed(gmailMessageId: string): Promise<void> {
-        if (!this.isConfigured()) return;
-        const gmail = this.getClient();
+        if (!(await this.ensureCredentials())) return;
+        const gmail = await this.getClient();
         const labelIds = ["UNREAD"];
         if (config.gmail.processedLabelId) {
             await gmail.users.messages.modify({

@@ -52,4 +52,5 @@ app.listen(config.port, config.host, () => {
     if (ips.length) console.log(`Network IPs: ${ips.join(", ")}`);
     console.log(`Health:   GET http://localhost:${config.port}/api/health`);
     console.log(`Email:    GET/POST http://localhost:${config.port}/api/email/*`);
+    console.log(`Gmail OAuth: http://localhost:${config.port}/api/email/auth`);
 });

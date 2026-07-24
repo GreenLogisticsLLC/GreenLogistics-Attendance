@@ -12,6 +12,7 @@ window.GreenOSModules.email = {
       "</section>" +
       '<div class="gos-module-placeholder" style="margin-bottom:1rem">' +
       '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center">' +
+      '<a class="btn-primary" id="email-connect-gmail" href="/api/email/auth" style="width:auto;padding:0.65rem 1rem;text-decoration:none;display:inline-block">Connect Gmail</a>' +
       '<button type="button" class="btn-primary" id="email-check-now" style="width:auto;padding:0.65rem 1rem">Check Gmail Now</button>' +
       '<span id="email-import-status" class="sync-status"></span>' +
       "</div></div>" +
@@ -118,6 +119,28 @@ window.GreenOSModules.email = {
       }
     });
 
+    async function loadStatus() {
+      try {
+        const data = await api("/status");
+        const d = data.data || {};
+        if (d.gmailConfigured) {
+          statusEl.textContent = "Gmail connected" + (d.gmailUser ? ": " + d.gmailUser : "");
+          statusEl.style.color = "#22c55e";
+          const btn = root.querySelector("#email-connect-gmail");
+          if (btn) btn.textContent = "Reconnect Gmail";
+        } else if (d.oauthClientConfigured) {
+          statusEl.textContent = "Gmail not connected — use Connect Gmail";
+          statusEl.style.color = "#eab308";
+        } else {
+          statusEl.textContent = "Set GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET on server";
+          statusEl.style.color = "#ef4444";
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    await loadStatus();
     await loadShipments();
   },
 };

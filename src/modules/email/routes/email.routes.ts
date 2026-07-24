@@ -4,11 +4,17 @@ import {
     checkEmailController,
     emailStatusController,
     getShipmentController,
+    gmailAuthController,
+    gmailCallbackController,
     listEmailLogsController,
     listShipmentsController,
 } from "../controllers/email.controller.js";
 
 export const emailRouter = Router();
+
+// OAuth must be public — Google redirects here without a JWT.
+emailRouter.get("/auth", gmailAuthController);
+emailRouter.get("/callback", gmailCallbackController);
 
 emailRouter.use(authMiddleware);
 
