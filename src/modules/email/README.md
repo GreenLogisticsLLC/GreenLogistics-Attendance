@@ -31,5 +31,6 @@ Connect Gmail:
 4. Open `https://os.greengrouplogistics.com/api/email/auth` and approve access.
 5. Refresh token is stored in `settings` (category `gmail`) and applied at runtime.
 
-After deploy, run once on server if schema changed:
-`npx prisma db push`
+After deploy: GitHub Actions runs `prisma generate` + `prisma db push` automatically.
+If tables are still missing on the server, run once:
+`cd /root/GreenLogistics-Attendance && npx prisma db push && pm2 restart greenos`

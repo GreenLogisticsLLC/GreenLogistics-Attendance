@@ -32,7 +32,18 @@ jobs:
           git fetch origin
           git reset --hard origin/main
           npm ci
-          npx prisma generate
+
+          # Pick schema from DATABASE_URL in .env (Prisma also loads .env itself)
+          DB_URL="$(grep -E '^DATABASE_URL=' .env | head -n1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+          if echo "$DB_URL" | grep -qiE '^postgres(ql)?://'; then
+            SCHEMA="prisma/schema.postgresql.prisma"
+          else
+            SCHEMA="prisma/schema.prisma"
+          fi
+          echo "Using Prisma schema: $SCHEMA"
+
+          npx prisma generate --schema="$SCHEMA"
+          npx prisma db push --schema="$SCHEMA"
           npm run build
           pm2 restart greenos
           pm2 save
