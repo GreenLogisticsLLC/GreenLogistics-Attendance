@@ -16,19 +16,12 @@ interface ProcessEventInput {
 }
 
 /**
- * Presence is driven only by card reader toggles:
- * swipe while not inside → INSIDE_OFFICE
- * swipe while inside → OUTSIDE_OFFICE
- * Day/night shift schedules are NOT used for status.
+ * Presence follows the webhook direction only:
+ * in / ENTRY → INSIDE_OFFICE
+ * out / EXIT → OUTSIDE_OFFICE
+ * No toggle relative to previous status. Shift schedules are not used for status.
  */
 export class AttendanceService {
-    private resolveToggleDirection(currentStatus: EmployeeStatus): "ENTRY" | "EXIT" {
-        if (currentStatus === "INSIDE_OFFICE") {
-            return "EXIT";
-        }
-        return "ENTRY";
-    }
-
     private calendarWorkDate(eventTime: Date): string {
         return getWorkDateString(eventTime, config.timezone);
     }
@@ -83,7 +76,8 @@ export class AttendanceService {
 
         const activeSession = session;
         const currentStatus = activeSession.currentStatus as EmployeeStatus;
-        const direction = this.resolveToggleDirection(currentStatus);
+        // Use reader-reported direction only — never invert or toggle from prior status.
+        const direction = input.direction;
 
         let eventType: AttendanceEventType = "NORMAL";
 
