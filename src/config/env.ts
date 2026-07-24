@@ -39,4 +39,12 @@ export const config = {
         pass: process.env.SMTP_PASS || "",
         from: smtpFrom,
     },
+    gmail: {
+        clientId: process.env.GMAIL_CLIENT_ID || "",
+        clientSecret: process.env.GMAIL_CLIENT_SECRET || "",
+        refreshToken: process.env.GMAIL_REFRESH_TOKEN || "",
+        user: process.env.GMAIL_USER || "",
+        processedLabelId: process.env.GMAIL_PROCESSED_LABEL_ID || "",
+    },
+    emailPollIntervalMs: parseInt(process.env.EMAIL_POLL_INTERVAL_MS || "30000", 10),
 };

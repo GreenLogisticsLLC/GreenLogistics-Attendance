@@ -5,12 +5,15 @@ import { fileURLToPath } from "url";
 import { apiRouter } from "./routes/api.routes.js";
 import { config } from "./config/env.js";
 import { attendanceService } from "./services/attendance.service.js";
+import { startEmailImportScheduler } from "./modules/email/scheduler.js";
 import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
-app.use(cors());
+app.set("trust proxy", 1);
+
+app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"] }));
 app.use(express.json({ limit: "1mb" }));
 
 app.use((req, _res, next) => {
@@ -33,10 +36,12 @@ setInterval(() => {
     attendanceService.closeExpiredSessions().catch(console.error);
 }, 5 * 60 * 1000);
 
+startEmailImportScheduler(config.emailPollIntervalMs);
+
 app.listen(config.port, config.host, () => {
     const urls = getWebhookUrls(config.port);
     const ips = getAllNetworkIps();
-    console.log(`Green Logistics Attendance v1.0.0`);
+    console.log(`Green Logistics Attendance / GreenOS v1.0.0`);
     console.log(`Server:   http://localhost:${config.port}  (listening on ${config.host})`);
     console.log(`Webhook:  ${urls.local}`);
     if (urls.network) {
@@ -46,4 +51,5 @@ app.listen(config.port, config.host, () => {
     }
     if (ips.length) console.log(`Network IPs: ${ips.join(", ")}`);
     console.log(`Health:   GET http://localhost:${config.port}/api/health`);
+    console.log(`Email:    GET/POST http://localhost:${config.port}/api/email/*`);
 });

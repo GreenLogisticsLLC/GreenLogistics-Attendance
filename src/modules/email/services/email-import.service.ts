@@ -1,0 +1,140 @@
+import { gmailListener } from "../gmail/gmail.listener.js";
+import { parserFactory } from "../parsers/parser.factory.js";
+import {
+    emailMessageRepository,
+    shipmentImportLogRepository,
+} from "./repositories.js";
+import { shipmentLeadService } from "./shipment-lead.service.js";
+
+export class EmailImportService {
+    async checkInbox(options?: { maxMessages?: number }) {
+        if (!gmailListener.isConfigured()) {
+            return {
+                configured: false,
+                processed: 0,
+                imported: 0,
+                ignored: 0,
+                duplicates: 0,
+                errors: 0,
+                message:
+                    "Gmail API is not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, GMAIL_USER.",
+            };
+        }
+
+        const ids = await gmailListener.listUnreadMessageIds(options?.maxMessages ?? 25);
+        let imported = 0;
+        let ignored = 0;
+        let duplicates = 0;
+        let errors = 0;
+
+        for (const gmailMessageId of ids) {
+            try {
+                const existing = await emailMessageRepository.findByGmailId(gmailMessageId);
+                if (existing) {
+                    await gmailListener.markProcessed(gmailMessageId);
+                    duplicates += 1;
+                    await shipmentImportLogRepository.create({
+                        eventType: "DuplicateShipment",
+                        message: `Gmail MessageID already processed: ${gmailMessageId}`,
+                        gmailMessageId,
+                        emailMessageId: existing.emailMessageId,
+                    });
+                    continue;
+                }
+
+                const raw = await gmailListener.fetchMessage(gmailMessageId);
+                const stored = await emailMessageRepository.create({
+                    gmailMessageId: raw.gmailMessageId,
+                    gmailThreadId: raw.gmailThreadId,
+                    fromAddress: raw.fromAddress,
+                    subject: raw.subject,
+                    snippet: raw.snippet,
+                    receivedAt: raw.receivedAt,
+                    processStatus: "PROCESSING",
+                    bodyText: raw.bodyText,
+                    bodyHtml: raw.bodyHtml,
+                    rawHeaders: raw.rawHeaders,
+                });
+
+                const parser = parserFactory.resolve(raw);
+                if (!parser) {
+                    await emailMessageRepository.markProcessed(
+                        stored.emailMessageId,
+                        "IGNORED"
+                    );
+                    await shipmentImportLogRepository.create({
+                        eventType: "EmailIgnored",
+                        message: `Ignored non-uShip email from ${raw.fromAddress}: ${raw.subject}`,
+                        gmailMessageId,
+                        emailMessageId: stored.emailMessageId,
+                    });
+                    await gmailListener.markProcessed(gmailMessageId);
+                    ignored += 1;
+                    continue;
+                }
+
+                const draft = parser.parse(raw);
+                if (!draft) {
+                    await emailMessageRepository.markProcessed(
+                        stored.emailMessageId,
+                        "PARSE_ERROR",
+                        parser.source
+                    );
+                    await shipmentImportLogRepository.create({
+                        eventType: "ParseError",
+                        message: `Failed to parse ${parser.source} email: ${raw.subject}`,
+                        gmailMessageId,
+                        emailMessageId: stored.emailMessageId,
+                    });
+                    await gmailListener.markProcessed(gmailMessageId);
+                    errors += 1;
+                    continue;
+                }
+
+                const result = await shipmentLeadService.createFromParsed({
+                    draft,
+                    emailMessageId: stored.emailMessageId,
+                    gmailMessageId,
+                });
+
+                await emailMessageRepository.markProcessed(
+                    stored.emailMessageId,
+                    result.duplicate ? "DUPLICATE" : "IMPORTED",
+                    parser.source
+                );
+                await gmailListener.markProcessed(gmailMessageId);
+
+                if (result.duplicate) duplicates += 1;
+                else imported += 1;
+            } catch (err) {
+                errors += 1;
+                const message = err instanceof Error ? err.message : "Unknown import error";
+                await shipmentImportLogRepository.create({
+                    eventType: "ParseError",
+                    message: `Import failed for ${gmailMessageId}: ${message}`,
+                    gmailMessageId,
+                });
+                try {
+                    await gmailListener.markProcessed(gmailMessageId);
+                } catch {
+                    /* leave unread for retry if mark fails */
+                }
+            }
+        }
+
+        // Advance acceptance timers even when inbox empty.
+        await shipmentLeadService.assignment.processDueAcceptances();
+
+        return {
+            configured: true,
+            processed: ids.length,
+            imported,
+            ignored,
+            duplicates,
+            errors,
+            message: `Processed ${ids.length} unread message(s)`,
+        };
+    }
+}
+
+export const emailImportService = new EmailImportService();

@@ -25,6 +25,12 @@ window.GreenOSRegistry = [
     ],
   },
   {
+    id: 'email',
+    title: 'Email Imports',
+    icon: '📧',
+    subtitle: 'uShip Gmail → Shipment Leads',
+  },
+  {
     id: 'dispatch',
     title: 'Dispatch',
     icon: '🚛',

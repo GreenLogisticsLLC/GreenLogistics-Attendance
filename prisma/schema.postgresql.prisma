@@ -233,3 +233,84 @@ model PendingRegistration {
   @@index([username])
   @@map("pending_registrations")
 }
+
+model EmailMessage {
+  emailMessageId String   @id @default(uuid()) @map("email_message_id")
+  gmailMessageId String   @unique @map("gmail_message_id")
+  gmailThreadId  String?  @map("gmail_thread_id")
+  fromAddress    String   @map("from_address")
+  subject        String
+  snippet        String?
+  receivedAt     DateTime @map("received_at")
+  processedAt    DateTime? @map("processed_at")
+  processStatus  String   @default("PENDING") @map("process_status")
+  source         String?
+  rawHeaders     String?  @map("raw_headers")
+  bodyText       String?  @map("body_text")
+  bodyHtml       String?  @map("body_html")
+  createdAt      DateTime @default(now()) @map("created_at")
+  shipmentLeads  ShipmentLead[]
+  importLogs     ShipmentImportLog[]
+
+  @@index([processStatus])
+  @@index([fromAddress])
+  @@index([receivedAt])
+  @@map("email_messages")
+}
+
+model ShipmentLead {
+  shipmentLeadId     String    @id @default(uuid()) @map("shipment_lead_id")
+  source             String
+  externalShipmentId String?   @map("external_shipment_id")
+  shipmentTitle      String    @map("shipment_title")
+  pickupCity         String?   @map("pickup_city")
+  pickupState        String?   @map("pickup_state")
+  pickupZip          String?   @map("pickup_zip")
+  deliveryCity       String?   @map("delivery_city")
+  deliveryState      String?   @map("delivery_state")
+  deliveryZip        String?   @map("delivery_zip")
+  pickupFrom         DateTime? @map("pickup_from")
+  pickupTo           DateTime? @map("pickup_to")
+  deliveryFrom       DateTime? @map("delivery_from")
+  deliveryTo         DateTime? @map("delivery_to")
+  miles              Float?
+  category           String?
+  imageUrl           String?   @map("image_url")
+  viewUrl            String?   @unique @map("view_url")
+  status             String    @default("NEW")
+  assignedBrokerId   String?   @map("assigned_broker_id")
+  assignedAt         DateTime? @map("assigned_at")
+  acceptanceDeadline DateTime? @map("acceptance_deadline")
+  quoteSentAt        DateTime? @map("quote_sent_at")
+  closedAt           DateTime? @map("closed_at")
+  emailMessageId     String?   @map("email_message_id")
+  receivedAt         DateTime? @map("received_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  emailMessage       EmailMessage? @relation(fields: [emailMessageId], references: [emailMessageId])
+  importLogs         ShipmentImportLog[]
+
+  @@index([source])
+  @@index([status])
+  @@index([externalShipmentId])
+  @@index([assignedBrokerId])
+  @@index([createdAt])
+  @@map("shipment_leads")
+}
+
+model ShipmentImportLog {
+  logId          String   @id @default(uuid()) @map("log_id")
+  eventType      String   @map("event_type")
+  message        String
+  gmailMessageId String?  @map("gmail_message_id")
+  emailMessageId String?  @map("email_message_id")
+  shipmentLeadId String?  @map("shipment_lead_id")
+  metaJson       String?  @map("meta_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  emailMessage   EmailMessage? @relation(fields: [emailMessageId], references: [emailMessageId])
+  shipmentLead   ShipmentLead? @relation(fields: [shipmentLeadId], references: [shipmentLeadId])
+
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("shipment_import_logs")
+}
