@@ -15,24 +15,24 @@ API:
 - GET  /api/email/logs
 - GET  /api/email/status
 
-Mail roles (independent — do not share one mailbox):
+Mail roles:
 
 | Role | Env | Purpose | Example |
 |------|-----|---------|---------|
-| 1 Inbound | `GMAIL_*` | uShip import via Gmail API only | `effiegreenlogistics@gmail.com` |
-| 2 Approval To: | `APPROVAL_EMAIL` | Owner receives agent signup requests | `osgreenlogistics@gmail.com` |
-| 3 Outbound | `SMTP_*` | Send system mail (approval links) | `osgreenlogistics@gmail.com` |
+| Inbox (read) | `GMAIL_*` | uShip emails → platform | `effiegreenlogistics@gmail.com` |
+| Approval To: | `APPROVAL_EMAIL` | Signup notices → Owner Gmail (Approve/Reject) | same `effie…` inbox |
+| Outbound From: | `SMTP_*` | Sends those notices (App Password) | `osgreenlogistics@gmail.com` |
 
-Gmail API env (role 1 only):
+Gmail API env (uShip import):
 - GMAIL_CLIENT_ID
 - GMAIL_CLIENT_SECRET
 - GMAIL_REFRESH_TOKEN (optional if connected via /api/email/auth)
-- GMAIL_USER (import inbox; never use as SMTP sender)
+- GMAIL_USER (`effiegreenlogistics@gmail.com`)
 - GMAIL_REDIRECT_URI (optional; default `{PUBLIC_APP_URL}/api/email/callback`)
 - GMAIL_PROCESSED_LABEL_ID (optional)
 - EMAIL_POLL_INTERVAL_MS (default 30000)
 
-Outbound / approval (roles 2–3) live in root `.env.example` (`APPROVAL_EMAIL`, `SMTP_*`).
+`APPROVAL_EMAIL` + `SMTP_*` are in root `.env.example`.
 
 Connect Gmail:
 1. In Google Cloud Console create OAuth client (Web application).

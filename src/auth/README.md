@@ -18,9 +18,11 @@ Dispatcher, HR, Accounting, Administrator, Viewer
 ## Broker registration
 
 1. Sign Up → role **Broker**
-2. Email to `APPROVAL_EMAIL` (Owner inbox), sent via `SMTP_*` (not via `GMAIL_USER`)
+2. Email to `APPROVAL_EMAIL` (default: `effiegreenlogistics@gmail.com`) via `SMTP_*` — open that Gmail and Approve/Reject
 3. Approve link → User created with Broker role
 4. Login → broker shell only
+
+uShip mail still arrives on the same `GMAIL_USER` inbox and is imported into the Email module on the platform.
 
 ## Extending
 

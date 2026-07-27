@@ -22,25 +22,28 @@ function normalizeEmail(value: string): string {
 }
 
 /**
- * Mail architecture (three independent roles — do not share one mailbox):
+ * Mail architecture:
  *
- * 1) GMAIL_*     — inbound uShip import via Gmail API only (e.g. effiegreenlogistics@gmail.com)
- * 2) APPROVAL_EMAIL — Owner/admin recipient for agent signup approvals (e.g. osgreenlogistics@gmail.com)
- * 3) SMTP_*      — outbound transactional sender (App Password); never the uShip import inbox
+ * 1) GMAIL_* — read inbox for uShip import (effiegreenlogistics@gmail.com).
+ *    Also the Owner’s day-to-day Gmail for opening approval links.
+ * 2) APPROVAL_EMAIL — To: for signup approval notices (default: same as #1, effie).
+ * 3) SMTP_* — From: outbound sender only (App Password). Prefer a system mailbox
+ *    (e.g. osgreenlogistics@gmail.com); do not require Gmail API on SMTP.
  *
- * Backward compatible: same env var names; missing optional vars keep prior defaults.
+ * GMAIL_USER and APPROVAL_EMAIL may be the same inbox. Prefer SMTP_USER ≠ GMAIL_USER.
  */
 const smtpUser = process.env.SMTP_USER || "";
 const smtpFrom = process.env.SMTP_FROM || smtpUser || "noreply@greengrouplogistics.com";
 const gmailUser = process.env.GMAIL_USER || "";
-const approvalEmail = process.env.APPROVAL_EMAIL || "osgreenlogistics@gmail.com";
+/** Owner inbox: registration Approve/Reject emails land here (open in Gmail). */
+const approvalEmail = process.env.APPROVAL_EMAIL || "effiegreenlogistics@gmail.com";
 
 const smtpUserNorm = normalizeEmail(smtpUser);
 const gmailUserNorm = normalizeEmail(gmailUser);
 if (gmailUserNorm && smtpUserNorm && gmailUserNorm === smtpUserNorm) {
     console.warn(
-        "[config] GMAIL_USER and SMTP_USER point to the same mailbox. " +
-            "Keep them separate: GMAIL_USER = uShip import only; SMTP_* = outbound mail."
+        "[config] GMAIL_USER and SMTP_USER are the same. " +
+            "OK for small setups, but prefer SMTP_* on a system mailbox and keep GMAIL_* for reading."
     );
 }
 
@@ -55,9 +58,9 @@ export const config = {
     legacyIngestToken: process.env.LEGACY_INGEST_TOKEN || "",
     corsOrigins: parseCorsOrigins(),
     publicAppUrl: (process.env.PUBLIC_APP_URL || "http://localhost:3847").replace(/\/$/, ""),
-    /** Role 2: who receives signup approval requests (not the SMTP From, not the uShip inbox). */
+    /** To: signup approval notices — Owner opens this Gmail and clicks Approve. */
     approvalEmail,
-    /** Role 3: outbound SMTP for system emails (approvals, etc.). */
+    /** From: outbound SMTP (registration notices, future system mail). */
     smtp: {
         host: process.env.SMTP_HOST || "",
         port: parseInt(process.env.SMTP_PORT || "587", 10),
@@ -65,7 +68,7 @@ export const config = {
         pass: process.env.SMTP_PASS || "",
         from: smtpFrom,
     },
-    /** Role 1: Gmail API inbox for uShip (and future load-board) email import only. */
+    /** Gmail API: poll uShip (and future boards) from this inbox. */
     gmail: {
         clientId: process.env.GMAIL_CLIENT_ID || "",
         clientSecret: process.env.GMAIL_CLIENT_SECRET || "",
