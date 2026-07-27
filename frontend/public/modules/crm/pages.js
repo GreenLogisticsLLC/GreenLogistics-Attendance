@@ -248,25 +248,42 @@ window.GreenOSModules.crm = {
         "</section>" +
         '<div class="table-wrap crm-table-wrap"><table class="crm-table">' +
         "<thead><tr>" +
-        "<th>Shipment</th><th>Customer</th><th>Broker</th><th>Pickup</th><th>Delivery</th>" +
+        "<th>#</th><th>Shipment</th><th>Customer</th><th>Broker</th><th>Pickup</th><th>Delivery</th>" +
         "<th>Miles</th><th>Equipment</th><th>Price</th><th>Status</th><th>Priority</th>" +
         "<th>Created</th><th>Updated</th>" +
         "</tr></thead><tbody id=\"crm-ship-body\"></tbody></table></div>";
 
       var tbody = body.querySelector("#crm-ship-body");
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="12">No shipments yet — import from Email Imports</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13">No shipments yet — import from Email Imports</td></tr>';
         return;
       }
       var esc = this.esc.bind(this);
       var fmt = this.fmtDate.bind(this);
       var badge = this.statusBadge.bind(this);
+      function dayKey(v) {
+        if (!v) return "";
+        var d = new Date(v);
+        if (isNaN(d.getTime())) return "";
+        return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+      }
       tbody.innerHTML = rows
-        .map(function (s) {
+        .map(function (s, index) {
+          var when = s.createdAt || s.receivedAt;
+          var key = dayKey(when);
+          var prevKey =
+            index > 0 ? dayKey(rows[index - 1].createdAt || rows[index - 1].receivedAt) : null;
+          var isDayStart = index === 0 || (key && key !== prevKey);
           return (
-            '<tr class="crm-row" data-id="' +
+            '<tr class="crm-row' +
+            (isDayStart ? " lot-day-start" : "") +
+            '" data-id="' +
             s.shipmentLeadId +
             '">' +
+            '<td class="lot-num">' +
+            (index + 1) +
+            (isDayStart ? '<span class="lot-day-badge">Day</span>' : "") +
+            "</td>" +
             "<td><strong>" +
             esc(s.shipmentTitle || s.externalShipmentId || s.shipmentLeadId.slice(0, 8)) +
             "</strong></td>" +

@@ -17,11 +17,11 @@ window.GreenOSModules.email = {
       '<span id="email-import-status" class="sync-status"></span>' +
       "</div></div>" +
       '<div class="table-wrap">' +
-      '<table id="email-shipments-table">' +
+      '<table id="email-shipments-table" class="email-lots-table">' +
       "<thead><tr>" +
-      "<th>Received</th><th>Title</th><th>Pickup</th><th>Delivery</th><th>Miles</th><th>Status</th><th>Imported By</th><th>Created</th>" +
+      "<th>#</th><th>Received</th><th>Title</th><th>Pickup</th><th>Delivery</th><th>Miles</th><th>Status</th><th>Imported By</th><th>Created</th>" +
       "</tr></thead>" +
-      '<tbody id="email-shipments-body"><tr><td colspan="8">Loading…</td></tr></tbody>' +
+      '<tbody id="email-shipments-body"><tr><td colspan="9">Loading…</td></tr></tbody>' +
       "</table></div>";
 
     const statusEl = root.querySelector("#email-import-status");
@@ -53,24 +53,46 @@ window.GreenOSModules.email = {
       }
     }
 
+    /** Calendar day key for grouping (local browser timezone). */
+    function dayKey(v) {
+      if (!v) return "";
+      var d = new Date(v);
+      if (isNaN(d.getTime())) return "";
+      return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+    }
+
     async function loadShipments() {
       try {
         const data = await api("/shipments");
         if (!data.success) {
-          body.innerHTML = '<tr><td colspan="8">' + (data.message || "Failed") + "</td></tr>";
+          body.innerHTML = '<tr><td colspan="9">' + (data.message || "Failed") + "</td></tr>";
           return;
         }
         const rows = data.data || [];
         if (!rows.length) {
-          body.innerHTML = '<tr><td colspan="8">No shipments imported yet</td></tr>';
+          body.innerHTML = '<tr><td colspan="9">No shipments imported yet</td></tr>';
           return;
         }
         body.innerHTML = rows
-          .map(function (s) {
+          .map(function (s, index) {
+            var when = s.receivedAt || s.createdAt;
+            var key = dayKey(when);
+            var prevKey =
+              index > 0 ? dayKey(rows[index - 1].receivedAt || rows[index - 1].createdAt) : null;
+            // First row of a new calendar day in the list (newest-first → day boundary)
+            var isDayStart = index === 0 || (key && key !== prevKey);
             return (
-              "<tr>" +
+              '<tr class="' +
+              (isDayStart ? "lot-day-start" : "") +
+              '">' +
+              '<td class="lot-num">' +
+              (index + 1) +
+              (isDayStart
+                ? '<span class="lot-day-badge" title="First lot shown for this day">Day</span>'
+                : "") +
+              "</td>" +
               "<td>" +
-              fmtDate(s.receivedAt || s.createdAt) +
+              fmtDate(when) +
               "</td>" +
               "<td>" +
               (s.shipmentTitle || "—") +
@@ -103,7 +125,7 @@ window.GreenOSModules.email = {
           })
           .join("");
       } catch (err) {
-        body.innerHTML = '<tr><td colspan="8">Connection error</td></tr>';
+        body.innerHTML = '<tr><td colspan="9">Connection error</td></tr>';
       }
     }
 

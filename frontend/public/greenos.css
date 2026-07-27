@@ -715,6 +715,40 @@
   color: var(--gos-muted);
 }
 
+/* Email / lot list: sequential # and first-of-day highlight */
+.email-lots-table .lot-num {
+  font-weight: 700;
+  color: var(--gos-muted);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.email-lots-table .lot-day-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+}
+.email-lots-table tr.lot-day-start,
+.crm-table tr.lot-day-start {
+  background: rgba(239, 68, 68, 0.12);
+  box-shadow: inset 3px 0 0 #ef4444;
+}
+.email-lots-table tr.lot-day-start td,
+.crm-table tr.lot-day-start td {
+  border-top: 1px solid rgba(239, 68, 68, 0.35);
+}
+.email-lots-table tr.lot-day-start:hover,
+.crm-table tr.lot-day-start:hover {
+  background: rgba(239, 68, 68, 0.18);
+}
+
 @media (max-width: 720px) {
   .crm-ws-item {
     grid-template-columns: 1fr;
