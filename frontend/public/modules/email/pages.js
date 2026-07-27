@@ -75,7 +75,9 @@ window.GreenOSModules.email = {
               "<td>" +
               (s.shipmentTitle || "—") +
               (s.viewUrl
-                ? ' <a href="' + s.viewUrl + '" target="_blank" rel="noopener">view</a>'
+                ? ' <a href="' +
+                  s.viewUrl +
+                  '" target="_blank" rel="noopener">Open in uShip</a>'
                 : "") +
               "</td>" +
               "<td>" +
