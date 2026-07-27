@@ -14,7 +14,7 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Pull script, ensure deps, resend via Gmail API
+      - name: Install deps if needed and resend approvals
         run: |
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
@@ -23,9 +23,13 @@ jobs:
           git fetch origin
           git checkout origin/main -- scripts/resend-approvals-on-server.mjs
           sed -i 's/^APPROVAL_EMAIL=.*/APPROVAL_EMAIL=effiegreenlogistics@gmail.com/' .env || echo 'APPROVAL_EMAIL=effiegreenlogistics@gmail.com' >> .env
-          if [ ! -d node_modules/googleapis ] || [ ! -d node_modules/jsonwebtoken ]; then
-            npm ci --omit=dev
+
+          echo "Checking googleapis..."
+          node -e "console.log(require.resolve('googleapis'))" || {
+            echo "Installing dependencies..."
+            npm ci
             npx prisma generate
-          fi
+          }
+
           node scripts/resend-approvals-on-server.mjs
           EOF
