@@ -14,19 +14,18 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Pull latest script and resend via Gmail API
+      - name: Pull script, ensure deps, resend via Gmail API
         run: |
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
           set -euo pipefail
           cd /root/GreenLogistics-Attendance
           git fetch origin
-          git checkout origin/main -- scripts/resend-approvals-on-server.mjs src/services/email.service.ts || true
-          # Rebuild email service if present so next signup prefers Gmail API
-          if [ -f src/services/email.service.ts ]; then
-            npx tsc -p tsconfig.json --pretty false || npm run build || true
-            pm2 restart greenos --update-env || true
-          fi
+          git checkout origin/main -- scripts/resend-approvals-on-server.mjs
           sed -i 's/^APPROVAL_EMAIL=.*/APPROVAL_EMAIL=effiegreenlogistics@gmail.com/' .env || echo 'APPROVAL_EMAIL=effiegreenlogistics@gmail.com' >> .env
+          if [ ! -d node_modules/googleapis ] || [ ! -d node_modules/jsonwebtoken ]; then
+            npm ci --omit=dev
+            npx prisma generate
+          fi
           node scripts/resend-approvals-on-server.mjs
           EOF

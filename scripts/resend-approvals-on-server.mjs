@@ -6,11 +6,11 @@
  */
 import fs from "fs";
 import path from "path";
-import { google } from "googleapis";
-import jwt from "jsonwebtoken";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
+const { google } = require("googleapis");
+const jwt = require("jsonwebtoken");
 
 function loadEnvFile(envPath) {
     if (!fs.existsSync(envPath)) return;
