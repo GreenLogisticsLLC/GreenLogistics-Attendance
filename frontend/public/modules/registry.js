@@ -79,7 +79,8 @@ window.GreenOSRegistry = [
     subtitle: "People, departments, and payroll",
     roles: ["Administrator", "Owner", "Manager", "HR"],
     children: [
-      { id: "employees", title: "Employees" },
+      { id: "accounts", title: "Platform users" },
+      { id: "employees", title: "Badge employees" },
       { id: "departments", title: "Departments" },
       { id: "positions", title: "Positions" },
       { id: "schedules", title: "Schedules" },

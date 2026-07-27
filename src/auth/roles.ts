@@ -168,3 +168,35 @@ export function canManageBrokers(role: string): boolean {
         role === Roles.TeamLead
     );
 }
+
+/** Who can open Employees → Platform users and change account roles. */
+export function canManageUserRoles(role: string): boolean {
+    return (
+        role === Roles.Administrator ||
+        role === Roles.Owner ||
+        role === Roles.Manager ||
+        role === Roles.HR
+    );
+}
+
+/** Roles that may be assigned in Employees UI (excludes nothing critical). */
+export const ASSIGNABLE_ROLE_NAMES: RoleName[] = [
+    Roles.Broker,
+    Roles.TeamLead,
+    Roles.Manager,
+    Roles.Owner,
+    Roles.Administrator,
+    Roles.Dispatcher,
+    Roles.HR,
+    Roles.Accounting,
+    Roles.Viewer,
+];
+
+/** Manager/HR may not promote to Owner/Administrator. */
+export function canAssignRole(actorRole: string, targetRole: string): boolean {
+    if (!canManageUserRoles(actorRole) || !isKnownRole(targetRole)) return false;
+    if (targetRole === Roles.Owner || targetRole === Roles.Administrator) {
+        return actorRole === Roles.Owner || actorRole === Roles.Administrator;
+    }
+    return true;
+}

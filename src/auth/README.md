@@ -24,7 +24,11 @@ Dispatcher, HR, Accounting, Administrator, Viewer
 
 uShip mail still arrives on the same `GMAIL_USER` inbox and is imported into the Email module on the platform.
 
-## Extending
+## Changing roles after approval
+
+Owner / Administrator / Manager / HR can open **Employees → Platform users** and change a user’s role
+(e.g. Broker → Team Lead). The person must sign in again for the new menu to apply.
+Only Owner/Administrator may assign Owner or Administrator. The last active Owner cannot be demoted.
 
 1. Add role to `Roles` + `MODULE_ACCESS` in `roles.ts`
 2. Add `roles: [...]` on registry entries in `frontend/public/modules/registry.js`

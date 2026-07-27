@@ -39,6 +39,11 @@ import {
     periodReportPdfController,
 } from "../controllers/report.controller.js";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
+import {
+    listUsersController,
+    listAssignableRolesController,
+    updateUserRoleController,
+} from "../controllers/users.controller.js";
 import { emailRouter } from "../modules/email/routes/email.routes.js";
 import { crmRouter } from "../modules/crm/routes/crm.routes.js";
 import { assignmentRouter } from "../modules/assignment/routes/assignment.routes.js";
@@ -57,6 +62,25 @@ apiRouter.post("/v1/auth/register", registerController);
 apiRouter.get("/v1/auth/registration/approve", approveRegistrationController);
 apiRouter.get("/v1/auth/registration/reject", rejectRegistrationController);
 apiRouter.get("/v1/auth/me", authMiddleware, meController);
+
+apiRouter.get(
+    "/v1/users",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    listUsersController
+);
+apiRouter.get(
+    "/v1/roles",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    listAssignableRolesController
+);
+apiRouter.patch(
+    "/v1/users/:userId/role",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    updateUserRoleController
+);
 
 apiRouter.post("/v1/webhook/attendance", legacyWebhookController);
 apiRouter.post("/v1/webhook/standard", standardWebhookController);

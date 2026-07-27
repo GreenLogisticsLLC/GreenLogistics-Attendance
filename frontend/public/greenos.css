@@ -214,6 +214,52 @@
   color: var(--gos-muted);
 }
 
+.emp-users-wrap {
+  overflow: auto;
+  margin-top: 1rem;
+}
+
+.emp-users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.emp-users-table th,
+.emp-users-table td {
+  text-align: left;
+  padding: 0.65rem 0.5rem;
+  border-bottom: 1px solid var(--gos-border);
+  vertical-align: middle;
+}
+
+.emp-users-table th {
+  color: var(--gos-muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.emp-role-select {
+  min-width: 10rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--gos-border);
+  background: var(--gos-surface2);
+  color: inherit;
+}
+
+.emp-badge-off {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
 .gos-subnav {
   display: flex;
   flex-wrap: wrap;
