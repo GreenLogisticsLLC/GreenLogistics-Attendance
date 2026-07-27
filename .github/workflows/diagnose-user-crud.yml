@@ -1,0 +1,32 @@
+name: Diagnose user CRUD
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Check routes + recent errors
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          echo "=== git HEAD ==="
+          git rev-parse --short HEAD
+          echo "=== routes in dist ==="
+          grep -n "users/:userId" dist/routes/api.routes.js | head -20 || true
+          grep -n "PATCH\|DELETE\|put\|deleteUser\|updateUserRole" dist/routes/api.routes.js | head -40 || true
+          echo "=== frontend has Delete? ==="
+          grep -n "emp-user-delete\|/role\|method: \"DELETE\"\|method: \"PATCH\"\|method: \"PUT\"" frontend/public/modules/employees/pages.js | head -30 || true
+          echo "=== pm2 errors ==="
+          pm2 logs greenos --lines 60 --nostream | grep -Ei 'users|role|delete|PATCH|PUT|error|fail' || true
+          EOF

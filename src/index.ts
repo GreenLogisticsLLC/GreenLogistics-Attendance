@@ -13,7 +13,7 @@ const app = express();
 
 app.set("trust proxy", 1);
 
-app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"] }));
+app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] }));
 app.use(express.json({ limit: "1mb" }));
 
 app.use((req, _res, next) => {

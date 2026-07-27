@@ -82,6 +82,12 @@ apiRouter.patch(
     requireRole("Administrator", "Owner", "Manager", "HR"),
     updateUserRoleController
 );
+apiRouter.put(
+    "/v1/users/:userId/role",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    updateUserRoleController
+);
 apiRouter.delete(
     "/v1/users/:userId",
     authMiddleware,
