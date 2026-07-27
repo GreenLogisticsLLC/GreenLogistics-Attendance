@@ -221,15 +221,33 @@ export class AuthService {
                 html: mail.html,
             });
         } catch (err) {
-            await prisma.pendingRegistration.delete({ where: { pendingId: pending.pendingId } });
-            const message = err instanceof Error ? err.message : "Failed to send approval email";
-            return { ok: false as const, status: 503, message };
+            // Keep the pending request — do not roll back. Owner can still approve via
+            // logged links or after SMTP is fixed (resubmit not required).
+            const mail = this.buildApprovalEmail(pending);
+            console.error("[auth] Approval email failed; pending registration kept:", err);
+            console.log("[auth] Manual approve URL:", mail.text.match(/Approve: (.+)/)?.[1] || "(see logs)");
+            console.log("[auth] Manual reject URL:", mail.text.match(/Reject: (.+)/)?.[1] || "(see logs)");
+
+            const detail = err instanceof Error ? err.message : "Failed to send approval email";
+            return {
+                ok: true as const,
+                data: {
+                    pending: true,
+                    emailSent: false,
+                    message:
+                        "Registration request saved and is waiting for approval. " +
+                        "The notification email to the administrator could not be sent yet — " +
+                        "the owner will approve it once mail is fixed. " +
+                        `(${detail})`,
+                },
+            };
         }
 
         return {
             ok: true as const,
             data: {
                 pending: true,
+                emailSent: true,
                 message:
                     "Registration request submitted. An administrator will review it and approve access by email.",
             },

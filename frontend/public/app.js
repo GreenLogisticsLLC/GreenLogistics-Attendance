@@ -323,6 +323,7 @@ signupForm.addEventListener("submit", async (e) => {
         }
         signupForm.reset();
         signupSuccess.textContent =
+            (data.data && data.data.message) ||
             data.message ||
             "Request sent. Wait for administrator approval by email, then sign in.";
         signupSuccess.classList.remove("hidden");
