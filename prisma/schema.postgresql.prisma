@@ -259,43 +259,71 @@ model EmailMessage {
 }
 
 model ShipmentLead {
-  shipmentLeadId     String    @id @default(uuid()) @map("shipment_lead_id")
+  shipmentLeadId     String   @id @default(uuid()) @map("shipment_lead_id")
   source             String
-  externalShipmentId String?   @map("external_shipment_id")
-  shipmentTitle      String    @map("shipment_title")
-  pickupCity         String?   @map("pickup_city")
-  pickupState        String?   @map("pickup_state")
-  pickupZip          String?   @map("pickup_zip")
-  deliveryCity       String?   @map("delivery_city")
-  deliveryState      String?   @map("delivery_state")
-  deliveryZip        String?   @map("delivery_zip")
+  externalShipmentId String?  @map("external_shipment_id")
+  shipmentTitle      String   @map("shipment_title")
+  customerName       String?  @map("customer_name")
+  pickupCity         String?  @map("pickup_city")
+  pickupState        String?  @map("pickup_state")
+  pickupZip          String?  @map("pickup_zip")
+  deliveryCity       String?  @map("delivery_city")
+  deliveryState      String?  @map("delivery_state")
+  deliveryZip        String?  @map("delivery_zip")
   pickupFrom         DateTime? @map("pickup_from")
   pickupTo           DateTime? @map("pickup_to")
   deliveryFrom       DateTime? @map("delivery_from")
   deliveryTo         DateTime? @map("delivery_to")
   miles              Float?
   category           String?
-  imageUrl           String?   @map("image_url")
-  viewUrl            String?   @unique @map("view_url")
-  status             String    @default("NEW")
-  assignedBrokerId   String?   @map("assigned_broker_id")
+  equipment          String?
+  vehicle            String?
+  weight             String?
+  price              Float?
+  priority           String   @default("NORMAL")
+  notes              String?
+  documentsJson      String?  @map("documents_json")
+  imageUrl           String?  @map("image_url")
+  viewUrl            String?  @unique @map("view_url")
+  status             String   @default("NEW")
+  assignedBrokerId   String?  @map("assigned_broker_id")
   assignedAt         DateTime? @map("assigned_at")
+  acceptedAt         DateTime? @map("accepted_at")
   acceptanceDeadline DateTime? @map("acceptance_deadline")
   quoteSentAt        DateTime? @map("quote_sent_at")
   closedAt           DateTime? @map("closed_at")
-  emailMessageId     String?   @map("email_message_id")
+  emailMessageId     String?  @map("email_message_id")
   receivedAt         DateTime? @map("received_at")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
   emailMessage       EmailMessage? @relation(fields: [emailMessageId], references: [emailMessageId])
   importLogs         ShipmentImportLog[]
+  timelineEvents     ShipmentTimelineEvent[]
 
   @@index([source])
   @@index([status])
   @@index([externalShipmentId])
   @@index([assignedBrokerId])
+  @@index([priority])
   @@index([createdAt])
   @@map("shipment_leads")
+}
+
+model ShipmentTimelineEvent {
+  eventId          String   @id @default(uuid()) @map("event_id")
+  shipmentLeadId   String   @map("shipment_lead_id")
+  stage            String
+  title            String
+  message          String?
+  actorUserId      String?  @map("actor_user_id")
+  metaJson         String?  @map("meta_json")
+  createdAt        DateTime @default(now()) @map("created_at")
+  shipmentLead     ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+
+  @@index([shipmentLeadId])
+  @@index([stage])
+  @@index([createdAt])
+  @@map("shipment_timeline_events")
 }
 
 model ShipmentImportLog {

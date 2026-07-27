@@ -48,7 +48,11 @@ export class ShipmentLeadRepository {
     findById(shipmentLeadId: string) {
         return prisma.shipmentLead.findUnique({
             where: { shipmentLeadId },
-            include: { emailMessage: true, importLogs: { orderBy: { createdAt: "desc" }, take: 50 } },
+            include: {
+                emailMessage: true,
+                importLogs: { orderBy: { createdAt: "desc" }, take: 50 },
+                timelineEvents: { orderBy: { createdAt: "asc" } },
+            },
         });
     }
 

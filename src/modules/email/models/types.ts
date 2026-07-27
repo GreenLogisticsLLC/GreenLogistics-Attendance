@@ -8,8 +8,13 @@ export type ShipmentLeadStatus =
     | "AWAITING_ACCEPTANCE"
     | "FOLLOW_UP"
     | "QUOTE_SENT"
+    | "NEGOTIATION"
+    | "BOOKED"
+    | "PICKED_UP"
+    | "DELIVERED"
     | "WON"
-    | "LOST";
+    | "LOST"
+    | "COMPLETED";
 
 export type ImportLogEventType = "EmailImported" | "EmailIgnored" | "DuplicateShipment" | "ParseError" | "PipelineEvent";
 

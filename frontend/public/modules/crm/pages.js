@@ -1,46 +1,636 @@
 /**
- * CRM module pages — placeholder UI with sub-nav.
+ * GreenOS CRM Dashboard v1.0 — real-time shipment pipeline for brokers & managers.
  */
 window.GreenOSModules = window.GreenOSModules || {};
-window.GreenOSModules['crm'] = {
+window.GreenOSModules.crm = {
   children: [
-      { id: 'leads', title: 'Leads' },
-      { id: 'customers', title: 'Customers' },
-      { id: 'quotes', title: 'Quotes' },
-      { id: 'opportunities', title: 'Opportunities' },
-      { id: 'tasks', title: 'Tasks' },
-      { id: 'notes', title: 'Notes' },
-      { id: 'activity', title: 'Activity' },
+    { id: "dashboard", title: "Dashboard" },
+    { id: "shipments", title: "Shipments" },
+    { id: "brokers", title: "Brokers" },
   ],
 
   render(root, subPageId) {
     if (!root) return;
+    var self = this;
     var children = this.children || [];
-    var active = children.find(function (c) { return c.id === subPageId; }) || children[0];
-    var label = active ? active.title : 'CRM';
+    var active = children.find(function (c) {
+      return c.id === subPageId;
+    }) || children[0];
 
-    var navHtml = children.map(function (c) {
-      var isActive = active && c.id === active.id;
-      return (
-        '<button type="button" class="gos-subnav-item' + (isActive ? ' is-active' : '') + '" data-subpage="' + c.id + '">' +
-        c.title +
-        '</button>'
-      );
-    }).join('');
+    var navHtml = children
+      .map(function (c) {
+        var isActive = active && c.id === active.id;
+        return (
+          '<button type="button" class="gos-subnav-item' +
+          (isActive ? " is-active" : "") +
+          '" data-subpage="' +
+          c.id +
+          '">' +
+          c.title +
+          "</button>"
+        );
+      })
+      .join("");
 
     root.innerHTML =
-      '<div class="gos-module-placeholder" data-module="crm">' +
-      '  <nav class="gos-subnav" aria-label="CRM sections">' + navHtml + '</nav>' +
-      '  <div class="gos-module-body">' +
-      '    <h2>CRM — ' + label + '</h2>' +
-      '    <p>Coming soon</p>' +
-      '  </div>' +
-      '</div>';
+      '<div class="gos-module-placeholder crm-root" data-module="crm">' +
+      '<nav class="gos-subnav" aria-label="CRM sections">' +
+      navHtml +
+      "</nav>" +
+      '<div class="gos-module-body" id="crm-body"><p class="gos-muted">Loading…</p></div>' +
+      '<div id="crm-modal" class="crm-modal hidden" role="dialog" aria-modal="true"></div>' +
+      "</div>";
 
-    root.querySelectorAll('[data-subpage]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        window.GreenOSModules['crm'].render(root, btn.getAttribute('data-subpage'));
+    root.querySelectorAll("[data-subpage]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        self.render(root, btn.getAttribute("data-subpage"));
       });
     });
+
+    var body = root.querySelector("#crm-body");
+    var page = active ? active.id : "dashboard";
+    if (page === "dashboard") self.renderDashboard(body, root);
+    else if (page === "brokers") self.renderBrokers(body, root);
+    else self.renderShipments(body, root);
+  },
+
+  async api(path, options) {
+    var token = localStorage.getItem("gl_token");
+    var res = await fetch("/api/crm" + path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token ? "Bearer " + token : "",
+        ...(options && options.headers),
+      },
+    });
+    return res.json();
+  },
+
+  esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  },
+
+  fmtDate(v) {
+    if (!v) return "—";
+    try {
+      return new Date(v).toLocaleString();
+    } catch {
+      return String(v);
+    }
+  },
+
+  statusBadge(status) {
+    var map = {
+      NEW: { cls: "crm-st-new", label: "🟢 New" },
+      ASSIGNED: { cls: "crm-st-await", label: "🟡 Assigned" },
+      AWAITING_ACCEPTANCE: { cls: "crm-st-await", label: "🟡 Awaiting Acceptance" },
+      FOLLOW_UP: { cls: "crm-st-follow", label: "🟠 Follow Up" },
+      QUOTE_SENT: { cls: "crm-st-quote", label: "🔵 Quote Sent" },
+      NEGOTIATION: { cls: "crm-st-nego", label: "🟣 Negotiation" },
+      BOOKED: { cls: "crm-st-quote", label: "🔵 Booked" },
+      PICKED_UP: { cls: "crm-st-quote", label: "🔵 Picked Up" },
+      DELIVERED: { cls: "crm-st-quote", label: "🔵 Delivered" },
+      WON: { cls: "crm-st-won", label: "✅ Won" },
+      LOST: { cls: "crm-st-lost", label: "🔴 Lost" },
+      COMPLETED: { cls: "crm-st-done", label: "⚫ Completed" },
+    };
+    var m = map[status] || { cls: "crm-st-done", label: status || "—" };
+    return '<span class="crm-badge ' + m.cls + '">' + m.label + "</span>";
+  },
+
+  async renderDashboard(body, root) {
+    body.innerHTML = "<p>Loading CRM dashboard…</p>";
+    try {
+      var data = await this.api("/dashboard");
+      if (!data.success) {
+        body.innerHTML = "<p>" + this.esc(data.message || "Failed") + "</p>";
+        return;
+      }
+      var d = data.data || {};
+      var k = d.kpis || {};
+      var workload = d.brokerWorkload || [];
+
+      body.innerHTML =
+        '<section class="gos-dash-hero">' +
+        "<h1>CRM Dashboard <span class=\"crm-ver\">v1.0</span></h1>" +
+        "<p>Real-time view of shipments, pipeline, and broker workload</p>" +
+        "</section>" +
+        '<div class="gos-card-grid crm-kpi-grid">' +
+        this.kpiCard("New Today", k.newShipmentsToday, "accent-green") +
+        this.kpiCard("Awaiting Acceptance", k.awaitingAcceptance, "accent-warn") +
+        this.kpiCard("Quotes Sent", k.quotesSent, "accent-blue") +
+        this.kpiCard("Won", k.won, "accent-green") +
+        this.kpiCard("Lost", k.lost, "accent-warn") +
+        this.kpiCard("Active Shipments", k.activeShipments, "accent-purple") +
+        this.kpiCard(
+          "Avg Response",
+          k.averageResponseTimeMinutes != null ? k.averageResponseTimeMinutes + " min" : "—",
+          "accent-blue"
+        ) +
+        "</div>" +
+        '<section class="crm-section">' +
+        "<h2>Broker Workload</h2>" +
+        '<div class="crm-workload" id="crm-workload"></div>' +
+        "</section>" +
+        '<section class="crm-section">' +
+        "<h2>Brokers at a Glance</h2>" +
+        '<div class="crm-broker-glance" id="crm-glance"></div>' +
+        "</section>";
+
+      var wl = body.querySelector("#crm-workload");
+      if (!workload.length) {
+        wl.innerHTML = "<p class=\"gos-muted\">No brokers with active shipments yet</p>";
+      } else {
+        wl.innerHTML = workload
+          .map(function (b) {
+            return (
+              '<div class="crm-workload-row" data-broker="' +
+              b.brokerId +
+              '">' +
+              "<strong>" +
+              window.GreenOSModules.crm.esc(b.name) +
+              "</strong>" +
+              '<span class="crm-bar-wrap"><span class="crm-bar" style="width:' +
+              Math.min(100, (b.activeShipments || 0) * 3) +
+              '%"></span></span>' +
+              "<em>" +
+              (b.activeShipments || 0) +
+              "</em>" +
+              "</div>"
+            );
+          })
+          .join("");
+        wl.querySelectorAll("[data-broker]").forEach(function (row) {
+          row.addEventListener("click", function () {
+            window.GreenOSModules.crm.openBrokerWorkspace(root, row.getAttribute("data-broker"));
+          });
+        });
+      }
+
+      // Manager glance cards from brokers endpoint
+      var brokersRes = await this.api("/brokers");
+      var glance = body.querySelector("#crm-glance");
+      var brokers = (brokersRes.data || []);
+      if (!brokers.length) {
+        glance.innerHTML = "<p class=\"gos-muted\">No brokers found</p>";
+      } else {
+        glance.innerHTML = brokers
+          .map(function (b) {
+            return (
+              '<article class="crm-glance-card" data-broker="' +
+              b.brokerId +
+              '">' +
+              "<h3>" +
+              window.GreenOSModules.crm.esc(b.name) +
+              "</h3>" +
+              '<div class="crm-glance-grid">' +
+              "<div><span>Active</span><strong>" +
+              b.currentShipments +
+              "</strong></div>" +
+              "<div><span>Need Follow Up</span><strong>" +
+              b.followUp +
+              "</strong></div>" +
+              "<div><span>Quotes</span><strong>" +
+              b.quotesSent +
+              "</strong></div>" +
+              "<div><span>Won</span><strong>" +
+              b.won +
+              "</strong></div>" +
+              "<div><span>Lost</span><strong>" +
+              b.lost +
+              "</strong></div>" +
+              "</div></article>"
+            );
+          })
+          .join("");
+        glance.querySelectorAll("[data-broker]").forEach(function (card) {
+          card.addEventListener("click", function () {
+            window.GreenOSModules.crm.openBrokerWorkspace(root, card.getAttribute("data-broker"));
+          });
+        });
+      }
+    } catch (e) {
+      body.innerHTML = "<p>Failed to load CRM dashboard</p>";
+    }
+  },
+
+  kpiCard(label, value, tone) {
+    return (
+      '<div class="gos-card ' +
+      (tone || "") +
+      '"><div class="label">' +
+      label +
+      '</div><div class="value">' +
+      value +
+      "</div></div>"
+    );
+  },
+
+  async renderShipments(body, root, brokerId) {
+    body.innerHTML = "<p>Loading shipments…</p>";
+    try {
+      var q = brokerId ? "?brokerId=" + encodeURIComponent(brokerId) : "";
+      var data = await this.api("/shipments" + q);
+      if (!data.success) {
+        body.innerHTML = "<p>" + this.esc(data.message || "Failed") + "</p>";
+        return;
+      }
+      var rows = data.data || [];
+      body.innerHTML =
+        '<section class="gos-dash-hero">' +
+        "<h1>Shipments</h1>" +
+        "<p>Main CRM pipeline — click a row to open the shipment card</p>" +
+        "</section>" +
+        '<div class="table-wrap crm-table-wrap"><table class="crm-table">' +
+        "<thead><tr>" +
+        "<th>Shipment</th><th>Customer</th><th>Broker</th><th>Pickup</th><th>Delivery</th>" +
+        "<th>Miles</th><th>Equipment</th><th>Price</th><th>Status</th><th>Priority</th>" +
+        "<th>Created</th><th>Updated</th>" +
+        "</tr></thead><tbody id=\"crm-ship-body\"></tbody></table></div>";
+
+      var tbody = body.querySelector("#crm-ship-body");
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="12">No shipments yet — import from Email Imports</td></tr>';
+        return;
+      }
+      var esc = this.esc.bind(this);
+      var fmt = this.fmtDate.bind(this);
+      var badge = this.statusBadge.bind(this);
+      tbody.innerHTML = rows
+        .map(function (s) {
+          return (
+            '<tr class="crm-row" data-id="' +
+            s.shipmentLeadId +
+            '">' +
+            "<td><strong>" +
+            esc(s.shipmentTitle || s.externalShipmentId || s.shipmentLeadId.slice(0, 8)) +
+            "</strong></td>" +
+            "<td>" +
+            esc(s.customer) +
+            "</td>" +
+            "<td>" +
+            esc(s.brokerName) +
+            "</td>" +
+            "<td>" +
+            esc(s.pickup) +
+            "</td>" +
+            "<td>" +
+            esc(s.delivery) +
+            "</td>" +
+            "<td>" +
+            (s.miles != null ? s.miles : "—") +
+            "</td>" +
+            "<td>" +
+            esc(s.equipment) +
+            "</td>" +
+            "<td>" +
+            (s.price != null ? "$" + s.price : "—") +
+            "</td>" +
+            "<td>" +
+            badge(s.status) +
+            "</td>" +
+            "<td>" +
+            esc(s.priority || "NORMAL") +
+            "</td>" +
+            "<td>" +
+            fmt(s.createdAt) +
+            "</td>" +
+            "<td>" +
+            fmt(s.updatedAt) +
+            "</td>" +
+            "</tr>"
+          );
+        })
+        .join("");
+
+      tbody.querySelectorAll("tr[data-id]").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          window.GreenOSModules.crm.openShipmentCard(root, tr.getAttribute("data-id"));
+        });
+      });
+    } catch {
+      body.innerHTML = "<p>Failed to load shipments</p>";
+    }
+  },
+
+  async renderBrokers(body, root) {
+    body.innerHTML = "<p>Loading brokers…</p>";
+    try {
+      var data = await this.api("/brokers");
+      if (!data.success) {
+        body.innerHTML = "<p>" + this.esc(data.message || "Failed") + "</p>";
+        return;
+      }
+      var rows = data.data || [];
+      body.innerHTML =
+        '<section class="gos-dash-hero">' +
+        "<h1>Brokers</h1>" +
+        "<p>Select a broker to open their workspace</p>" +
+        "</section>" +
+        '<div class="table-wrap"><table class="crm-table">' +
+        "<thead><tr>" +
+        "<th>Broker</th><th>Status</th><th>Online</th><th>Current Shipments</th>" +
+        "<th>Awaiting Acceptance</th><th>Follow Up</th><th>Quotes Sent</th>" +
+        "<th>Won</th><th>Lost</th><th>Avg Response</th>" +
+        "</tr></thead><tbody id=\"crm-broker-body\"></tbody></table></div>";
+
+      var tbody = body.querySelector("#crm-broker-body");
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="10">No brokers</td></tr>';
+        return;
+      }
+      var esc = this.esc.bind(this);
+      tbody.innerHTML = rows
+        .map(function (b) {
+          return (
+            '<tr class="crm-row" data-broker="' +
+            b.brokerId +
+            '">' +
+            "<td><strong>" +
+            esc(b.name) +
+            "</strong></td>" +
+            "<td>" +
+            esc(b.status) +
+            "</td>" +
+            "<td>" +
+            (b.online ? "🟢" : "⚫") +
+            "</td>" +
+            "<td>" +
+            b.currentShipments +
+            "</td>" +
+            "<td>" +
+            b.awaitingAcceptance +
+            "</td>" +
+            "<td>" +
+            b.followUp +
+            "</td>" +
+            "<td>" +
+            b.quotesSent +
+            "</td>" +
+            "<td>" +
+            b.won +
+            "</td>" +
+            "<td>" +
+            b.lost +
+            "</td>" +
+            "<td>" +
+            (b.averageResponseTimeMinutes != null ? b.averageResponseTimeMinutes + " min" : "—") +
+            "</td>" +
+            "</tr>"
+          );
+        })
+        .join("");
+
+      tbody.querySelectorAll("[data-broker]").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          window.GreenOSModules.crm.openBrokerWorkspace(root, tr.getAttribute("data-broker"));
+        });
+      });
+    } catch {
+      body.innerHTML = "<p>Failed to load brokers</p>";
+    }
+  },
+
+  async openBrokerWorkspace(root, brokerId) {
+    var body = root.querySelector("#crm-body");
+    if (!body) return;
+    body.innerHTML = "<p>Loading workspace…</p>";
+    try {
+      var data = await this.api("/brokers/" + encodeURIComponent(brokerId));
+      if (!data.success) {
+        body.innerHTML = "<p>" + this.esc(data.message || "Failed") + "</p>";
+        return;
+      }
+      var d = data.data;
+      var s = d.stats || {};
+      var shipments = d.shipments || [];
+      body.innerHTML =
+        '<section class="gos-dash-hero">' +
+        '<button type="button" class="btn-secondary crm-back" id="crm-back-brokers">← Brokers</button>' +
+        "<h1>" +
+        this.esc(d.broker.name) +
+        "</h1>" +
+        "<p>" +
+        (s.currentShipments || 0) +
+        " Active Shipments</p>" +
+        "</section>" +
+        '<div class="crm-glance-grid crm-ws-stats">' +
+        "<div><span>Active</span><strong>" +
+        (s.currentShipments || 0) +
+        "</strong></div>" +
+        "<div><span>Need Follow Up</span><strong>" +
+        (s.followUp || 0) +
+        "</strong></div>" +
+        "<div><span>Quotes</span><strong>" +
+        (s.quotesSent || 0) +
+        "</strong></div>" +
+        "<div><span>Won</span><strong>" +
+        (s.won || 0) +
+        "</strong></div>" +
+        "<div><span>Lost</span><strong>" +
+        (s.lost || 0) +
+        "</strong></div>" +
+        "</div>" +
+        '<div class="crm-ws-list" id="crm-ws-list"></div>';
+
+      body.querySelector("#crm-back-brokers")?.addEventListener("click", function () {
+        window.GreenOSModules.crm.render(root, "brokers");
+      });
+
+      var list = body.querySelector("#crm-ws-list");
+      if (!shipments.length) {
+        list.innerHTML = "<p class=\"gos-muted\">No shipments for this broker</p>";
+        return;
+      }
+      var esc = this.esc.bind(this);
+      var badge = this.statusBadge.bind(this);
+      list.innerHTML = shipments
+        .map(function (sh, i) {
+          return (
+            '<button type="button" class="crm-ws-item" data-id="' +
+            sh.shipmentLeadId +
+            '">' +
+            "<span>Shipment " +
+            (i + 1) +
+            "</span>" +
+            "<strong>" +
+            esc(sh.shipmentTitle) +
+            "</strong>" +
+            "<span>" +
+            esc(sh.pickup) +
+            " → " +
+            esc(sh.delivery) +
+            "</span>" +
+            badge(sh.status) +
+            "</button>"
+          );
+        })
+        .join("");
+      list.querySelectorAll("[data-id]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          window.GreenOSModules.crm.openShipmentCard(root, btn.getAttribute("data-id"));
+        });
+      });
+    } catch {
+      body.innerHTML = "<p>Failed to load workspace</p>";
+    }
+  },
+
+  async openShipmentCard(root, id) {
+    var modal = root.querySelector("#crm-modal");
+    if (!modal) return;
+    modal.classList.remove("hidden");
+    modal.innerHTML = '<div class="crm-modal-card"><p>Loading…</p></div>';
+    try {
+      var data = await this.api("/shipments/" + encodeURIComponent(id));
+      if (!data.success) {
+        modal.innerHTML =
+          '<div class="crm-modal-card"><p>' +
+          this.esc(data.message) +
+          '</p><button type="button" class="btn-secondary" id="crm-close">Close</button></div>';
+        modal.querySelector("#crm-close")?.addEventListener("click", function () {
+          modal.classList.add("hidden");
+          modal.innerHTML = "";
+        });
+        return;
+      }
+      var s = data.data;
+      var esc = this.esc.bind(this);
+      var pipeline = (s.pipeline || [])
+        .map(function (p) {
+          return (
+            '<li class="' +
+            (p.done ? "is-done" : "") +
+            '"><span class="crm-pipe-dot"></span><div><strong>' +
+            esc(p.title) +
+            "</strong>" +
+            (p.at
+              ? '<small>' + window.GreenOSModules.crm.fmtDate(p.at) + "</small>"
+              : "") +
+            "</div></li>"
+          );
+        })
+        .join("");
+
+      var statusActions = [
+        "FOLLOW_UP",
+        "QUOTE_SENT",
+        "NEGOTIATION",
+        "BOOKED",
+        "PICKED_UP",
+        "DELIVERED",
+        "WON",
+        "LOST",
+        "COMPLETED",
+      ]
+        .map(function (st) {
+          return (
+            '<option value="' +
+            st +
+            '"' +
+            (s.status === st ? " selected" : "") +
+            ">" +
+            st +
+            "</option>"
+          );
+        })
+        .join("");
+
+      modal.innerHTML =
+        '<div class="crm-modal-card">' +
+        '<header class="crm-modal-head">' +
+        "<div><h2>" +
+        esc(s.shipmentTitle) +
+        "</h2><p class=\"gos-muted\">ID: " +
+        esc(s.shipmentLeadId) +
+        "</p></div>" +
+        '<button type="button" class="btn-secondary" id="crm-close">Close</button>' +
+        "</header>" +
+        '<div class="crm-card-grid">' +
+        "<div><span>Status</span>" +
+        this.statusBadge(s.status) +
+        "</div>" +
+        "<div><span>Customer</span><strong>" +
+        esc(s.customer) +
+        "</strong></div>" +
+        "<div><span>Broker</span><strong>" +
+        esc(s.brokerName) +
+        "</strong></div>" +
+        "<div><span>Pickup</span><strong>" +
+        esc(s.pickup) +
+        "</strong></div>" +
+        "<div><span>Delivery</span><strong>" +
+        esc(s.delivery) +
+        "</strong></div>" +
+        "<div><span>Distance</span><strong>" +
+        (s.miles != null ? s.miles + " mi" : "—") +
+        "</strong></div>" +
+        "<div><span>Vehicle</span><strong>" +
+        esc(s.vehicle) +
+        "</strong></div>" +
+        "<div><span>Weight</span><strong>" +
+        esc(s.weight || "—") +
+        "</strong></div>" +
+        "<div><span>Rate</span><strong>" +
+        (s.price != null ? "$" + s.price : "—") +
+        "</strong></div>" +
+        "<div><span>uShip</span>" +
+        (s.ushipUrl
+          ? '<a href="' +
+            esc(s.ushipUrl) +
+            '" target="_blank" rel="noopener">Open in uShip</a>'
+          : "—") +
+        "</div>" +
+        "</div>" +
+        '<div class="crm-notes"><span>Notes</span><p>' +
+        esc(s.notes || "—") +
+        "</p></div>" +
+        '<div class="crm-actions">' +
+        (s.status === "AWAITING_ACCEPTANCE"
+          ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
+          : "") +
+        '<label>Update status <select id="crm-status">' +
+        statusActions +
+        "</select></label>" +
+        '<button type="button" class="btn-secondary" id="crm-save-status">Save</button>' +
+        "</div>" +
+        "<h3>Timeline</h3>" +
+        '<ol class="crm-pipeline">' +
+        pipeline +
+        "</ol>" +
+        "</div>";
+
+      modal.querySelector("#crm-close")?.addEventListener("click", function () {
+        modal.classList.add("hidden");
+        modal.innerHTML = "";
+      });
+      modal.addEventListener("click", function (ev) {
+        if (ev.target === modal) {
+          modal.classList.add("hidden");
+          modal.innerHTML = "";
+        }
+      });
+
+      modal.querySelector("#crm-accept")?.addEventListener("click", async function () {
+        await window.GreenOSModules.crm.api("/shipments/" + id + "/accept", { method: "POST" });
+        window.GreenOSModules.crm.openShipmentCard(root, id);
+      });
+      modal.querySelector("#crm-save-status")?.addEventListener("click", async function () {
+        var st = modal.querySelector("#crm-status").value;
+        await window.GreenOSModules.crm.api("/shipments/" + id, {
+          method: "PATCH",
+          body: JSON.stringify({ status: st }),
+        });
+        window.GreenOSModules.crm.openShipmentCard(root, id);
+      });
+    } catch {
+      modal.innerHTML =
+        '<div class="crm-modal-card"><p>Failed to load card</p></div>';
+    }
   },
 };

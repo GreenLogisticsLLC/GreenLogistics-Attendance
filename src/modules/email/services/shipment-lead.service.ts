@@ -4,6 +4,7 @@ import {
     shipmentImportLogRepository,
     shipmentLeadRepository,
 } from "./repositories.js";
+import { shipmentTimelineService } from "../../crm/services/timeline.service.js";
 
 const ACCEPTANCE_MINUTES = 15;
 
@@ -15,6 +16,13 @@ export class AssignmentEngine {
     async startPipeline(shipmentLeadId: string) {
         const lead = await shipmentLeadRepository.findById(shipmentLeadId);
         if (!lead || lead.status !== "NEW") return lead;
+
+        await shipmentTimelineService.addEvent({
+            shipmentLeadId,
+            stage: "IMPORTED",
+            title: "Imported from uShip",
+            message: lead.shipmentTitle,
+        });
 
         const broker = await this.pickBroker();
         if (!broker) {
@@ -33,8 +41,14 @@ export class AssignmentEngine {
             shipmentLeadId,
             `Assigned to broker ${broker.username} (${broker.userId}); acceptance deadline ${acceptanceDeadline.toISOString()}`
         );
+        await shipmentTimelineService.addEvent({
+            shipmentLeadId,
+            stage: "ASSIGNED",
+            title: "Assigned to Broker",
+            message: `${broker.firstName} ${broker.lastName}`.trim() || broker.username,
+            actorUserId: broker.userId,
+        });
 
-        // Move into awaiting acceptance immediately after assignment.
         const awaiting = await shipmentLeadRepository.update(shipmentLeadId, {
             status: "AWAITING_ACCEPTANCE",
         });
@@ -56,10 +70,13 @@ export class AssignmentEngine {
             await shipmentLeadRepository.update(lead.shipmentLeadId, {
                 status: "FOLLOW_UP",
             });
-            await this.log(
-                lead.shipmentLeadId,
-                "Acceptance timer expired → FOLLOW_UP"
-            );
+            await this.log(lead.shipmentLeadId, "Acceptance timer expired → FOLLOW_UP");
+            await shipmentTimelineService.addEvent({
+                shipmentLeadId: lead.shipmentLeadId,
+                stage: "ASSIGNED",
+                title: "Needs Follow Up",
+                message: "Acceptance timer expired",
+            });
         }
         return expired.length;
     }
@@ -70,6 +87,11 @@ export class AssignmentEngine {
             quoteSentAt: new Date(),
         });
         await this.log(shipmentLeadId, "Status → QUOTE_SENT");
+        await shipmentTimelineService.addEvent({
+            shipmentLeadId,
+            stage: "QUOTE_SENT",
+            title: "Quote Sent",
+        });
         return updated;
     }
 
@@ -79,6 +101,11 @@ export class AssignmentEngine {
             closedAt: new Date(),
         });
         await this.log(shipmentLeadId, `Status → ${outcome}`);
+        await shipmentTimelineService.addEvent({
+            shipmentLeadId,
+            stage: "COMPLETED",
+            title: outcome === "WON" ? "Won" : "Lost",
+        });
         return updated;
     }
 
@@ -93,7 +120,6 @@ export class AssignmentEngine {
         });
         if (!brokers.length) return null;
 
-        // Prefer Broker role, then fall back.
         const preferred = brokers.filter((b) => b.role.roleName === "Broker");
         const pool = preferred.length ? preferred : brokers;
 
@@ -103,7 +129,18 @@ export class AssignmentEngine {
                 open: await prisma.shipmentLead.count({
                     where: {
                         assignedBrokerId: b.userId,
-                        status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "FOLLOW_UP", "QUOTE_SENT"] },
+                        status: {
+                            in: [
+                                "ASSIGNED",
+                                "AWAITING_ACCEPTANCE",
+                                "FOLLOW_UP",
+                                "QUOTE_SENT",
+                                "NEGOTIATION",
+                                "BOOKED",
+                                "PICKED_UP",
+                                "DELIVERED",
+                            ],
+                        },
                     },
                 }),
             }))
