@@ -27,25 +27,31 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" << 'EOF'
-          set -e
+          set -euo pipefail
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
+          git rev-parse --short HEAD > deploy-version.txt
           npm ci
 
-          # Pick schema from DATABASE_URL in .env (Prisma also loads .env itself)
-          DB_URL="$(grep -E '^DATABASE_URL=' .env | head -n1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
-          if echo "$DB_URL" | grep -qiE '^postgres(ql)?://'; then
-            SCHEMA="prisma/schema.postgresql.prisma"
-          else
-            SCHEMA="prisma/schema.prisma"
-          fi
-          echo "Using Prisma schema: $SCHEMA"
+          # Sync schema to the canonical absolute SQLite path (or Postgres)
+          npm run db:push
+          node scripts/verify-email-schema.mjs
 
-          npx prisma generate --schema="$SCHEMA"
-          npx prisma db push --schema="$SCHEMA"
+          # Persist absolute SQLite URL so PM2 always hits the same file
+          DB_URL="$(grep -E '^DATABASE_URL=' .env | head -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+          if ! echo "${DB_URL:-}" | grep -qiE '^postgres(ql)?://'; then
+            ABS_URL="file:$(pwd)/data/attendance.db"
+            if grep -qE '^DATABASE_URL=' .env; then
+              sed -i "s|^DATABASE_URL=.*|DATABASE_URL=\"${ABS_URL}\"|" .env
+            else
+              echo "DATABASE_URL=\"${ABS_URL}\"" >> .env
+            fi
+            echo "Pinned DATABASE_URL=${ABS_URL}"
+          fi
+
           npm run build
-          pm2 restart greenos
+          pm2 restart greenos --update-env
           pm2 save
           sleep 5
           curl --fail http://localhost:3847/api/health

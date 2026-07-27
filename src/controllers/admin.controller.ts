@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { prisma } from "../config/database.js";
+import { emailTablesExist, getResolvedDatabaseUrl, prisma } from "../config/database.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { legacyIngestService } from "../services/legacy-ingest.service.js";
 import { settingsService } from "../services/settings.service.js";
@@ -317,18 +317,22 @@ export async function dailyReportController(req: Request, res: Response) {
 export async function healthController(_req: Request, res: Response) {
     try {
         await prisma.$queryRaw`SELECT 1`;
-        const dbProvider = process.env.DATABASE_URL?.startsWith("postgresql")
+        const resolvedDb = getResolvedDatabaseUrl();
+        const dbProvider = resolvedDb.startsWith("postgresql") || resolvedDb.startsWith("postgres://")
             ? "postgresql"
             : "sqlite";
+        const emailSchemaOk = await emailTablesExist();
         const webhookUrls = getWebhookUrls(config.port);
         const commit = getDeployedCommit();
         return res.json({
-            status: "OK",
+            status: emailSchemaOk ? "OK" : "DEGRADED",
             version: "1.0.0",
             commit,
             company: config.companyName,
             database: "ONLINE",
             databaseProvider: dbProvider,
+            databaseUrlHint: dbProvider === "sqlite" ? resolvedDb.replace(/^file:/, "file:…/") : dbProvider,
+            emailTables: emailSchemaOk ? "OK" : "MISSING",
             api: "ONLINE",
             webhook: "ONLINE",
             scheduler: "ONLINE",
