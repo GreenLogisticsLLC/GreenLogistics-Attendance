@@ -1,5 +1,6 @@
 import { emailImportService } from "./services/email-import.service.js";
 import { gmailListener } from "./gmail/gmail.listener.js";
+import { isAdminWriteActive } from "../../config/database.js";
 
 let timer: NodeJS.Timeout | null = null;
 let running = false;
@@ -10,6 +11,10 @@ export function startEmailImportScheduler(intervalMs = 30_000) {
 
     const tick = async () => {
         if (running) return;
+        if (isAdminWriteActive()) {
+            console.log("[email] skip tick — admin write in progress");
+            return;
+        }
         if (!(await gmailListener.ensureCredentials())) return;
         running = true;
         try {
@@ -34,4 +39,16 @@ export function startEmailImportScheduler(intervalMs = 30_000) {
 export function stopEmailImportScheduler() {
     if (timer) clearInterval(timer);
     timer = null;
+}
+
+/** True while a checkInbox tick is mid-flight (caller can wait briefly). */
+export function isEmailImportRunning(): boolean {
+    return running;
+}
+
+export async function waitForEmailImportIdle(maxWaitMs = 45_000): Promise<void> {
+    const start = Date.now();
+    while (running && Date.now() - start < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, 200));
+    }
 }
