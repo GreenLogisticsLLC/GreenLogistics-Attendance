@@ -18,19 +18,22 @@ model Role {
 }
 
 model User {
-  userId       String     @id @default(uuid()) @map("user_id")
-  username     String     @unique
-  passwordHash String     @map("password_hash")
-  firstName    String     @map("first_name")
-  lastName     String     @map("last_name")
-  email        String?    @unique
-  roleId       String     @map("role_id")
-  isActive     Boolean    @default(true) @map("is_active")
-  lastLogin    DateTime?  @map("last_login")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
-  role         Role       @relation(fields: [roleId], references: [roleId])
-  auditLogs    AuditLog[]
+  userId                 String     @id @default(uuid()) @map("user_id")
+  username               String     @unique
+  passwordHash           String     @map("password_hash")
+  firstName              String     @map("first_name")
+  lastName               String     @map("last_name")
+  email                  String?    @unique
+  roleId                 String     @map("role_id")
+  isActive               Boolean    @default(true) @map("is_active")
+  availableForAssignment Boolean    @default(true) @map("available_for_assignment")
+  employeeId             String?    @unique @map("employee_id")
+  lastLogin              DateTime?  @map("last_login")
+  createdAt              DateTime   @default(now()) @map("created_at")
+  updatedAt              DateTime   @updatedAt @map("updated_at")
+  role                   Role       @relation(fields: [roleId], references: [roleId])
+  employee               Employee?  @relation(fields: [employeeId], references: [employeeId])
+  auditLogs              AuditLog[]
 
   @@map("users")
 }
@@ -66,6 +69,7 @@ model Employee {
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
   shift              Shift               @relation(fields: [shiftId], references: [shiftId])
+  user               User?
   attendanceSessions AttendanceSession[]
   attendanceEvents   AttendanceEvent[]
   notifications      Notification[]
@@ -341,4 +345,30 @@ model ShipmentImportLog {
   @@index([eventType])
   @@index([createdAt])
   @@map("shipment_import_logs")
+}
+
+model AssignmentQueueState {
+  queueKey           String   @id @default("brokers") @map("queue_key")
+  orderedUserIdsJson String   @default("[]") @map("ordered_user_ids_json")
+  nextIndex          Int      @default(0) @map("next_index")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("assignment_queue_state")
+}
+
+model AssignmentLog {
+  logId              String   @id @default(uuid()) @map("log_id")
+  shipmentLeadId     String?  @map("shipment_lead_id")
+  assignedUserId     String?  @map("assigned_user_id")
+  assignedEmployeeId String?  @map("assigned_employee_id")
+  eventType          String   @map("event_type")
+  message            String
+  queueSnapshotJson  String?  @map("queue_snapshot_json")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([shipmentLeadId])
+  @@index([assignedUserId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("assignment_logs")
 }

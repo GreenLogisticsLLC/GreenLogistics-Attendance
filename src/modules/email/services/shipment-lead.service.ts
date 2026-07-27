@@ -1,166 +1,15 @@
 import { prisma } from "../../../config/database.js";
-import type { ParsedShipmentDraft, ShipmentLeadStatus } from "../models/types.js";
+import type { ParsedShipmentDraft } from "../models/types.js";
 import {
     shipmentImportLogRepository,
     shipmentLeadRepository,
 } from "./repositories.js";
-import { shipmentTimelineService } from "../../crm/services/timeline.service.js";
-
-const ACCEPTANCE_MINUTES = 15;
+import { assignmentEngine } from "../../assignment/assignment.engine.js";
 
 /**
- * After ShipmentLead is created:
- * Email → Parser → Lead(NEW) → Assignment → Acceptance Timer → Follow-up → Quote → Won/Lost
+ * Shipment lead create + list. Assignment / acceptance pipeline lives in Assignment Engine v1.0.
  */
-export class AssignmentEngine {
-    async startPipeline(shipmentLeadId: string) {
-        const lead = await shipmentLeadRepository.findById(shipmentLeadId);
-        if (!lead || lead.status !== "NEW") return lead;
-
-        await shipmentTimelineService.addEvent({
-            shipmentLeadId,
-            stage: "IMPORTED",
-            title: "Imported from uShip",
-            message: lead.shipmentTitle,
-        });
-
-        const broker = await this.pickBroker();
-        if (!broker) {
-            await this.log(shipmentLeadId, "No broker available — lead stays NEW");
-            return lead;
-        }
-
-        const acceptanceDeadline = new Date(Date.now() + ACCEPTANCE_MINUTES * 60_000);
-        const assigned = await shipmentLeadRepository.update(shipmentLeadId, {
-            status: "ASSIGNED",
-            assignedBrokerId: broker.userId,
-            assignedAt: new Date(),
-            acceptanceDeadline,
-        });
-        await this.log(
-            shipmentLeadId,
-            `Assigned to broker ${broker.username} (${broker.userId}); acceptance deadline ${acceptanceDeadline.toISOString()}`
-        );
-        await shipmentTimelineService.addEvent({
-            shipmentLeadId,
-            stage: "ASSIGNED",
-            title: "Assigned to Broker",
-            message: `${broker.firstName} ${broker.lastName}`.trim() || broker.username,
-            actorUserId: broker.userId,
-        });
-
-        const awaiting = await shipmentLeadRepository.update(shipmentLeadId, {
-            status: "AWAITING_ACCEPTANCE",
-        });
-        await this.log(shipmentLeadId, "Status → AWAITING_ACCEPTANCE");
-        return awaiting || assigned;
-    }
-
-    async processDueAcceptances() {
-        const now = new Date();
-        const expired = await prisma.shipmentLead.findMany({
-            where: {
-                status: "AWAITING_ACCEPTANCE",
-                acceptanceDeadline: { lt: now },
-            },
-            take: 50,
-        });
-
-        for (const lead of expired) {
-            await shipmentLeadRepository.update(lead.shipmentLeadId, {
-                status: "FOLLOW_UP",
-            });
-            await this.log(lead.shipmentLeadId, "Acceptance timer expired → FOLLOW_UP");
-            await shipmentTimelineService.addEvent({
-                shipmentLeadId: lead.shipmentLeadId,
-                stage: "ASSIGNED",
-                title: "Needs Follow Up",
-                message: "Acceptance timer expired",
-            });
-        }
-        return expired.length;
-    }
-
-    async markQuoteSent(shipmentLeadId: string) {
-        const updated = await shipmentLeadRepository.update(shipmentLeadId, {
-            status: "QUOTE_SENT" satisfies ShipmentLeadStatus,
-            quoteSentAt: new Date(),
-        });
-        await this.log(shipmentLeadId, "Status → QUOTE_SENT");
-        await shipmentTimelineService.addEvent({
-            shipmentLeadId,
-            stage: "QUOTE_SENT",
-            title: "Quote Sent",
-        });
-        return updated;
-    }
-
-    async closeLead(shipmentLeadId: string, outcome: "WON" | "LOST") {
-        const updated = await shipmentLeadRepository.update(shipmentLeadId, {
-            status: outcome,
-            closedAt: new Date(),
-        });
-        await this.log(shipmentLeadId, `Status → ${outcome}`);
-        await shipmentTimelineService.addEvent({
-            shipmentLeadId,
-            stage: "COMPLETED",
-            title: outcome === "WON" ? "Won" : "Lost",
-        });
-        return updated;
-    }
-
-    private async pickBroker() {
-        const brokers = await prisma.user.findMany({
-            where: {
-                isActive: true,
-                role: { roleName: { in: ["Broker", "Manager", "Owner", "Administrator"] } },
-            },
-            orderBy: { createdAt: "asc" },
-            include: { role: true },
-        });
-        if (!brokers.length) return null;
-
-        const preferred = brokers.filter((b) => b.role.roleName === "Broker");
-        const pool = preferred.length ? preferred : brokers;
-
-        const openCounts = await Promise.all(
-            pool.map(async (b) => ({
-                user: b,
-                open: await prisma.shipmentLead.count({
-                    where: {
-                        assignedBrokerId: b.userId,
-                        status: {
-                            in: [
-                                "ASSIGNED",
-                                "AWAITING_ACCEPTANCE",
-                                "FOLLOW_UP",
-                                "QUOTE_SENT",
-                                "NEGOTIATION",
-                                "BOOKED",
-                                "PICKED_UP",
-                                "DELIVERED",
-                            ],
-                        },
-                    },
-                }),
-            }))
-        );
-        openCounts.sort((a, b) => a.open - b.open);
-        return openCounts[0]?.user || null;
-    }
-
-    private async log(shipmentLeadId: string, message: string) {
-        await shipmentImportLogRepository.create({
-            eventType: "PipelineEvent",
-            message,
-            shipmentLeadId,
-        });
-    }
-}
-
 export class ShipmentLeadService {
-    constructor(private readonly assignmentEngine = new AssignmentEngine()) {}
-
     async createFromParsed(input: {
         draft: ParsedShipmentDraft;
         emailMessageId: string;
@@ -230,7 +79,7 @@ export class ShipmentLeadService {
             shipmentLeadId: lead.shipmentLeadId,
         });
 
-        await this.assignmentEngine.startPipeline(lead.shipmentLeadId);
+        await assignmentEngine.startPipeline(lead.shipmentLeadId);
         const refreshed = await shipmentLeadRepository.findById(lead.shipmentLeadId);
         return { duplicate: false as const, lead: refreshed || lead };
     }
@@ -244,9 +93,9 @@ export class ShipmentLeadService {
     }
 
     get assignment() {
-        return this.assignmentEngine;
+        return assignmentEngine;
     }
 }
 
 export const shipmentLeadService = new ShipmentLeadService();
-export const assignmentEngine = shipmentLeadService.assignment;
+export { assignmentEngine };

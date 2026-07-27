@@ -1,0 +1,74 @@
+import { Response } from "express";
+import { apiResponse } from "../../../utils/helpers.js";
+import type { AuthRequest } from "../../../middlewares/auth.middleware.js";
+import { assignmentEngine } from "../assignment.engine.js";
+import { prisma } from "../../../config/database.js";
+
+export async function assignmentQueueStatusController(_req: AuthRequest, res: Response) {
+    const data = await assignmentEngine.getQueueStatus();
+    return res.json(apiResponse(true, "Assignment queue", data));
+}
+
+export async function assignmentLogsController(_req: AuthRequest, res: Response) {
+    const logs = await assignmentEngine.listAssignmentLogs(200);
+    return res.json(apiResponse(true, "Assignment logs", logs));
+}
+
+export async function assignmentEligibleController(_req: AuthRequest, res: Response) {
+    const eligible = await assignmentEngine.listEligibleBrokers();
+    return res.json(apiResponse(true, "Eligible brokers", eligible));
+}
+
+/** Toggle Available for Assignment (does not change Attendance). */
+export async function setAvailableController(req: AuthRequest, res: Response) {
+    const userId = String(req.params.userId);
+    const available = Boolean(req.body?.availableForAssignment);
+    try {
+        const user = await prisma.user.update({
+            where: { userId },
+            data: { availableForAssignment: available },
+            select: {
+                userId: true,
+                firstName: true,
+                lastName: true,
+                username: true,
+                isActive: true,
+                availableForAssignment: true,
+                employeeId: true,
+            },
+        });
+        return res.json(apiResponse(true, "Availability updated", user));
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Update failed";
+        return res.status(404).json(apiResponse(false, message));
+    }
+}
+
+/** Link a GreenOS user to an Attendance employee (for In Office checks). */
+export async function linkEmployeeController(req: AuthRequest, res: Response) {
+    const userId = String(req.params.userId);
+    const employeeId = String(req.body?.employeeId || "");
+    if (!employeeId) {
+        return res.status(422).json(apiResponse(false, "employeeId is required"));
+    }
+    try {
+        const emp = await prisma.employee.findUnique({ where: { employeeId } });
+        if (!emp) return res.status(404).json(apiResponse(false, "Employee not found"));
+        const user = await prisma.user.update({
+            where: { userId },
+            data: { employeeId },
+            select: {
+                userId: true,
+                username: true,
+                firstName: true,
+                lastName: true,
+                employeeId: true,
+                availableForAssignment: true,
+            },
+        });
+        return res.json(apiResponse(true, "User linked to employee", user));
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Link failed";
+        return res.status(400).json(apiResponse(false, message));
+    }
+}

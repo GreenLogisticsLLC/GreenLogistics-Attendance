@@ -53,5 +53,6 @@ app.listen(config.port, config.host, () => {
     console.log(`Health:   GET http://localhost:${config.port}/api/health`);
     console.log(`Email:    GET/POST http://localhost:${config.port}/api/email/*`);
     console.log(`CRM:      GET/PATCH http://localhost:${config.port}/api/crm/*`);
+    console.log(`Assign:   GET http://localhost:${config.port}/api/assignment/*`);
     console.log(`Gmail OAuth: http://localhost:${config.port}/api/email/auth`);
 });

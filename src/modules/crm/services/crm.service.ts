@@ -1,5 +1,6 @@
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
+import { attendanceSessionRepository } from "../../../repositories/attendance-session.repository.js";
 import {
     ACTIVE_STATUSES,
     STATUS_LABELS,
@@ -195,7 +196,25 @@ export class CrmService {
         const preferred = brokers.filter((b) => b.role.roleName === "Broker");
         const pool = preferred.length ? preferred : brokers;
 
-        const result = [];
+        const result: Array<{
+            brokerId: string;
+            name: string;
+            username: string;
+            role: string;
+            status: string;
+            online: boolean;
+            active: boolean;
+            availableForAssignment: boolean;
+            inOffice: boolean;
+            employeeId: string | null;
+            currentShipments: number;
+            awaitingAcceptance: number;
+            followUp: number;
+            quotesSent: number;
+            won: number;
+            lost: number;
+            averageResponseTimeMinutes: number | null;
+        }> = [];
         for (const b of pool) {
             const [currentShipments, awaitingAcceptance, followUp, quotesSent, won, lost] =
                 await Promise.all([
@@ -233,6 +252,14 @@ export class CrmService {
                 .filter((ms) => ms >= 0);
             const avgMs = diffs.length ? diffs.reduce((a, c) => a + c, 0) / diffs.length : null;
 
+            let inOffice = false;
+            if (b.employeeId) {
+                const session = await attendanceSessionRepository.findRecentActiveSession(
+                    b.employeeId
+                );
+                inOffice = session?.currentStatus === "INSIDE_OFFICE";
+            }
+
             result.push({
                 brokerId: b.userId,
                 name: brokerName(b),
@@ -240,6 +267,10 @@ export class CrmService {
                 role: b.role.roleName,
                 status: b.isActive ? "Active" : "Inactive",
                 online: b.isActive,
+                active: b.isActive,
+                availableForAssignment: b.availableForAssignment,
+                inOffice,
+                employeeId: b.employeeId,
                 currentShipments,
                 awaitingAcceptance,
                 followUp,

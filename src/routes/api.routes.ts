@@ -41,6 +41,7 @@ import {
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { emailRouter } from "../modules/email/routes/email.routes.js";
 import { crmRouter } from "../modules/crm/routes/crm.routes.js";
+import { assignmentRouter } from "../modules/assignment/routes/assignment.routes.js";
 
 export const apiRouter = Router();
 
@@ -49,6 +50,7 @@ apiRouter.get("/v1/network-info", networkInfoController);
 
 apiRouter.use("/email", emailRouter);
 apiRouter.use("/crm", crmRouter);
+apiRouter.use("/assignment", assignmentRouter);
 
 apiRouter.post("/v1/auth/login", loginController);
 apiRouter.post("/v1/auth/register", registerController);
