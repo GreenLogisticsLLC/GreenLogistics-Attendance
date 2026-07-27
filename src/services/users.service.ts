@@ -105,9 +105,9 @@ export class UsersService {
     }
 
     /**
-     * Permanently remove a platform user and related GreenOS data:
-     * CRM shipments assigned to them, assignment queue/logs, audit logs,
-     * pending signup rows, and linked attendance employee + sessions (if any).
+     * Permanently remove a platform user and related GreenOS data.
+     * Sequential deletes (no long interactive transaction) — SQLite on Contabo
+     * was timing out interactive $transaction during email-poller lock contention.
      */
     async deleteUser(actor: { userId: string; role: string }, userId: string) {
         if (!userId) {
@@ -146,23 +146,27 @@ export class UsersService {
             }
         }
 
-        const summary = await prisma.$transaction(async (tx) => {
-            const deleted: Record<string, number> = {};
+        const deleted: Record<string, number> = {};
 
-            const audit = await tx.auditLog.deleteMany({ where: { userId } });
+        try {
+            const audit = await prisma.auditLog.deleteMany({ where: { userId } });
             deleted.auditLogs = audit.count;
 
-            const shipments = await tx.shipmentLead.findMany({
+            const shipments = await prisma.shipmentLead.findMany({
                 where: { assignedBrokerId: userId },
                 select: { shipmentLeadId: true },
             });
             const shipmentIds = shipments.map((s) => s.shipmentLeadId);
             if (shipmentIds.length) {
-                const importLogs = await tx.shipmentImportLog.deleteMany({
+                const importLogs = await prisma.shipmentImportLog.deleteMany({
                     where: { shipmentLeadId: { in: shipmentIds } },
                 });
                 deleted.shipmentImportLogs = importLogs.count;
-                const leads = await tx.shipmentLead.deleteMany({
+                // Remove timeline first (no FK cascade guarantee on all envs)
+                await prisma.shipmentTimelineEvent.deleteMany({
+                    where: { shipmentLeadId: { in: shipmentIds } },
+                });
+                const leads = await prisma.shipmentLead.deleteMany({
                     where: { shipmentLeadId: { in: shipmentIds } },
                 });
                 deleted.shipmentLeads = leads.count;
@@ -171,17 +175,17 @@ export class UsersService {
                 deleted.shipmentImportLogs = 0;
             }
 
-            await tx.shipmentTimelineEvent.updateMany({
+            await prisma.shipmentTimelineEvent.updateMany({
                 where: { actorUserId: userId },
                 data: { actorUserId: null },
             });
 
-            const assignLogs = await tx.assignmentLog.deleteMany({
+            const assignLogs = await prisma.assignmentLog.deleteMany({
                 where: { assignedUserId: userId },
             });
             deleted.assignmentLogs = assignLogs.count;
 
-            const queue = await tx.assignmentQueueState.findUnique({
+            const queue = await prisma.assignmentQueueState.findUnique({
                 where: { queueKey: "brokers" },
             });
             if (queue) {
@@ -194,7 +198,7 @@ export class UsersService {
                 if (!Array.isArray(ordered)) ordered = [];
                 const filtered = ordered.filter((id) => id !== userId);
                 if (filtered.length !== ordered.length) {
-                    await tx.assignmentQueueState.update({
+                    await prisma.assignmentQueueState.update({
                         where: { queueKey: "brokers" },
                         data: {
                             orderedUserIdsJson: JSON.stringify(filtered),
@@ -209,59 +213,65 @@ export class UsersService {
                 { username: user.username },
             ];
             if (user.email) pendingOr.push({ email: user.email });
-            const pending = await tx.pendingRegistration.deleteMany({
+            const pending = await prisma.pendingRegistration.deleteMany({
                 where: { OR: pendingOr },
             });
             deleted.pendingRegistrations = pending.count;
 
             const employeeId = user.employeeId;
             if (employeeId) {
-                await tx.user.update({
+                await prisma.user.update({
                     where: { userId },
                     data: { employeeId: null },
                 });
             }
 
-            await tx.user.delete({ where: { userId } });
+            await prisma.user.delete({ where: { userId } });
             deleted.users = 1;
 
             if (employeeId) {
-                const employee = await tx.employee.findUnique({ where: { employeeId } });
+                const employee = await prisma.employee.findUnique({ where: { employeeId } });
                 if (employee) {
-                    const sessions = await tx.attendanceSession.findMany({
+                    const sessions = await prisma.attendanceSession.findMany({
                         where: { employeeId },
                         select: { sessionId: true },
                     });
                     const sessionIds = sessions.map((s) => s.sessionId);
                     if (sessionIds.length) {
-                        await tx.absenceInterval.deleteMany({
+                        await prisma.absenceInterval.deleteMany({
                             where: { sessionId: { in: sessionIds } },
                         });
                     }
-                    await tx.attendanceEvent.deleteMany({ where: { employeeId } });
-                    await tx.attendanceSession.deleteMany({ where: { employeeId } });
-                    await tx.notification.deleteMany({ where: { employeeId } });
-                    await tx.pendingCardScan.deleteMany({
+                    await prisma.attendanceEvent.deleteMany({ where: { employeeId } });
+                    await prisma.attendanceSession.deleteMany({ where: { employeeId } });
+                    await prisma.notification.deleteMany({ where: { employeeId } });
+                    await prisma.pendingCardScan.deleteMany({
                         where: { cardToken: normalizeCardToken(employee.cardNumber) },
                     });
-                    await tx.assignmentLog.deleteMany({
+                    await prisma.assignmentLog.deleteMany({
                         where: { assignedEmployeeId: employeeId },
                     });
-                    await tx.employee.delete({ where: { employeeId } });
+                    await prisma.employee.delete({ where: { employeeId } });
                     deleted.linkedEmployees = 1;
                     deleted.attendanceSessions = sessions.length;
                 }
             }
-
-            return deleted;
-        });
+        } catch (err) {
+            console.error("[users] deleteUser failed:", err);
+            const message = err instanceof Error ? err.message : "Delete failed";
+            return {
+                ok: false as const,
+                status: 500,
+                message: `Could not delete user (database busy or locked). Try again. ${message}`,
+            };
+        }
 
         return {
             ok: true as const,
             data: {
                 userId,
                 username: user.username,
-                deleted: summary,
+                deleted,
                 message: `Deleted ${user.firstName} ${user.lastName} (${user.username}) and related GreenOS data.`,
             },
         };

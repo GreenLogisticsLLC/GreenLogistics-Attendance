@@ -17,23 +17,35 @@ export async function updateUserRoleController(req: AuthRequest, res: Response) 
     if (!req.user) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));
     }
-    const userId = String(req.params.userId || "");
-    const role = String(req.body?.role || req.body?.roleName || "");
-    const result = await usersService.updateUserRole(req.user, userId, role);
-    if (!result.ok) {
-        return res.status(result.status).json(apiResponse(false, result.message));
+    try {
+        const userId = String(req.params.userId || "");
+        const role = String(req.body?.role || req.body?.roleName || "");
+        const result = await usersService.updateUserRole(req.user, userId, role);
+        if (!result.ok) {
+            return res.status(result.status).json(apiResponse(false, result.message));
+        }
+        return res.json(apiResponse(true, result.data.message, result.data));
+    } catch (err) {
+        console.error("[users] updateUserRoleController:", err);
+        const message = err instanceof Error ? err.message : "Update failed";
+        return res.status(500).json(apiResponse(false, message));
     }
-    return res.json(apiResponse(true, result.data.message, result.data));
 }
 
 export async function deleteUserController(req: AuthRequest, res: Response) {
     if (!req.user) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));
     }
-    const userId = String(req.params.userId || "");
-    const result = await usersService.deleteUser(req.user, userId);
-    if (!result.ok) {
-        return res.status(result.status).json(apiResponse(false, result.message));
+    try {
+        const userId = String(req.params.userId || "");
+        const result = await usersService.deleteUser(req.user, userId);
+        if (!result.ok) {
+            return res.status(result.status).json(apiResponse(false, result.message));
+        }
+        return res.json(apiResponse(true, result.data.message, result.data));
+    } catch (err) {
+        console.error("[users] deleteUserController:", err);
+        const message = err instanceof Error ? err.message : "Delete failed";
+        return res.status(500).json(apiResponse(false, message));
     }
-    return res.json(apiResponse(true, result.data.message, result.data));
 }

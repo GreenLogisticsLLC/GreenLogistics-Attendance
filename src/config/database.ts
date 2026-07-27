@@ -78,6 +78,19 @@ process.env.DATABASE_URL = resolvedUrl;
 
 export const prisma = new PrismaClient();
 
+/** Reduce SQLite lock timeouts under concurrent email poller + admin writes. */
+export async function configureSqlite(): Promise<void> {
+    if (!resolvedUrl.startsWith("file:")) return;
+    try {
+        await prisma.$executeRawUnsafe("PRAGMA journal_mode=WAL;");
+        await prisma.$executeRawUnsafe("PRAGMA busy_timeout=30000;");
+        await prisma.$executeRawUnsafe("PRAGMA synchronous=NORMAL;");
+        console.log("[db] SQLite WAL + busy_timeout enabled");
+    } catch (err) {
+        console.warn("[db] Could not set SQLite pragmas:", err);
+    }
+}
+
 export function getResolvedDatabaseUrl(): string {
     return resolvedUrl;
 }

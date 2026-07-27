@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { apiRouter } from "./routes/api.routes.js";
 import { config } from "./config/env.js";
+import { configureSqlite } from "./config/database.js";
 import { attendanceService } from "./services/attendance.service.js";
 import { startEmailImportScheduler } from "./modules/email/scheduler.js";
 import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
@@ -38,7 +39,8 @@ setInterval(() => {
 
 startEmailImportScheduler(config.emailPollIntervalMs);
 
-app.listen(config.port, config.host, () => {
+app.listen(config.port, config.host, async () => {
+    await configureSqlite();
     const urls = getWebhookUrls(config.port);
     const ips = getAllNetworkIps();
     console.log(`Green Logistics Attendance / GreenOS v1.0.0`);
