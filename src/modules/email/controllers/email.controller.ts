@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { config } from "../../../config/env.js";
 import { apiResponse } from "../../../utils/helpers.js";
 import { emailImportService } from "../services/email-import.service.js";
 import { shipmentLeadService } from "../services/shipment-lead.service.js";
@@ -121,14 +122,28 @@ export async function listEmailLogsController(_req: Request, res: Response) {
 
 export async function emailStatusController(_req: Request, res: Response) {
     const gmailConfigured = await gmailListener.ensureCredentials();
+    const gmailUser = gmailConfigured ? await gmailOAuthService.getStoredUser() : config.gmail.user || "";
+    const smtpConfigured = Boolean(config.smtp.host && config.smtp.user && config.smtp.pass);
     return res.json(
         apiResponse(true, "OK", {
+            // Role 1 — inbound uShip import
             gmailConfigured,
-            gmailUser: gmailConfigured ? await gmailOAuthService.getStoredUser() : "",
+            gmailUser,
             oauthClientConfigured: gmailOAuthService.isClientConfigured(),
             redirectUri: getGmailRedirectUri(),
             authUrl: "/api/email/auth",
-            pollIntervalSeconds: 30,
+            pollIntervalSeconds: Math.round(config.emailPollIntervalMs / 1000),
+            // Role 2 — approval recipient
+            approvalEmail: config.approvalEmail,
+            // Role 3 — outbound SMTP (no secrets)
+            smtpConfigured,
+            smtpUser: config.smtp.user || "",
+            smtpFrom: config.smtp.from || "",
+            mailRolesSeparated: !(
+                gmailUser &&
+                config.smtp.user &&
+                gmailUser.trim().toLowerCase() === config.smtp.user.trim().toLowerCase()
+            ),
         })
     );
 }

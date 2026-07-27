@@ -18,7 +18,7 @@ Dispatcher, HR, Accounting, Administrator, Viewer
 ## Broker registration
 
 1. Sign Up → role **Broker**
-2. Email to `APPROVAL_EMAIL` (Owner inbox)
+2. Email to `APPROVAL_EMAIL` (Owner inbox), sent via `SMTP_*` (not via `GMAIL_USER`)
 3. Approve link → User created with Broker role
 4. Login → broker shell only
 

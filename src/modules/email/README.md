@@ -15,14 +15,24 @@ API:
 - GET  /api/email/logs
 - GET  /api/email/status
 
-Env:
+Mail roles (independent — do not share one mailbox):
+
+| Role | Env | Purpose | Example |
+|------|-----|---------|---------|
+| 1 Inbound | `GMAIL_*` | uShip import via Gmail API only | `effiegreenlogistics@gmail.com` |
+| 2 Approval To: | `APPROVAL_EMAIL` | Owner receives agent signup requests | `osgreenlogistics@gmail.com` |
+| 3 Outbound | `SMTP_*` | Send system mail (approval links) | `osgreenlogistics@gmail.com` |
+
+Gmail API env (role 1 only):
 - GMAIL_CLIENT_ID
 - GMAIL_CLIENT_SECRET
 - GMAIL_REFRESH_TOKEN (optional if connected via /api/email/auth)
-- GMAIL_USER
+- GMAIL_USER (import inbox; never use as SMTP sender)
 - GMAIL_REDIRECT_URI (optional; default `{PUBLIC_APP_URL}/api/email/callback`)
 - GMAIL_PROCESSED_LABEL_ID (optional)
 - EMAIL_POLL_INTERVAL_MS (default 30000)
+
+Outbound / approval (roles 2–3) live in root `.env.example` (`APPROVAL_EMAIL`, `SMTP_*`).
 
 Connect Gmail:
 1. In Google Cloud Console create OAuth client (Web application).

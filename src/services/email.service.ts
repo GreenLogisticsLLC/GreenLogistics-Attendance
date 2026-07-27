@@ -6,8 +6,8 @@ function friendlySmtpError(err: unknown): string {
     if (/Invalid login|BadCredentials|535/i.test(raw)) {
         return (
             "Approval email could not be sent: Gmail rejected SMTP login. " +
-            "On the server set SMTP_USER to the Gmail address and SMTP_PASS to a Google App Password " +
-            "(not the normal Gmail password). See https://support.google.com/accounts/answer/185833"
+            "Set SMTP_USER / SMTP_PASS (App Password) for outbound mail — separate from GMAIL_USER " +
+            "(uShip import). See https://support.google.com/accounts/answer/185833"
         );
     }
     if (/ECONNREFUSED|ETIMEDOUT|ENOTFOUND/i.test(raw)) {

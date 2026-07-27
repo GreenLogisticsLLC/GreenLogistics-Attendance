@@ -17,8 +17,32 @@ function parseCorsOrigins(): string[] {
     ];
 }
 
+function normalizeEmail(value: string): string {
+    return value.trim().toLowerCase();
+}
+
+/**
+ * Mail architecture (three independent roles — do not share one mailbox):
+ *
+ * 1) GMAIL_*     — inbound uShip import via Gmail API only (e.g. effiegreenlogistics@gmail.com)
+ * 2) APPROVAL_EMAIL — Owner/admin recipient for agent signup approvals (e.g. osgreenlogistics@gmail.com)
+ * 3) SMTP_*      — outbound transactional sender (App Password); never the uShip import inbox
+ *
+ * Backward compatible: same env var names; missing optional vars keep prior defaults.
+ */
 const smtpUser = process.env.SMTP_USER || "";
 const smtpFrom = process.env.SMTP_FROM || smtpUser || "noreply@greengrouplogistics.com";
+const gmailUser = process.env.GMAIL_USER || "";
+const approvalEmail = process.env.APPROVAL_EMAIL || "osgreenlogistics@gmail.com";
+
+const smtpUserNorm = normalizeEmail(smtpUser);
+const gmailUserNorm = normalizeEmail(gmailUser);
+if (gmailUserNorm && smtpUserNorm && gmailUserNorm === smtpUserNorm) {
+    console.warn(
+        "[config] GMAIL_USER and SMTP_USER point to the same mailbox. " +
+            "Keep them separate: GMAIL_USER = uShip import only; SMTP_* = outbound mail."
+    );
+}
 
 export const config = {
     port: parseInt(process.env.PORT || process.env.API_PORT || "3847", 10),
@@ -31,7 +55,9 @@ export const config = {
     legacyIngestToken: process.env.LEGACY_INGEST_TOKEN || "",
     corsOrigins: parseCorsOrigins(),
     publicAppUrl: (process.env.PUBLIC_APP_URL || "http://localhost:3847").replace(/\/$/, ""),
-    approvalEmail: process.env.APPROVAL_EMAIL || "osgreenlogistics@gmail.com",
+    /** Role 2: who receives signup approval requests (not the SMTP From, not the uShip inbox). */
+    approvalEmail,
+    /** Role 3: outbound SMTP for system emails (approvals, etc.). */
     smtp: {
         host: process.env.SMTP_HOST || "",
         port: parseInt(process.env.SMTP_PORT || "587", 10),
@@ -39,11 +65,12 @@ export const config = {
         pass: process.env.SMTP_PASS || "",
         from: smtpFrom,
     },
+    /** Role 1: Gmail API inbox for uShip (and future load-board) email import only. */
     gmail: {
         clientId: process.env.GMAIL_CLIENT_ID || "",
         clientSecret: process.env.GMAIL_CLIENT_SECRET || "",
         refreshToken: process.env.GMAIL_REFRESH_TOKEN || "",
-        user: process.env.GMAIL_USER || "",
+        user: gmailUser,
         processedLabelId: process.env.GMAIL_PROCESSED_LABEL_ID || "",
         redirectUri:
             process.env.GMAIL_REDIRECT_URI ||
