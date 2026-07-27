@@ -36,8 +36,26 @@ async function main() {
 
     await prisma.role.upsert({
         where: { roleName: "Broker" },
-        update: {},
-        create: { roleName: "Broker", description: "Broker — logistics coordination view" },
+        update: { description: "Broker — personal shipments workspace only" },
+        create: { roleName: "Broker", description: "Broker — personal shipments workspace only" },
+    });
+
+    await prisma.role.upsert({
+        where: { roleName: "Team Lead" },
+        update: { description: "Team lead — team CRM and broker oversight" },
+        create: { roleName: "Team Lead", description: "Team lead — team CRM and broker oversight" },
+    });
+
+    await prisma.role.upsert({
+        where: { roleName: "Dispatcher" },
+        update: { description: "Dispatcher — loads and carriers (future)" },
+        create: { roleName: "Dispatcher", description: "Dispatcher — loads and carriers (future)" },
+    });
+
+    await prisma.role.upsert({
+        where: { roleName: "HR" },
+        update: { description: "HR — employees and attendance (future)" },
+        create: { roleName: "HR", description: "HR — employees and attendance (future)" },
     });
 
     const dayShift = await prisma.shift.upsert({

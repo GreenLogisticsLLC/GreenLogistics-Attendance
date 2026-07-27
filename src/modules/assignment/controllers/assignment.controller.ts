@@ -9,7 +9,16 @@ export async function assignmentQueueStatusController(_req: AuthRequest, res: Re
     return res.json(apiResponse(true, "Assignment queue", data));
 }
 
-export async function assignmentLogsController(_req: AuthRequest, res: Response) {
+export async function assignmentLogsController(req: AuthRequest, res: Response) {
+    const role = req.user?.role || "";
+    if (role === "Broker") {
+        const logs = await prisma.assignmentLog.findMany({
+            where: { assignedUserId: req.user!.userId },
+            orderBy: { createdAt: "desc" },
+            take: 200,
+        });
+        return res.json(apiResponse(true, "Assignment logs", logs));
+    }
     const logs = await assignmentEngine.listAssignmentLogs(200);
     return res.json(apiResponse(true, "Assignment logs", logs));
 }

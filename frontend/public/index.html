@@ -48,10 +48,10 @@
                 <input type="password" id="signup-password" autocomplete="new-password" required minlength="6">
                 <label>Requested access</label>
                 <select id="signup-role" required>
+                    <option value="Broker">Broker — My Shipments workspace only</option>
+                    <option value="Team Lead">Team Lead — team CRM oversight</option>
+                    <option value="Manager">Manager — operations</option>
                     <option value="Owner">Owner — full system access</option>
-                    <option value="Manager">Manager — operations (no finance)</option>
-                    <option value="Accounting">Accounting — finance access</option>
-                    <option value="Broker">Broker — logistics access</option>
                 </select>
                 <button type="submit" class="btn-primary">Create Account</button>
                 <button type="button" id="show-login-btn" class="btn-secondary btn-block">Back to Sign In</button>
@@ -444,6 +444,7 @@
     <script src="modules/registry.js"></script>
     <script src="modules/email/pages.js"></script>
     <script src="modules/crm/pages.js"></script>
+    <script src="modules/broker/pages.js"></script>
     <script src="modules/dispatch/pages.js"></script>
     <script src="modules/loads/pages.js"></script>
     <script src="modules/car-transport/pages.js"></script>

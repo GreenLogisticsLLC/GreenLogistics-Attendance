@@ -28,23 +28,45 @@
   window.GreenOS = {
     currentModule: "dashboard",
     currentSub: null,
+    user: null,
 
     initShell() {
+      this.user = window.GreenOSUser || this.user || null;
       this.renderSidebar();
       this.bindChrome();
-      this.navigate("dashboard");
+      const start =
+        this.user && this.user.role === "Broker" ? "broker" : "dashboard";
+      this.navigate(start);
+    },
+
+    role() {
+      return (this.user && this.user.role) || (window.GreenOSUser && window.GreenOSUser.role) || "";
+    },
+
+    canAccessModule(moduleId) {
+      const meta = (window.GreenOSRegistry || []).find((m) => m.id === moduleId);
+      if (!meta) return false;
+      if (!meta.roles || !meta.roles.length) return true;
+      return meta.roles.includes(this.role());
     },
 
     renderSidebar() {
       const nav = document.getElementById("gos-nav");
       if (!nav || !window.GreenOSRegistry) return;
-      nav.innerHTML = window.GreenOSRegistry.map((m) => {
-        return (
-          `<button type="button" class="gos-nav-item" data-module="${m.id}">` +
-          `<span class="gos-nav-icon">${m.icon}</span><span>${m.title}</span>` +
-          `</button>`
-        );
-      }).join("");
+      const role = this.role();
+      const modules = window.GreenOSRegistry.filter((m) => {
+        if (!m.roles || !m.roles.length) return true;
+        return m.roles.includes(role);
+      });
+      nav.innerHTML = modules
+        .map((m) => {
+          return (
+            `<button type="button" class="gos-nav-item" data-module="${m.id}">` +
+            `<span class="gos-nav-icon">${m.icon}</span><span>${m.title}</span>` +
+            `</button>`
+          );
+        })
+        .join("");
 
       nav.querySelectorAll("[data-module]").forEach((btn) => {
         btn.addEventListener("click", () => this.navigate(btn.dataset.module));
@@ -70,6 +92,13 @@
     },
 
     navigate(moduleId, subPageId) {
+      if (!this.canAccessModule(moduleId)) {
+        const fallback = this.role() === "Broker" ? "broker" : "dashboard";
+        if (moduleId !== fallback) {
+          this.navigate(fallback);
+          return;
+        }
+      }
       this.currentModule = moduleId;
       this.currentSub = subPageId || null;
       this.setActiveNav(moduleId);

@@ -43,6 +43,7 @@ window.stopAttendanceTimers = stopAttendanceTimers;
 
 function showApp(user) {
     currentUser = user;
+    window.GreenOSUser = user;
     loginScreen.classList.add("hidden");
     appScreen.classList.remove("hidden");
     $("#logged-user").textContent = `${user.firstName} ${user.lastName} (${user.role})`;
@@ -57,6 +58,7 @@ function showApp(user) {
     updateClock();
 
     if (window.GreenOS && typeof window.GreenOS.initShell === "function") {
+        window.GreenOS.user = user;
         window.GreenOS.initShell();
     } else {
         switchView("dashboard");

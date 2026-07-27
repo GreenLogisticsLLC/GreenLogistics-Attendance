@@ -3,16 +3,15 @@ import jwt from "jsonwebtoken";
 import { prisma } from "../config/database.js";
 import { config } from "../config/env.js";
 import { sendMail } from "./email.service.js";
+import {
+    ROLE_DESCRIPTIONS,
+    Roles,
+    SIGNUP_ROLE_NAMES,
+    type SignupRoleName,
+} from "../auth/roles.js";
 
-export const SIGNUP_ROLES = ["Owner", "Accounting", "Manager", "Broker"] as const;
-export type SignupRole = (typeof SIGNUP_ROLES)[number];
-
-const ROLE_DESCRIPTIONS: Record<SignupRole, string> = {
-    Owner: "Company owner — full access to the whole system",
-    Accounting: "Accounting — finance-focused access (to be refined)",
-    Manager: "Manager — operations access except financial structures (to be refined)",
-    Broker: "Broker — logistics coordination access (to be refined)",
-};
+export const SIGNUP_ROLES = SIGNUP_ROLE_NAMES;
+export type SignupRole = SignupRoleName;
 
 type ApprovalTokenPayload = {
     pendingId: string;
@@ -49,13 +48,15 @@ export class AuthService {
         };
     }
 
-    private async ensureRole(roleName: SignupRole) {
+    private async ensureRole(roleName: string) {
         return prisma.role.upsert({
             where: { roleName },
-            update: {},
+            update: {
+                description: ROLE_DESCRIPTIONS[roleName] || undefined,
+            },
             create: {
                 roleName,
-                description: ROLE_DESCRIPTIONS[roleName],
+                description: ROLE_DESCRIPTIONS[roleName] || roleName,
             },
         });
     }
@@ -89,17 +90,26 @@ export class AuthService {
         const token = this.createApprovalToken(pending.pendingId);
         const approveUrl = `${config.publicAppUrl}/api/v1/auth/registration/approve?token=${encodeURIComponent(token)}`;
         const rejectUrl = `${config.publicAppUrl}/api/v1/auth/registration/reject?token=${encodeURIComponent(token)}`;
-        const roleNote = ROLE_DESCRIPTIONS[pending.requestedRole as SignupRole] || pending.requestedRole;
+        const roleNote = ROLE_DESCRIPTIONS[pending.requestedRole] || pending.requestedRole;
+        const isBroker = pending.requestedRole === Roles.Broker;
 
-        const subject = `[Green OS] New registration request — ${pending.requestedRole}`;
+        const subject = isBroker
+            ? `[Green OS] Broker registration request — ${pending.firstName} ${pending.lastName}`
+            : `[Green OS] New registration request — ${pending.requestedRole}`;
         const text = [
-            "A person wants to register on os.greengrouplogistics.com",
+            isBroker
+                ? "A person registered as a Broker and requests access to Green OS."
+                : "A person wants to register on os.greengrouplogistics.com",
             "",
             `Name: ${pending.firstName} ${pending.lastName}`,
             `Username: ${pending.username}`,
             `Email: ${pending.email}`,
             `Requested access: ${pending.requestedRole}`,
             `Role note: ${roleNote}`,
+            "",
+            isBroker
+                ? "If you Approve, they will receive Broker access (My Shipments only)."
+                : "If you Approve, they will receive the requested role access.",
             "",
             `Approve: ${approveUrl}`,
             `Reject: ${rejectUrl}`,
@@ -109,8 +119,12 @@ export class AuthService {
 
         const html = `
           <div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.5;color:#111">
-            <h2>New Green OS registration request</h2>
-            <p>Someone wants to register on <strong>os.greengrouplogistics.com</strong>.</p>
+            <h2>${isBroker ? "Broker registration request" : "New Green OS registration request"}</h2>
+            <p>${
+                isBroker
+                    ? "Someone registered as a <strong>Broker</strong> and is waiting for your approval."
+                    : "Someone wants to register on <strong>os.greengrouplogistics.com</strong>."
+            }</p>
             <table style="border-collapse:collapse;margin:16px 0">
               <tr><td style="padding:4px 12px 4px 0"><strong>Name</strong></td><td>${pending.firstName} ${pending.lastName}</td></tr>
               <tr><td style="padding:4px 12px 4px 0"><strong>Username</strong></td><td>${pending.username}</td></tr>
@@ -118,6 +132,11 @@ export class AuthService {
               <tr><td style="padding:4px 12px 4px 0"><strong>Requested access</strong></td><td><strong>${pending.requestedRole}</strong></td></tr>
               <tr><td style="padding:4px 12px 4px 0"><strong>Role note</strong></td><td>${roleNote}</td></tr>
             </table>
+            <p>${
+                isBroker
+                    ? "Approve → Broker login with Personal Dashboard, My Shipments, My Customers, Notifications only."
+                    : "Approve to grant the requested role."
+            }</p>
             <p>
               <a href="${approveUrl}" style="display:inline-block;background:#10b981;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;margin-right:8px">Approve registration</a>
               <a href="${rejectUrl}" style="display:inline-block;background:#ef4444;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Reject</a>

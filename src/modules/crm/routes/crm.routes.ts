@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { authMiddleware, requireRole } from "../../../middlewares/auth.middleware.js";
+import { Roles } from "../../../auth/roles.js";
 import {
     crmAcceptShipmentController,
     crmBrokerWorkspaceController,
@@ -7,6 +8,8 @@ import {
     crmGetShipmentController,
     crmListBrokersController,
     crmListShipmentsController,
+    crmMyCustomersController,
+    crmMyNotificationsController,
     crmUpdateShipmentController,
 } from "../controllers/crm.controller.js";
 
@@ -15,11 +18,13 @@ export const crmRouter = Router();
 crmRouter.use(authMiddleware);
 
 const crmRoles = requireRole(
-    "Administrator",
-    "Owner",
-    "Manager",
-    "Broker",
-    "Accounting"
+    Roles.Administrator,
+    Roles.Owner,
+    Roles.Manager,
+    Roles.TeamLead,
+    Roles.Broker,
+    Roles.Accounting,
+    Roles.Dispatcher
 );
 
 crmRouter.get("/dashboard", crmRoles, crmDashboardController);
@@ -29,3 +34,5 @@ crmRouter.patch("/shipments/:id", crmRoles, crmUpdateShipmentController);
 crmRouter.post("/shipments/:id/accept", crmRoles, crmAcceptShipmentController);
 crmRouter.get("/brokers", crmRoles, crmListBrokersController);
 crmRouter.get("/brokers/:id", crmRoles, crmBrokerWorkspaceController);
+crmRouter.get("/customers", crmRoles, crmMyCustomersController);
+crmRouter.get("/notifications", crmRoles, crmMyNotificationsController);
