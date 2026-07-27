@@ -54,9 +54,13 @@ jobs:
           cur = con.cursor()
           try:
               rows = cur.execute(
-                  "SELECT setting_key, substr(setting_value,1,80) FROM settings WHERE category='gmail'"
+                  "SELECT setting_key, length(setting_value) FROM settings WHERE category='gmail'"
               ).fetchall()
-              print("gmail settings:", rows)
+              print("gmail settings (key, value_length):", rows)
+              user = cur.execute(
+                  "SELECT setting_value FROM settings WHERE category='gmail' AND setting_key='user'"
+              ).fetchone()
+              print("gmail connected user:", user[0] if user else None)
           except Exception as e:
               print("settings query failed:", e)
           try:

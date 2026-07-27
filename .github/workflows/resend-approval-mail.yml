@@ -1,0 +1,204 @@
+name: Resend approval mail
+
+on:
+  workflow_dispatch:
+
+jobs:
+  resend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Prefer Gmail API send + resend pending approvals
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+
+          export APPROVAL_EMAIL=effiegreenlogistics@gmail.com
+
+          python3 << 'PY'
+          import os, re, sqlite3, json, subprocess, textwrap
+          from pathlib import Path
+
+          root = Path("/root/GreenLogistics-Attendance")
+          env_text = (root / ".env").read_text(encoding="utf-8", errors="ignore")
+
+          def env(key, default=""):
+              m = re.search(rf'^{re.escape(key)}=(.*)$', env_text, re.M)
+              if not m:
+                  return default
+              return m.group(1).strip().strip('"').strip("'")
+
+          approval = "effiegreenlogistics@gmail.com"
+          public = env("PUBLIC_APP_URL", "https://os.greengrouplogistics.com").rstrip("/")
+          jwt_secret = env("JWT_SECRET")
+          client_id = env("GMAIL_CLIENT_ID")
+          client_secret = env("GMAIL_CLIENT_SECRET")
+          redirect = env("GMAIL_REDIRECT_URI") or f"{public}/api/email/callback"
+
+          db_url = env("DATABASE_URL")
+          candidates = []
+          if db_url.startswith("file:"):
+              candidates.append(Path(db_url[5:]))
+          candidates += [root / "data" / "attendance.db", root / "prisma" / "data" / "attendance.db"]
+          db = next((p for p in candidates if p.is_file()), None)
+          if not db:
+              raise SystemExit("DB not found")
+
+          con = sqlite3.connect(str(db))
+          cur = con.cursor()
+          gmail_user = cur.execute(
+              "SELECT setting_value FROM settings WHERE category='gmail' AND setting_key='user'"
+          ).fetchone()
+          refresh = cur.execute(
+              "SELECT setting_value FROM settings WHERE category='gmail' AND setting_key='refresh_token'"
+          ).fetchone()
+          refresh_token = (refresh[0] if refresh else "") or env("GMAIL_REFRESH_TOKEN")
+          from_addr = (gmail_user[0] if gmail_user else "") or env("GMAIL_USER") or approval
+
+          pending = cur.execute(
+              "SELECT pending_id, username, email, first_name, last_name, requested_role FROM pending_registrations WHERE status='PENDING'"
+          ).fetchall()
+          print(f"From={from_addr} To={approval} Pending={len(pending)}")
+          if not refresh_token:
+              raise SystemExit("No Gmail refresh token — open /api/email/auth as effie")
+          if not client_id or not client_secret:
+              raise SystemExit("Missing GMAIL_CLIENT_ID/SECRET")
+          if not jwt_secret:
+              raise SystemExit("Missing JWT_SECRET")
+
+          # Write a small node sender script
+          sender = root / "scripts" / "_send_approval_once.mjs"
+          sender.parent.mkdir(parents=True, exist_ok=True)
+          sender.write_text(textwrap.dedent(f'''
+          import {{ google }} from "googleapis";
+          import jwt from "jsonwebtoken";
+
+          const clientId = process.env.GMAIL_CLIENT_ID;
+          const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+          const redirectUri = process.env.GMAIL_REDIRECT_URI || "{redirect}";
+          const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+          const fromAddr = process.env.MAIL_FROM;
+          const toAddr = process.env.MAIL_TO;
+          const jwtSecret = process.env.JWT_SECRET;
+          const publicApp = process.env.PUBLIC_APP_URL;
+          const pending = JSON.parse(process.env.PENDING_JSON || "[]");
+
+          function encodeSubject(subject) {{
+            if (/^[\\x20-\\x7E]*$/.test(subject)) return subject;
+            return `=?UTF-8?B?${{Buffer.from(subject, "utf8").toString("base64")}}=?`;
+          }}
+
+          function buildRaw({{ from, to, subject, text, html }}) {{
+            const boundary = `greenos_${{Date.now()}}`;
+            const raw = [
+              `From: ${{from}}`,
+              `To: ${{to}}`,
+              `Subject: ${{encodeSubject(subject)}}`,
+              "MIME-Version: 1.0",
+              `Content-Type: multipart/alternative; boundary="${{boundary}}"`,
+              "",
+              `--${{boundary}}`,
+              'Content-Type: text/plain; charset="UTF-8"',
+              "",
+              text,
+              `--${{boundary}}`,
+              'Content-Type: text/html; charset="UTF-8"',
+              "",
+              html,
+              `--${{boundary}}--`,
+              "",
+            ].join("\\r\\n");
+            return Buffer.from(raw).toString("base64").replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+          }}
+
+          const oauth2 = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+          oauth2.setCredentials({{ refresh_token: refreshToken }});
+          const gmail = google.gmail({{ version: "v1", auth: oauth2 }});
+
+          for (const p of pending) {{
+            const token = jwt.sign(
+              {{ pendingId: p.pending_id, purpose: "registration-approval" }},
+              jwtSecret,
+              {{ expiresIn: "7d" }}
+            );
+            const approveUrl = `${{publicApp}}/api/v1/auth/registration/approve?token=${{encodeURIComponent(token)}}`;
+            const rejectUrl = `${{publicApp}}/api/v1/auth/registration/reject?token=${{encodeURIComponent(token)}}`;
+            const subject = `[Green OS] Registration request — ${{p.first_name}} ${{p.last_name}} (${{p.requested_role}})`;
+            const text = [
+              `Name: ${{p.first_name}} ${{p.last_name}}`,
+              `Username: ${{p.username}}`,
+              `Email: ${{p.email}}`,
+              `Role: ${{p.requested_role}}`,
+              `Approve: ${{approveUrl}}`,
+              `Reject: ${{rejectUrl}}`,
+            ].join("\\n");
+            const html = `<p><strong>${{p.first_name}} ${{p.last_name}}</strong> (${{p.username}}) requested <strong>${{p.requested_role}}</strong>.</p>
+              <p><a href="${{approveUrl}}">Approve</a> &nbsp; <a href="${{rejectUrl}}">Reject</a></p>`;
+
+            await gmail.users.messages.send({{
+              userId: "me",
+              requestBody: {{
+                raw: buildRaw({{ from: fromAddr, to: toAddr, subject, text, html }}),
+              }},
+            }});
+            console.log("SENT", p.username, "->", toAddr);
+            console.log("APPROVE", approveUrl);
+            console.log("REJECT", rejectUrl);
+          }}
+
+          // Also send a ping test
+          await gmail.users.messages.send({{
+            userId: "me",
+            requestBody: {{
+              raw: buildRaw({{
+                from: fromAddr,
+                to: toAddr,
+                subject: "[Green OS] Mail test — approval channel OK",
+                text: "If you see this in effiegreenlogistics@gmail.com, approval mail works. Check Inbox, Spam, and Sent.",
+                html: "<p>If you see this in <strong>effiegreenlogistics@gmail.com</strong>, approval mail works.</p><p>Check Inbox, Spam, and Sent.</p>",
+              }}),
+            }},
+          }});
+          console.log("TEST ping sent to", toAddr);
+          '''), encoding="utf-8")
+
+          env = os.environ.copy()
+          env.update({
+              "GMAIL_CLIENT_ID": client_id,
+              "GMAIL_CLIENT_SECRET": client_secret,
+              "GMAIL_REDIRECT_URI": redirect,
+              "GMAIL_REFRESH_TOKEN": refresh_token,
+              "MAIL_FROM": from_addr,
+              "MAIL_TO": approval,
+              "JWT_SECRET": jwt_secret,
+              "PUBLIC_APP_URL": public,
+              "PENDING_JSON": json.dumps([
+                  {
+                      "pending_id": r[0],
+                      "username": r[1],
+                      "email": r[2],
+                      "first_name": r[3],
+                      "last_name": r[4],
+                      "requested_role": r[5],
+                  }
+                  for r in pending
+              ]),
+          })
+          print(subprocess.check_output(
+              ["node", str(sender)],
+              cwd=str(root),
+              env=env,
+              text=True,
+              stderr=subprocess.STDOUT,
+          ))
+          con.close()
+          PY
+          EOF

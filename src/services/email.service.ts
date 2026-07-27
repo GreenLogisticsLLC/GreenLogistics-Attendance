@@ -135,8 +135,8 @@ async function sendViaGmailApi(options: {
 
 /**
  * Outbound system mail.
- * Prefer SMTP when credentials work; fall back to Gmail API (connected effie OAuth)
- * so registration approvals still reach APPROVAL_EMAIL when App Password is wrong.
+ * Prefer Gmail API when OAuth is connected (effie) — Contabo SMTP App Password is often broken.
+ * Fall back to SMTP if API send fails.
  */
 export async function sendMail(options: {
     to: string;
@@ -145,33 +145,34 @@ export async function sendMail(options: {
     html: string;
 }) {
     const smtpReady = Boolean(config.smtp.host && config.smtp.user && config.smtp.pass);
-    let smtpError: unknown;
+    let gmailError: unknown;
+
+    try {
+        await sendViaGmailApi(options);
+        console.log(`[mail] Sent via Gmail API to ${options.to}`);
+        return;
+    } catch (err) {
+        gmailError = err;
+        console.error("[mail] Gmail API send failed, trying SMTP:", err);
+    }
 
     if (smtpReady) {
         try {
             await sendViaSmtp(options);
             console.log(`[mail] Sent via SMTP to ${options.to}`);
             return;
-        } catch (err) {
-            smtpError = err;
-            console.error("[mail] SMTP failed, trying Gmail API fallback:", err);
+        } catch (smtpErr) {
+            console.error("[mail] SMTP also failed:", smtpErr);
+            throw new Error(
+                `Approval email could not be sent. ${friendlySmtpError(smtpErr)} ` +
+                    `(Gmail API: ${gmailError instanceof Error ? gmailError.message : String(gmailError)})`
+            );
         }
     }
 
-    try {
-        await sendViaGmailApi(options);
-        console.log(`[mail] Sent via Gmail API to ${options.to}`);
-        return;
-    } catch (gmailErr) {
-        console.error("[mail] Gmail API send failed:", gmailErr);
-        const smtpPart = smtpError
-            ? friendlySmtpError(smtpError)
-            : smtpReady
-              ? ""
-              : "SMTP not configured.";
-        const gmailPart = gmailErr instanceof Error ? gmailErr.message : String(gmailErr);
-        throw new Error(
-            `Approval email could not be sent. ${smtpPart ? smtpPart + " " : ""}${gmailPart}`.trim()
-        );
-    }
+    throw new Error(
+        `Approval email could not be sent. ${
+            gmailError instanceof Error ? gmailError.message : String(gmailError)
+        } SMTP is not configured.`
+    );
 }
