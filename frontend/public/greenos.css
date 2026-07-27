@@ -260,6 +260,24 @@
   color: #fecaca;
 }
 
+.emp-actions {
+  white-space: nowrap;
+}
+
+.emp-user-delete {
+  border: 1px solid #7f1d1d;
+  background: #450a0a;
+  color: #fecaca;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.emp-user-delete:hover {
+  background: #7f1d1d;
+  color: #fff;
+}
+
 .gos-subnav {
   display: flex;
   flex-wrap: wrap;

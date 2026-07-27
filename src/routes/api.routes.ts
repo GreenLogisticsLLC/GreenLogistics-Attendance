@@ -43,6 +43,7 @@ import {
     listUsersController,
     listAssignableRolesController,
     updateUserRoleController,
+    deleteUserController,
 } from "../controllers/users.controller.js";
 import { emailRouter } from "../modules/email/routes/email.routes.js";
 import { crmRouter } from "../modules/crm/routes/crm.routes.js";
@@ -80,6 +81,12 @@ apiRouter.patch(
     authMiddleware,
     requireRole("Administrator", "Owner", "Manager", "HR"),
     updateUserRoleController
+);
+apiRouter.delete(
+    "/v1/users/:userId",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    deleteUserController
 );
 
 apiRouter.post("/v1/webhook/attendance", legacyWebhookController);

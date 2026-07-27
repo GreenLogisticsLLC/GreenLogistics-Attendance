@@ -200,3 +200,8 @@ export function canAssignRole(actorRole: string, targetRole: string): boolean {
     }
     return true;
 }
+
+/** Same elevation rules as assign — Manager cannot delete Owner/Admin accounts. */
+export function canDeleteUserAccount(actorRole: string, targetRole: string): boolean {
+    return canAssignRole(actorRole, targetRole);
+}

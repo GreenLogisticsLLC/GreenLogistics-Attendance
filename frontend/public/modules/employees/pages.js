@@ -81,7 +81,7 @@ window.GreenOSModules["employees"] = {
       '<p id="emp-users-status" class="gos-muted">Loading…</p>' +
       '<div class="emp-users-wrap"><table class="emp-users-table" id="emp-users-table">' +
       "<thead><tr>" +
-      "<th>Name</th><th>Username</th><th>Email</th><th>Role / status</th><th></th>" +
+      "<th>Name</th><th>Username</th><th>Email</th><th>Role / status</th><th>Actions</th>" +
       "</tr></thead><tbody></tbody></table></div>";
 
     var statusEl = body.querySelector("#emp-users-status");
@@ -171,7 +171,10 @@ window.GreenOSModules["employees"] = {
             '">' +
             options +
             "</select></td>" +
-            '<td><button type="button" class="btn-primary emp-role-save" style="width:auto;padding:0.4rem 0.75rem">Save</button></td>' +
+            '<td class="emp-actions">' +
+            '<button type="button" class="btn-primary emp-role-save" style="width:auto;padding:0.4rem 0.75rem">Save</button> ' +
+            '<button type="button" class="emp-user-delete" style="width:auto;padding:0.4rem 0.75rem">Delete</button>' +
+            "</td>" +
             "</tr>"
           );
         })
@@ -212,6 +215,46 @@ window.GreenOSModules["employees"] = {
             statusEl.style.color = "#ef4444";
             select.value = prev;
           } finally {
+            btn.disabled = false;
+          }
+        });
+      });
+
+      tbody.querySelectorAll(".emp-user-delete").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var tr = btn.closest("tr");
+          if (!tr) return;
+          var userId = tr.getAttribute("data-user-id");
+          var name = (tr.cells[0] && tr.cells[0].textContent) || "this user";
+          var username = (tr.cells[1] && tr.cells[1].textContent) || "";
+          var ok = window.confirm(
+            "Delete " +
+              name.trim() +
+              " (" +
+              username +
+              ")?\n\nThis permanently removes the account and related GreenOS data " +
+              "(assigned CRM shipments, assignment queue, audit logs, linked attendance badge employee)."
+          );
+          if (!ok) return;
+          btn.disabled = true;
+          statusEl.textContent = "Deleting…";
+          statusEl.style.color = "";
+          try {
+            var data = await api("/users/" + encodeURIComponent(userId), {
+              method: "DELETE",
+            });
+            if (!data.success) {
+              statusEl.textContent = data.message || "Delete failed";
+              statusEl.style.color = "#ef4444";
+              btn.disabled = false;
+              return;
+            }
+            tr.remove();
+            statusEl.textContent = data.message || "User deleted";
+            statusEl.style.color = "#22c55e";
+          } catch (e) {
+            statusEl.textContent = "Connection error";
+            statusEl.style.color = "#ef4444";
             btn.disabled = false;
           }
         });

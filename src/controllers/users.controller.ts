@@ -25,3 +25,15 @@ export async function updateUserRoleController(req: AuthRequest, res: Response) 
     }
     return res.json(apiResponse(true, result.data.message, result.data));
 }
+
+export async function deleteUserController(req: AuthRequest, res: Response) {
+    if (!req.user) {
+        return res.status(401).json(apiResponse(false, "Unauthorized"));
+    }
+    const userId = String(req.params.userId || "");
+    const result = await usersService.deleteUser(req.user, userId);
+    if (!result.ok) {
+        return res.status(result.status).json(apiResponse(false, result.message));
+    }
+    return res.json(apiResponse(true, result.data.message, result.data));
+}

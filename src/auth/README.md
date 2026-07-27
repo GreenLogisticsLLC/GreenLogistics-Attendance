@@ -30,6 +30,10 @@ Owner / Administrator / Manager / HR can open **Employees → Platform users** a
 (e.g. Broker → Team Lead). The person must sign in again for the new menu to apply.
 Only Owner/Administrator may assign Owner or Administrator. The last active Owner cannot be demoted.
 
+**Delete** removes the account and related GreenOS data: assigned CRM shipments, assignment queue entry,
+audit logs, pending signup rows, and a linked attendance badge employee (sessions/events) if linked.
+You cannot delete your own account or the last Owner.
+
 1. Add role to `Roles` + `MODULE_ACCESS` in `roles.ts`
 2. Add `roles: [...]` on registry entries in `frontend/public/modules/registry.js`
 3. Seed the role in `prisma/seed.ts`
