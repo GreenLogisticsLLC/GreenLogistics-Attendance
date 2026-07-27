@@ -19,31 +19,6 @@ export async function assignmentEligibleController(_req: AuthRequest, res: Respo
     return res.json(apiResponse(true, "Eligible brokers", eligible));
 }
 
-/** Toggle Available for Assignment (does not change Attendance). */
-export async function setAvailableController(req: AuthRequest, res: Response) {
-    const userId = String(req.params.userId);
-    const available = Boolean(req.body?.availableForAssignment);
-    try {
-        const user = await prisma.user.update({
-            where: { userId },
-            data: { availableForAssignment: available },
-            select: {
-                userId: true,
-                firstName: true,
-                lastName: true,
-                username: true,
-                isActive: true,
-                availableForAssignment: true,
-                employeeId: true,
-            },
-        });
-        return res.json(apiResponse(true, "Availability updated", user));
-    } catch (err) {
-        const message = err instanceof Error ? err.message : "Update failed";
-        return res.status(404).json(apiResponse(false, message));
-    }
-}
-
 /** Link a GreenOS user to an Attendance employee (for In Office checks). */
 export async function linkEmployeeController(req: AuthRequest, res: Response) {
     const userId = String(req.params.userId);
@@ -63,7 +38,6 @@ export async function linkEmployeeController(req: AuthRequest, res: Response) {
                 firstName: true,
                 lastName: true,
                 employeeId: true,
-                availableForAssignment: true,
             },
         });
         return res.json(apiResponse(true, "User linked to employee", user));

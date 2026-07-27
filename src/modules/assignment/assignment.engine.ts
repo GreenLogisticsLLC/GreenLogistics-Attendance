@@ -25,8 +25,8 @@ function displayName(u: { firstName: string; lastName: string; username: string 
 }
 
 /**
- * Assignment Engine v1.0 — Round Robin among brokers who are:
- * In Office (Attendance) + Active (User) + Available for Assignment.
+ * Assignment Engine v1.0 — Round Robin driven only by Attendance:
+ * In Office → in queue; Out of Office → removed immediately.
  */
 export class AssignmentEngine {
     async startPipeline(shipmentLeadId: string) {
@@ -42,11 +42,11 @@ export class AssignmentEngine {
 
         const pick = await this.pickNextBrokerRoundRobin();
         if (!pick) {
-            await this.pipelineLog(shipmentLeadId, "No eligible broker in office — lead stays NEW");
+            await this.pipelineLog(shipmentLeadId, "No broker In Office — lead stays NEW");
             await this.assignmentLog({
                 shipmentLeadId,
                 eventType: "NO_ELIGIBLE",
-                message: "No broker with In Office + Active + Available",
+                message: "No broker currently In Office (Attendance)",
             });
             return lead;
         }
@@ -153,7 +153,7 @@ export class AssignmentEngine {
         return {
             version: "1.0",
             algorithm: "round_robin",
-            rules: ["In Office", "Active", "Available for Assignment"],
+            rules: ["Attendance In Office only"],
             eligible: eligible.map((e) => ({
                 userId: e.userId,
                 name: e.displayName,
@@ -179,13 +179,13 @@ export class AssignmentEngine {
     }
 
     /**
-     * Eligible = Active User + Available for Assignment + linked Employee In Office.
+     * Eligible = linked broker whose Attendance status is In Office.
+     * Out of Office (or no session) → excluded from the queue immediately.
+     * No manual Active / Available toggles are used.
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
         const users = await prisma.user.findMany({
             where: {
-                isActive: true,
-                availableForAssignment: true,
                 role: { roleName: { in: ["Broker", "Manager", "Owner"] } },
             },
             include: { role: true, employee: true },
@@ -201,9 +201,9 @@ export class AssignmentEngine {
             if (!employeeId) continue;
 
             const session = await attendanceSessionRepository.findRecentActiveSession(employeeId);
+            // Only In Office participates; Out of Office / other statuses are excluded.
             if (!session || session.currentStatus !== "INSIDE_OFFICE") continue;
 
-            // Persist auto-matched link for next time
             if (!user.employeeId) {
                 try {
                     await prisma.user.update({
