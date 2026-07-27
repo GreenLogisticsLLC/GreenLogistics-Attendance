@@ -17,26 +17,15 @@ jobs:
       - name: Delete PENDING signup requests on Contabo
         run: |
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
-            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" << 'EOF'
-          set -e
-          cd /root/GreenLogistics-Attendance
-          node --input-type=module <<'NODE'
-          import { PrismaClient } from "@prisma/client";
-          const prisma = new PrismaClient();
-          const pending = await prisma.pendingRegistration.findMany({
-            where: { status: "PENDING" },
-            orderBy: { createdAt: "desc" },
-          });
-          console.log("Before:", pending.map((p) => ({
-            username: p.username,
-            email: p.email,
-            role: p.requestedRole,
-            createdAt: p.createdAt,
-          })));
-          const result = await prisma.pendingRegistration.deleteMany({
-            where: { status: "PENDING" },
-          });
-          console.log("Deleted:", result.count);
-          await prisma.$disconnect();
-          NODE
-          EOF
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            'cd /root/GreenLogistics-Attendance && node -e "
+              const { PrismaClient } = require(\"@prisma/client\");
+              const prisma = new PrismaClient();
+              (async () => {
+                const pending = await prisma.pendingRegistration.findMany({ where: { status: \"PENDING\" } });
+                console.log(\"Before:\", JSON.stringify(pending.map(p => ({ username: p.username, email: p.email, role: p.requestedRole })), null, 2));
+                const result = await prisma.pendingRegistration.deleteMany({ where: { status: \"PENDING\" } });
+                console.log(\"Deleted:\", result.count);
+                await prisma.\$disconnect();
+              })().catch(async (e) => { console.error(e); await prisma.\$disconnect(); process.exit(1); });
+            "'
