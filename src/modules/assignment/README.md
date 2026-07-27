@@ -1,33 +1,41 @@
 # Assignment Engine v1.0
 
-Round-robin shipment assignment driven **only by Attendance**.
+```
+Attendance (card swipe)
+    ↓
+In Office / Out of Office
+    ↓
+Assignment Queue (Round Robin)
+    ↓
+CRM Shipment
+```
 
-## Eligibility
+## Rule (only Attendance)
 
-| Attendance status | In assignment queue |
-|-------------------|---------------------|
-| **In Office**     | Yes                 |
-| **Out of Office** | No (removed immediately) |
+| Card / status   | Effect                                      |
+|-----------------|---------------------------------------------|
+| **In Office**   | Automatically joins end of assignment queue |
+| **Out of Office** | Immediately removed — no new shipments    |
 
-No manual Active / Available switches. Card swipe (or status change) is enough.
+No toggles, buttons, or checkboxes.
 
-## Behavior
+## Morning example
 
-- New shipments → Round Robin among brokers currently In Office
-- Out of Office → excluded from queue, receives no new shipments
-- Back In Office → appended to the **end** of the queue
-- Queue order + next index persist in `assignment_queue_state`
-- Each assignment writes Timeline + `assignment_logs`
+Alex → Leah → David → Mary swipe In Office  
+Queue: `1 Alex → 2 Leah → 3 David → 4 Mary`  
+Shipments #1–#4 go to each in turn; #5 back to Alex.
 
-## User ↔ Employee link
+Alex leaves → Out of Office → removed  
+Queue: `Leah → David → Mary`  
+Next shipment → Leah.
 
-Needed so Attendance can be read for a broker login account.
-
-Auto-match by first/last name when unique, or:
+## API
 
 ```
+GET /api/assignment/queue
+GET /api/assignment/eligible
+GET /api/assignment/logs
 PATCH /api/assignment/users/:userId/employee  { "employeeId": "..." }
-GET   /api/assignment/queue
-GET   /api/assignment/eligible
-GET   /api/assignment/logs
 ```
+
+Link User ↔ Employee once (or rely on unique first/last name match).

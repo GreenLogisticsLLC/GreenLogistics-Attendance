@@ -153,7 +153,8 @@ export class AssignmentEngine {
         return {
             version: "1.0",
             algorithm: "round_robin",
-            rules: ["Attendance In Office only"],
+            rules: ["Attendance card only: In Office joins queue, Out of Office leaves queue"],
+            heart: "Attendance → Assignment Queue → CRM Shipment",
             eligible: eligible.map((e) => ({
                 userId: e.userId,
                 name: e.displayName,
@@ -179,9 +180,109 @@ export class AssignmentEngine {
     }
 
     /**
+     * Attendance card ENTRY → In Office → join end of assignment queue.
+     * Attendance card EXIT → Out of Office → leave queue immediately.
+     */
+    async onBrokerEnteredOffice(employeeId: string) {
+        const user = await this.findBrokerUserByEmployeeId(employeeId);
+        if (!user) return null;
+
+        const state = await this.loadQueueState();
+        if (state.orderedUserIds.includes(user.userId)) {
+            return state;
+        }
+
+        const orderedUserIds = [...state.orderedUserIds, user.userId];
+        await this.saveQueueState(orderedUserIds, state.nextIndex);
+        await this.assignmentLog({
+            assignedUserId: user.userId,
+            assignedEmployeeId: employeeId,
+            eventType: "QUEUE_JOIN",
+            message: `${displayName(user)} In Office → added to assignment queue (position ${orderedUserIds.length})`,
+            queueSnapshot: JSON.stringify({ order: orderedUserIds, nextIndex: state.nextIndex }),
+        });
+        console.log(
+            `[assignment] QUEUE_JOIN ${displayName(user)} — queue size ${orderedUserIds.length}`
+        );
+        return { orderedUserIds, nextIndex: state.nextIndex };
+    }
+
+    async onBrokerLeftOffice(employeeId: string) {
+        const user = await this.findBrokerUserByEmployeeId(employeeId);
+        if (!user) return null;
+
+        const state = await this.loadQueueState();
+        const idx = state.orderedUserIds.indexOf(user.userId);
+        if (idx < 0) return state;
+
+        const orderedUserIds = state.orderedUserIds.filter((id) => id !== user.userId);
+        let nextIndex = state.nextIndex;
+        if (orderedUserIds.length === 0) {
+            nextIndex = 0;
+        } else if (idx < state.nextIndex) {
+            nextIndex = Math.max(0, state.nextIndex - 1);
+        } else if (idx === state.nextIndex) {
+            // Was next — stay on same slot (now points to the following person)
+            nextIndex = state.nextIndex % orderedUserIds.length;
+        } else {
+            nextIndex = state.nextIndex % orderedUserIds.length;
+        }
+
+        await this.saveQueueState(orderedUserIds, nextIndex);
+        await this.assignmentLog({
+            assignedUserId: user.userId,
+            assignedEmployeeId: employeeId,
+            eventType: "QUEUE_LEAVE",
+            message: `${displayName(user)} Out of Office → removed from assignment queue`,
+            queueSnapshot: JSON.stringify({ order: orderedUserIds, nextIndex }),
+        });
+        console.log(
+            `[assignment] QUEUE_LEAVE ${displayName(user)} — queue size ${orderedUserIds.length}`
+        );
+        return { orderedUserIds, nextIndex };
+    }
+
+    private async findBrokerUserByEmployeeId(employeeId: string) {
+        let user = await prisma.user.findFirst({
+            where: {
+                employeeId,
+                role: { roleName: { in: ["Broker", "Manager", "Owner"] } },
+            },
+            include: { role: true },
+        });
+        if (user) return user;
+
+        const emp = await prisma.employee.findUnique({ where: { employeeId } });
+        if (!emp) return null;
+
+        const candidates = await prisma.user.findMany({
+            where: { role: { roleName: { in: ["Broker", "Manager", "Owner"] } } },
+            include: { role: true },
+        });
+        const fn = emp.firstName.trim().toLowerCase();
+        const ln = emp.lastName.trim().toLowerCase();
+        const matches = candidates.filter(
+            (u) =>
+                u.firstName.trim().toLowerCase() === fn &&
+                u.lastName.trim().toLowerCase() === ln
+        );
+        if (matches.length !== 1) return null;
+
+        user = matches[0];
+        try {
+            await prisma.user.update({
+                where: { userId: user.userId },
+                data: { employeeId },
+            });
+        } catch {
+            /* ignore */
+        }
+        return user;
+    }
+
+    /**
      * Eligible = linked broker whose Attendance status is In Office.
-     * Out of Office (or no session) → excluded from the queue immediately.
-     * No manual Active / Available toggles are used.
+     * Out of Office → excluded. Queue order is driven by card swipes (arrival order).
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
         const users = await prisma.user.findMany({
@@ -259,12 +360,18 @@ export class AssignmentEngine {
         broker: EligibleBroker;
         queueSnapshot: string;
     } | null> {
+        // Rebuild from Attendance first, then sync persisted arrival-order queue.
         const eligible = await this.listEligibleBrokers();
-        if (!eligible.length) return null;
+        if (!eligible.length) {
+            await this.saveQueueState([], 0);
+            return null;
+        }
 
         const eligibleIds = eligible.map((e) => e.userId);
         const state = await this.loadQueueState();
+        // Keep arrival order; drop anyone no longer In Office; append any In Office missing from queue.
         const synced = this.syncQueueOrder(state.orderedUserIds, eligibleIds, state.nextIndex);
+        await this.saveQueueState(synced.orderedUserIds, synced.nextIndex);
 
         if (!synced.orderedUserIds.length) return null;
 

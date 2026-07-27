@@ -4,6 +4,7 @@ import { diffMinutes, getWorkDateString, combineDateAndTime } from "../utils/hel
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
 import { attendanceEventRepository } from "../repositories/attendance-event.repository.js";
+import { assignmentEngine } from "../modules/assignment/assignment.engine.js";
 import type { AttendanceEventType, EmployeeStatus } from "../types/attendance.types.js";
 
 interface ProcessEventInput {
@@ -167,6 +168,17 @@ export class AttendanceService {
             activeSession.sessionId,
             updates
         );
+
+        // Attendance is the heart of Assignment: In Office ↔ queue join, Out of Office ↔ leave.
+        try {
+            if (direction === "ENTRY") {
+                await assignmentEngine.onBrokerEnteredOffice(employee.employeeId);
+            } else {
+                await assignmentEngine.onBrokerLeftOffice(employee.employeeId);
+            }
+        } catch (err) {
+            console.error("[attendance→assignment] queue sync failed:", err);
+        }
 
         return { event, session: updatedSession, duplicate: false, direction };
     }
