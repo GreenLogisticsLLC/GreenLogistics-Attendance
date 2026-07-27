@@ -1,0 +1,78 @@
+name: Diagnose approval mail
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Check mail env + recent logs + force APPROVAL_EMAIL
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+
+          echo "=== Mail-related .env (secrets redacted) ==="
+          grep -E '^(APPROVAL_EMAIL|GMAIL_USER|SMTP_USER|SMTP_FROM|SMTP_HOST|SMTP_PORT|PUBLIC_APP_URL)=' .env \
+            | sed -E 's/(SMTP_PASS|GMAIL_REFRESH_TOKEN|GMAIL_CLIENT_SECRET)=.*/\1=***/' || true
+          grep -E '^(SMTP_PASS|GMAIL_REFRESH_TOKEN)=' .env | sed 's/=.*/=SET/' || true
+
+          echo "=== Ensure APPROVAL_EMAIL=effie ==="
+          if grep -q '^APPROVAL_EMAIL=' .env; then
+            sed -i 's/^APPROVAL_EMAIL=.*/APPROVAL_EMAIL=effiegreenlogistics@gmail.com/' .env
+          else
+            echo 'APPROVAL_EMAIL=effiegreenlogistics@gmail.com' >> .env
+          fi
+          grep '^APPROVAL_EMAIL=' .env
+
+          echo "=== Gmail OAuth settings in DB ==="
+          python3 << 'PY'
+          import re, sqlite3
+          from pathlib import Path
+          root = Path("/root/GreenLogistics-Attendance")
+          env = (root / ".env").read_text(encoding="utf-8", errors="ignore")
+          m = re.search(r'^DATABASE_URL=(.*)$', env, re.M)
+          raw = (m.group(1).strip().strip('"').strip("'") if m else "")
+          candidates = []
+          if raw.startswith("file:"):
+              candidates.append(Path(raw[5:]))
+          candidates += [root / "data" / "attendance.db", root / "prisma" / "data" / "attendance.db"]
+          db = next((p for p in candidates if p.is_file()), None)
+          print("DB:", db)
+          if not db:
+              raise SystemExit(0)
+          con = sqlite3.connect(str(db))
+          cur = con.cursor()
+          try:
+              rows = cur.execute(
+                  "SELECT setting_key, substr(setting_value,1,80) FROM settings WHERE category='gmail'"
+              ).fetchall()
+              print("gmail settings:", rows)
+          except Exception as e:
+              print("settings query failed:", e)
+          try:
+              pending = cur.execute(
+                  "SELECT username, email, requested_role, status, created_at FROM pending_registrations ORDER BY created_at DESC LIMIT 5"
+              ).fetchall()
+              print("recent pending:", pending)
+          except Exception as e:
+              print("pending query failed:", e)
+          con.close()
+          PY
+
+          echo "=== Restart greenos with updated env ==="
+          pm2 restart greenos --update-env
+          sleep 2
+
+          echo "=== Recent mail/auth/SMTP logs ==="
+          pm2 logs greenos --lines 80 --nostream | grep -E '\[mail\]|\[SMTP\]|\[auth\]|Approval|GMAIL|BadCredentials|sendMail|effie|APPROVAL' || true
+          EOF
