@@ -24,9 +24,15 @@ jobs:
           ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
 
       - name: Deploy to Contabo VPS
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
         run: |
+          OPENAI_KEY_B64="$(printf '%s' "${OPENAI_API_KEY:-}" | base64 -w0)"
+          OPENAI_MODEL_SAFE="${OPENAI_MODEL:-gpt-5.5}"
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
-            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" << 'EOF'
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            "OPENAI_KEY_B64='${OPENAI_KEY_B64}' OPENAI_MODEL_SAFE='${OPENAI_MODEL_SAFE}' bash -s" << 'EOF'
           set -euo pipefail
           cd /root/GreenLogistics-Attendance
           git fetch origin
@@ -48,6 +54,19 @@ jobs:
               echo "DATABASE_URL=\"${ABS_URL}\"" >> .env
             fi
             echo "Pinned DATABASE_URL=${ABS_URL}"
+          fi
+
+          # GreenOS AI Assistant — sync OpenAI from GitHub Actions secrets (base64)
+          touch .env
+          if [ -n "${OPENAI_KEY_B64:-}" ]; then
+            OPENAI_API_KEY="$(printf '%s' "$OPENAI_KEY_B64" | base64 -d)"
+            MODEL="${OPENAI_MODEL_SAFE:-gpt-5.5}"
+            grep -vE '^(OPENAI_API_KEY|OPENAI_MODEL)=' .env > .env.openai.tmp || true
+            printf 'OPENAI_API_KEY=%s\nOPENAI_MODEL=%s\n' "$OPENAI_API_KEY" "$MODEL" >> .env.openai.tmp
+            mv .env.openai.tmp .env
+            echo "Synced OPENAI_API_KEY and OPENAI_MODEL to server .env"
+          else
+            echo "WARN: OPENAI_API_KEY GitHub secret is empty — AI Assistant will stay disabled"
           fi
 
           npm run build
