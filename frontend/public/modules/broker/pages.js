@@ -274,7 +274,7 @@ window.GreenOSModules.broker = {
     }
   },
 
-  async renderCustomers(body) {
+  async renderCustomers(body, root) {
     body.innerHTML = "<p>Loading customers…</p>";
     try {
       var data = await this.api("/customers");
@@ -284,10 +284,11 @@ window.GreenOSModules.broker = {
       }
       var rows = data.data || [];
       body.innerHTML =
-        '<section class="gos-dash-hero"><h1>My Customers</h1><p>From your assigned shipments</p></section>' +
+        '<section class="gos-dash-hero"><h1>My Customers</h1><p>Same Shipment Cards — no duplicate records</p></section>' +
         '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
         "<th>Customer</th><th>Shipments</th><th>Last Status</th><th>Updated</th>" +
-        '</tr></thead><tbody id="broker-cust-body"></tbody></table></div>';
+        '</tr></thead><tbody id="broker-cust-body"></tbody></table></div>' +
+        '<div id="broker-customer-detail"></div>';
       var tbody = body.querySelector("#broker-cust-body");
       if (!rows.length) {
         tbody.innerHTML = '<tr><td colspan="4">No customers yet</td></tr>';
@@ -298,7 +299,9 @@ window.GreenOSModules.broker = {
       tbody.innerHTML = rows
         .map(function (c) {
           return (
-            "<tr><td><strong>" +
+            '<tr class="crm-row" data-customer="' +
+            esc(c.customer) +
+            '"><td><strong>' +
             esc(c.customer) +
             "</strong></td><td>" +
             c.shipmentCount +
@@ -310,8 +313,112 @@ window.GreenOSModules.broker = {
           );
         })
         .join("");
+      tbody.querySelectorAll("[data-customer]").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          window.GreenOSModules.broker.openCustomer(
+            body.querySelector("#broker-customer-detail"),
+            tr.getAttribute("data-customer"),
+            root
+          );
+        });
+      });
     } catch {
       body.innerHTML = "<p>Failed to load customers</p>";
+    }
+  },
+
+  async openCustomer(host, name, root) {
+    if (!host) return;
+    host.innerHTML = "<p>Loading customer…</p>";
+    try {
+      var data = await this.api("/customers/" + encodeURIComponent(name));
+      if (!data.success) {
+        host.innerHTML = "<p>" + this.esc(data.message) + "</p>";
+        return;
+      }
+      var d = data.data || {};
+      var fin = d.financial || {};
+      var esc = this.esc.bind(this);
+      var fmt = this.fmtDate.bind(this);
+      var badge = this.statusBadge.bind(this);
+      host.innerHTML =
+        '<section class="gos-module-placeholder" style="margin-top:1rem">' +
+        "<h2>" +
+        esc(d.customer) +
+        "</h2>" +
+        '<div class="gos-card-grid">' +
+        this.card("Shipments", (d.shipments || []).length, "accent-blue") +
+        this.card("Active", fin.active || 0, "accent-green") +
+        this.card("Completed", fin.completed || 0, "accent-green") +
+        this.card("Quoted $", Math.round(fin.totalQuoted || 0), "accent-warn") +
+        "</div>" +
+        "<h3>All Shipments</h3>" +
+        '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+        "<th>Green OS ID</th><th>Status</th><th>Load #</th><th>Route</th><th>Updated</th>" +
+        "</tr></thead><tbody>" +
+        (d.shipments || [])
+          .map(function (s) {
+            return (
+              '<tr class="crm-row" data-id="' +
+              s.shipmentLeadId +
+              '"><td>' +
+              esc(s.greenOsShipmentId || s.shipmentLeadId.slice(0, 8)) +
+              "</td><td>" +
+              badge(s.status) +
+              "</td><td>" +
+              esc(s.loadNumber || "—") +
+              "</td><td>" +
+              esc([s.pickupCity, s.deliveryCity].filter(Boolean).join(" → ") || "—") +
+              "</td><td>" +
+              fmt(s.updatedAt) +
+              "</td></tr>"
+            );
+          })
+          .join("") +
+        "</tbody></table></div>" +
+        "<h3>Timeline / Events</h3><ul class='gos-muted'>" +
+        (d.domainEvents || [])
+          .slice(0, 40)
+          .map(function (e) {
+            return (
+              "<li><strong>" +
+              esc(e.title || e.eventType) +
+              "</strong> — " +
+              esc(e.message || "") +
+              " <small>" +
+              fmt(e.createdAt) +
+              "</small></li>"
+            );
+          })
+          .join("") +
+        (d.domainEvents && d.domainEvents.length ? "" : "<li>No events yet</li>") +
+        "</ul>" +
+        "<h3>Communication</h3><ul class='gos-muted'>" +
+        (d.communications || [])
+          .slice(0, 30)
+          .map(function (m) {
+            return (
+              "<li><strong>" +
+              esc(m.subject) +
+              "</strong><br><small>" +
+              esc(m.fromAddress) +
+              " · " +
+              fmt(m.receivedAt) +
+              "</small></li>"
+            );
+          })
+          .join("") +
+        (d.communications && d.communications.length ? "" : "<li>No mailbox history</li>") +
+        "</ul></section>";
+      host.querySelectorAll("[data-id]").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          if (window.GreenOSModules.crm) {
+            window.GreenOSModules.crm.openShipmentCard(root, tr.getAttribute("data-id"));
+          }
+        });
+      });
+    } catch {
+      host.innerHTML = "<p>Failed to load customer</p>";
     }
   },
 
@@ -323,24 +430,36 @@ window.GreenOSModules.broker = {
         body.innerHTML = "<p>" + this.esc(data.message) + "</p>";
         return;
       }
-      var rows = data.data || [];
+      var payload = data.data || {};
+      var rows = Array.isArray(payload) ? payload : payload.items || [];
+      var unread = payload.unread != null ? payload.unread : 0;
       var soundOn = localStorage.getItem("gos_notify_sound") !== "0";
       body.innerHTML =
-        '<section class="gos-dash-hero"><h1>Notifications</h1>' +
-        "<p>Live assignment alerts (SSE) + recent queue events. No page refresh needed.</p></section>" +
-        '<label class="gos-muted" style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem">' +
+        '<section class="gos-dash-hero"><h1>Notification Center</h1>' +
+        "<p>GreenOS alerts (not Gmail). Unread: <strong>" +
+        unread +
+        "</strong></p></section>" +
+        '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem">' +
+        '<label class="gos-muted" style="display:flex;align-items:center;gap:0.5rem">' +
         '<input type="checkbox" id="broker-sound-toggle"' +
         (soundOn ? " checked" : "") +
-        "/> Play sound on new assignment</label>" +
+        "/> Play sound</label>" +
+        '<button type="button" class="btn-secondary" id="broker-mark-all-read" style="width:auto">Mark all read</button>' +
+        "</div>" +
         '<ul class="broker-notify-list" id="broker-notify"></ul>';
       body.querySelector("#broker-sound-toggle")?.addEventListener("change", function (e) {
         var on = !!e.target.checked;
         if (window.GreenOSRealtime) window.GreenOSRealtime.setSoundEnabled(on);
         else localStorage.setItem("gos_notify_sound", on ? "1" : "0");
       });
+      body.querySelector("#broker-mark-all-read")?.addEventListener("click", async function () {
+        await window.GreenOSModules.broker.api("/notifications/read-all", { method: "POST" });
+        window.GreenOSModules.broker.renderNotifications(body);
+      });
       var list = body.querySelector("#broker-notify");
       if (!rows.length) {
-        list.innerHTML = "<li class=\"gos-muted\">No notifications yet — new assignments will pop up live</li>";
+        list.innerHTML =
+          '<li class="gos-muted">No notifications yet — assignments and uShip events appear here</li>';
         return;
       }
       var esc = this.esc.bind(this);
@@ -348,16 +467,36 @@ window.GreenOSModules.broker = {
       list.innerHTML = rows
         .map(function (n) {
           return (
-            "<li><strong>" +
-            esc(n.type) +
+            '<li class="' +
+            (n.status === "UNREAD" ? "is-unread" : "") +
+            '" data-id="' +
+            esc(n.id) +
+            '" data-shipment="' +
+            esc(n.shipmentLeadId || "") +
+            '"><strong>' +
+            esc(n.title || n.type) +
             "</strong> — " +
             esc(n.message) +
             '<br><small class="gos-muted">' +
             fmt(n.createdAt) +
+            (n.status === "UNREAD" ? " · UNREAD" : "") +
             "</small></li>"
           );
         })
         .join("");
+      list.querySelectorAll("[data-id]").forEach(function (li) {
+        li.addEventListener("click", async function () {
+          var nid = li.getAttribute("data-id");
+          var sid = li.getAttribute("data-shipment");
+          await window.GreenOSModules.broker.api("/notifications/" + nid + "/read", {
+            method: "POST",
+          });
+          if (sid && window.GreenOSModules.crm) {
+            var host = document.getElementById("gos-module-host");
+            if (host) window.GreenOSModules.crm.openShipmentCard(host, sid);
+          }
+        });
+      });
     } catch {
       body.innerHTML = "<p>Failed to load notifications</p>";
     }

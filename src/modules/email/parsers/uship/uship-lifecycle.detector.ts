@@ -3,6 +3,7 @@ import { domainEventEngine } from "../../../shipment/services/domain-event.engin
 import { shipmentService } from "../../../shipment/services/shipment.service.js";
 import { sseEmitToRoles, sseEmitToUser } from "../../../crm/services/realtime.hub.js";
 import { normalizeStatus } from "../../../shipment/shipment.lifecycle.js";
+import { platformNotificationService } from "../../../shipment/services/platform-notification.service.js";
 
 /**
  * Sprint D — classify uShip emails into lifecycle events and update the same Shipment Card.
@@ -291,6 +292,44 @@ export async function applyUshipLifecycleEvent(input: {
             ...payload,
             type: "SHIPMENT_LIFECYCLE_BROADCAST",
         });
+
+        const typeMap: Record<string, string> = {
+            CUSTOMER_REPLIED: "CUSTOMER_REPLIED",
+            CUSTOMER_QUESTION: "CUSTOMER_REPLIED",
+            NEW_MESSAGE: "CUSTOMER_REPLIED",
+            CUSTOMER_ACCEPTED: "BID_ACCEPTED",
+            SHIPMENT_BOOKED: "SHIPMENT_BOOKED",
+            LOAD_NUMBER_ASSIGNED: "LOAD_NUMBER_RECEIVED",
+            SHIPMENT_LOST: "SHIPMENT_LOST",
+            BID_SUBMITTED: "BID_SUBMITTED",
+            BID_UPDATED: "BID_SUBMITTED",
+            QUOTE_SUBMITTED: "BID_SUBMITTED",
+        };
+        const nType = typeMap[detected.kind] || "TIMELINE_EVENT";
+        const msg = `Shipment # ${shipment.greenOsShipmentId || input.shipmentLeadId.slice(0, 8)} — ${input.subject}`;
+        if (shipment.assignedBrokerId) {
+            await platformNotificationService
+                .notifyUser({
+                    userId: shipment.assignedBrokerId,
+                    notificationType: nType,
+                    title: detected.title,
+                    message: msg,
+                    shipmentLeadId: input.shipmentLeadId,
+                    meta: { kind: detected.kind },
+                })
+                .catch(() => null);
+        }
+        await platformNotificationService
+            .notifyRoles({
+                roles: ["Owner", "Manager", "Administrator", "Team Lead"],
+                notificationType: nType,
+                title: detected.title,
+                message: msg,
+                shipmentLeadId: input.shipmentLeadId,
+                excludeUserId: shipment.assignedBrokerId || undefined,
+                meta: { kind: detected.kind },
+            })
+            .catch(() => null);
     }
 
     return { applied: true as const, detected };

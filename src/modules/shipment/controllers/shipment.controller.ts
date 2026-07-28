@@ -63,4 +63,22 @@ export const shipmentController = {
             });
         }
     },
+
+    async updateOperations(req: AuthRequest, res: Response) {
+        try {
+            const id = String(req.params.id || "");
+            await shipmentService.updateOperations(id, req.body || {}, req.user?.userId);
+            const card = await crmService.getShipmentCard(id);
+            res.json({
+                success: true,
+                message: "Operations saved on existing Shipment Card",
+                data: card,
+            });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to save operations",
+            });
+        }
+    },
 };

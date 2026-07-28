@@ -21,4 +21,7 @@ shipmentRouter.get("/:id", roles, (req, res) => shipmentController.getCard(req, 
 shipmentRouter.post("/:id/load-number", roles, (req, res) =>
     shipmentController.applyLoadNumber(req, res)
 );
+shipmentRouter.patch("/:id/operations", roles, (req, res) =>
+    shipmentController.updateOperations(req, res)
+);
 shipmentRouter.get("/:id/events", roles, (req, res) => shipmentController.listEvents(req, res));

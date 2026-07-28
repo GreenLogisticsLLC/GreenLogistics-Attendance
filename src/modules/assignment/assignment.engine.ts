@@ -2,6 +2,7 @@ import { prisma } from "../../config/database.js";
 import { attendanceSessionRepository } from "../../repositories/attendance-session.repository.js";
 import { domainEventEngine } from "../shipment/services/domain-event.engine.js";
 import { ensureGreenOsShipmentId } from "../shipment/shipment.id.js";
+import { platformNotificationService } from "../shipment/services/platform-notification.service.js";
 import { sseEmitToRoles, sseEmitToUser } from "../crm/services/realtime.hub.js";
 import {
     shipmentImportLogRepository,
@@ -157,6 +158,27 @@ export class AssignmentEngine {
                 assignedAt: new Date().toISOString(),
                 message: `New Shipment Assigned — ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
             });
+            await platformNotificationService
+                .notifyUser({
+                    userId: broker.userId,
+                    notificationType: "SHIPMENT_ASSIGNED",
+                    title: "New Shipment Assigned",
+                    message: `Shipment # ${gosId || shipmentLeadId.slice(0, 8)} — ${leadRow?.shipmentTitle || lead.shipmentTitle}`,
+                    shipmentLeadId,
+                    meta: { greenOsShipmentId: gosId },
+                })
+                .catch(() => null);
+            await platformNotificationService
+                .notifyRoles({
+                    roles: ["Owner", "Manager", "Administrator", "Team Lead"],
+                    notificationType: "SHIPMENT_ASSIGNED",
+                    title: "New Shipment Assigned",
+                    message: `Shipment # ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
+                    shipmentLeadId,
+                    excludeUserId: broker.userId,
+                    meta: { greenOsShipmentId: gosId, brokerName: broker.displayName },
+                })
+                .catch(() => null);
         } catch (err) {
             console.warn("[assignment] SSE notify failed:", err);
         }

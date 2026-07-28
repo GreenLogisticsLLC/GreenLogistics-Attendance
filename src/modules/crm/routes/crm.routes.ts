@@ -4,10 +4,13 @@ import { Roles } from "../../../auth/roles.js";
 import {
     crmAcceptShipmentController,
     crmBrokerWorkspaceController,
+    crmCustomerDetailController,
     crmDashboardController,
     crmGetShipmentController,
     crmListBrokersController,
     crmListShipmentsController,
+    crmMarkAllNotificationsReadController,
+    crmMarkNotificationReadController,
     crmMyCustomersController,
     crmMyNotificationsController,
     crmUpdateShipmentController,
@@ -39,4 +42,7 @@ crmRouter.post("/shipments/:id/accept", crmRoles, crmAcceptShipmentController);
 crmRouter.get("/brokers", crmRoles, crmListBrokersController);
 crmRouter.get("/brokers/:id", crmRoles, crmBrokerWorkspaceController);
 crmRouter.get("/customers", crmRoles, crmMyCustomersController);
+crmRouter.get("/customers/:name", crmRoles, crmCustomerDetailController);
 crmRouter.get("/notifications", crmRoles, crmMyNotificationsController);
+crmRouter.post("/notifications/read-all", crmRoles, crmMarkAllNotificationsReadController);
+crmRouter.post("/notifications/:id/read", crmRoles, crmMarkNotificationReadController);

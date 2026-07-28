@@ -36,6 +36,7 @@ model User {
   auditLogs              AuditLog[]
   brokerGmailAccount     BrokerGmailAccount?
   brokerMailboxMessages  BrokerMailboxMessage[]
+  platformNotifications  PlatformNotification[]
 
   @@map("users")
 }
@@ -298,6 +299,16 @@ model ShipmentLead {
   status             String   @default("NEW")
   /// Load Number extends THIS card — never a separate Load entity.
   loadNumber         String?  @map("load_number")
+  carrierName        String?  @map("carrier_name")
+  driverName         String?  @map("driver_name")
+  truckNumber        String?  @map("truck_number")
+  trailerNumber      String?  @map("trailer_number")
+  rateConfirmation   String?  @map("rate_confirmation")
+  podUrl             String?  @map("pod_url")
+  invoiceNumber      String?  @map("invoice_number")
+  paymentStatus      String?  @map("payment_status")
+  opsPickupAt        DateTime? @map("ops_pickup_at")
+  opsDeliveryAt      DateTime? @map("ops_delivery_at")
   assignedBrokerId   String?  @map("assigned_broker_id")
   assignedAt         DateTime? @map("assigned_at")
   acceptedAt         DateTime? @map("accepted_at")
@@ -312,6 +323,7 @@ model ShipmentLead {
   importLogs         ShipmentImportLog[]
   timelineEvents     ShipmentTimelineEvent[]
   domainEvents       DomainEvent[]
+  platformNotifications PlatformNotification[]
 
   @@index([source])
   @@index([status])
@@ -445,4 +457,27 @@ model BrokerMailboxMessage {
   @@index([receivedAt])
   @@index([brokerGmailId])
   @@map("broker_mailbox_messages")
+}
+
+/// Sprint F — GreenOS Notification Center (not Gmail).
+model PlatformNotification {
+  notificationId   String    @id @default(uuid()) @map("notification_id")
+  userId           String?   @map("user_id")
+  roleAudience     String?   @map("role_audience")
+  shipmentLeadId   String?   @map("shipment_lead_id")
+  notificationType String    @map("notification_type")
+  title            String
+  message          String
+  status           String    @default("UNREAD")
+  metaJson         String?   @map("meta_json")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  readAt           DateTime? @map("read_at")
+  user             User?     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  shipmentLead     ShipmentLead? @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([shipmentLeadId])
+  @@index([createdAt])
+  @@index([notificationType])
+  @@map("platform_notifications")
 }

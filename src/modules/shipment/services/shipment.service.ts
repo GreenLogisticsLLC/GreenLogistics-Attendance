@@ -166,6 +166,73 @@ export class ShipmentService {
             timelineStage: "SHIPMENT_IMPORTED",
         });
     }
+
+    /**
+     * Sprint G — Operations fields on the SAME Shipment Card (never a new entity).
+     */
+    async updateOperations(
+        shipmentLeadId: string,
+        ops: {
+            carrierName?: string | null;
+            driverName?: string | null;
+            truckNumber?: string | null;
+            trailerNumber?: string | null;
+            rateConfirmation?: string | null;
+            podUrl?: string | null;
+            invoiceNumber?: string | null;
+            paymentStatus?: string | null;
+            opsPickupAt?: string | Date | null;
+            opsDeliveryAt?: string | Date | null;
+            loadNumber?: string | null;
+        },
+        actorUserId?: string
+    ) {
+        const shipment = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!shipment) {
+            throw Object.assign(new Error("Shipment not found"), { status: 404 });
+        }
+
+        if (ops.loadNumber && String(ops.loadNumber).trim()) {
+            await this.applyLoadNumber({
+                shipmentLeadId,
+                loadNumber: String(ops.loadNumber).trim(),
+                actorUserId,
+            });
+        }
+
+        const data: Record<string, unknown> = {};
+        if (ops.carrierName !== undefined) data.carrierName = ops.carrierName;
+        if (ops.driverName !== undefined) data.driverName = ops.driverName;
+        if (ops.truckNumber !== undefined) data.truckNumber = ops.truckNumber;
+        if (ops.trailerNumber !== undefined) data.trailerNumber = ops.trailerNumber;
+        if (ops.rateConfirmation !== undefined) data.rateConfirmation = ops.rateConfirmation;
+        if (ops.podUrl !== undefined) data.podUrl = ops.podUrl;
+        if (ops.invoiceNumber !== undefined) data.invoiceNumber = ops.invoiceNumber;
+        if (ops.paymentStatus !== undefined) data.paymentStatus = ops.paymentStatus;
+        if (ops.opsPickupAt !== undefined) {
+            data.opsPickupAt = ops.opsPickupAt ? new Date(ops.opsPickupAt) : null;
+        }
+        if (ops.opsDeliveryAt !== undefined) {
+            data.opsDeliveryAt = ops.opsDeliveryAt ? new Date(ops.opsDeliveryAt) : null;
+        }
+
+        const updated = await prisma.shipmentLead.update({
+            where: { shipmentLeadId },
+            data,
+        });
+
+        await domainEventEngine.emit({
+            shipmentLeadId,
+            eventType: "STATUS_CHANGED",
+            title: "Operations updated",
+            message: "Operations fields saved on Shipment Card",
+            actorUserId,
+            payload: { ...ops, sameShipmentCard: true },
+            timelineStage: "DISPATCH_STARTED",
+        });
+
+        return updated;
+    }
 }
 
 export const shipmentService = new ShipmentService();

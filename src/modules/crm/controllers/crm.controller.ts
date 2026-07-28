@@ -165,25 +165,119 @@ export async function crmMyNotificationsController(req: AuthRequest, res: Respon
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
 
-    const logs = await prisma.assignmentLog.findMany({
-        where: isDataScopedRole(req.user?.role || "")
-            ? { assignedUserId: userId }
-            : {},
-        orderBy: { createdAt: "desc" },
-        take: 100,
-    });
+    const { platformNotificationService } = await import(
+        "../../shipment/services/platform-notification.service.js"
+    );
+    const rows = await platformNotificationService.listForUser(userId, { limit: 100 });
+    const unread = await platformNotificationService.unreadCount(userId);
 
     return res.json(
-        apiResponse(
-            true,
-            "Notifications",
-            logs.map((l) => ({
-                id: l.logId,
-                type: l.eventType,
-                message: l.message,
-                shipmentLeadId: l.shipmentLeadId,
-                createdAt: l.createdAt,
-            }))
-        )
+        apiResponse(true, "Notifications", {
+            unread,
+            items: rows.map((n) => ({
+                id: n.notificationId,
+                type: n.notificationType,
+                title: n.title,
+                message: n.message,
+                status: n.status,
+                shipmentLeadId: n.shipmentLeadId,
+                createdAt: n.createdAt,
+                readAt: n.readAt,
+            })),
+        })
+    );
+}
+
+export async function crmMarkNotificationReadController(req: AuthRequest, res: Response) {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const id = String(req.params.id);
+    const { platformNotificationService } = await import(
+        "../../shipment/services/platform-notification.service.js"
+    );
+    const row = await platformNotificationService.markRead(id, userId);
+    if (!row) return res.status(404).json(apiResponse(false, "Notification not found"));
+    return res.json(apiResponse(true, "Marked read", row));
+}
+
+export async function crmMarkAllNotificationsReadController(req: AuthRequest, res: Response) {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const { platformNotificationService } = await import(
+        "../../shipment/services/platform-notification.service.js"
+    );
+    const count = await platformNotificationService.markAllRead(userId);
+    return res.json(apiResponse(true, "All marked read", { count }));
+}
+
+export async function crmCustomerDetailController(req: AuthRequest, res: Response) {
+    const name = decodeURIComponent(String(req.params.name || "")).trim();
+    if (!name) return res.status(422).json(apiResponse(false, "Customer name required"));
+
+    const brokerId = scopedBrokerId(req);
+    const where: Record<string, unknown> = {
+        customerName: { equals: name },
+    };
+    if (brokerId) where.assignedBrokerId = brokerId;
+
+    const shipments = await prisma.shipmentLead.findMany({
+        where,
+        orderBy: { updatedAt: "desc" },
+        take: 200,
+    });
+
+    const ids = shipments.map((s) => s.shipmentLeadId);
+    const [timeline, mailbox, events] = await Promise.all([
+        ids.length
+            ? prisma.shipmentTimelineEvent.findMany({
+                  where: { shipmentLeadId: { in: ids } },
+                  orderBy: { createdAt: "desc" },
+                  take: 200,
+              })
+            : Promise.resolve([]),
+        ids.length
+            ? prisma.brokerMailboxMessage.findMany({
+                  where: { shipmentLeadId: { in: ids } },
+                  orderBy: { receivedAt: "desc" },
+                  take: 100,
+              })
+            : Promise.resolve([]),
+        ids.length
+            ? prisma.domainEvent.findMany({
+                  where: { shipmentLeadId: { in: ids } },
+                  orderBy: { createdAt: "desc" },
+                  take: 200,
+              })
+            : Promise.resolve([]),
+    ]);
+
+    const financial = {
+        totalQuoted: shipments.reduce((a, s) => a + (s.price || 0), 0),
+        withLoadNumber: shipments.filter((s) => s.loadNumber).length,
+        completed: shipments.filter((s) =>
+            ["COMPLETED", "CLOSED", "WON", "DELIVERED"].includes(s.status)
+        ).length,
+        lost: shipments.filter((s) => s.status === "LOST").length,
+        active: shipments.filter((s) =>
+            !["COMPLETED", "CLOSED", "WON", "LOST"].includes(s.status)
+        ).length,
+    };
+
+    return res.json(
+        apiResponse(true, "Customer", {
+            customer: name,
+            shipments,
+            timeline,
+            domainEvents: events,
+            communications: mailbox,
+            financial,
+            documents: shipments.flatMap((s) => {
+                try {
+                    return s.documentsJson ? JSON.parse(s.documentsJson) : [];
+                } catch {
+                    return [];
+                }
+            }),
+        })
     );
 }

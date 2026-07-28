@@ -64,6 +64,16 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
         statusLabel: statusLabel(String(lead.status || "")),
         greenOsShipmentId: (lead.greenOsShipmentId as string) || null,
         loadNumber: (lead.loadNumber as string) || null,
+        carrierName: (lead.carrierName as string) || null,
+        driverName: (lead.driverName as string) || null,
+        truckNumber: (lead.truckNumber as string) || null,
+        trailerNumber: (lead.trailerNumber as string) || null,
+        rateConfirmation: (lead.rateConfirmation as string) || null,
+        podUrl: (lead.podUrl as string) || null,
+        invoiceNumber: (lead.invoiceNumber as string) || null,
+        paymentStatus: (lead.paymentStatus as string) || null,
+        opsPickupAt: lead.opsPickupAt || null,
+        opsDeliveryAt: lead.opsDeliveryAt || null,
         ushipUrl: lead.viewUrl || null,
     };
 }
