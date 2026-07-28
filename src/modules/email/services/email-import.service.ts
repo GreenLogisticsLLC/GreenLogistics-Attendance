@@ -3,8 +3,43 @@ import { parserFactory } from "../parsers/parser.factory.js";
 import {
     emailMessageRepository,
     shipmentImportLogRepository,
+    shipmentLeadRepository,
 } from "./repositories.js";
 import { shipmentLeadService } from "./shipment-lead.service.js";
+import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
+import { prisma } from "../../../config/database.js";
+
+function extractUshipRefs(text: string): { externalId?: string; viewUrl?: string } {
+    const view =
+        text.match(/https?:\/\/(?:www\.)?uship\.com\/listing\/[^\s"'<>]+/i)?.[0] ||
+        text.match(/https?:\/\/(?:www\.)?uship\.com\/[^\s"'<>]*listing[^\s"'<>]*/i)?.[0];
+    const external =
+        text.match(/\/listing\/(\d+)/i)?.[1] ||
+        text.match(/shipment\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/i)?.[1];
+    return {
+        viewUrl: view ? view.replace(/[>,)\]]+$/, "") : undefined,
+        externalId: external,
+    };
+}
+
+async function findShipmentForLifecycle(text: string) {
+    const refs = extractUshipRefs(text);
+    if (refs.viewUrl) {
+        const byUrl = await shipmentLeadRepository.findByViewUrl(refs.viewUrl);
+        if (byUrl) return byUrl;
+    }
+    if (refs.externalId) {
+        const byExt = await shipmentLeadRepository.findByExternalId("USHIP", refs.externalId);
+        if (byExt) return byExt;
+    }
+    const gos = text.match(/GOS-\d{8}-\d+/i);
+    if (gos) {
+        return prisma.shipmentLead.findUnique({
+            where: { greenOsShipmentId: gos[0].toUpperCase() },
+        });
+    }
+    return null;
+}
 
 export class EmailImportService {
     async checkInbox(options?: { maxMessages?: number }) {
@@ -58,6 +93,37 @@ export class EmailImportService {
 
                 const parser = parserFactory.resolve(raw);
                 if (!parser) {
+                    // Sprint D — uShip lifecycle emails (bid/reply/accept/load) on company inbox
+                    const from = (raw.fromAddress || "").toLowerCase();
+                    if (from.includes("uship.com")) {
+                        const blob = `${raw.subject}\n${raw.bodyText || ""}\n${raw.bodyHtml || ""}\n${raw.snippet || ""}`;
+                        const existingShipment = await findShipmentForLifecycle(blob);
+                        if (existingShipment) {
+                            await applyUshipLifecycleEvent({
+                                shipmentLeadId: existingShipment.shipmentLeadId,
+                                subject: raw.subject,
+                                body: blob,
+                                gmailMessageId,
+                                source: "company_gmail",
+                            });
+                            await emailMessageRepository.markProcessed(
+                                stored.emailMessageId,
+                                "LIFECYCLE",
+                                "USHIP"
+                            );
+                            await shipmentImportLogRepository.create({
+                                eventType: "PipelineEvent",
+                                message: `Lifecycle update from company Gmail: ${raw.subject}`,
+                                gmailMessageId,
+                                emailMessageId: stored.emailMessageId,
+                                shipmentLeadId: existingShipment.shipmentLeadId,
+                            });
+                            await gmailListener.markProcessed(gmailMessageId);
+                            imported += 1;
+                            continue;
+                        }
+                    }
+
                     await emailMessageRepository.markProcessed(
                         stored.emailMessageId,
                         "IGNORED"

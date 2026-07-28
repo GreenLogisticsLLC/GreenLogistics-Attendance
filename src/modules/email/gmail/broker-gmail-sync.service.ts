@@ -4,7 +4,7 @@ import { prisma } from "../../../config/database.js";
 import { getGmailRedirectUri } from "./gmail-oauth.service.js";
 import { brokerGmailOAuthService } from "./broker-gmail-oauth.service.js";
 import type { RawEmailMessage } from "../models/types.js";
-import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
+import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
 
 const USHIP_QUERY =
     "from:(uship.com OR email.uship.com OR notifications.uship.com) newer_than:21d";
@@ -219,21 +219,19 @@ export class BrokerGmailSyncService {
 
                     if (match?.shipmentLeadId) {
                         matched += 1;
-                        await domainEventEngine.emit({
+                        await applyUshipLifecycleEvent({
                             shipmentLeadId: match.shipmentLeadId,
-                            eventType: "STATUS_CHANGED",
-                            title: "uShip email received (broker mailbox)",
-                            message: raw.subject,
+                            subject: raw.subject,
+                            body,
                             actorUserId: account.userId,
-                            payload: {
-                                source: "broker_gmail",
-                                gmailMessageId,
-                                brokerEmail: account.gmailAddress,
-                                matchMethod: match.method,
-                            },
-                            timelineStage: "USHIP_EMAIL",
-                            projectTimeline: true,
-                        }).catch(() => null);
+                            gmailMessageId,
+                            source: "broker_gmail",
+                        }).catch((err) => {
+                            console.warn(
+                                "[BROKER GMAIL] lifecycle apply failed:",
+                                err instanceof Error ? err.message : err
+                            );
+                        });
                     }
 
                     await gmail.users.messages.modify({

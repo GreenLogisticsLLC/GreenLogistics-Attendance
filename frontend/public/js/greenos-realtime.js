@@ -232,6 +232,34 @@
       }
     });
 
+    function onLifecycle(d) {
+      unread += 1;
+      updateBadge();
+      playNotifySound();
+      var num = d.greenOsShipmentId || d.shipmentNumber || "";
+      showSimpleToast(
+        d.title || "Shipment update",
+        (num ? "Shipment # " + num + " — " : "") + (d.subject || d.kind || "")
+      );
+    }
+
+    es.addEventListener("SHIPMENT_LIFECYCLE", function (ev) {
+      try {
+        onLifecycle(JSON.parse(ev.data));
+      } catch (e) {
+        /* ignore */
+      }
+    });
+
+    es.addEventListener("SHIPMENT_LIFECYCLE_BROADCAST", function (ev) {
+      try {
+        if (window.GreenOSUser && window.GreenOSUser.role === "Broker") return;
+        onLifecycle(JSON.parse(ev.data));
+      } catch (e) {
+        /* ignore */
+      }
+    });
+
     es.onerror = function () {
       // Browser auto-reconnects EventSource
     };
