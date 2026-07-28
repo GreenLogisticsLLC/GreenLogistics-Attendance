@@ -202,12 +202,28 @@ export class CrmService {
             documents = [];
         }
 
+        const mailboxEmails = await prisma.brokerMailboxMessage.findMany({
+            where: { shipmentLeadId: lead.shipmentLeadId },
+            orderBy: { receivedAt: "asc" },
+            take: 80,
+            select: {
+                messageId: true,
+                subject: true,
+                fromAddress: true,
+                snippet: true,
+                receivedAt: true,
+                matchMethod: true,
+                userId: true,
+            },
+        });
+
         return {
             ...enriched,
             documents,
             timeline: lead.timelineEvents,
             domainEvents: lead.domainEvents,
             pipeline,
+            mailboxEmails,
             email: lead.emailMessage
                 ? {
                       subject: lead.emailMessage.subject,

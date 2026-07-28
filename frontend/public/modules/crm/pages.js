@@ -665,12 +665,58 @@ window.GreenOSModules.crm = {
           : "—") +
         "</div>" +
         "</div>" +
-        '<div class="crm-notes"><span>Notes</span><p>' +
-        esc(s.notes || "—") +
-        "</p></div>" +
+        '<div class="crm-notes"><span>Internal Notes</span>' +
+        '<textarea id="crm-notes" rows="3" style="width:100%;margin-top:0.35rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:0.6rem">' +
+        esc(s.notes || "") +
+        "</textarea>" +
+        '<button type="button" class="btn-secondary" id="crm-save-notes" style="width:auto;margin-top:0.5rem">Save Notes</button>' +
+        "</div>" +
+        "<h3>Files</h3>" +
+        '<ul class="gos-muted" id="crm-files">' +
+        (Array.isArray(s.documents) && s.documents.length
+          ? s.documents
+              .map(function (d) {
+                var name = typeof d === "string" ? d : d.name || d.url || "file";
+                var url = typeof d === "object" && d.url ? d.url : null;
+                return (
+                  "<li>" +
+                  (url
+                    ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(name) + "</a>"
+                    : esc(name)) +
+                  "</li>"
+                );
+              })
+              .join("")
+          : "<li>No files attached yet</li>") +
+        "</ul>" +
+        "<h3>uShip email history</h3>" +
+        '<ul class="gos-muted" id="crm-mailbox">' +
+        (Array.isArray(s.mailboxEmails) && s.mailboxEmails.length
+          ? s.mailboxEmails
+              .map(function (m) {
+                return (
+                  "<li><strong>" +
+                  esc(m.subject) +
+                  "</strong><br><small>" +
+                  esc(m.fromAddress) +
+                  " · " +
+                  window.GreenOSModules.crm.fmtDate(m.receivedAt) +
+                  "</small>" +
+                  (m.snippet ? "<br>" + esc(m.snippet) : "") +
+                  "</li>"
+                );
+              })
+              .join("")
+          : "<li>No broker mailbox emails linked yet</li>") +
+        "</ul>" +
         '<div class="crm-actions">' +
         (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED"
           ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
+          : "") +
+        (s.ushipUrl
+          ? '<a class="btn-primary" href="' +
+            esc(s.ushipUrl) +
+            '" target="_blank" rel="noopener" style="width:auto;padding:0.65rem 1rem;text-decoration:none;display:inline-block">Open in uShip</a>'
           : "") +
         '<label>Load # <input id="crm-load-number" type="text" placeholder="Load number" value="' +
         esc(s.loadNumber || "") +
@@ -681,7 +727,7 @@ window.GreenOSModules.crm = {
         "</select></label>" +
         '<button type="button" class="btn-secondary" id="crm-save-status">Save</button>' +
         "</div>" +
-        "<h3>Lifecycle</h3>" +
+        "<h3>Timeline / Lifecycle</h3>" +
         '<ol class="crm-pipeline">' +
         pipeline +
         "</ol>" +
@@ -704,9 +750,18 @@ window.GreenOSModules.crm = {
       });
       modal.querySelector("#crm-save-status")?.addEventListener("click", async function () {
         var st = modal.querySelector("#crm-status").value;
+        var notes = modal.querySelector("#crm-notes")?.value;
         await window.GreenOSModules.crm.api("/shipments/" + id, {
           method: "PATCH",
-          body: JSON.stringify({ status: st }),
+          body: JSON.stringify({ status: st, notes: notes }),
+        });
+        window.GreenOSModules.crm.openShipmentCard(root, id);
+      });
+      modal.querySelector("#crm-save-notes")?.addEventListener("click", async function () {
+        var notes = modal.querySelector("#crm-notes").value;
+        await window.GreenOSModules.crm.api("/shipments/" + id, {
+          method: "PATCH",
+          body: JSON.stringify({ status: s.status, notes: notes }),
         });
         window.GreenOSModules.crm.openShipmentCard(root, id);
       });

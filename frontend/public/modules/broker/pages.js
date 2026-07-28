@@ -243,8 +243,12 @@ window.GreenOSModules.broker = {
             '"><td>' +
             (i + 1) +
             "</td><td><strong>" +
-            esc(s.shipmentTitle) +
-            "</strong></td><td>" +
+            esc(s.greenOsShipmentId || s.shipmentTitle) +
+            "</strong>" +
+            (s.greenOsShipmentId
+              ? '<br><small class="gos-muted">' + esc(s.shipmentTitle) + "</small>"
+              : "") +
+            "</td><td>" +
             esc(s.customer) +
             "</td><td>" +
             esc(s.pickup) +
