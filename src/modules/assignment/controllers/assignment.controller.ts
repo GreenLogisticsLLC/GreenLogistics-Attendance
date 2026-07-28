@@ -28,6 +28,18 @@ export async function assignmentEligibleController(_req: AuthRequest, res: Respo
     return res.json(apiResponse(true, "Eligible brokers", eligible));
 }
 
+export async function assignmentDrainPendingController(_req: AuthRequest, res: Response) {
+    try {
+        const assigned = await assignmentEngine.assignPendingNewLeads(50);
+        return res.json(
+            apiResponse(true, `Assigned ${assigned} pending shipment(s)`, { assigned })
+        );
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Drain failed";
+        return res.status(500).json(apiResponse(false, message));
+    }
+}
+
 /** Link a GreenOS user to an Attendance employee (for In Office checks). */
 export async function linkEmployeeController(req: AuthRequest, res: Response) {
     const userId = String(req.params.userId);

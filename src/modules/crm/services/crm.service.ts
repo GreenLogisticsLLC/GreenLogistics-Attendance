@@ -73,37 +73,61 @@ export class CrmService {
 
         const [
             newToday,
+            unassignedCount,
             awaiting,
+            working,
             quotesSent,
             won,
             lost,
             active,
             brokers,
+            unassignedRows,
         ] = await Promise.all([
             prisma.shipmentLead.count({
                 where: { createdAt: { gte: todayStart } },
             }),
+            prisma.shipmentLead.count({
+                where: {
+                    status: { in: ["NEW", "UNASSIGNED"] },
+                    OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+                },
+            }),
             prisma.shipmentLead.count({ where: { status: "AWAITING_ACCEPTANCE" } }),
+            prisma.shipmentLead.count({ where: { status: "WORKING" } }),
             prisma.shipmentLead.count({ where: { status: "QUOTE_SENT" } }),
             prisma.shipmentLead.count({ where: { status: "WON" } }),
             prisma.shipmentLead.count({ where: { status: "LOST" } }),
             prisma.shipmentLead.count({ where: { status: { in: [...ACTIVE_STATUSES] } } }),
             this.getBrokerWorkload(),
+            prisma.shipmentLead.findMany({
+                where: {
+                    status: { in: ["NEW", "UNASSIGNED"] },
+                    OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+                },
+                orderBy: { createdAt: "asc" },
+                take: 50,
+            }),
         ]);
 
         const avgResponseMs = await this.averageResponseTimeMs();
+        const brokersById = await userMap([]);
 
         return {
             version: "1.0",
             kpis: {
                 newShipmentsToday: newToday,
+                unassigned: unassignedCount,
                 awaitingAcceptance: awaiting,
+                working,
                 quotesSent,
                 won,
                 lost,
                 activeShipments: active,
                 averageResponseTimeMinutes: avgResponseMs == null ? null : Math.round(avgResponseMs / 60000),
             },
+            unassignedShipments: unassignedRows.map((row) =>
+                enrichLead(row as unknown as Record<string, unknown>, brokersById)
+            ),
             brokerWorkload: brokers.map((b) => ({
                 brokerId: b.brokerId,
                 name: b.name,
@@ -325,7 +349,10 @@ export class CrmService {
         if (extras?.priority !== undefined) data.priority = extras.priority;
 
         const stageByStatus: Record<string, { stage: string; title: string }> = {
+            UNASSIGNED: { stage: "IMPORTED", title: "Unassigned — waiting for broker In Office" },
+            ASSIGNED: { stage: "ASSIGNED", title: "Assigned to Broker" },
             AWAITING_ACCEPTANCE: { stage: "ASSIGNED", title: "Assigned to Broker" },
+            WORKING: { stage: "BROKER_ACCEPTED", title: "Broker Accepted Shipment" },
             FOLLOW_UP: { stage: "ASSIGNED", title: "Needs Follow Up" },
             QUOTE_SENT: { stage: "QUOTE_SENT", title: "Quote Sent" },
             NEGOTIATION: { stage: "NEGOTIATION", title: "Negotiation" },
@@ -365,17 +392,35 @@ export class CrmService {
     }
 
     async acceptShipment(shipmentLeadId: string, actorUserId: string) {
+        const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!lead) return null;
+        if (lead.assignedBrokerId && lead.assignedBrokerId !== actorUserId) {
+            throw Object.assign(new Error("Only the assigned broker can accept this shipment"), {
+                status: 403,
+            });
+        }
+        if (
+            lead.status !== "ASSIGNED" &&
+            lead.status !== "AWAITING_ACCEPTANCE"
+        ) {
+            throw Object.assign(
+                new Error(`Cannot accept shipment in status ${lead.status}`),
+                { status: 422 }
+            );
+        }
+
         await prisma.shipmentLead.update({
             where: { shipmentLeadId },
             data: {
-                status: "FOLLOW_UP",
+                status: "WORKING",
                 acceptedAt: new Date(),
             },
         });
         await shipmentTimelineService.addEvent({
             shipmentLeadId,
             stage: "BROKER_ACCEPTED",
-            title: "Broker Accepted",
+            title: "Broker Accepted Shipment",
+            message: "Status → Working",
             actorUserId,
         });
         return this.getShipmentCard(shipmentLeadId);

@@ -31,24 +31,38 @@ function displayName(u: { firstName: string; lastName: string; username: string 
 export class AssignmentEngine {
     async startPipeline(shipmentLeadId: string) {
         const lead = await shipmentLeadRepository.findById(shipmentLeadId);
-        if (!lead || lead.status !== "NEW") return lead;
+        if (!lead) return lead;
+        // Assign only waiting leads (new import or parked Unassigned)
+        if (lead.status !== "NEW" && lead.status !== "UNASSIGNED") return lead;
 
-        await shipmentTimelineService.addEvent({
-            shipmentLeadId,
-            stage: "IMPORTED",
-            title: "Imported from uShip",
-            message: lead.shipmentTitle,
-        });
+        if (lead.status === "NEW") {
+            await shipmentTimelineService.addEvent({
+                shipmentLeadId,
+                stage: "IMPORTED",
+                title: "Imported from uShip",
+                message: lead.shipmentTitle,
+            });
+        }
 
         const pick = await this.pickNextBrokerRoundRobin();
         if (!pick) {
-            await this.pipelineLog(shipmentLeadId, "No broker In Office — lead stays NEW");
+            const parked =
+                lead.status === "UNASSIGNED"
+                    ? lead
+                    : await shipmentLeadRepository.update(shipmentLeadId, {
+                          status: "UNASSIGNED" as ShipmentLeadStatus,
+                          assignedBrokerId: null,
+                      });
+            await this.pipelineLog(
+                shipmentLeadId,
+                "No broker In Office — lead marked UNASSIGNED"
+            );
             await this.assignmentLog({
                 shipmentLeadId,
                 eventType: "NO_ELIGIBLE",
                 message: "No broker currently In Office (Attendance)",
             });
-            return lead;
+            return parked || lead;
         }
 
         const { broker, queueSnapshot } = pick;
@@ -188,23 +202,69 @@ export class AssignmentEngine {
         if (!user) return null;
 
         const state = await this.loadQueueState();
-        if (state.orderedUserIds.includes(user.userId)) {
-            return state;
+        let orderedUserIds = state.orderedUserIds;
+        let nextIndex = state.nextIndex;
+
+        if (!orderedUserIds.includes(user.userId)) {
+            orderedUserIds = [...orderedUserIds, user.userId];
+            await this.saveQueueState(orderedUserIds, nextIndex);
+            await this.assignmentLog({
+                assignedUserId: user.userId,
+                assignedEmployeeId: employeeId,
+                eventType: "QUEUE_JOIN",
+                message: `${displayName(user)} In Office → added to assignment queue (position ${orderedUserIds.length})`,
+                queueSnapshot: JSON.stringify({ order: orderedUserIds, nextIndex }),
+            });
+            console.log(
+                `[assignment] QUEUE_JOIN ${displayName(user)} — queue size ${orderedUserIds.length}`
+            );
         }
 
-        const orderedUserIds = [...state.orderedUserIds, user.userId];
-        await this.saveQueueState(orderedUserIds, state.nextIndex);
-        await this.assignmentLog({
-            assignedUserId: user.userId,
-            assignedEmployeeId: employeeId,
-            eventType: "QUEUE_JOIN",
-            message: `${displayName(user)} In Office → added to assignment queue (position ${orderedUserIds.length})`,
-            queueSnapshot: JSON.stringify({ order: orderedUserIds, nextIndex: state.nextIndex }),
+        // Spec: first broker back In Office → auto-assign pending Unassigned / NEW leads
+        const drained = await this.assignPendingNewLeads(20);
+        if (drained > 0) {
+            console.log(
+                `[assignment] drained ${drained} pending shipment(s) after ${displayName(user)} In Office`
+            );
+        }
+
+        return { orderedUserIds, nextIndex };
+    }
+
+    /**
+     * Assign waiting NEW / UNASSIGNED shipments (no broker) via Round Robin.
+     * Called when a broker returns In Office, or manually from ops tools.
+     */
+    async assignPendingNewLeads(limit = 50): Promise<number> {
+        const pending = await prisma.shipmentLead.findMany({
+            where: {
+                status: { in: ["NEW", "UNASSIGNED"] },
+                OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+            },
+            orderBy: { createdAt: "asc" },
+            take: limit,
+            select: { shipmentLeadId: true },
         });
-        console.log(
-            `[assignment] QUEUE_JOIN ${displayName(user)} — queue size ${orderedUserIds.length}`
-        );
-        return { orderedUserIds, nextIndex: state.nextIndex };
+
+        let assigned = 0;
+        for (const row of pending) {
+            const eligible = await this.listEligibleBrokers();
+            if (!eligible.length) break;
+            const before = await shipmentLeadRepository.findById(row.shipmentLeadId);
+            await this.startPipeline(row.shipmentLeadId);
+            const after = await shipmentLeadRepository.findById(row.shipmentLeadId);
+            if (
+                after &&
+                after.assignedBrokerId &&
+                after.status !== "NEW" &&
+                after.status !== "UNASSIGNED"
+            ) {
+                assigned += 1;
+            } else if (before && after && after.status === "UNASSIGNED") {
+                break;
+            }
+        }
+        return assigned;
     }
 
     async onBrokerLeftOffice(employeeId: string) {

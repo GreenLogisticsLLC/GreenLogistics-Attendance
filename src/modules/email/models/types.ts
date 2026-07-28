@@ -4,8 +4,10 @@ export type ShipmentSource = "USHIP" | "DAT" | "CENTRAL_DISPATCH" | "TRUCKSTOP" 
 
 export type ShipmentLeadStatus =
     | "NEW"
+    | "UNASSIGNED"
     | "ASSIGNED"
     | "AWAITING_ACCEPTANCE"
+    | "WORKING"
     | "FOLLOW_UP"
     | "QUOTE_SENT"
     | "NEGOTIATION"

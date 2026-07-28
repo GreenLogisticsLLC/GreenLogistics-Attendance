@@ -87,8 +87,10 @@ window.GreenOSModules.crm = {
   statusBadge(status) {
     var map = {
       NEW: { cls: "crm-st-new", label: "🟢 New" },
+      UNASSIGNED: { cls: "crm-st-unassigned", label: "⚪ Unassigned" },
       ASSIGNED: { cls: "crm-st-await", label: "🟡 Assigned" },
       AWAITING_ACCEPTANCE: { cls: "crm-st-await", label: "🟡 Awaiting Acceptance" },
+      WORKING: { cls: "crm-st-working", label: "🟢 Working" },
       FOLLOW_UP: { cls: "crm-st-follow", label: "🟠 Follow Up" },
       QUOTE_SENT: { cls: "crm-st-quote", label: "🔵 Quote Sent" },
       NEGOTIATION: { cls: "crm-st-nego", label: "🟣 Negotiation" },
@@ -121,8 +123,10 @@ window.GreenOSModules.crm = {
         "<p>Real-time view of shipments, pipeline, and broker workload</p>" +
         "</section>" +
         '<div class="gos-card-grid crm-kpi-grid">' +
+        this.kpiCard("Unassigned", k.unassigned || 0, "accent-warn") +
         this.kpiCard("New Today", k.newShipmentsToday, "accent-green") +
         this.kpiCard("Awaiting Acceptance", k.awaitingAcceptance, "accent-warn") +
+        this.kpiCard("Working", k.working || 0, "accent-green") +
         this.kpiCard("Quotes Sent", k.quotesSent, "accent-blue") +
         this.kpiCard("Won", k.won, "accent-green") +
         this.kpiCard("Lost", k.lost, "accent-warn") +
@@ -134,6 +138,11 @@ window.GreenOSModules.crm = {
         ) +
         "</div>" +
         '<section class="crm-section">' +
+        "<h2>Unassigned Shipments</h2>" +
+        "<p class=\"gos-muted\">Waiting for a broker In Office — auto-assigned when someone swipes in.</p>" +
+        '<div id="crm-unassigned"></div>' +
+        "</section>" +
+        '<section class="crm-section">' +
         "<h2>Broker Workload</h2>" +
         '<div class="crm-workload" id="crm-workload"></div>' +
         "</section>" +
@@ -142,6 +151,47 @@ window.GreenOSModules.crm = {
         '<div class="crm-broker-glance" id="crm-glance"></div>' +
         "</section>";
 
+      var unassigned = d.unassignedShipments || [];
+      var ua = body.querySelector("#crm-unassigned");
+      if (!unassigned.length) {
+        ua.innerHTML = "<p class=\"gos-muted\">None — all shipments are assigned or none are waiting.</p>";
+      } else {
+        ua.innerHTML =
+          '<table class="crm-table"><thead><tr>' +
+          "<th>Lot</th><th>Title</th><th>Route</th><th>Received</th><th></th>" +
+          "</tr></thead><tbody>" +
+          unassigned
+            .map(function (s) {
+              return (
+                "<tr>" +
+                "<td>" +
+                window.GreenOSModules.crm.esc(s.externalShipmentId || "—") +
+                "</td>" +
+                "<td>" +
+                window.GreenOSModules.crm.esc(s.shipmentTitle || "—") +
+                "</td>" +
+                "<td>" +
+                window.GreenOSModules.crm.esc((s.pickup || "—") + " → " + (s.delivery || "—")) +
+                "</td>" +
+                "<td>" +
+                window.GreenOSModules.crm.esc(
+                  s.createdAt ? new Date(s.createdAt).toLocaleString() : "—"
+                ) +
+                "</td>" +
+                '<td><button type="button" class="btn-primary crm-open-unassigned" data-id="' +
+                s.shipmentLeadId +
+                '" style="width:auto;padding:0.35rem 0.7rem">Open</button></td>' +
+                "</tr>"
+              );
+            })
+            .join("") +
+          "</tbody></table>";
+        ua.querySelectorAll(".crm-open-unassigned").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            window.GreenOSModules.crm.openShipmentCard(root, btn.getAttribute("data-id"));
+          });
+        });
+      }
       var wl = body.querySelector("#crm-workload");
       if (!workload.length) {
         wl.innerHTML = "<p class=\"gos-muted\">No brokers with active shipments yet</p>";
@@ -608,7 +658,7 @@ window.GreenOSModules.crm = {
         esc(s.notes || "—") +
         "</p></div>" +
         '<div class="crm-actions">' +
-        (s.status === "AWAITING_ACCEPTANCE"
+        (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED"
           ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
           : "") +
         '<label>Update status <select id="crm-status">' +

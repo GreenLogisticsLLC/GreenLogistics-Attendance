@@ -111,7 +111,11 @@ export async function crmAcceptShipmentController(req: AuthRequest, res: Respons
         return res.json(apiResponse(true, "Shipment accepted", data));
     } catch (err) {
         const message = err instanceof Error ? err.message : "Accept failed";
-        return res.status(500).json(apiResponse(false, message));
+        const status =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status: number }).status)
+                : 500;
+        return res.status(status || 500).json(apiResponse(false, message));
     }
 }
 

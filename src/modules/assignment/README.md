@@ -14,10 +14,17 @@ CRM Shipment
 
 | Card / status   | Effect                                      |
 |-----------------|---------------------------------------------|
-| **In Office**   | Automatically joins end of assignment queue |
+| **In Office**   | Automatically joins end of assignment queue; pending Unassigned/NEW leads are drained via Round Robin |
 | **Out of Office** | Immediately removed — no new shipments    |
 
 No toggles, buttons, or checkboxes.
+
+## Status flow
+
+```
+NEW → (no broker) UNASSIGNED
+    → ASSIGNED → AWAITING_ACCEPTANCE → WORKING (Accept)
+```
 
 ## Morning example
 
