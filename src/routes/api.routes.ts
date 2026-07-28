@@ -49,6 +49,7 @@ import { emailRouter } from "../modules/email/routes/email.routes.js";
 import { crmRouter } from "../modules/crm/routes/crm.routes.js";
 import { shipmentRouter } from "../modules/shipment/routes/shipment.routes.js";
 import { assignmentRouter } from "../modules/assignment/routes/assignment.routes.js";
+import { aiRouter } from "../modules/ai/routes/ai.routes.js";
 
 export const apiRouter = Router();
 
@@ -59,6 +60,7 @@ apiRouter.use("/email", emailRouter);
 apiRouter.use("/crm", crmRouter);
 apiRouter.use("/shipments", shipmentRouter);
 apiRouter.use("/assignment", assignmentRouter);
+apiRouter.use("/ai", aiRouter);
 
 apiRouter.post("/v1/auth/login", loginController);
 apiRouter.post("/v1/auth/register", registerController);

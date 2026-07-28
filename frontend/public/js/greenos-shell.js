@@ -192,7 +192,7 @@
       root.innerHTML =
         `<section class="gos-dash-hero">` +
         `<h1>GreenOS AI Assistant</h1>` +
-        `<p>Conversation UI prepared — LLM connection comes in a later phase.</p>` +
+        `<p id="gos-ai-status-line">Connecting to OpenAI…</p>` +
         `</section>` +
         `<div class="gos-ai-layout">` +
         `<aside class="gos-ai-history">` +
@@ -203,12 +203,12 @@
         `</aside>` +
         `<section class="gos-ai-chat">` +
         `<div class="gos-ai-messages" id="gos-ai-messages">` +
-        `<div class="gos-ai-bubble bot">Welcome to GreenOS AI Assistant.\n\nI will help you manage Green Logistics operations.</div>` +
+        `<div class="gos-ai-bubble bot">Welcome to GreenOS AI Assistant.\n\nAsk about attendance, shipments, assignment, or operations.</div>` +
         `</div>` +
         `<div class="gos-ai-prompts" id="gos-ai-prompts">` +
         `<button type="button" data-prompt="Summarize today's dispatch status">Summarize today's dispatch</button>` +
         `<button type="button" data-prompt="Who is late today?">Who is late today?</button>` +
-        `<button type="button" data-prompt="List open invoices">List open invoices</button>` +
+        `<button type="button" data-prompt="How does Round Robin assignment work in GreenOS?">How does assignment work?</button>` +
         `<button type="button" data-prompt="Draft a carrier follow-up email">Draft carrier email</button>` +
         `</div>` +
         `<form class="gos-ai-input-row" id="gos-ai-form">` +
@@ -220,6 +220,8 @@
       const messages = root.querySelector("#gos-ai-messages");
       const form = root.querySelector("#gos-ai-form");
       const input = root.querySelector("#gos-ai-input");
+      const statusLine = root.querySelector("#gos-ai-status-line");
+      const history = [];
 
       function append(role, text) {
         const div = document.createElement("div");
@@ -229,18 +231,64 @@
         messages.scrollTop = messages.scrollHeight;
       }
 
-      form.addEventListener("submit", (e) => {
+      async function api(path, options) {
+        const token = localStorage.getItem("gl_token");
+        const res = await fetch("/api/ai" + path, {
+          ...options,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: token ? "Bearer " + token : "",
+            ...(options && options.headers),
+          },
+        });
+        return res.json();
+      }
+
+      api("/status")
+        .then((data) => {
+          if (!statusLine) return;
+          if (data.success && data.data && data.data.configured) {
+            statusLine.textContent = "Model: " + (data.data.model || "OpenAI") + " — ready";
+          } else {
+            statusLine.textContent =
+              "OPENAI_API_KEY not configured on server — add it to .env and restart";
+          }
+        })
+        .catch(() => {
+          if (statusLine) statusLine.textContent = "AI status unavailable";
+        });
+
+      form.addEventListener("submit", async (e) => {
         e.preventDefault();
         const text = input.value.trim();
         if (!text) return;
         append("user", text);
         input.value = "";
-        setTimeout(() => {
-          append(
-            "bot",
-            "AI responses will be connected in a later phase. Your message was received and saved in this local conversation UI."
-          );
-        }, 350);
+        const sendBtn = form.querySelector("button[type=submit]");
+        if (sendBtn) sendBtn.disabled = true;
+        append("bot", "Thinking…");
+        const thinking = messages.lastChild;
+        try {
+          const data = await api("/chat", {
+            method: "POST",
+            body: JSON.stringify({ message: text, history }),
+          });
+          if (thinking && thinking.parentNode) thinking.remove();
+          if (!data.success) {
+            append("bot", data.message || "AI request failed");
+            return;
+          }
+          const reply = (data.data && data.data.reply) || "";
+          append("bot", reply);
+          history.push({ role: "user", content: text });
+          history.push({ role: "assistant", content: reply });
+          if (history.length > 16) history.splice(0, history.length - 16);
+        } catch {
+          if (thinking && thinking.parentNode) thinking.remove();
+          append("bot", "Connection error talking to GreenOS AI");
+        } finally {
+          if (sendBtn) sendBtn.disabled = false;
+        }
       });
 
       root.querySelectorAll("[data-prompt]").forEach((btn) => {

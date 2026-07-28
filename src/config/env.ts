@@ -80,4 +80,9 @@ export const config = {
             `${(process.env.PUBLIC_APP_URL || "http://localhost:3847").replace(/\/$/, "")}/api/email/callback`,
     },
     emailPollIntervalMs: parseInt(process.env.EMAIL_POLL_INTERVAL_MS || "30000", 10),
+    /** GreenOS AI Assistant (OpenAI). */
+    openai: {
+        apiKey: process.env.OPENAI_API_KEY || "",
+        model: process.env.OPENAI_MODEL || "gpt-5.5",
+    },
 };
