@@ -1,0 +1,45 @@
+name: Fix greenos 502
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Diagnose and restart greenos
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          echo "=== git HEAD ==="
+          git rev-parse --short HEAD || true
+          echo "=== pm2 status ==="
+          pm2 status || true
+          echo "=== last error log ==="
+          pm2 logs greenos --err --lines 40 --nostream || true
+          echo "=== last out log ==="
+          pm2 logs greenos --out --lines 30 --nostream || true
+          echo "=== curl local health ==="
+          curl -sS -m 5 http://127.0.0.1:3847/api/health || echo "LOCAL_HEALTH_FAIL"
+          echo
+          echo "=== ensure latest + restart ==="
+          git fetch origin
+          git reset --hard origin/main
+          npm ci
+          npx prisma generate
+          npm run build
+          pm2 restart greenos --update-env
+          sleep 3
+          pm2 status
+          curl -sS -m 5 http://127.0.0.1:3847/api/health || echo "LOCAL_HEALTH_FAIL_AFTER"
+          echo
+          EOF

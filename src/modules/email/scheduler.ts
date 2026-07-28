@@ -46,9 +46,9 @@ export function isEmailImportRunning(): boolean {
     return running;
 }
 
-export async function waitForEmailImportIdle(maxWaitMs = 45_000): Promise<void> {
+export async function waitForEmailImportIdle(maxWaitMs = 5_000): Promise<void> {
     const start = Date.now();
     while (running && Date.now() - start < maxWaitMs) {
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 100));
     }
 }

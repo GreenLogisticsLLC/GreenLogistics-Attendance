@@ -54,12 +54,14 @@ export function resolveDatabaseUrl(raw = process.env.DATABASE_URL || "file:./dat
     return appendSqliteParams(`file:${normalized}`, existingQuery);
 }
 
-/** Single connection + long socket timeout — required for SQLite under concurrent writers. */
+/** Single connection + busy wait (seconds) — required for SQLite under concurrent writers. */
 function appendSqliteParams(baseUrl: string, existingQuery: string): string {
     const params = new URLSearchParams(existingQuery);
+    // Remove invalid/legacy keys that can break Prisma URL parsing
+    params.delete("busy_timeout");
     if (!params.has("connection_limit")) params.set("connection_limit", "1");
-    if (!params.has("socket_timeout")) params.set("socket_timeout", "60");
-    if (!params.has("busy_timeout")) params.set("busy_timeout", "60000");
+    // socket_timeout is SQLite busy_timeout in SECONDS for Prisma
+    if (!params.has("socket_timeout")) params.set("socket_timeout", "30");
     const q = params.toString();
     const bare = baseUrl.split("?")[0];
     return q ? `${bare}?${q}` : bare;
@@ -116,7 +118,7 @@ export function isDbBusyError(err: unknown): boolean {
 export async function withDbRetry<T>(
     label: string,
     fn: () => Promise<T>,
-    attempts = 10
+    attempts = 6
 ): Promise<T> {
     let lastErr: unknown;
     for (let i = 0; i < attempts; i++) {
@@ -125,7 +127,7 @@ export async function withDbRetry<T>(
         } catch (err) {
             lastErr = err;
             if (!isDbBusyError(err) || i === attempts - 1) throw err;
-            const waitMs = Math.min(4000, 150 * Math.pow(1.6, i)) + Math.floor(Math.random() * 100);
+            const waitMs = Math.min(1500, 80 * Math.pow(1.5, i)) + Math.floor(Math.random() * 50);
             console.warn(`[db] ${label} busy — retry ${i + 1}/${attempts} in ${waitMs}ms`);
             await new Promise((r) => setTimeout(r, waitMs));
         }

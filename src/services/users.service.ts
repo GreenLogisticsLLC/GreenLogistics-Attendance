@@ -63,7 +63,7 @@ export class UsersService {
 
         beginAdminWrite();
         try {
-            await waitForEmailImportIdle(20_000);
+            await waitForEmailImportIdle(3_000);
 
             const user = await withDbRetry("findUser", () =>
                 prisma.user.findUnique({
@@ -151,7 +151,7 @@ export class UsersService {
 
         beginAdminWrite();
         try {
-            await waitForEmailImportIdle(45_000);
+            await waitForEmailImportIdle(3_000);
 
             const user = await withDbRetry("findUserDelete", () =>
                 prisma.user.findUnique({
@@ -188,54 +188,68 @@ export class UsersService {
 
             const deleted: Record<string, number> = {};
 
-            const audit = await withDbRetry("deleteAudit", () =>
-                prisma.auditLog.deleteMany({ where: { userId } })
+            // Fast path: raw SQL batches (fewer round-trips, less lock time on SQLite)
+            deleted.auditLogs = Number(
+                (
+                    await withDbRetry("deleteAudit", () =>
+                        prisma.$executeRawUnsafe(
+                            `DELETE FROM audit_logs WHERE user_id = ?`,
+                            userId
+                        )
+                    )
+                ) as number
             );
-            deleted.auditLogs = audit.count;
 
-            const shipments = await withDbRetry("findShipments", () =>
-                prisma.shipmentLead.findMany({
-                    where: { assignedBrokerId: userId },
-                    select: { shipmentLeadId: true },
-                })
+            deleted.shipmentImportLogs = Number(
+                (
+                    await withDbRetry("deleteImportLogs", () =>
+                        prisma.$executeRawUnsafe(
+                            `DELETE FROM shipment_import_logs WHERE shipment_lead_id IN (
+                               SELECT shipment_lead_id FROM shipment_leads WHERE assigned_broker_id = ?
+                             )`,
+                            userId
+                        )
+                    )
+                ) as number
             );
-            const shipmentIds = shipments.map((s) => s.shipmentLeadId);
-            if (shipmentIds.length) {
-                const importLogs = await withDbRetry("deleteImportLogs", () =>
-                    prisma.shipmentImportLog.deleteMany({
-                        where: { shipmentLeadId: { in: shipmentIds } },
-                    })
-                );
-                deleted.shipmentImportLogs = importLogs.count;
-                await withDbRetry("deleteTimeline", () =>
-                    prisma.shipmentTimelineEvent.deleteMany({
-                        where: { shipmentLeadId: { in: shipmentIds } },
-                    })
-                );
-                const leads = await withDbRetry("deleteLeads", () =>
-                    prisma.shipmentLead.deleteMany({
-                        where: { shipmentLeadId: { in: shipmentIds } },
-                    })
-                );
-                deleted.shipmentLeads = leads.count;
-            } else {
-                deleted.shipmentLeads = 0;
-                deleted.shipmentImportLogs = 0;
-            }
+
+            await withDbRetry("deleteTimelineByLead", () =>
+                prisma.$executeRawUnsafe(
+                    `DELETE FROM shipment_timeline_events WHERE shipment_lead_id IN (
+                       SELECT shipment_lead_id FROM shipment_leads WHERE assigned_broker_id = ?
+                     )`,
+                    userId
+                )
+            );
+
+            deleted.shipmentLeads = Number(
+                (
+                    await withDbRetry("deleteLeads", () =>
+                        prisma.$executeRawUnsafe(
+                            `DELETE FROM shipment_leads WHERE assigned_broker_id = ?`,
+                            userId
+                        )
+                    )
+                ) as number
+            );
 
             await withDbRetry("clearTimelineActor", () =>
-                prisma.shipmentTimelineEvent.updateMany({
-                    where: { actorUserId: userId },
-                    data: { actorUserId: null },
-                })
+                prisma.$executeRawUnsafe(
+                    `UPDATE shipment_timeline_events SET actor_user_id = NULL WHERE actor_user_id = ?`,
+                    userId
+                )
             );
 
-            const assignLogs = await withDbRetry("deleteAssignLogs", () =>
-                prisma.assignmentLog.deleteMany({
-                    where: { assignedUserId: userId },
-                })
+            deleted.assignmentLogs = Number(
+                (
+                    await withDbRetry("deleteAssignLogs", () =>
+                        prisma.$executeRawUnsafe(
+                            `DELETE FROM assignment_logs WHERE assigned_user_id = ?`,
+                            userId
+                        )
+                    )
+                ) as number
             );
-            deleted.assignmentLogs = assignLogs.count;
 
             const queue = await withDbRetry("getQueue", () =>
                 prisma.assignmentQueueState.findUnique({
@@ -268,76 +282,105 @@ export class UsersService {
                 }
             }
 
-            const pendingOr: Array<{ username: string } | { email: string }> = [
-                { username: user.username },
-            ];
-            if (user.email) pendingOr.push({ email: user.email });
-            const pending = await withDbRetry("deletePending", () =>
-                prisma.pendingRegistration.deleteMany({
-                    where: { OR: pendingOr },
-                })
-            );
-            deleted.pendingRegistrations = pending.count;
+            if (user.email) {
+                deleted.pendingRegistrations = Number(
+                    (
+                        await withDbRetry("deletePending", () =>
+                            prisma.$executeRawUnsafe(
+                                `DELETE FROM pending_registrations WHERE username = ? OR email = ?`,
+                                user.username,
+                                user.email
+                            )
+                        )
+                    ) as number
+                );
+            } else {
+                deleted.pendingRegistrations = Number(
+                    (
+                        await withDbRetry("deletePending", () =>
+                            prisma.$executeRawUnsafe(
+                                `DELETE FROM pending_registrations WHERE username = ?`,
+                                user.username
+                            )
+                        )
+                    ) as number
+                );
+            }
 
             const employeeId = user.employeeId;
             if (employeeId) {
                 await withDbRetry("unlinkEmployee", () =>
-                    prisma.user.update({
-                        where: { userId },
-                        data: { employeeId: null },
-                    })
+                    prisma.$executeRawUnsafe(
+                        `UPDATE users SET employee_id = NULL WHERE user_id = ?`,
+                        userId
+                    )
                 );
             }
 
             await withDbRetry("deleteUserRow", () =>
-                prisma.user.delete({ where: { userId } })
+                prisma.$executeRawUnsafe(`DELETE FROM users WHERE user_id = ?`, userId)
             );
             deleted.users = 1;
 
             if (employeeId) {
+                const sessions = (await withDbRetry("findSessions", () =>
+                    prisma.$queryRawUnsafe<{ session_id: string }[]>(
+                        `SELECT session_id FROM attendance_sessions WHERE employee_id = ?`,
+                        employeeId
+                    )
+                )) as { session_id: string }[];
+                const sessionIds = sessions.map((s) => s.session_id);
+                if (sessionIds.length) {
+                    const placeholders = sessionIds.map(() => "?").join(",");
+                    await withDbRetry("deleteAbsences", () =>
+                        prisma.$executeRawUnsafe(
+                            `DELETE FROM absence_intervals WHERE session_id IN (${placeholders})`,
+                            ...sessionIds
+                        )
+                    );
+                }
+                await withDbRetry("deleteEvents", () =>
+                    prisma.$executeRawUnsafe(
+                        `DELETE FROM attendance_events WHERE employee_id = ?`,
+                        employeeId
+                    )
+                );
+                await withDbRetry("deleteSessions", () =>
+                    prisma.$executeRawUnsafe(
+                        `DELETE FROM attendance_sessions WHERE employee_id = ?`,
+                        employeeId
+                    )
+                );
+                await withDbRetry("deleteNotifications", () =>
+                    prisma.$executeRawUnsafe(
+                        `DELETE FROM notifications WHERE employee_id = ?`,
+                        employeeId
+                    )
+                );
                 const employee = await withDbRetry("findEmployee", () =>
                     prisma.employee.findUnique({ where: { employeeId } })
                 );
                 if (employee) {
-                    const sessions = await withDbRetry("findSessions", () =>
-                        prisma.attendanceSession.findMany({
-                            where: { employeeId },
-                            select: { sessionId: true },
-                        })
-                    );
-                    const sessionIds = sessions.map((s) => s.sessionId);
-                    if (sessionIds.length) {
-                        await withDbRetry("deleteAbsences", () =>
-                            prisma.absenceInterval.deleteMany({
-                                where: { sessionId: { in: sessionIds } },
-                            })
-                        );
-                    }
-                    await withDbRetry("deleteEvents", () =>
-                        prisma.attendanceEvent.deleteMany({ where: { employeeId } })
-                    );
-                    await withDbRetry("deleteSessions", () =>
-                        prisma.attendanceSession.deleteMany({ where: { employeeId } })
-                    );
-                    await withDbRetry("deleteNotifications", () =>
-                        prisma.notification.deleteMany({ where: { employeeId } })
-                    );
                     await withDbRetry("deleteCardScans", () =>
                         prisma.pendingCardScan.deleteMany({
                             where: { cardToken: normalizeCardToken(employee.cardNumber) },
                         })
                     );
-                    await withDbRetry("deleteAssignByEmployee", () =>
-                        prisma.assignmentLog.deleteMany({
-                            where: { assignedEmployeeId: employeeId },
-                        })
-                    );
-                    await withDbRetry("deleteEmployee", () =>
-                        prisma.employee.delete({ where: { employeeId } })
-                    );
-                    deleted.linkedEmployees = 1;
-                    deleted.attendanceSessions = sessions.length;
                 }
+                await withDbRetry("deleteAssignByEmployee", () =>
+                    prisma.$executeRawUnsafe(
+                        `DELETE FROM assignment_logs WHERE assigned_employee_id = ?`,
+                        employeeId
+                    )
+                );
+                await withDbRetry("deleteEmployee", () =>
+                    prisma.$executeRawUnsafe(
+                        `DELETE FROM employees WHERE employee_id = ?`,
+                        employeeId
+                    )
+                );
+                deleted.linkedEmployees = 1;
+                deleted.attendanceSessions = sessionIds.length;
             }
 
             return {
