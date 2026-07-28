@@ -247,12 +247,23 @@ window.GreenOSModules.broker = {
         return;
       }
       var rows = data.data || [];
+      var soundOn = localStorage.getItem("gos_notify_sound") !== "0";
       body.innerHTML =
-        '<section class="gos-dash-hero"><h1>Notifications</h1><p>Assignments and queue events for you</p></section>' +
+        '<section class="gos-dash-hero"><h1>Notifications</h1>' +
+        "<p>Live assignment alerts (SSE) + recent queue events. No page refresh needed.</p></section>" +
+        '<label class="gos-muted" style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem">' +
+        '<input type="checkbox" id="broker-sound-toggle"' +
+        (soundOn ? " checked" : "") +
+        "/> Play sound on new assignment</label>" +
         '<ul class="broker-notify-list" id="broker-notify"></ul>';
+      body.querySelector("#broker-sound-toggle")?.addEventListener("change", function (e) {
+        var on = !!e.target.checked;
+        if (window.GreenOSRealtime) window.GreenOSRealtime.setSoundEnabled(on);
+        else localStorage.setItem("gos_notify_sound", on ? "1" : "0");
+      });
       var list = body.querySelector("#broker-notify");
       if (!rows.length) {
-        list.innerHTML = "<li class=\"gos-muted\">No notifications yet</li>";
+        list.innerHTML = "<li class=\"gos-muted\">No notifications yet — new assignments will pop up live</li>";
         return;
       }
       var esc = this.esc.bind(this);

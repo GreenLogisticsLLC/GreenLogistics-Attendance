@@ -1,6 +1,7 @@
 import { prisma } from "../../config/database.js";
 import { attendanceSessionRepository } from "../../repositories/attendance-session.repository.js";
 import { shipmentTimelineService } from "../crm/services/timeline.service.js";
+import { sseEmitToRoles, sseEmitToUser } from "../crm/services/realtime.hub.js";
 import {
     shipmentImportLogRepository,
     shipmentLeadRepository,
@@ -62,6 +63,17 @@ export class AssignmentEngine {
                 eventType: "NO_ELIGIBLE",
                 message: "No broker currently In Office (Attendance)",
             });
+            try {
+                sseEmitToRoles(["Owner", "Manager", "Administrator", "Team Lead"], {
+                    type: "SHIPMENT_UNASSIGNED",
+                    shipmentLeadId,
+                    shipmentTitle: lead.shipmentTitle,
+                    reason: "No broker In Office",
+                    at: new Date().toISOString(),
+                });
+            } catch {
+                /* ignore */
+            }
             return parked || lead;
         }
 
@@ -99,6 +111,40 @@ export class AssignmentEngine {
             status: "AWAITING_ACCEPTANCE",
         });
         await this.pipelineLog(shipmentLeadId, "Status → AWAITING_ACCEPTANCE");
+
+        // Live notify assigned broker (SSE) — no page refresh needed
+        try {
+            const leadRow = awaiting || assigned;
+            sseEmitToUser(broker.userId, {
+                type: "SHIPMENT_ASSIGNED",
+                shipmentLeadId,
+                shipmentTitle: leadRow?.shipmentTitle || lead.shipmentTitle,
+                vehicle: leadRow?.vehicle || leadRow?.category || lead.vehicle || lead.category || "",
+                pickup: [leadRow?.pickupCity || lead.pickupCity, leadRow?.pickupState || lead.pickupState]
+                    .filter(Boolean)
+                    .join(", "),
+                delivery: [
+                    leadRow?.deliveryCity || lead.deliveryCity,
+                    leadRow?.deliveryState || lead.deliveryState,
+                ]
+                    .filter(Boolean)
+                    .join(", "),
+                miles: leadRow?.miles ?? lead.miles ?? null,
+                customer: leadRow?.customerName || lead.customerName || "",
+                assignedAt: new Date().toISOString(),
+                brokerName: broker.displayName,
+            });
+            sseEmitToRoles(["Owner", "Manager", "Administrator", "Team Lead"], {
+                type: "SHIPMENT_ASSIGNED_BROADCAST",
+                shipmentLeadId,
+                shipmentTitle: leadRow?.shipmentTitle || lead.shipmentTitle,
+                brokerName: broker.displayName,
+                assignedAt: new Date().toISOString(),
+            });
+        } catch (err) {
+            console.warn("[assignment] SSE notify failed:", err);
+        }
+
         return awaiting || assigned;
     }
 

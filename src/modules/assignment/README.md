@@ -42,7 +42,11 @@ Next shipment → Leah.
 GET /api/assignment/queue
 GET /api/assignment/eligible
 GET /api/assignment/logs
+POST /api/assignment/drain-pending
 PATCH /api/assignment/users/:userId/employee  { "employeeId": "..." }
+GET /api/crm/events?token=…   — SSE live assignment notifications
 ```
+
+Live notify: after Round Robin assign, broker receives `SHIPMENT_ASSIGNED` over SSE (toast + optional sound). Managers get `SHIPMENT_UNASSIGNED` / broadcast events.
 
 Link User ↔ Employee once (or rely on unique first/last name match).

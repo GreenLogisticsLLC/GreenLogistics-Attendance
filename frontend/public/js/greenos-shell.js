@@ -34,6 +34,9 @@
       this.user = window.GreenOSUser || this.user || null;
       this.renderSidebar();
       this.bindChrome();
+      if (window.GreenOSRealtime && typeof window.GreenOSRealtime.connect === "function") {
+        window.GreenOSRealtime.connect();
+      }
       const start =
         this.user && this.user.role === "Broker" ? "broker" : "dashboard";
       this.navigate(start);
@@ -81,7 +84,12 @@
         document.getElementById("gos-sidebar")?.classList.toggle("is-open");
       });
       document.getElementById("gos-notifications-btn")?.addEventListener("click", () => {
-        alert("Notifications center — coming soon");
+        if (window.GreenOSRealtime) window.GreenOSRealtime.clearUnread();
+        if (this.role() === "Broker") {
+          this.navigate("broker", "notifications");
+        } else {
+          this.navigate("crm", "dashboard");
+        }
       });
     },
 

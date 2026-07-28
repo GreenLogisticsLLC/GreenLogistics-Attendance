@@ -12,8 +12,12 @@ import {
     crmMyNotificationsController,
     crmUpdateShipmentController,
 } from "../controllers/crm.controller.js";
+import { crmEventsSseController } from "../controllers/crm-events.controller.js";
 
 export const crmRouter = Router();
+
+// SSE: EventSource cannot set Authorization — auth via ?token= inside controller
+crmRouter.get("/events", crmEventsSseController);
 
 crmRouter.use(authMiddleware);
 
