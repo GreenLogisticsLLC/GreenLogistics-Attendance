@@ -59,12 +59,12 @@ jobs:
           # GreenOS AI Assistant — sync OpenAI from GitHub Actions secrets (base64)
           touch .env
           if [ -n "${OPENAI_KEY_B64:-}" ]; then
-            OPENAI_API_KEY="$(printf '%s' "$OPENAI_KEY_B64" | base64 -d)"
-            MODEL="${OPENAI_MODEL_SAFE:-gpt-5.5}"
+            OPENAI_API_KEY="$(printf '%s' "$OPENAI_KEY_B64" | base64 -d | tr -d '\r\n')"
+            MODEL="$(printf '%s' "${OPENAI_MODEL_SAFE:-gpt-5.5}" | tr -d '\r\n')"
             grep -vE '^(OPENAI_API_KEY|OPENAI_MODEL)=' .env > .env.openai.tmp || true
             printf 'OPENAI_API_KEY=%s\nOPENAI_MODEL=%s\n' "$OPENAI_API_KEY" "$MODEL" >> .env.openai.tmp
             mv .env.openai.tmp .env
-            echo "Synced OPENAI_API_KEY and OPENAI_MODEL to server .env"
+            echo "Synced OPENAI_API_KEY (len=${#OPENAI_API_KEY}) and OPENAI_MODEL to server .env"
           else
             echo "WARN: OPENAI_API_KEY GitHub secret is empty — AI Assistant will stay disabled"
           fi

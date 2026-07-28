@@ -82,7 +82,7 @@ export const config = {
     emailPollIntervalMs: parseInt(process.env.EMAIL_POLL_INTERVAL_MS || "30000", 10),
     /** GreenOS AI Assistant (OpenAI). */
     openai: {
-        apiKey: process.env.OPENAI_API_KEY || "",
-        model: process.env.OPENAI_MODEL || "gpt-5.5",
+        apiKey: (process.env.OPENAI_API_KEY || "").trim(),
+        model: (process.env.OPENAI_MODEL || "gpt-5.5").trim(),
     },
 };
