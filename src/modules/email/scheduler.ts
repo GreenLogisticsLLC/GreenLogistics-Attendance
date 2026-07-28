@@ -1,5 +1,7 @@
 import { emailImportService } from "./services/email-import.service.js";
 import { gmailListener } from "./gmail/gmail.listener.js";
+import { brokerGmailSyncService } from "./gmail/broker-gmail-sync.service.js";
+import { brokerGmailOAuthService } from "./gmail/broker-gmail-oauth.service.js";
 import { isAdminWriteActive } from "../../config/database.js";
 
 let timer: NodeJS.Timeout | null = null;
@@ -15,14 +17,29 @@ export function startEmailImportScheduler(intervalMs = 30_000) {
             console.log("[email] skip tick — admin write in progress");
             return;
         }
-        if (!(await gmailListener.ensureCredentials())) return;
         running = true;
         try {
-            const result = await emailImportService.checkInbox({ maxMessages: 20 });
-            if (result.processed > 0) {
-                console.log(
-                    `[email] processed=${result.processed} imported=${result.imported} ignored=${result.ignored} duplicates=${result.duplicates} errors=${result.errors}`
+            if (await gmailListener.ensureCredentials()) {
+                const result = await emailImportService.checkInbox({ maxMessages: 20 });
+                if (result.processed > 0) {
+                    console.log(
+                        `[email] processed=${result.processed} imported=${result.imported} ignored=${result.ignored} duplicates=${result.duplicates} errors=${result.errors}`
+                    );
+                }
+            }
+
+            if (brokerGmailOAuthService.isClientConfigured()) {
+                const broker = await brokerGmailSyncService.syncAllBrokers(12);
+                const touched = broker.results.filter(
+                    (r) =>
+                        r &&
+                        typeof r === "object" &&
+                        "synced" in r &&
+                        Number((r as { synced?: number }).synced || 0) > 0
                 );
+                if (touched.length) {
+                    console.log(`[broker-gmail] synced ${touched.length} mailbox update(s)`);
+                }
             }
         } catch (err) {
             console.error("[email] scheduler tick failed", err);
@@ -31,7 +48,6 @@ export function startEmailImportScheduler(intervalMs = 30_000) {
         }
     };
 
-    // First tick shortly after boot, then every interval.
     setTimeout(tick, 5_000);
     timer = setInterval(tick, intervalMs);
 }
@@ -41,7 +57,6 @@ export function stopEmailImportScheduler() {
     timer = null;
 }
 
-/** True while a checkInbox tick is mid-flight (caller can wait briefly). */
 export function isEmailImportRunning(): boolean {
     return running;
 }

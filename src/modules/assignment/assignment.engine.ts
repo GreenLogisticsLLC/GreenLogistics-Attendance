@@ -122,10 +122,13 @@ export class AssignmentEngine {
 
         // Live notify assigned broker (SSE) — no page refresh needed
         try {
+            const gosId = await ensureGreenOsShipmentId(shipmentLeadId).catch(() => null);
             const leadRow = awaiting || assigned;
-            sseEmitToUser(broker.userId, {
-                type: "SHIPMENT_ASSIGNED",
+            const notifyPayload = {
+                type: "SHIPMENT_ASSIGNED" as const,
                 shipmentLeadId,
+                greenOsShipmentId: gosId,
+                shipmentNumber: gosId || shipmentLeadId.slice(0, 8),
                 shipmentTitle: leadRow?.shipmentTitle || lead.shipmentTitle,
                 vehicle: leadRow?.vehicle || leadRow?.category || lead.vehicle || lead.category || "",
                 pickup: [leadRow?.pickupCity || lead.pickupCity, leadRow?.pickupState || lead.pickupState]
@@ -141,13 +144,18 @@ export class AssignmentEngine {
                 customer: leadRow?.customerName || lead.customerName || "",
                 assignedAt: new Date().toISOString(),
                 brokerName: broker.displayName,
-            });
+                message: `New Shipment Assigned — ${gosId || shipmentLeadId.slice(0, 8)}`,
+            };
+            sseEmitToUser(broker.userId, notifyPayload);
             sseEmitToRoles(["Owner", "Manager", "Administrator", "Team Lead"], {
                 type: "SHIPMENT_ASSIGNED_BROADCAST",
                 shipmentLeadId,
+                greenOsShipmentId: gosId,
+                shipmentNumber: gosId || shipmentLeadId.slice(0, 8),
                 shipmentTitle: leadRow?.shipmentTitle || lead.shipmentTitle,
                 brokerName: broker.displayName,
                 assignedAt: new Date().toISOString(),
+                message: `New Shipment Assigned — ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
             });
         } catch (err) {
             console.warn("[assignment] SSE notify failed:", err);

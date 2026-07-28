@@ -34,6 +34,8 @@ model User {
   role                   Role       @relation(fields: [roleId], references: [roleId])
   employee               Employee?  @relation(fields: [employeeId], references: [employeeId])
   auditLogs              AuditLog[]
+  brokerGmailAccount     BrokerGmailAccount?
+  brokerMailboxMessages  BrokerMailboxMessage[]
 
   @@map("users")
 }
@@ -397,4 +399,50 @@ model AssignmentLog {
   @@index([eventType])
   @@index([createdAt])
   @@map("assignment_logs")
+}
+
+/// Sprint C — each broker connects their own Gmail (uShip sync only).
+model BrokerGmailAccount {
+  brokerGmailId  String    @id @default(uuid()) @map("broker_gmail_id")
+  userId         String    @unique @map("user_id")
+  gmailAddress   String    @map("gmail_address")
+  refreshToken   String    @map("refresh_token")
+  accessToken    String?   @map("access_token")
+  connectedAt    DateTime  @default(now()) @map("connected_at")
+  lastSyncAt     DateTime? @map("last_sync_at")
+  lastError      String?   @map("last_error")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  user           User      @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  messages       BrokerMailboxMessage[]
+
+  @@index([gmailAddress])
+  @@index([isActive])
+  @@map("broker_gmail_accounts")
+}
+
+/// uShip-related emails from a broker mailbox (history). Personal mail is never stored.
+model BrokerMailboxMessage {
+  messageId        String   @id @default(uuid()) @map("message_id")
+  userId           String   @map("user_id")
+  brokerGmailId    String   @map("broker_gmail_id")
+  gmailMessageId   String   @map("gmail_message_id")
+  gmailThreadId    String?  @map("gmail_thread_id")
+  shipmentLeadId   String?  @map("shipment_lead_id")
+  fromAddress      String   @map("from_address")
+  subject          String
+  snippet          String?
+  bodyText         String?  @map("body_text")
+  receivedAt       DateTime @map("received_at")
+  matchMethod      String?  @map("match_method")
+  createdAt        DateTime @default(now()) @map("created_at")
+  user             User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  brokerGmail      BrokerGmailAccount @relation(fields: [brokerGmailId], references: [brokerGmailId], onDelete: Cascade)
+
+  @@unique([userId, gmailMessageId])
+  @@index([shipmentLeadId])
+  @@index([receivedAt])
+  @@index([brokerGmailId])
+  @@map("broker_mailbox_messages")
 }

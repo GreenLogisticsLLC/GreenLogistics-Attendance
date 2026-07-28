@@ -1,52 +1,42 @@
-# Assignment Engine v1.0
+# Assignment Engine — Sprint B (complete)
 
 ```
 Attendance (card swipe)
     ↓
-In Office / Out of Office
+In Office / Out of Office   ← only these two for eligibility
     ↓
 Assignment Queue (Round Robin)
     ↓
-CRM Shipment
+Shipment Card + Domain Event BROKER_ASSIGNED
+    ↓
+SSE: "New Shipment Assigned — GOS-…"
 ```
 
-## Rule (only Attendance)
+## Rules
 
-| Card / status   | Effect                                      |
-|-----------------|---------------------------------------------|
-| **In Office**   | Automatically joins end of assignment queue; pending Unassigned/NEW leads are drained via Round Robin |
-| **Out of Office** | Immediately removed — no new shipments    |
+| Card / status   | Effect |
+|-----------------|--------|
+| **In Office**   | Joins end of queue; drains Unassigned/NEW via Round Robin |
+| **Out of Office** | Removed immediately — skipped |
 
-No toggles, buttons, or checkboxes.
+No Busy / Away / Available toggles. `availableForAssignment` on User is **not** used by the engine.
 
-## Status flow
+## Notification
 
-```
-NEW → (no broker) UNASSIGNED
-    → ASSIGNED → AWAITING_ACCEPTANCE → WORKING (Accept)
-```
+On assign, broker receives live SSE:
 
-## Morning example
+- Title: **New Shipment Assigned**
+- Body: **Shipment # GOS-YYYYMMDD-####** + route summary
 
-Alex → Leah → David → Mary swipe In Office  
-Queue: `1 Alex → 2 Leah → 3 David → 4 Mary`  
-Shipments #1–#4 go to each in turn; #5 back to Alex.
-
-Alex leaves → Out of Office → removed  
-Queue: `Leah → David → Mary`  
-Next shipment → Leah.
+Managers get `SHIPMENT_ASSIGNED_BROADCAST`.
 
 ## API
 
 ```
-GET /api/assignment/queue
-GET /api/assignment/eligible
-GET /api/assignment/logs
+GET  /api/assignment/queue
+GET  /api/assignment/eligible
+GET  /api/assignment/logs
 POST /api/assignment/drain-pending
-PATCH /api/assignment/users/:userId/employee  { "employeeId": "..." }
-GET /api/crm/events?token=…   — SSE live assignment notifications
+PATCH /api/assignment/users/:userId/employee
+GET  /api/crm/events?token=…
 ```
-
-Live notify: after Round Robin assign, broker receives `SHIPMENT_ASSIGNED` over SSE (toast + optional sound). Managers get `SHIPMENT_UNASSIGNED` / broadcast events.
-
-Link User ↔ Employee once (or rely on unique first/last name match).

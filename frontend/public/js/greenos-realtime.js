@@ -76,8 +76,13 @@
         ? esc(data.miles) + " miles"
         : "";
     el.innerHTML =
-      '<div class="gos-toast-title">🚚 New Shipment Assigned</div>' +
+      '<div class="gos-toast-title">New Shipment Assigned</div>' +
       '<div class="gos-toast-body">' +
+      (data.greenOsShipmentId || data.shipmentNumber
+        ? "<strong>Shipment # " +
+          esc(data.greenOsShipmentId || data.shipmentNumber) +
+          "</strong><br/>"
+        : "") +
       "<strong>" +
       esc(data.vehicle || data.shipmentTitle || "Shipment") +
       "</strong><br/>" +

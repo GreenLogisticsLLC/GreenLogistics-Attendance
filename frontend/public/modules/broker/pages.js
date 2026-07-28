@@ -119,13 +119,86 @@ window.GreenOSModules.broker = {
         this.card("Won", s.won || 0, "accent-green") +
         this.card("Lost", s.lost || 0, "accent-warn") +
         "</div>" +
+        '<section class="gos-module-placeholder" style="margin-top:1.25rem" id="broker-gmail-box">' +
+        "<h3>My Gmail (uShip sync)</h3>" +
+        '<p class="gos-muted">Connect your broker Gmail. GreenOS monitors uShip emails only — personal mail is ignored.</p>' +
+        '<p id="broker-gmail-status">Checking…</p>' +
+        '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem">' +
+        '<button type="button" class="btn-primary" id="broker-gmail-connect" style="width:auto">Connect Gmail</button>' +
+        '<button type="button" class="btn-secondary" id="broker-gmail-sync" style="width:auto">Sync now</button>' +
+        '<button type="button" class="btn-secondary" id="broker-gmail-disconnect" style="width:auto">Disconnect</button>' +
+        "</div></section>" +
         '<p style="margin-top:1rem"><button type="button" class="btn-primary" id="broker-goto-shipments" style="width:auto">Open My Shipments</button></p>';
       body.querySelector("#broker-goto-shipments")?.addEventListener("click", function () {
         window.GreenOSModules.broker.render(root, "shipments");
       });
+      window.GreenOSModules.broker.bindGmailBox(body);
     } catch {
       body.innerHTML = "<p>Failed to load dashboard</p>";
     }
+  },
+
+  async emailApi(path, options) {
+    var token = localStorage.getItem("gl_token");
+    var res = await fetch("/api/email" + path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: token ? "Bearer " + token : "",
+        ...(options && options.headers),
+      },
+    });
+    return res.json();
+  },
+
+  async bindGmailBox(body) {
+    var statusEl = body.querySelector("#broker-gmail-status");
+    var self = this;
+    async function refresh() {
+      try {
+        var data = await self.emailApi("/broker/status");
+        if (!data.success) {
+          statusEl.textContent = data.message || "Status unavailable";
+          return;
+        }
+        var d = data.data || {};
+        if (d.connected) {
+          statusEl.innerHTML =
+            "Connected: <strong>" +
+            self.esc(d.gmailAddress) +
+            "</strong>" +
+            (d.lastSyncAt ? " · last sync " + self.fmtDate(d.lastSyncAt) : "") +
+            (d.lastError ? '<br><span style="color:var(--red)">' + self.esc(d.lastError) + "</span>" : "");
+        } else {
+          statusEl.textContent = d.oauthClientConfigured
+            ? "Not connected — click Connect Gmail"
+            : "Gmail OAuth is not configured on the server";
+        }
+      } catch {
+        statusEl.textContent = "Could not load Gmail status";
+      }
+    }
+    body.querySelector("#broker-gmail-connect")?.addEventListener("click", async function () {
+      var data = await self.emailApi("/broker/auth?json=1");
+      if (data.success && data.data && data.data.url) {
+        window.location.href = data.data.url;
+      } else {
+        alert(data.message || "Could not start Gmail OAuth");
+      }
+    });
+    body.querySelector("#broker-gmail-sync")?.addEventListener("click", async function () {
+      statusEl.textContent = "Syncing…";
+      var data = await self.emailApi("/broker/sync", { method: "POST" });
+      statusEl.textContent = data.message || (data.success ? "Synced" : "Sync failed");
+      refresh();
+    });
+    body.querySelector("#broker-gmail-disconnect")?.addEventListener("click", async function () {
+      if (!confirm("Disconnect your Gmail from GreenOS?")) return;
+      await self.emailApi("/broker/disconnect", { method: "POST" });
+      refresh();
+    });
+    refresh();
   },
 
   card(label, value, tone) {

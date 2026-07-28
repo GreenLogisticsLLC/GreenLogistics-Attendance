@@ -1,11 +1,18 @@
 import { Request, Response } from "express";
 import { config } from "../../../config/env.js";
 import { apiResponse } from "../../../utils/helpers.js";
+import type { AuthRequest } from "../../../middlewares/auth.middleware.js";
 import { emailImportService } from "../services/email-import.service.js";
 import { shipmentLeadService } from "../services/shipment-lead.service.js";
 import { shipmentImportLogRepository } from "../services/repositories.js";
 import { gmailListener } from "../gmail/gmail.listener.js";
 import { getGmailRedirectUri, gmailOAuthService } from "../gmail/gmail-oauth.service.js";
+import {
+    brokerGmailOAuthService,
+    parseBrokerOAuthState,
+} from "../gmail/broker-gmail-oauth.service.js";
+import { brokerGmailSyncService } from "../gmail/broker-gmail-sync.service.js";
+import { prisma } from "../../../config/database.js";
 
 function htmlPage(title: string, bodyHtml: string, ok = true) {
     return `<!DOCTYPE html>
@@ -26,7 +33,7 @@ function htmlPage(title: string, bodyHtml: string, ok = true) {
 </html>`;
 }
 
-/** GET /api/email/auth — redirect to Google OAuth consent. */
+/** GET /api/email/auth — company inbox OAuth (uShip import). */
 export async function gmailAuthController(_req: Request, res: Response) {
     try {
         if (!gmailOAuthService.isClientConfigured()) {
@@ -49,37 +56,70 @@ export async function gmailAuthController(_req: Request, res: Response) {
     }
 }
 
-/** GET /api/email/callback — Google redirects here with ?code=… */
+/** GET /api/email/broker/auth — per-broker Gmail OAuth (JWT required). */
+export async function brokerGmailAuthController(req: AuthRequest, res: Response) {
+    try {
+        if (!req.user?.userId) {
+            return res.status(401).json(apiResponse(false, "Unauthorized"));
+        }
+        if (!brokerGmailOAuthService.isClientConfigured()) {
+            return res.status(503).json(apiResponse(false, "Gmail OAuth client is not configured"));
+        }
+        const url = brokerGmailOAuthService.getAuthUrlForBroker(req.user.userId);
+        const wantJson =
+            req.query.json === "1" ||
+            String(req.headers.accept || "").includes("application/json");
+        if (wantJson) {
+            return res.json(apiResponse(true, "OK", { url }));
+        }
+        return res.redirect(url);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Broker OAuth start failed";
+        return res.status(500).json(apiResponse(false, message));
+    }
+}
+
+/** GET /api/email/callback — Google redirects here with ?code=&state= */
 export async function gmailCallbackController(req: Request, res: Response) {
     const error = typeof req.query.error === "string" ? req.query.error : "";
     if (error) {
         return res
             .status(400)
             .type("html")
-            .send(
-                htmlPage(
-                    "Gmail OAuth",
-                    `<h1>Authorization denied</h1><p>${error}</p>`,
-                    false
-                )
-            );
+            .send(htmlPage("Gmail OAuth", `<h1>Authorization denied</h1><p>${error}</p>`, false));
     }
 
     const code = typeof req.query.code === "string" ? req.query.code : "";
+    const state = typeof req.query.state === "string" ? req.query.state : "";
+    const brokerUserId = parseBrokerOAuthState(state);
+
     try {
-        const { email } = await gmailOAuthService.exchangeCodeAndSave(code);
-        return res
-            .status(200)
-            .type("html")
-            .send(
+        if (brokerUserId) {
+            const { email } = await brokerGmailOAuthService.exchangeCodeAndSaveForBroker(
+                brokerUserId,
+                code
+            );
+            return res.status(200).type("html").send(
                 htmlPage(
-                    "Gmail connected",
-                    `<h1>Gmail connected successfully</h1>
-                     <p>${email ? `Mailbox: <strong>${email}</strong>` : ""}</p>
-                     <p>GreenOS will use the saved refresh token to read new emails automatically.</p>
+                    "Broker Gmail connected",
+                    `<h1>Broker Gmail connected</h1>
+                     <p>Mailbox: <strong>${email}</strong></p>
+                     <p>GreenOS will monitor <em>uShip-related</em> emails only (personal mail is ignored).</p>
                      <p><a href="/">Back to GreenOS</a></p>`
                 )
             );
+        }
+
+        const { email } = await gmailOAuthService.exchangeCodeAndSave(code);
+        return res.status(200).type("html").send(
+            htmlPage(
+                "Gmail connected",
+                `<h1>Company Gmail connected</h1>
+                 <p>${email ? `Mailbox: <strong>${email}</strong>` : ""}</p>
+                 <p>Used for new uShip shipment import into GreenOS.</p>
+                 <p><a href="/">Back to GreenOS</a></p>`
+            )
+        );
     } catch (err) {
         const message = err instanceof Error ? err.message : "Token exchange failed";
         console.error("[GMAIL OAUTH] Callback failed:", message);
@@ -88,6 +128,73 @@ export async function gmailCallbackController(req: Request, res: Response) {
             .type("html")
             .send(htmlPage("Gmail OAuth", `<h1>Connection failed</h1><p>${message}</p>`, false));
     }
+}
+
+export async function brokerGmailStatusController(req: AuthRequest, res: Response) {
+    if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const account = await brokerGmailOAuthService.getAccount(req.user.userId);
+    return res.json(
+        apiResponse(true, "OK", {
+            connected: Boolean(account?.isActive && account.refreshToken),
+            gmailAddress: account?.gmailAddress || null,
+            lastSyncAt: account?.lastSyncAt || null,
+            lastError: account?.lastError || null,
+            authUrl: "/api/email/broker/auth",
+            oauthClientConfigured: brokerGmailOAuthService.isClientConfigured(),
+        })
+    );
+}
+
+export async function brokerGmailDisconnectController(req: AuthRequest, res: Response) {
+    if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    await brokerGmailOAuthService.disconnect(req.user.userId);
+    return res.json(apiResponse(true, "Broker Gmail disconnected"));
+}
+
+export async function brokerGmailSyncController(req: AuthRequest, res: Response) {
+    if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const account = await brokerGmailOAuthService.getAccount(req.user.userId);
+    if (!account?.isActive || !account.refreshToken) {
+        return res.status(400).json(apiResponse(false, "Connect your Gmail first"));
+    }
+    try {
+        const result = await brokerGmailSyncService.syncOneAccount(account);
+        return res.json(apiResponse(true, "Broker mailbox synced", result));
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Sync failed";
+        return res.status(500).json(apiResponse(false, message));
+    }
+}
+
+export async function brokerGmailMessagesController(req: AuthRequest, res: Response) {
+    if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const rows = await brokerGmailSyncService.listMessagesForBroker(req.user.userId, 100);
+    return res.json(apiResponse(true, "OK", rows));
+}
+
+export async function listBrokerGmailAccountsController(_req: AuthRequest, res: Response) {
+    const rows = await prisma.brokerGmailAccount.findMany({
+        orderBy: { connectedAt: "desc" },
+        include: {
+            user: { select: { userId: true, username: true, firstName: true, lastName: true } },
+        },
+    });
+    return res.json(
+        apiResponse(
+            true,
+            "OK",
+            rows.map((r) => ({
+                userId: r.userId,
+                username: r.user.username,
+                name: `${r.user.firstName} ${r.user.lastName}`.trim(),
+                gmailAddress: r.gmailAddress,
+                isActive: r.isActive,
+                lastSyncAt: r.lastSyncAt,
+                lastError: r.lastError,
+                connectedAt: r.connectedAt,
+            }))
+        )
+    );
 }
 
 export async function listShipmentsController(_req: Request, res: Response) {
@@ -107,8 +214,11 @@ export async function getShipmentController(req: Request, res: Response) {
 export async function checkEmailController(_req: Request, res: Response) {
     try {
         const result = await emailImportService.checkInbox();
+        const broker = await brokerGmailSyncService.syncAllBrokers().catch(() => null);
         const ok = result.configured;
-        return res.status(ok ? 200 : 503).json(apiResponse(ok, result.message, result));
+        return res.status(ok ? 200 : 503).json(
+            apiResponse(ok, result.message, { ...result, brokerGmail: broker })
+        );
     } catch (err) {
         const message = err instanceof Error ? err.message : "Email check failed";
         return res.status(500).json(apiResponse(false, message));
@@ -124,18 +234,20 @@ export async function emailStatusController(_req: Request, res: Response) {
     const gmailConfigured = await gmailListener.ensureCredentials();
     const gmailUser = gmailConfigured ? await gmailOAuthService.getStoredUser() : config.gmail.user || "";
     const smtpConfigured = Boolean(config.smtp.host && config.smtp.user && config.smtp.pass);
+    const brokerAccounts = await prisma.brokerGmailAccount.count({
+        where: { isActive: true, NOT: { refreshToken: "" } },
+    });
     return res.json(
         apiResponse(true, "OK", {
-            // Role 1 — inbound uShip import
             gmailConfigured,
             gmailUser,
             oauthClientConfigured: gmailOAuthService.isClientConfigured(),
             redirectUri: getGmailRedirectUri(),
             authUrl: "/api/email/auth",
+            brokerAuthUrl: "/api/email/broker/auth",
+            brokerAccountsConnected: brokerAccounts,
             pollIntervalSeconds: Math.round(config.emailPollIntervalMs / 1000),
-            // Role 2 — approval recipient
             approvalEmail: config.approvalEmail,
-            // Role 3 — outbound SMTP (no secrets)
             smtpConfigured,
             smtpUser: config.smtp.user || "",
             smtpFrom: config.smtp.from || "",
