@@ -1,6 +1,7 @@
 import { prisma } from "../../config/database.js";
 import { attendanceSessionRepository } from "../../repositories/attendance-session.repository.js";
-import { shipmentTimelineService } from "../crm/services/timeline.service.js";
+import { domainEventEngine } from "../shipment/services/domain-event.engine.js";
+import { ensureGreenOsShipmentId } from "../shipment/shipment.id.js";
 import { sseEmitToRoles, sseEmitToUser } from "../crm/services/realtime.hub.js";
 import {
     shipmentImportLogRepository,
@@ -37,12 +38,8 @@ export class AssignmentEngine {
         if (lead.status !== "NEW" && lead.status !== "UNASSIGNED") return lead;
 
         if (lead.status === "NEW") {
-            await shipmentTimelineService.addEvent({
-                shipmentLeadId,
-                stage: "IMPORTED",
-                title: "Imported from uShip",
-                message: lead.shipmentTitle,
-            });
+            // SHIPMENT_IMPORTED is emitted by ShipmentService.markImported on create
+            await ensureGreenOsShipmentId(shipmentLeadId).catch(() => null);
         }
 
         const pick = await this.pickNextBrokerRoundRobin();
@@ -63,6 +60,15 @@ export class AssignmentEngine {
                 eventType: "NO_ELIGIBLE",
                 message: "No broker currently In Office (Attendance)",
             });
+            if (lead.status !== "UNASSIGNED") {
+                await domainEventEngine.emit({
+                    shipmentLeadId,
+                    eventType: "SHIPMENT_UNASSIGNED",
+                    title: "Unassigned",
+                    message: "No broker currently In Office (Attendance)",
+                    timelineStage: "SHIPMENT_UNASSIGNED",
+                });
+            }
             try {
                 sseEmitToRoles(["Owner", "Manager", "Administrator", "Team Lead"], {
                     type: "SHIPMENT_UNASSIGNED",
@@ -91,12 +97,14 @@ export class AssignmentEngine {
             shipmentLeadId,
             `Round-robin assigned to ${broker.displayName} (${broker.userId})`
         );
-        await shipmentTimelineService.addEvent({
+        await domainEventEngine.emit({
             shipmentLeadId,
-            stage: "ASSIGNED",
+            eventType: "BROKER_ASSIGNED",
             title: `Assigned to ${broker.displayName}`,
             message: `Round Robin → ${broker.displayName}`,
             actorUserId: broker.userId,
+            timelineStage: "BROKER_ASSIGNED",
+            payload: { brokerId: broker.userId, employeeId: broker.employeeId },
         });
         await this.assignmentLog({
             shipmentLeadId,
@@ -163,11 +171,13 @@ export class AssignmentEngine {
                 status: "FOLLOW_UP",
             });
             await this.pipelineLog(lead.shipmentLeadId, "Acceptance timer expired → FOLLOW_UP");
-            await shipmentTimelineService.addEvent({
+            await domainEventEngine.emit({
                 shipmentLeadId: lead.shipmentLeadId,
-                stage: "ASSIGNED",
+                eventType: "STATUS_CHANGED",
                 title: "Needs Follow Up",
                 message: "Acceptance timer expired",
+                timelineStage: "STATUS_CHANGED",
+                payload: { status: "FOLLOW_UP" },
             });
         }
         return expired.length;
@@ -179,24 +189,28 @@ export class AssignmentEngine {
             quoteSentAt: new Date(),
         });
         await this.pipelineLog(shipmentLeadId, "Status → QUOTE_SENT");
-        await shipmentTimelineService.addEvent({
+        await domainEventEngine.emit({
             shipmentLeadId,
-            stage: "QUOTE_SENT",
-            title: "Quote Sent",
+            eventType: "BID_SUBMITTED",
+            title: "Bid Submitted",
+            message: "Status → Bid Submitted",
+            timelineStage: "BID_SUBMITTED",
         });
         return updated;
     }
 
     async closeLead(shipmentLeadId: string, outcome: "WON" | "LOST") {
         const updated = await shipmentLeadRepository.update(shipmentLeadId, {
-            status: outcome,
+            status: outcome === "WON" ? "COMPLETED" : "LOST",
             closedAt: new Date(),
         });
         await this.pipelineLog(shipmentLeadId, `Status → ${outcome}`);
-        await shipmentTimelineService.addEvent({
+        await domainEventEngine.emit({
             shipmentLeadId,
-            stage: "COMPLETED",
-            title: outcome === "WON" ? "Won" : "Lost",
+            eventType: outcome === "WON" ? "SHIPMENT_COMPLETED" : "SHIPMENT_LOST",
+            title: outcome === "WON" ? "Completed" : "Lost",
+            message: `Status → ${outcome === "WON" ? "COMPLETED" : "LOST"}`,
+            timelineStage: outcome === "WON" ? "SHIPMENT_COMPLETED" : "SHIPMENT_LOST",
         });
         return updated;
     }

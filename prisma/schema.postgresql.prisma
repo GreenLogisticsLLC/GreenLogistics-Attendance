@@ -262,8 +262,12 @@ model EmailMessage {
   @@map("email_messages")
 }
 
+/// Shipment Aggregate Root (table name kept for compatibility).
+/// One permanent card: Accept + Load Number NEVER creates a second record.
 model ShipmentLead {
   shipmentLeadId     String   @id @default(uuid()) @map("shipment_lead_id")
+  /// Permanent human-readable Green OS Shipment ID (never changes).
+  greenOsShipmentId  String?  @unique @map("green_os_shipment_id")
   source             String
   externalShipmentId String?  @map("external_shipment_id")
   shipmentTitle      String   @map("shipment_title")
@@ -290,6 +294,8 @@ model ShipmentLead {
   imageUrl           String?  @map("image_url")
   viewUrl            String?  @unique @map("view_url")
   status             String   @default("NEW")
+  /// Load Number extends THIS card — never a separate Load entity.
+  loadNumber         String?  @map("load_number")
   assignedBrokerId   String?  @map("assigned_broker_id")
   assignedAt         DateTime? @map("assigned_at")
   acceptedAt         DateTime? @map("accepted_at")
@@ -303,6 +309,7 @@ model ShipmentLead {
   emailMessage       EmailMessage? @relation(fields: [emailMessageId], references: [emailMessageId])
   importLogs         ShipmentImportLog[]
   timelineEvents     ShipmentTimelineEvent[]
+  domainEvents       DomainEvent[]
 
   @@index([source])
   @@index([status])
@@ -310,7 +317,26 @@ model ShipmentLead {
   @@index([assignedBrokerId])
   @@index([priority])
   @@index([createdAt])
+  @@index([loadNumber])
   @@map("shipment_leads")
+}
+
+/// Append-only Domain Events — source of truth for Timeline, Notifications, CRM, Analytics.
+model DomainEvent {
+  eventId          String   @id @default(uuid()) @map("event_id")
+  shipmentLeadId   String?  @map("shipment_lead_id")
+  eventType        String   @map("event_type")
+  title            String
+  message          String?
+  actorUserId      String?  @map("actor_user_id")
+  payloadJson      String?  @map("payload_json")
+  createdAt        DateTime @default(now()) @map("created_at")
+  shipmentLead     ShipmentLead? @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+
+  @@index([shipmentLeadId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("domain_events")
 }
 
 model ShipmentTimelineEvent {

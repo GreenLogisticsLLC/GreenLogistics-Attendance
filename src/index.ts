@@ -7,6 +7,7 @@ import { config } from "./config/env.js";
 import { configureSqlite } from "./config/database.js";
 import { attendanceService } from "./services/attendance.service.js";
 import { startEmailImportScheduler } from "./modules/email/scheduler.js";
+import { backfillMissingGreenOsShipmentIds } from "./modules/shipment/shipment.id.js";
 import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,12 @@ startEmailImportScheduler(config.emailPollIntervalMs);
 
 app.listen(config.port, config.host, async () => {
     await configureSqlite();
+    try {
+        const n = await backfillMissingGreenOsShipmentIds();
+        if (n > 0) console.log(`[shipment] Backfilled ${n} Green OS Shipment ID(s)`);
+    } catch (err) {
+        console.warn("[shipment] Green OS ID backfill skipped:", err);
+    }
     const urls = getWebhookUrls(config.port);
     const ips = getAllNetworkIps();
     console.log(`Green Logistics Attendance / GreenOS v1.0.0`);
@@ -55,6 +62,7 @@ app.listen(config.port, config.host, async () => {
     console.log(`Health:   GET http://localhost:${config.port}/api/health`);
     console.log(`Email:    GET/POST http://localhost:${config.port}/api/email/*`);
     console.log(`CRM:      GET/PATCH http://localhost:${config.port}/api/crm/*`);
+    console.log(`Shipments: GET/POST http://localhost:${config.port}/api/shipments/*`);
     console.log(`Assign:   GET http://localhost:${config.port}/api/assignment/*`);
     console.log(`Gmail OAuth: http://localhost:${config.port}/api/email/auth`);
 });

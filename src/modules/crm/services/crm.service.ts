@@ -1,12 +1,11 @@
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { attendanceSessionRepository } from "../../../repositories/attendance-session.repository.js";
-import {
-    ACTIVE_STATUSES,
-    STATUS_LABELS,
-    TIMELINE_STAGES,
-} from "../crm.constants.js";
-import { shipmentTimelineService } from "./timeline.service.js";
+import { ACTIVE_STATUSES } from "../crm.constants.js";
+import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
+import { shipmentService } from "../../shipment/services/shipment.service.js";
+import { ensureGreenOsShipmentId } from "../../shipment/shipment.id.js";
+import { statusLabel } from "../../shipment/shipment.lifecycle.js";
 
 function startOfToday(timezone: string): Date {
     const parts = new Intl.DateTimeFormat("en-CA", {
@@ -62,7 +61,9 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
         delivery: place(lead.deliveryCity as string, lead.deliveryState as string, lead.deliveryZip as string),
         equipment: (lead.equipment as string) || (lead.category as string) || "—",
         vehicle: (lead.vehicle as string) || (lead.category as string) || "—",
-        statusLabel: STATUS_LABELS[lead.status as string] || (lead.status as string),
+        statusLabel: statusLabel(String(lead.status || "")),
+        greenOsShipmentId: (lead.greenOsShipmentId as string) || null,
+        loadNumber: (lead.loadNumber as string) || null,
         ushipUrl: lead.viewUrl || null,
     };
 }
@@ -172,19 +173,27 @@ export class CrmService {
                 emailMessage: true,
                 timelineEvents: { orderBy: { createdAt: "asc" } },
                 importLogs: { orderBy: { createdAt: "desc" }, take: 50 },
+                domainEvents: { orderBy: { createdAt: "asc" } },
             },
         });
         if (!lead) return null;
 
-        const brokers = await userMap(lead.assignedBrokerId ? [lead.assignedBrokerId] : []);
-        const enriched = enrichLead(lead as unknown as Record<string, unknown>, brokers);
+        await ensureGreenOsShipmentId(lead.shipmentLeadId).catch(() => null);
+        const refreshedId = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId: id },
+            select: { greenOsShipmentId: true },
+        });
 
-        const occurred = new Set(lead.timelineEvents.map((e) => e.stage));
-        const pipeline = TIMELINE_STAGES.map((s) => ({
-            ...s,
-            done: occurred.has(s.stage),
-            at: lead.timelineEvents.find((e) => e.stage === s.stage)?.createdAt || null,
-        }));
+        const brokers = await userMap(lead.assignedBrokerId ? [lead.assignedBrokerId] : []);
+        const enriched = enrichLead(
+            {
+                ...(lead as unknown as Record<string, unknown>),
+                greenOsShipmentId: refreshedId?.greenOsShipmentId || lead.greenOsShipmentId,
+            },
+            brokers
+        );
+
+        const pipeline = await domainEventEngine.buildLifecyclePipeline(lead.shipmentLeadId);
 
         let documents: unknown[] = [];
         try {
@@ -197,6 +206,7 @@ export class CrmService {
             ...enriched,
             documents,
             timeline: lead.timelineEvents,
+            domainEvents: lead.domainEvents,
             pipeline,
             email: lead.emailMessage
                 ? {
@@ -341,54 +351,17 @@ export class CrmService {
         shipmentLeadId: string,
         status: string,
         actorUserId?: string,
-        extras?: { notes?: string; price?: number; priority?: string }
+        extras?: { notes?: string; price?: number; priority?: string; loadNumber?: string }
     ) {
-        const data: Record<string, unknown> = { status };
-        if (extras?.notes !== undefined) data.notes = extras.notes;
-        if (extras?.price !== undefined) data.price = extras.price;
-        if (extras?.priority !== undefined) data.priority = extras.priority;
-
-        const stageByStatus: Record<string, { stage: string; title: string }> = {
-            UNASSIGNED: { stage: "IMPORTED", title: "Unassigned — waiting for broker In Office" },
-            ASSIGNED: { stage: "ASSIGNED", title: "Assigned to Broker" },
-            AWAITING_ACCEPTANCE: { stage: "ASSIGNED", title: "Assigned to Broker" },
-            WORKING: { stage: "BROKER_ACCEPTED", title: "Broker Accepted Shipment" },
-            FOLLOW_UP: { stage: "ASSIGNED", title: "Needs Follow Up" },
-            QUOTE_SENT: { stage: "QUOTE_SENT", title: "Quote Sent" },
-            NEGOTIATION: { stage: "NEGOTIATION", title: "Negotiation" },
-            BOOKED: { stage: "BOOKED", title: "Booked" },
-            PICKED_UP: { stage: "PICKED_UP", title: "Picked Up" },
-            DELIVERED: { stage: "DELIVERED", title: "Delivered" },
-            WON: { stage: "COMPLETED", title: "Won" },
-            LOST: { stage: "COMPLETED", title: "Lost" },
-            COMPLETED: { stage: "COMPLETED", title: "Completed" },
-        };
-
-        if (status === "QUOTE_SENT") data.quoteSentAt = new Date();
-        if (status === "WON" || status === "LOST" || status === "COMPLETED") {
-            data.closedAt = new Date();
-        }
-        if (status === "ASSIGNED" || status === "AWAITING_ACCEPTANCE") {
-            // acceptance can be recorded via accept endpoint
-        }
-
-        const updated = await prisma.shipmentLead.update({
-            where: { shipmentLeadId },
-            data,
+        await shipmentService.transitionStatus({
+            shipmentLeadId,
+            status,
+            actorUserId,
+            extras,
+            // Manual CRM saves may jump stages; Event Engine still records the change.
+            skipLifecycleCheck: true,
         });
-
-        const mapped = stageByStatus[status];
-        if (mapped) {
-            await shipmentTimelineService.addEvent({
-                shipmentLeadId,
-                stage: mapped.stage,
-                title: mapped.title,
-                message: `Status → ${STATUS_LABELS[status] || status}`,
-                actorUserId,
-            });
-        }
-
-        return this.getShipmentCard(shipmentLeadId) || updated;
+        return this.getShipmentCard(shipmentLeadId);
     }
 
     async acceptShipment(shipmentLeadId: string, actorUserId: string) {
@@ -399,10 +372,7 @@ export class CrmService {
                 status: 403,
             });
         }
-        if (
-            lead.status !== "ASSIGNED" &&
-            lead.status !== "AWAITING_ACCEPTANCE"
-        ) {
+        if (lead.status !== "ASSIGNED" && lead.status !== "AWAITING_ACCEPTANCE") {
             throw Object.assign(
                 new Error(`Cannot accept shipment in status ${lead.status}`),
                 { status: 422 }
@@ -416,12 +386,15 @@ export class CrmService {
                 acceptedAt: new Date(),
             },
         });
-        await shipmentTimelineService.addEvent({
+        await ensureGreenOsShipmentId(shipmentLeadId).catch(() => null);
+        await domainEventEngine.emit({
             shipmentLeadId,
-            stage: "BROKER_ACCEPTED",
-            title: "Broker Accepted Shipment",
+            eventType: "BROKER_ACCEPTED_WORK",
+            title: "Broker Accepted Work",
             message: "Status → Working",
             actorUserId,
+            timelineStage: "BROKER_ACCEPTED_WORK",
+            payload: { status: "WORKING" },
         });
         return this.getShipmentCard(shipmentLeadId);
     }

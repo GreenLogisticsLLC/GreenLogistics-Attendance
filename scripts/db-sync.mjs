@@ -71,4 +71,5 @@ console.log("[db-sync] DATABASE_URL=", absUrl);
 const schema = path.join(root, "prisma", "schema.prisma");
 run(`npx prisma generate --schema "${schema}"`);
 // Prisma 6 has no --url on db push; rely on process.env.DATABASE_URL (set above).
-run(`npx prisma db push --schema "${schema}"`);
+// --accept-data-loss: additive unique indexes on nullable columns (safe for Green OS ID / load #).
+run(`npx prisma db push --schema "${schema}" --accept-data-loss`);

@@ -335,7 +335,7 @@ window.GreenOSModules.crm = {
             (isDayStart ? '<span class="lot-day-badge">Day</span>' : "") +
             "</td>" +
             "<td><strong>" +
-            esc(s.shipmentTitle || s.externalShipmentId || s.shipmentLeadId.slice(0, 8)) +
+            esc(s.greenOsShipmentId || s.shipmentTitle || s.externalShipmentId || s.shipmentLeadId.slice(0, 8)) +
             "</strong></td>" +
             "<td>" +
             esc(s.customer) +
@@ -586,14 +586,18 @@ window.GreenOSModules.crm = {
 
       var statusActions = [
         "FOLLOW_UP",
+        "BID_SUBMITTED",
+        "CUSTOMER_REPLIED",
+        "ACCEPTED",
+        "LOAD_CREATED",
+        "DISPATCH",
+        "COMPLETED",
+        "CLOSED",
+        "LOST",
         "QUOTE_SENT",
         "NEGOTIATION",
         "BOOKED",
-        "PICKED_UP",
-        "DELIVERED",
         "WON",
-        "LOST",
-        "COMPLETED",
       ]
         .map(function (st) {
           return (
@@ -613,8 +617,12 @@ window.GreenOSModules.crm = {
         '<header class="crm-modal-head">' +
         "<div><h2>" +
         esc(s.shipmentTitle) +
-        "</h2><p class=\"gos-muted\">ID: " +
-        esc(s.shipmentLeadId) +
+        '</h2><p class="gos-muted">Green OS ID: <strong>' +
+        esc(s.greenOsShipmentId || s.shipmentLeadId) +
+        "</strong>" +
+        (s.externalShipmentId
+          ? " · uShip: " + esc(s.externalShipmentId)
+          : "") +
         "</p></div>" +
         '<button type="button" class="btn-secondary" id="crm-close">Close</button>' +
         "</header>" +
@@ -622,6 +630,9 @@ window.GreenOSModules.crm = {
         "<div><span>Status</span>" +
         this.statusBadge(s.status) +
         "</div>" +
+        "<div><span>Load Number</span><strong>" +
+        esc(s.loadNumber || "—") +
+        "</strong></div>" +
         "<div><span>Customer</span><strong>" +
         esc(s.customer) +
         "</strong></div>" +
@@ -661,12 +672,16 @@ window.GreenOSModules.crm = {
         (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED"
           ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
           : "") +
+        '<label>Load # <input id="crm-load-number" type="text" placeholder="Load number" value="' +
+        esc(s.loadNumber || "") +
+        '" style="max-width:10rem"></label>' +
+        '<button type="button" class="btn-secondary" id="crm-save-load">Apply Load #</button>' +
         '<label>Update status <select id="crm-status">' +
         statusActions +
         "</select></label>" +
         '<button type="button" class="btn-secondary" id="crm-save-status">Save</button>' +
         "</div>" +
-        "<h3>Timeline</h3>" +
+        "<h3>Lifecycle</h3>" +
         '<ol class="crm-pipeline">' +
         pipeline +
         "</ol>" +
@@ -692,6 +707,19 @@ window.GreenOSModules.crm = {
         await window.GreenOSModules.crm.api("/shipments/" + id, {
           method: "PATCH",
           body: JSON.stringify({ status: st }),
+        });
+        window.GreenOSModules.crm.openShipmentCard(root, id);
+      });
+      modal.querySelector("#crm-save-load")?.addEventListener("click", async function () {
+        var ln = modal.querySelector("#crm-load-number").value;
+        var token = localStorage.getItem("gl_token") || "";
+        await fetch("/api/shipments/" + encodeURIComponent(id) + "/load-number", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({ loadNumber: ln }),
         });
         window.GreenOSModules.crm.openShipmentCard(root, id);
       });

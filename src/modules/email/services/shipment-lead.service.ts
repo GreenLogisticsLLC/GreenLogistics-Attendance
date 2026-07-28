@@ -1,13 +1,15 @@
-import { prisma } from "../../../config/database.js";
 import type { ParsedShipmentDraft } from "../models/types.js";
 import {
     shipmentImportLogRepository,
     shipmentLeadRepository,
 } from "./repositories.js";
 import { assignmentEngine } from "../../assignment/assignment.engine.js";
+import { allocateGreenOsShipmentId } from "../../shipment/shipment.id.js";
+import { shipmentService } from "../../shipment/services/shipment.service.js";
 
 /**
  * Shipment lead create + list. Assignment / acceptance pipeline lives in Assignment Engine v1.0.
+ * Aggregate Root is Shipment (Sprint A) — permanent greenOsShipmentId on the same card.
  */
 export class ShipmentLeadService {
     async createFromParsed(input: {
@@ -48,7 +50,10 @@ export class ShipmentLeadService {
             }
         }
 
+        const greenOsShipmentId = await allocateGreenOsShipmentId();
+
         const lead = await shipmentLeadRepository.create({
+            greenOsShipmentId,
             source: draft.source,
             externalShipmentId: draft.externalShipmentId,
             shipmentTitle: draft.shipmentTitle,
@@ -73,10 +78,17 @@ export class ShipmentLeadService {
 
         await shipmentImportLogRepository.create({
             eventType: "EmailImported",
-            message: `Imported shipment lead: ${lead.shipmentTitle}`,
+            message: `Imported shipment ${greenOsShipmentId}: ${lead.shipmentTitle}`,
             gmailMessageId,
             emailMessageId,
             shipmentLeadId: lead.shipmentLeadId,
+        });
+
+        await shipmentService.markImported(lead.shipmentLeadId, {
+            source: draft.source,
+            externalShipmentId: draft.externalShipmentId,
+            gmailMessageId,
+            greenOsShipmentId,
         });
 
         await assignmentEngine.startPipeline(lead.shipmentLeadId);
