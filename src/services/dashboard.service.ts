@@ -2,9 +2,11 @@ import { config } from "../config/env.js";
 import { prisma } from "../config/database.js";
 import {
     ATTENDANCE_BREAK_ALLOWANCE_MINUTES,
+    addDaysToDateString,
     diffMinutes,
     excessOutsideMinutes,
     formatDateTime,
+    getAttendanceDayBounds,
     getAttendanceWorkDate,
 } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
@@ -24,17 +26,28 @@ export class DashboardService {
             getAttendanceWorkDate(now, config.timezone);
 
         const rows: DashboardEmployeeRow[] = [];
+        const currentBounds = getAttendanceDayBounds(workDate, config.timezone);
 
         for (const emp of employees) {
-            // Never carry First Entry or presence across the 02:00 daily reset.
-            const session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+            let session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
                 emp.employeeId,
                 workDate
             );
+            if (!date && !session && now < currentBounds.scheduledStart) {
+                const previous = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+                    emp.employeeId,
+                    addDaysToDateString(workDate, -1)
+                );
+                if (
+                    previous?.currentStatus === "INSIDE_OFFICE" &&
+                    now >= previous.scheduledEnd
+                ) {
+                    session = previous;
+                }
+            }
 
             const openInterval = session?.absenceIntervals?.[0];
-            const effectiveNow =
-                session && now > session.scheduledEnd ? session.scheduledEnd : now;
+            const effectiveNow = now;
 
             let currentAbsenceMinutes = 0;
             let currentOfficeMinutes = 0;
@@ -48,6 +61,18 @@ export class DashboardService {
             }
             const rawOutsideMinutes =
                 (session?.totalAbsenceMinutes ?? 0) + currentAbsenceMinutes;
+            const overtimeEnd =
+                session?.currentStatus === "INSIDE_OFFICE"
+                    ? now
+                    : session?.lastExit || session?.lastActivity || session?.scheduledEnd;
+            const overtimeStart =
+                session?.firstEntry && session.firstEntry > session.scheduledEnd
+                    ? session.firstEntry
+                    : session?.scheduledEnd;
+            const overtimeInOfficeMinutes =
+                session && overtimeStart && overtimeEnd && overtimeEnd > overtimeStart
+                    ? diffMinutes(overtimeStart, overtimeEnd)
+                    : 0;
 
             rows.push({
                 employeeId: emp.employeeId,
@@ -65,8 +90,7 @@ export class DashboardService {
                 totalAbsenceMinutes: excessOutsideMinutes(rawOutsideMinutes),
                 rawOutsideMinutes,
                 breakAllowanceMinutes: ATTENDANCE_BREAK_ALLOWANCE_MINUTES,
-                late: session?.late ?? false,
-                lateMinutes: session?.lateMinutes ?? 0,
+                overtimeInOfficeMinutes,
                 exitCount: session?.exitCount ?? 0,
                 lastActivity: formatDateTime(session?.lastActivity ?? null),
             });
@@ -76,7 +100,9 @@ export class DashboardService {
             employeesScheduled: employees.length,
             employeesPresent: rows.filter((r) => r.currentStatus === "INSIDE_OFFICE").length,
             employeesOutside: rows.filter((r) => r.currentStatus === "OUTSIDE_OFFICE").length,
-            employeesLate: rows.filter((r) => r.late).length,
+            employeesOvertime: rows.filter(
+                (r) => r.currentStatus === "INSIDE_OFFICE" && r.overtimeInOfficeMinutes > 0
+            ).length,
             employeesNotArrived: rows.filter(
                 (r) => !r.firstEntry && r.currentStatus === "SCHEDULED"
             ).length,
@@ -122,10 +148,25 @@ export class DashboardService {
         if (!employee) return null;
 
         const date = workDate || getAttendanceWorkDate(now, config.timezone);
-        const session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+        let session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
             employeeId,
             date
         );
+        if (!workDate && !session) {
+            const bounds = getAttendanceDayBounds(date, config.timezone);
+            if (now < bounds.scheduledStart) {
+                const previous = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+                    employeeId,
+                    addDaysToDateString(date, -1)
+                );
+                if (
+                    previous?.currentStatus === "INSIDE_OFFICE" &&
+                    now >= previous.scheduledEnd
+                ) {
+                    session = previous;
+                }
+            }
+        }
 
         let events: Awaited<ReturnType<typeof prisma.attendanceEvent.findMany>> = [];
         let intervals: Awaited<ReturnType<typeof prisma.absenceInterval.findMany>> = [];

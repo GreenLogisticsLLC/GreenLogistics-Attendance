@@ -37,7 +37,7 @@ export async function periodReportPdfController(req: Request, res: Response) {
         `attachment; filename="attendance-${range.from}-${range.to}.pdf"`
     );
 
-    const doc = new PDFDocument({ margin: 40, size: "A4" });
+    const doc = new PDFDocument({ margin: 40, size: "A4", layout: "landscape" });
     doc.pipe(res);
 
     doc.fontSize(18).text(report.company, { align: "center" });
@@ -56,11 +56,21 @@ export async function periodReportPdfController(req: Request, res: Response) {
     doc.text(`Days with entry: ${report.summary.daysWithEntry}`);
     doc.text(`Total in office: ${formatMinutes(report.summary.totalInOfficeMinutes)}`);
     doc.text(`Total outside: ${formatMinutes(report.summary.totalOutsideMinutes)}`);
-    doc.text(`Total late: ${formatMinutes(report.summary.totalLateMinutes)}`);
+    doc.text(`OutTime in office: ${formatMinutes(report.summary.totalOvertimeMinutes)}`);
     doc.moveDown(1);
 
-    const colX = [40, 92, 167, 217, 275, 333, 390, 450];
-    const headers = ["Date", "Employee", "Dept", "Entry", "Exit", "In Office", "Outside", "Status"];
+    const colX = [40, 95, 180, 245, 305, 365, 430, 495, 570];
+    const headers = [
+        "Date",
+        "Employee",
+        "Dept",
+        "Entry",
+        "Exit",
+        "In Office",
+        "Outside",
+        "OutTime",
+        "Status",
+    ];
 
     function drawHeader() {
         doc.fontSize(8).fillColor("#333");
@@ -73,7 +83,7 @@ export async function periodReportPdfController(req: Request, res: Response) {
     drawHeader();
 
     for (const row of report.rows) {
-        if (doc.y > 720) {
+        if (doc.y > 510) {
             doc.addPage();
             drawHeader();
         }
@@ -87,7 +97,8 @@ export async function periodReportPdfController(req: Request, res: Response) {
         doc.text(row.lastExit?.split(",")[1]?.trim() || row.lastExit || "—", colX[4], y, { width: 58 });
         doc.text(formatMinutes(row.timeInOfficeMinutes), colX[5], y, { width: 55 });
         doc.text(formatMinutes(row.totalOutsideMinutes), colX[6], y, { width: 55 });
-        doc.text(row.status, colX[7], y, { width: 65 });
+        doc.text(formatMinutes(row.overtimeInOfficeMinutes), colX[7], y, { width: 60 });
+        doc.text(row.status, colX[8], y, { width: 100 });
 
         doc.y = y + 28;
     }

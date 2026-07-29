@@ -383,7 +383,7 @@ function renderStats(stats) {
         ["Scheduled", stats.employeesScheduled, ""],
         ["Inside Office", stats.employeesPresent, "var(--green)"],
         ["Outside", stats.employeesOutside, "var(--yellow)"],
-        ["Late", stats.employeesLate, "var(--red)"],
+        ["OutTime In Office", stats.employeesOvertime, "var(--blue)"],
         ["Not Arrived", stats.employeesNotArrived, "var(--gray)"],
         ["Left", stats.completedSessions, "var(--blue)"],
     ];
@@ -424,7 +424,7 @@ function renderTable(employees) {
             <td>${emp.currentStatus === "INSIDE_OFFICE" ? formatDuration(emp.currentOfficeMinutes) : "—"}</td>
             <td>${emp.currentStatus === "OUTSIDE_OFFICE" ? formatDuration(emp.currentAbsenceMinutes) : "—"}</td>
             <td>${formatDuration(emp.totalAbsenceMinutes)}</td>
-            <td class="${emp.late ? "late-yes" : ""}">${emp.late ? formatDuration(emp.lateMinutes) : "—"}</td>
+            <td>${emp.overtimeInOfficeMinutes ? formatDuration(emp.overtimeInOfficeMinutes) : "—"}</td>
             <td>${emp.exitCount || 0}</td>
             <td>${emp.lastActivity || "—"}</td>
         </tr>
@@ -519,7 +519,7 @@ function renderReportStats(summary, from, to) {
         ["With Entry", summary.daysWithEntry, "var(--green)"],
         ["Total In Office", formatDuration(summary.totalInOfficeMinutes), "var(--green)"],
         ["Total Outside", formatDuration(summary.totalOutsideMinutes), "var(--yellow)"],
-        ["Total Late", formatDuration(summary.totalLateMinutes), "var(--red)"],
+        ["OutTime In Office", formatDuration(summary.totalOvertimeMinutes), "var(--blue)"],
     ];
     panel.innerHTML = items.map(([label, value, color]) => `
         <div class="stat-card">
@@ -545,7 +545,7 @@ function renderReportTable(rows) {
             <td>${r.lastExit || "—"}</td>
             <td>${formatDuration(r.timeInOfficeMinutes)}</td>
             <td>${formatDuration(r.totalOutsideMinutes)}</td>
-            <td class="${r.lateMinutes ? "late-yes" : ""}">${r.lateMinutes ? formatDuration(r.lateMinutes) : "—"}</td>
+            <td>${r.overtimeInOfficeMinutes ? formatDuration(r.overtimeInOfficeMinutes) : "—"}</td>
             <td>${r.status}</td>
             <td>${r.exitCount}</td>
         </tr>
@@ -685,6 +685,20 @@ async function openEmployeeDrawer(employeeId) {
     if (!data.success) return;
 
     const { employee, session, events, intervals } = data.data;
+    const sessionEnd = session
+        ? session.currentStatus === "INSIDE_OFFICE"
+            ? new Date()
+            : new Date(session.lastExit || session.lastActivity || session.scheduledEnd)
+        : null;
+    const scheduledEnd = session ? new Date(session.scheduledEnd) : null;
+    const overtimeMinutes =
+        sessionEnd && scheduledEnd
+            ? Math.max(0, Math.floor((sessionEnd - scheduledEnd) / 60000))
+            : 0;
+    const rawOutsideMinutes = (intervals || []).reduce((sum, interval) => {
+        const end = interval.endTime ? new Date(interval.endTime) : new Date();
+        return sum + Math.max(0, Math.floor((end - new Date(interval.startTime)) / 60000));
+    }, 0);
     $("#drawer-title").textContent = `${employee.firstName} ${employee.lastName}`;
     $("#drawer-content").innerHTML = `
         <div class="drawer-section">
@@ -702,8 +716,8 @@ async function openEmployeeDrawer(employeeId) {
             <div class="info-grid">
                 <div>Status: ${statusLabel(session.currentStatus)}</div>
                 <div>First Entry: ${session.firstEntry ? new Date(session.firstEntry).toLocaleString() : "—"}</div>
-                <div>Late: ${session.late ? session.lateMinutes + " min" : "No"}</div>
-                <div>Total Outside: ${formatDuration(session.totalAbsenceMinutes)}</div>
+                <div>OutTime In Office: ${overtimeMinutes ? formatDuration(overtimeMinutes) : "—"}</div>
+                <div>Total Outside: ${formatDuration(Math.max(0, rawOutsideMinutes - 60))}</div>
                 <div>Exits: ${session.exitCount}</div>
             </div>
         </div>` : "<p>No session today</p>"}

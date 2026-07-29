@@ -1,6 +1,7 @@
 import { prisma } from "../config/database.js";
 import { config } from "../config/env.js";
 import {
+    addDaysToDateString,
     diffMinutes,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
@@ -27,21 +28,43 @@ interface ProcessEventInput {
  * No toggle relative to previous status. Shift schedules are not used for status.
  */
 export class AttendanceService {
+    private async findSessionForEvent(employeeId: string, eventTime: Date) {
+        const workDate = getAttendanceWorkDate(eventTime, config.timezone);
+        const bounds = getAttendanceDayBounds(workDate, config.timezone);
+        let session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+            employeeId,
+            workDate
+        );
+
+        // Between 02:00 and 17:00 an employee still inside belongs to yesterday's
+        // session until their first EXIT after 02:00 completes that workday.
+        if (!session && eventTime < bounds.scheduledStart) {
+            const previousWorkDate = addDaysToDateString(workDate, -1);
+            const previous = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+                employeeId,
+                previousWorkDate
+            );
+            if (
+                previous?.currentStatus === "INSIDE_OFFICE" &&
+                eventTime >= previous.scheduledEnd
+            ) {
+                session = previous;
+            }
+        }
+
+        return { workDate, bounds, session };
+    }
+
     async processEvent(input: ProcessEventInput) {
         const employee = await employeeRepository.findById(input.employeeId);
         if (!employee) {
             throw new Error("Employee not found");
         }
 
-        const workDate = getAttendanceWorkDate(input.eventTime, config.timezone);
-        const { scheduledStart, scheduledEnd } = getAttendanceDayBounds(
-            workDate,
-            config.timezone
-        );
-        let session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
-            employee.employeeId,
-            workDate
-        );
+        const lookup = await this.findSessionForEvent(employee.employeeId, input.eventTime);
+        const { workDate } = lookup;
+        const { scheduledStart, scheduledEnd } = lookup.bounds;
+        let { session } = lookup;
 
         if (!session) {
             const shiftId = employee.shiftId;
@@ -115,7 +138,7 @@ export class AttendanceService {
 
             if (!activeSession.firstEntry) {
                 updates.firstEntry = input.eventTime;
-                const lateMinutes = diffMinutes(scheduledStart, input.eventTime);
+                const lateMinutes = diffMinutes(activeSession.scheduledStart, input.eventTime);
                 updates.late = lateMinutes > 0;
                 updates.lateMinutes = lateMinutes;
             }
@@ -140,18 +163,21 @@ export class AttendanceService {
                 updates.totalAbsenceMinutes = totalAbsence;
             }
         } else {
-            // Card exit → Out of office (not shift-based completion)
-            updates.currentStatus = "OUTSIDE_OFFICE";
+            const finishesOvertime = input.eventTime >= activeSession.scheduledEnd;
+            // An EXIT after 02:00 finishes overtime; earlier exits remain breaks.
+            updates.currentStatus = finishesOvertime ? "COMPLETED" : "OUTSIDE_OFFICE";
             updates.lastExit = input.eventTime;
             updates.exitCount = activeSession.exitCount + 1;
 
-            await prisma.absenceInterval.create({
-                data: {
-                    sessionId: activeSession.sessionId,
-                    exitEventId: event.eventId,
-                    startTime: input.eventTime,
-                },
-            });
+            if (!finishesOvertime) {
+                await prisma.absenceInterval.create({
+                    data: {
+                        sessionId: activeSession.sessionId,
+                        exitEventId: event.eventId,
+                        startTime: input.eventTime,
+                    },
+                });
+            }
         }
 
         const updatedSession = await attendanceSessionRepository.update(
@@ -180,11 +206,7 @@ export class AttendanceService {
         }
 
         const now = new Date();
-        const workDate = getAttendanceWorkDate(now, config.timezone);
-        const session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
-            employeeId,
-            workDate
-        );
+        const { session } = await this.findSessionForEvent(employeeId, now);
 
         if (!session || session.currentStatus !== "INSIDE_OFFICE") {
             return { updated: false, message: "Employee is not marked as inside office" };
@@ -220,15 +242,25 @@ export class AttendanceService {
         });
 
         for (const session of expired) {
+            const overtimeCutoff = new Date(
+                session.scheduledEnd.getTime() + 15 * 60 * 60 * 1000
+            );
+            if (session.currentStatus === "INSIDE_OFFICE" && now < overtimeCutoff) {
+                continue;
+            }
+            const closeAt =
+                session.currentStatus === "INSIDE_OFFICE"
+                    ? overtimeCutoff
+                    : session.scheduledEnd;
             await prisma.$transaction(async (tx) => {
                 for (const interval of session.absenceIntervals) {
                     await tx.absenceInterval.update({
                         where: { intervalId: interval.intervalId },
                         data: {
-                            endTime: session.scheduledEnd,
+                            endTime: closeAt,
                             durationMinutes: diffMinutes(
                                 interval.startTime,
-                                session.scheduledEnd
+                                closeAt
                             ),
                         },
                     });
@@ -248,7 +280,7 @@ export class AttendanceService {
                     data: {
                         currentStatus: "COMPLETED",
                         totalAbsenceMinutes,
-                        lastActivity: session.scheduledEnd,
+                        lastActivity: closeAt,
                     },
                 });
             });
@@ -260,7 +292,7 @@ export class AttendanceService {
                 );
         }
 
-        return { closed: expired.length };
+        return { checked: expired.length };
     }
 
     private async sumAbsenceMinutes(sessionId: string): Promise<number> {

@@ -73,8 +73,7 @@ export interface DashboardEmployeeRow {
     /** All outside minutes, including the allowed break and an open interval. */
     rawOutsideMinutes: number;
     breakAllowanceMinutes: number;
-    late: boolean;
-    lateMinutes: number;
+    overtimeInOfficeMinutes: number;
     exitCount: number;
     lastActivity: string | null;
 }
@@ -83,7 +82,7 @@ export interface DashboardStatistics {
     employeesScheduled: number;
     employeesPresent: number;
     employeesOutside: number;
-    employeesLate: number;
+    employeesOvertime: number;
     employeesNotArrived: number;
     completedSessions: number;
 }

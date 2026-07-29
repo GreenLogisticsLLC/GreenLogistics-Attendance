@@ -17,18 +17,18 @@ export interface PeriodReportRow {
     firstEntry: string | null;
     lastExit: string | null;
     status: string;
-    lateMinutes: number;
     totalOutsideMinutes: number;
     timeInOfficeMinutes: number;
+    overtimeInOfficeMinutes: number;
     exitCount: number;
 }
 
 export interface PeriodReportSummary {
     totalSessions: number;
     daysWithEntry: number;
-    totalLateMinutes: number;
     totalOutsideMinutes: number;
     totalInOfficeMinutes: number;
+    totalOvertimeMinutes: number;
 }
 
 function calcTimeInOffice(
@@ -67,7 +67,18 @@ export class ReportService {
 
         const now = new Date();
         const rows: PeriodReportRow[] = sessions.map((s) => {
-            const effectiveEnd = now < s.scheduledEnd ? now : s.scheduledEnd;
+            let effectiveEnd = now < s.scheduledEnd ? now : s.scheduledEnd;
+            if (s.currentStatus === "INSIDE_OFFICE") {
+                effectiveEnd = now;
+            } else if (s.lastExit && s.lastExit > s.scheduledEnd) {
+                effectiveEnd = s.lastExit;
+            } else if (
+                s.currentStatus === "COMPLETED" &&
+                s.lastActivity &&
+                s.lastActivity > s.scheduledEnd
+            ) {
+                effectiveEnd = s.lastActivity;
+            }
             const rawOutsideMinutes = s.absenceIntervals.reduce((sum, interval) => {
                 if (interval.durationMinutes != null) {
                     return sum + interval.durationMinutes;
@@ -79,6 +90,23 @@ export class ReportService {
                 effectiveEnd,
                 rawOutsideMinutes
             );
+            const overtimeStart =
+                s.firstEntry && s.firstEntry > s.scheduledEnd
+                    ? s.firstEntry
+                    : s.scheduledEnd;
+            const overtimeOutsideMinutes = s.absenceIntervals.reduce((sum, interval) => {
+                const intervalEnd = interval.endTime || effectiveEnd;
+                const overlapStart =
+                    interval.startTime > overtimeStart ? interval.startTime : overtimeStart;
+                const overlapEnd = intervalEnd < effectiveEnd ? intervalEnd : effectiveEnd;
+                return sum + (overlapEnd > overlapStart ? diffMinutes(overlapStart, overlapEnd) : 0);
+            }, 0);
+            const overtimeInOfficeMinutes = s.firstEntry
+                ? Math.max(
+                      0,
+                      diffMinutes(overtimeStart, effectiveEnd) - overtimeOutsideMinutes
+                  )
+                : 0;
 
             return {
                 workDate: s.workDate,
@@ -90,9 +118,9 @@ export class ReportService {
                 firstEntry: formatDateTime(s.firstEntry),
                 lastExit: formatDateTime(s.lastExit),
                 status: statusLabel(s.currentStatus),
-                lateMinutes: s.lateMinutes,
                 totalOutsideMinutes: excessOutsideMinutes(rawOutsideMinutes),
                 timeInOfficeMinutes,
+                overtimeInOfficeMinutes,
                 exitCount: s.exitCount,
             };
         });
@@ -100,9 +128,12 @@ export class ReportService {
         const summary: PeriodReportSummary = {
             totalSessions: rows.length,
             daysWithEntry: rows.filter((r) => r.firstEntry).length,
-            totalLateMinutes: rows.reduce((s, r) => s + r.lateMinutes, 0),
             totalOutsideMinutes: rows.reduce((s, r) => s + r.totalOutsideMinutes, 0),
             totalInOfficeMinutes: rows.reduce((s, r) => s + r.timeInOfficeMinutes, 0),
+            totalOvertimeMinutes: rows.reduce(
+                (s, r) => s + r.overtimeInOfficeMinutes,
+                0
+            ),
         };
 
         return {
