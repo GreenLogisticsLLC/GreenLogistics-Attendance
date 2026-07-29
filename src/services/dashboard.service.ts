@@ -1,6 +1,12 @@
 import { config } from "../config/env.js";
 import { prisma } from "../config/database.js";
-import { diffMinutes, formatDateTime, getWorkDateString } from "../utils/helpers.js";
+import {
+    ATTENDANCE_BREAK_ALLOWANCE_MINUTES,
+    diffMinutes,
+    excessOutsideMinutes,
+    formatDateTime,
+    getAttendanceWorkDate,
+} from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
 import type {
@@ -15,34 +21,33 @@ export class DashboardService {
 
         const workDate =
             date ||
-            getWorkDateString(now, config.timezone);
+            getAttendanceWorkDate(now, config.timezone);
 
         const rows: DashboardEmployeeRow[] = [];
 
         for (const emp of employees) {
-            // Presence uses calendar day + latest active session — not day/night shift windows.
-            let session = await attendanceSessionRepository.findRecentActiveSession(
-                emp.employeeId
+            // Never carry First Entry or presence across the 02:00 daily reset.
+            const session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+                emp.employeeId,
+                workDate
             );
-            if (!session) {
-                session = await attendanceSessionRepository.findLatestSessionForEmployee(
-                    emp.employeeId,
-                    workDate
-                );
-            }
 
             const openInterval = session?.absenceIntervals?.[0];
+            const effectiveNow =
+                session && now > session.scheduledEnd ? session.scheduledEnd : now;
 
             let currentAbsenceMinutes = 0;
             let currentOfficeMinutes = 0;
             if (session?.currentStatus === "OUTSIDE_OFFICE" && openInterval) {
-                currentAbsenceMinutes = diffMinutes(openInterval.startTime, now);
+                currentAbsenceMinutes = diffMinutes(openInterval.startTime, effectiveNow);
             } else if (session?.currentStatus === "INSIDE_OFFICE") {
                 const since = session.lastActivity ?? session.firstEntry;
                 if (since) {
-                    currentOfficeMinutes = diffMinutes(since, now);
+                    currentOfficeMinutes = diffMinutes(since, effectiveNow);
                 }
             }
+            const rawOutsideMinutes =
+                (session?.totalAbsenceMinutes ?? 0) + currentAbsenceMinutes;
 
             rows.push({
                 employeeId: emp.employeeId,
@@ -57,7 +62,9 @@ export class DashboardService {
                 currentStatus: session?.currentStatus ?? "SCHEDULED",
                 currentAbsenceMinutes,
                 currentOfficeMinutes,
-                totalAbsenceMinutes: session?.totalAbsenceMinutes ?? 0,
+                totalAbsenceMinutes: excessOutsideMinutes(rawOutsideMinutes),
+                rawOutsideMinutes,
+                breakAllowanceMinutes: ATTENDANCE_BREAK_ALLOWANCE_MINUTES,
                 late: session?.late ?? false,
                 lateMinutes: session?.lateMinutes ?? 0,
                 exitCount: session?.exitCount ?? 0,
@@ -114,15 +121,11 @@ export class DashboardService {
         const employee = await employeeRepository.findById(employeeId);
         if (!employee) return null;
 
-        const date = workDate || getWorkDateString(now, config.timezone);
-
-        let session = await attendanceSessionRepository.findRecentActiveSession(employeeId);
-        if (!session) {
-            session = await attendanceSessionRepository.findLatestSessionForEmployee(
-                employeeId,
-                date
-            );
-        }
+        const date = workDate || getAttendanceWorkDate(now, config.timezone);
+        const session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+            employeeId,
+            date
+        );
 
         let events: Awaited<ReturnType<typeof prisma.attendanceEvent.findMany>> = [];
         let intervals: Awaited<ReturnType<typeof prisma.absenceInterval.findMany>> = [];

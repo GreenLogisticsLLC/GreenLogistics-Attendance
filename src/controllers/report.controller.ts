@@ -59,8 +59,8 @@ export async function periodReportPdfController(req: Request, res: Response) {
     doc.text(`Total late: ${formatMinutes(report.summary.totalLateMinutes)}`);
     doc.moveDown(1);
 
-    const colX = [40, 95, 175, 230, 290, 350, 410, 470];
-    const headers = ["Date", "Employee", "Dept", "Entry", "Exit", "In Office", "Status"];
+    const colX = [40, 92, 167, 217, 275, 333, 390, 450];
+    const headers = ["Date", "Employee", "Dept", "Entry", "Exit", "In Office", "Outside", "Status"];
 
     function drawHeader() {
         doc.fontSize(8).fillColor("#333");
@@ -86,7 +86,8 @@ export async function periodReportPdfController(req: Request, res: Response) {
         doc.text(row.firstEntry?.split(",")[1]?.trim() || row.firstEntry || "—", colX[3], y, { width: 58 });
         doc.text(row.lastExit?.split(",")[1]?.trim() || row.lastExit || "—", colX[4], y, { width: 58 });
         doc.text(formatMinutes(row.timeInOfficeMinutes), colX[5], y, { width: 55 });
-        doc.text(row.status, colX[6], y, { width: 80 });
+        doc.text(formatMinutes(row.totalOutsideMinutes), colX[6], y, { width: 55 });
+        doc.text(row.status, colX[7], y, { width: 65 });
 
         doc.y = y + 28;
     }

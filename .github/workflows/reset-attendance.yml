@@ -1,0 +1,41 @@
+name: Reset GreenOS Attendance History
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type RESET_ATTENDANCE_HISTORY
+        required: true
+        type: string
+
+jobs:
+  reset:
+    if: ${{ inputs.confirmation == 'RESET_ATTENDANCE_HISTORY' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Add server to known_hosts
+        run: |
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Backup and reset attendance history
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          pm2 stop greenos
+          trap 'pm2 restart greenos --update-env >/dev/null 2>&1 || true' EXIT
+          node scripts/reset-attendance-data.mjs --confirm=RESET_ATTENDANCE_HISTORY
+          pm2 restart greenos --update-env
+          pm2 save
+          trap - EXIT
+          sleep 5
+          curl --fail http://localhost:3847/api/health
+          EOF

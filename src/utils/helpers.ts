@@ -114,6 +114,91 @@ export function getWorkDateString(date: Date, timezone: string): string {
     return date.toLocaleDateString("en-CA", { timeZone: timezone });
 }
 
+export const ATTENDANCE_DAY_START = "17:00";
+export const ATTENDANCE_DAY_END = "02:00";
+export const ATTENDANCE_BREAK_ALLOWANCE_MINUTES = 60;
+
+function zonedParts(date: Date, timezone: string) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+    }).formatToParts(date);
+    const value = (type: Intl.DateTimeFormatPartTypes) =>
+        Number(parts.find((part) => part.type === type)?.value || 0);
+    return {
+        year: value("year"),
+        month: value("month"),
+        day: value("day"),
+        hour: value("hour"),
+        minute: value("minute"),
+        second: value("second"),
+    };
+}
+
+export function addDaysToDateString(workDate: string, days: number): string {
+    const [year, month, day] = workDate.split("-").map(Number);
+    const shifted = new Date(Date.UTC(year, month - 1, day + days));
+    return shifted.toISOString().slice(0, 10);
+}
+
+/** Convert a wall-clock time in an IANA timezone to the corresponding UTC instant. */
+export function zonedDateTime(workDate: string, time: string, timezone: string): Date {
+    const [year, month, day] = workDate.split("-").map(Number);
+    const [hour, minute] = time.split(":").map(Number);
+    const targetAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+    let candidate = new Date(targetAsUtc);
+
+    // Two passes handle normal offsets and DST boundaries without another dependency.
+    for (let i = 0; i < 2; i += 1) {
+        const actual = zonedParts(candidate, timezone);
+        const actualAsUtc = Date.UTC(
+            actual.year,
+            actual.month - 1,
+            actual.day,
+            actual.hour,
+            actual.minute,
+            actual.second
+        );
+        candidate = new Date(candidate.getTime() + (targetAsUtc - actualAsUtc));
+    }
+    return candidate;
+}
+
+/**
+ * Attendance day is named for the date on which its 17:00 shift starts.
+ * 00:00–01:59 belongs to the previous date; from 02:00 the next board is clean.
+ */
+export function getAttendanceWorkDate(date: Date, timezone: string): string {
+    const local = zonedParts(date, timezone);
+    const localDate = [
+        String(local.year).padStart(4, "0"),
+        String(local.month).padStart(2, "0"),
+        String(local.day).padStart(2, "0"),
+    ].join("-");
+    return local.hour < 2 ? addDaysToDateString(localDate, -1) : localDate;
+}
+
+export function getAttendanceDayBounds(workDate: string, timezone: string) {
+    return {
+        scheduledStart: zonedDateTime(workDate, ATTENDANCE_DAY_START, timezone),
+        scheduledEnd: zonedDateTime(
+            addDaysToDateString(workDate, 1),
+            ATTENDANCE_DAY_END,
+            timezone
+        ),
+    };
+}
+
+export function excessOutsideMinutes(totalOutsideMinutes: number): number {
+    return Math.max(0, totalOutsideMinutes - ATTENDANCE_BREAK_ALLOWANCE_MINUTES);
+}
+
 export function combineDateAndTime(workDate: string, timeStr: string): Date {
     const [hours, minutes] = timeStr.split(":").map(Number);
     const [year, month, day] = workDate.split("-").map(Number);

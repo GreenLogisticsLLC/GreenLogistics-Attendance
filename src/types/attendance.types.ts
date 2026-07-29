@@ -68,7 +68,11 @@ export interface DashboardEmployeeRow {
     currentStatus: string;
     currentAbsenceMinutes: number;
     currentOfficeMinutes: number;
+    /** Minutes beyond the daily 60-minute break allowance. */
     totalAbsenceMinutes: number;
+    /** All outside minutes, including the allowed break and an open interval. */
+    rawOutsideMinutes: number;
+    breakAllowanceMinutes: number;
     late: boolean;
     lateMinutes: number;
     exitCount: number;

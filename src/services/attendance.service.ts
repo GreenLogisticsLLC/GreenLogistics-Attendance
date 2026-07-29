@@ -1,6 +1,10 @@
 import { prisma } from "../config/database.js";
 import { config } from "../config/env.js";
-import { diffMinutes, getWorkDateString, combineDateAndTime } from "../utils/helpers.js";
+import {
+    diffMinutes,
+    getAttendanceDayBounds,
+    getAttendanceWorkDate,
+} from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
 import { attendanceEventRepository } from "../repositories/attendance-event.repository.js";
@@ -23,35 +27,21 @@ interface ProcessEventInput {
  * No toggle relative to previous status. Shift schedules are not used for status.
  */
 export class AttendanceService {
-    private calendarWorkDate(eventTime: Date): string {
-        return getWorkDateString(eventTime, config.timezone);
-    }
-
-    private dayBounds(workDate: string) {
-        return {
-            scheduledStart: combineDateAndTime(workDate, "00:00"),
-            scheduledEnd: combineDateAndTime(workDate, "23:59"),
-        };
-    }
-
     async processEvent(input: ProcessEventInput) {
         const employee = await employeeRepository.findById(input.employeeId);
         if (!employee) {
             throw new Error("Employee not found");
         }
 
-        // Prefer the latest open presence session so shift schedules cannot split In/Out.
-        let session = await attendanceSessionRepository.findRecentActiveSession(employee.employeeId);
-
-        const workDate = this.calendarWorkDate(input.eventTime);
-        const { scheduledStart, scheduledEnd } = this.dayBounds(workDate);
-
-        if (!session) {
-            session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
-                employee.employeeId,
-                workDate
-            );
-        }
+        const workDate = getAttendanceWorkDate(input.eventTime, config.timezone);
+        const { scheduledStart, scheduledEnd } = getAttendanceDayBounds(
+            workDate,
+            config.timezone
+        );
+        let session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+            employee.employeeId,
+            workDate
+        );
 
         if (!session) {
             const shiftId = employee.shiftId;
@@ -125,9 +115,9 @@ export class AttendanceService {
 
             if (!activeSession.firstEntry) {
                 updates.firstEntry = input.eventTime;
-                // Presence is card-driven — do not mark late from shift schedules.
-                updates.late = false;
-                updates.lateMinutes = 0;
+                const lateMinutes = diffMinutes(scheduledStart, input.eventTime);
+                updates.late = lateMinutes > 0;
+                updates.lateMinutes = lateMinutes;
             }
 
             const openInterval = await prisma.absenceInterval.findFirst({
@@ -190,14 +180,11 @@ export class AttendanceService {
         }
 
         const now = new Date();
-        let session = await attendanceSessionRepository.findRecentActiveSession(employeeId);
-        if (!session) {
-            const workDate = this.calendarWorkDate(now);
-            session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
-                employeeId,
-                workDate
-            );
-        }
+        const workDate = getAttendanceWorkDate(now, config.timezone);
+        const session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
+            employeeId,
+            workDate
+        );
 
         if (!session || session.currentStatus !== "INSIDE_OFFICE") {
             return { updated: false, message: "Employee is not marked as inside office" };
@@ -216,9 +203,64 @@ export class AttendanceService {
         return { updated: true, message: "Employee marked as left", session: result.session };
     }
 
-    /** Shift schedules must not auto-close presence. Card events own In/Out status. */
+    /** Close the 17:00–02:00 attendance day and freeze it for Reports. */
     async closeExpiredSessions() {
-        return;
+        const now = new Date();
+        const expired = await prisma.attendanceSession.findMany({
+            where: {
+                scheduledEnd: { lte: now },
+                currentStatus: { not: "COMPLETED" },
+            },
+            include: {
+                absenceIntervals: {
+                    where: { endTime: null },
+                },
+            },
+            take: 200,
+        });
+
+        for (const session of expired) {
+            await prisma.$transaction(async (tx) => {
+                for (const interval of session.absenceIntervals) {
+                    await tx.absenceInterval.update({
+                        where: { intervalId: interval.intervalId },
+                        data: {
+                            endTime: session.scheduledEnd,
+                            durationMinutes: diffMinutes(
+                                interval.startTime,
+                                session.scheduledEnd
+                            ),
+                        },
+                    });
+                }
+                const intervals = await tx.absenceInterval.findMany({
+                    where: {
+                        sessionId: session.sessionId,
+                        durationMinutes: { not: null },
+                    },
+                });
+                const totalAbsenceMinutes = intervals.reduce(
+                    (sum, interval) => sum + (interval.durationMinutes || 0),
+                    0
+                );
+                await tx.attendanceSession.update({
+                    where: { sessionId: session.sessionId },
+                    data: {
+                        currentStatus: "COMPLETED",
+                        totalAbsenceMinutes,
+                        lastActivity: session.scheduledEnd,
+                    },
+                });
+            });
+
+            await assignmentEngine
+                .onBrokerLeftOffice(session.employeeId)
+                .catch((err) =>
+                    console.error("[attendance→assignment] shift close failed:", err)
+                );
+        }
+
+        return { closed: expired.length };
     }
 
     private async sumAbsenceMinutes(sessionId: string): Promise<number> {

@@ -115,8 +115,14 @@ function toDateInput(d) {
     return d.toLocaleDateString("en-CA");
 }
 
+function currentAttendanceDate() {
+    const date = new Date();
+    if (date.getHours() < 2) date.setDate(date.getDate() - 1);
+    return date;
+}
+
 function initReportDates() {
-    const today = new Date();
+    const today = currentAttendanceDate();
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const fromEl = $("#report-from");
     const toEl = $("#report-to");
@@ -125,7 +131,7 @@ function initReportDates() {
 }
 
 function setReportPreset(preset) {
-    const today = new Date();
+    const today = currentAttendanceDate();
     const to = toDateInput(today);
     let from;
     if (preset === "today") {
@@ -413,7 +419,6 @@ function renderTable(employees) {
         <tr data-id="${emp.employeeId}" data-status="${emp.currentStatus}">
             <td><strong>${emp.employeeName}</strong><br><small style="color:var(--muted)">${emp.employeeNumber}</small></td>
             <td>${emp.department || "—"}</td>
-            <td>${emp.shiftName}</td>
             <td>${emp.firstEntry || "—"}</td>
             <td><span class="status-badge status-${emp.currentStatus}">${statusLabel(emp.currentStatus)}</span></td>
             <td>${emp.currentStatus === "INSIDE_OFFICE" ? formatDuration(emp.currentOfficeMinutes) : "—"}</td>
