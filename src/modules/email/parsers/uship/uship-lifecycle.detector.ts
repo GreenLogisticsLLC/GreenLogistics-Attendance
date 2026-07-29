@@ -196,6 +196,27 @@ export async function applyUshipLifecycleEvent(input: {
     });
     if (!shipment) return { applied: false as const, detected };
 
+    // Authoritative mailbox gate:
+    // - before assignment: only company Gmail may mutate the card
+    // - after assignment: only the assigned broker's Gmail may mutate the card
+    const source = input.source || "uship_email";
+    const assignedBrokerId = shipment.assignedBrokerId || null;
+    if (assignedBrokerId) {
+        if (source !== "broker_gmail" || input.actorUserId !== assignedBrokerId) {
+            return {
+                applied: false as const,
+                detected,
+                reason: "Follow-up updates are accepted only from the assigned broker Gmail",
+            };
+        }
+    } else if (source === "broker_gmail") {
+        return {
+            applied: false as const,
+            detected,
+            reason: "Shipment is not assigned yet; wait for company inbox assignment",
+        };
+    }
+
     // Load number on SAME card
     if (detected.kind === "LOAD_NUMBER_ASSIGNED") {
         if (detected.loadNumber) {

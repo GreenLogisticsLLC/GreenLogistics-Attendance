@@ -99,7 +99,27 @@ export class EmailImportService {
                         const blob = `${raw.subject}\n${raw.bodyText || ""}\n${raw.bodyHtml || ""}\n${raw.snippet || ""}`;
                         const existingShipment = await findShipmentForLifecycle(blob);
                         if (existingShipment) {
-                            await applyUshipLifecycleEvent({
+                            if (existingShipment.assignedBrokerId) {
+                                await emailMessageRepository.markProcessed(
+                                    stored.emailMessageId,
+                                    "IGNORED",
+                                    "USHIP"
+                                );
+                                await shipmentImportLogRepository.create({
+                                    eventType: "EmailIgnored",
+                                    message:
+                                        `Ignored company Gmail follow-up after assignment; ` +
+                                        `use assigned broker Gmail: ${raw.subject}`,
+                                    gmailMessageId,
+                                    emailMessageId: stored.emailMessageId,
+                                    shipmentLeadId: existingShipment.shipmentLeadId,
+                                });
+                                await gmailListener.markProcessed(gmailMessageId);
+                                ignored += 1;
+                                continue;
+                            }
+
+                            const lifecycle = await applyUshipLifecycleEvent({
                                 shipmentLeadId: existingShipment.shipmentLeadId,
                                 subject: raw.subject,
                                 body: blob,
@@ -108,18 +128,25 @@ export class EmailImportService {
                             });
                             await emailMessageRepository.markProcessed(
                                 stored.emailMessageId,
-                                "LIFECYCLE",
+                                lifecycle.applied ? "LIFECYCLE" : "IGNORED",
                                 "USHIP"
                             );
                             await shipmentImportLogRepository.create({
-                                eventType: "PipelineEvent",
-                                message: `Lifecycle update from company Gmail: ${raw.subject}`,
+                                eventType: lifecycle.applied ? "PipelineEvent" : "EmailIgnored",
+                                message: lifecycle.applied
+                                    ? `Lifecycle update from company Gmail: ${raw.subject}`
+                                    : `Company Gmail lifecycle skipped: ${
+                                          "reason" in lifecycle
+                                              ? lifecycle.reason
+                                              : "not applied"
+                                      }`,
                                 gmailMessageId,
                                 emailMessageId: stored.emailMessageId,
                                 shipmentLeadId: existingShipment.shipmentLeadId,
                             });
                             await gmailListener.markProcessed(gmailMessageId);
-                            imported += 1;
+                            if (lifecycle.applied) imported += 1;
+                            else ignored += 1;
                             continue;
                         }
                     }

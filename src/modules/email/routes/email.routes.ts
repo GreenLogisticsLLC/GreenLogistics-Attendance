@@ -39,12 +39,12 @@ emailRouter.get(
     listEmailLogsController
 );
 
-// Sprint C — per-broker Gmail
-emailRouter.get("/broker/auth", brokerGmailAuthController);
-emailRouter.get("/broker/status", brokerGmailStatusController);
-emailRouter.post("/broker/disconnect", brokerGmailDisconnectController);
-emailRouter.post("/broker/sync", brokerGmailSyncController);
-emailRouter.get("/broker/messages", brokerGmailMessagesController);
+// Sprint C — per-broker Gmail (self-service: Brokers only)
+emailRouter.get("/broker/auth", requireRole(Roles.Broker), brokerGmailAuthController);
+emailRouter.get("/broker/status", requireRole(Roles.Broker), brokerGmailStatusController);
+emailRouter.post("/broker/disconnect", requireRole(Roles.Broker), brokerGmailDisconnectController);
+emailRouter.post("/broker/sync", requireRole(Roles.Broker), brokerGmailSyncController);
+emailRouter.get("/broker/messages", requireRole(Roles.Broker), brokerGmailMessagesController);
 emailRouter.get(
     "/broker/accounts",
     requireRole("Administrator", "Owner", "Manager", Roles.TeamLead),
