@@ -88,9 +88,10 @@ window.GreenOSModules.crm = {
     var map = {
       NEW: { cls: "crm-st-new", label: "🟢 New" },
       UNASSIGNED: { cls: "crm-st-unassigned", label: "⚪ Unassigned" },
-      ASSIGNED: { cls: "crm-st-await", label: "🟡 Assigned" },
-      AWAITING_ACCEPTANCE: { cls: "crm-st-await", label: "🟡 Awaiting Acceptance" },
-      WORKING: { cls: "crm-st-working", label: "🟢 Working" },
+      ASSIGNED: { cls: "crm-st-await", label: "🟡 Awaiting Agent" },
+      AWAITING_ACCEPTANCE: { cls: "crm-st-await", label: "🟡 Awaiting Agent" },
+      AGENT_OPEN: { cls: "crm-st-quote", label: "🔵 Agent Open" },
+      WORKING: { cls: "crm-st-working", label: "🟢 Agent Working" },
       FOLLOW_UP: { cls: "crm-st-follow", label: "🟠 Follow Up" },
       QUOTE_SENT: { cls: "crm-st-quote", label: "🔵 Quote Sent" },
       NEGOTIATION: { cls: "crm-st-nego", label: "🟣 Negotiation" },
@@ -125,8 +126,8 @@ window.GreenOSModules.crm = {
         '<div class="gos-card-grid crm-kpi-grid">' +
         this.kpiCard("Unassigned", k.unassigned || 0, "accent-warn") +
         this.kpiCard("New Today", k.newShipmentsToday, "accent-green") +
-        this.kpiCard("Awaiting Acceptance", k.awaitingAcceptance, "accent-warn") +
-        this.kpiCard("Working", k.working || 0, "accent-green") +
+        this.kpiCard("Awaiting Agent", k.awaitingAcceptance, "accent-warn") +
+        this.kpiCard("Agent Working", k.working || 0, "accent-green") +
         this.kpiCard("Quotes Sent", k.quotesSent, "accent-blue") +
         this.kpiCard("Won", k.won, "accent-green") +
         this.kpiCard("Lost", k.lost, "accent-warn") +
@@ -311,18 +312,21 @@ window.GreenOSModules.crm = {
       var esc = this.esc.bind(this);
       var fmt = this.fmtDate.bind(this);
       var badge = this.statusBadge.bind(this);
-      function dayKey(v) {
+      function operationalDayKey(v) {
         if (!v) return "";
         var d = new Date(v);
         if (isNaN(d.getTime())) return "";
+        d.setHours(d.getHours() - 17);
         return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
       }
       tbody.innerHTML = rows
         .map(function (s, index) {
           var when = s.createdAt || s.receivedAt;
-          var key = dayKey(when);
+          var key = operationalDayKey(when);
           var prevKey =
-            index > 0 ? dayKey(rows[index - 1].createdAt || rows[index - 1].receivedAt) : null;
+            index > 0
+              ? operationalDayKey(rows[index - 1].createdAt || rows[index - 1].receivedAt)
+              : null;
           var isDayStart = index === 0 || (key && key !== prevKey);
           return (
             '<tr class="crm-row' +
@@ -332,7 +336,9 @@ window.GreenOSModules.crm = {
             '">' +
             '<td class="lot-num">' +
             (index + 1) +
-            (isDayStart ? '<span class="lot-day-badge">Day</span>' : "") +
+            (isDayStart
+              ? '<span class="lot-day-badge" title="Operational day: 17:00–16:59">17:00–16:59</span>'
+              : "") +
             "</td>" +
             "<td><strong>" +
             esc(s.greenOsShipmentId || s.shipmentTitle || s.externalShipmentId || s.shipmentLeadId.slice(0, 8)) +
@@ -585,6 +591,8 @@ window.GreenOSModules.crm = {
         .join("");
 
       var statusActions = [
+        "AGENT_OPEN",
+        "WORKING",
         "FOLLOW_UP",
         "BID_SUBMITTED",
         "CUSTOMER_REPLIED",
@@ -659,7 +667,7 @@ window.GreenOSModules.crm = {
         "</strong></div>" +
         "<div><span>uShip</span>" +
         (s.ushipUrl
-          ? '<a href="' +
+          ? '<a class="crm-open-uship" href="' +
             esc(s.ushipUrl) +
             '" target="_blank" rel="noopener">Open in uShip</a>'
           : "—") +
@@ -738,11 +746,11 @@ window.GreenOSModules.crm = {
         "</div>" +
         '<button type="button" class="btn-secondary" id="crm-save-ops" style="width:auto;margin:0.75rem 0">Save Operations</button>' +
         '<div class="crm-actions">' +
-        (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED"
+        (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED" || s.status === "AGENT_OPEN"
           ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
           : "") +
         (s.ushipUrl
-          ? '<a class="btn-primary" href="' +
+          ? '<a class="btn-primary crm-open-uship" href="' +
             esc(s.ushipUrl) +
             '" target="_blank" rel="noopener" style="width:auto;padding:0.65rem 1rem;text-decoration:none;display:inline-block">Open in uShip</a>'
           : "") +
@@ -770,6 +778,16 @@ window.GreenOSModules.crm = {
           modal.classList.add("hidden");
           modal.innerHTML = "";
         }
+      });
+
+      modal.querySelectorAll(".crm-open-uship").forEach(function (link) {
+        link.addEventListener("click", function () {
+          // The external tab opens normally; record only an assigned Broker's actual uShip click.
+          window.GreenOSModules.crm.api("/shipments/" + encodeURIComponent(id) + "/opened", {
+            method: "POST",
+            keepalive: true,
+          });
+        });
       });
 
       modal.querySelector("#crm-accept")?.addEventListener("click", async function () {

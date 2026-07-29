@@ -47,6 +47,21 @@ export async function crmGetShipmentController(req: AuthRequest, res: Response) 
     return res.json(apiResponse(true, "OK", card));
 }
 
+export async function crmMarkShipmentOpenedController(req: AuthRequest, res: Response) {
+    const id = String(req.params.id);
+    if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const access = await assertShipmentAccess(req, res, id);
+    if (!access.ok) return;
+
+    // Manager/Owner previews must not change the assigned broker's workflow status.
+    const card =
+        req.user.role === "Broker"
+            ? await crmService.markAgentOpened(id, req.user.userId)
+            : await crmService.getShipmentCard(id);
+    if (!card) return res.status(404).json(apiResponse(false, "Shipment not found"));
+    return res.json(apiResponse(true, "Shipment open recorded", card));
+}
+
 export async function crmListBrokersController(req: AuthRequest, res: Response) {
     if (isDataScopedRole(req.user?.role || "")) {
         const self = await crmService.getBrokerWorkspace(req.user!.userId);

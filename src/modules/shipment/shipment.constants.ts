@@ -1,7 +1,7 @@
 /**
  * Shipment Aggregate — lifecycle + domain events (Sprint A foundation).
  *
- * Assignment statuses (UNASSIGNED / AWAITING_ACCEPTANCE / WORKING) coexist with
+ * Assignment statuses (UNASSIGNED / AWAITING_ACCEPTANCE / AGENT_OPEN / WORKING) coexist with
  * marketplace lifecycle (BID_SUBMITTED → … → CLOSED). One card forever.
  */
 
@@ -25,6 +25,7 @@ export const SHIPMENT_STATUSES = [
     "UNASSIGNED",
     "ASSIGNED",
     "AWAITING_ACCEPTANCE",
+    "AGENT_OPEN",
     "WORKING",
     "FOLLOW_UP",
     "BID_SUBMITTED",
@@ -49,9 +50,10 @@ export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number] | string;
 export const STATUS_LABELS: Record<string, string> = {
     NEW: "New",
     UNASSIGNED: "Unassigned",
-    ASSIGNED: "Assigned",
-    AWAITING_ACCEPTANCE: "Awaiting Acceptance",
-    WORKING: "Working",
+    ASSIGNED: "Awaiting Agent",
+    AWAITING_ACCEPTANCE: "Awaiting Agent",
+    AGENT_OPEN: "Agent Open",
+    WORKING: "Agent Working",
     FOLLOW_UP: "Follow Up",
     BID_SUBMITTED: "Bid Submitted",
     CUSTOMER_REPLIED: "Customer Replied",
@@ -74,6 +76,8 @@ export const DOMAIN_EVENT_TYPES = [
     "SHIPMENT_IMPORTED",
     "SHIPMENT_UNASSIGNED",
     "BROKER_ASSIGNED",
+    "AGENT_OPENED",
+    "AGENT_STARTED_WORK",
     "BROKER_ACCEPTED_WORK",
     "BID_SUBMITTED",
     "CUSTOMER_REPLIED",
@@ -91,8 +95,9 @@ export type DomainEventType = (typeof DOMAIN_EVENT_TYPES)[number] | string;
 
 export const LIFECYCLE_PIPELINE = [
     { stage: "SHIPMENT_IMPORTED", title: "Shipment Imported", status: "NEW" },
-    { stage: "BROKER_ASSIGNED", title: "Broker Assigned", status: "AWAITING_ACCEPTANCE" },
-    { stage: "BROKER_ACCEPTED_WORK", title: "Broker Accepted Work", status: "WORKING" },
+    { stage: "BROKER_ASSIGNED", title: "Awaiting Agent", status: "AWAITING_ACCEPTANCE" },
+    { stage: "AGENT_OPENED", title: "Agent Opened Shipment", status: "AGENT_OPEN" },
+    { stage: "BROKER_ACCEPTED_WORK", title: "Agent Working", status: "WORKING" },
     { stage: "BID_SUBMITTED", title: "Bid Submitted", status: "BID_SUBMITTED" },
     { stage: "CUSTOMER_REPLIED", title: "Customer Replied", status: "CUSTOMER_REPLIED" },
     { stage: "CUSTOMER_ACCEPTED", title: "Customer Accepted", status: "ACCEPTED" },
@@ -107,6 +112,7 @@ export const ACTIVE_STATUSES = [
     "UNASSIGNED",
     "ASSIGNED",
     "AWAITING_ACCEPTANCE",
+    "AGENT_OPEN",
     "WORKING",
     "FOLLOW_UP",
     "BID_SUBMITTED",

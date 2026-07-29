@@ -14,6 +14,7 @@ export type UshipLifecycleKind =
     | "QUOTE_SUBMITTED"
     | "CUSTOMER_REPLIED"
     | "CUSTOMER_QUESTION"
+    | "AGENT_WORKING"
     | "BID_UPDATED"
     | "CUSTOMER_ACCEPTED"
     | "LOAD_NUMBER_ASSIGNED"
@@ -114,6 +115,19 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
+    if (
+        /your\s+(?:code|quote|question)\s+has\s+been\s+completed|(?:code|quote|question)\s+has\s+been\s+completed/.test(
+            h
+        )
+    ) {
+        return {
+            kind: "AGENT_WORKING",
+            title: "Agent Working",
+            domainEventType: "AGENT_STARTED_WORK",
+            targetStatus: "WORKING",
+        };
+    }
+
     if (/customer\s+question|asked\s+a\s+question|new\s+question/.test(h)) {
         return {
             kind: "CUSTOMER_QUESTION",
@@ -155,6 +169,7 @@ function kindFromQuote(h: string): UshipLifecycleKind {
 const NOTIFY_KINDS = new Set<UshipLifecycleKind>([
     "CUSTOMER_REPLIED",
     "CUSTOMER_QUESTION",
+    "AGENT_WORKING",
     "CUSTOMER_ACCEPTED",
     "LOAD_NUMBER_ASSIGNED",
     "SHIPMENT_BOOKED",
@@ -218,6 +233,7 @@ export async function applyUshipLifecycleEvent(input: {
             NEW: 0,
             UNASSIGNED: 0,
             AWAITING_ACCEPTANCE: 1,
+            AGENT_OPEN: 1.5,
             WORKING: 2,
             BID_SUBMITTED: 3,
             CUSTOMER_REPLIED: 4,
@@ -296,6 +312,7 @@ export async function applyUshipLifecycleEvent(input: {
         const typeMap: Record<string, string> = {
             CUSTOMER_REPLIED: "CUSTOMER_REPLIED",
             CUSTOMER_QUESTION: "CUSTOMER_REPLIED",
+            AGENT_WORKING: "AGENT_WORKING",
             NEW_MESSAGE: "CUSTOMER_REPLIED",
             CUSTOMER_ACCEPTED: "BID_ACCEPTED",
             SHIPMENT_BOOKED: "SHIPMENT_BOOKED",

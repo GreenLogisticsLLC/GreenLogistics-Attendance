@@ -813,7 +813,8 @@
   white-space: nowrap;
   vertical-align: middle;
 }
-.email-lots-table .lot-day-badge {
+.email-lots-table .lot-day-badge,
+.crm-table .lot-day-badge {
   display: inline-block;
   margin-left: 0.35rem;
   padding: 0.1rem 0.4rem;

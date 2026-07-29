@@ -390,6 +390,32 @@ export class CrmService {
         return this.getShipmentCard(shipmentLeadId);
     }
 
+    /** First open by the assigned broker: Awaiting Agent → Agent Open (idempotent). */
+    async markAgentOpened(shipmentLeadId: string, actorUserId: string) {
+        const result = await prisma.shipmentLead.updateMany({
+            where: {
+                shipmentLeadId,
+                assignedBrokerId: actorUserId,
+                status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE"] },
+            },
+            data: { status: "AGENT_OPEN" },
+        });
+
+        if (result.count > 0) {
+            await domainEventEngine.emit({
+                shipmentLeadId,
+                eventType: "AGENT_OPENED",
+                title: "Agent Opened Shipment",
+                message: "Status → Agent Open",
+                actorUserId,
+                timelineStage: "AGENT_OPENED",
+                payload: { status: "AGENT_OPEN" },
+            });
+        }
+
+        return this.getShipmentCard(shipmentLeadId);
+    }
+
     async acceptShipment(shipmentLeadId: string, actorUserId: string) {
         const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!lead) return null;
@@ -398,7 +424,11 @@ export class CrmService {
                 status: 403,
             });
         }
-        if (lead.status !== "ASSIGNED" && lead.status !== "AWAITING_ACCEPTANCE") {
+        if (
+            lead.status !== "ASSIGNED" &&
+            lead.status !== "AWAITING_ACCEPTANCE" &&
+            lead.status !== "AGENT_OPEN"
+        ) {
             throw Object.assign(
                 new Error(`Cannot accept shipment in status ${lead.status}`),
                 { status: 422 }
@@ -416,8 +446,8 @@ export class CrmService {
         await domainEventEngine.emit({
             shipmentLeadId,
             eventType: "BROKER_ACCEPTED_WORK",
-            title: "Broker Accepted Work",
-            message: "Status → Working",
+            title: "Agent Working",
+            message: "Status → Agent Working",
             actorUserId,
             timelineStage: "BROKER_ACCEPTED_WORK",
             payload: { status: "WORKING" },

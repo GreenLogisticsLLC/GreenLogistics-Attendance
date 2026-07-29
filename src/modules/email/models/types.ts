@@ -7,6 +7,7 @@ export type ShipmentLeadStatus =
     | "UNASSIGNED"
     | "ASSIGNED"
     | "AWAITING_ACCEPTANCE"
+    | "AGENT_OPEN"
     | "WORKING"
     | "FOLLOW_UP"
     | "BID_SUBMITTED"

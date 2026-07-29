@@ -9,6 +9,7 @@ import {
     crmGetShipmentController,
     crmListBrokersController,
     crmListShipmentsController,
+    crmMarkShipmentOpenedController,
     crmMarkAllNotificationsReadController,
     crmMarkNotificationReadController,
     crmMyCustomersController,
@@ -37,6 +38,7 @@ const crmRoles = requireRole(
 crmRouter.get("/dashboard", crmRoles, crmDashboardController);
 crmRouter.get("/shipments", crmRoles, crmListShipmentsController);
 crmRouter.get("/shipments/:id", crmRoles, crmGetShipmentController);
+crmRouter.post("/shipments/:id/opened", crmRoles, crmMarkShipmentOpenedController);
 crmRouter.patch("/shipments/:id", crmRoles, crmUpdateShipmentController);
 crmRouter.post("/shipments/:id/accept", crmRoles, crmAcceptShipmentController);
 crmRouter.get("/brokers", crmRoles, crmListBrokersController);

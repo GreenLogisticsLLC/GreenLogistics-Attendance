@@ -53,12 +53,23 @@ window.GreenOSModules.email = {
       }
     }
 
-    /** Calendar day key for grouping (local browser timezone). */
-    function dayKey(v) {
+    /** Operational day key: 17:00 through 16:59 next day (local browser timezone). */
+    function operationalDayKey(v) {
       if (!v) return "";
       var d = new Date(v);
       if (isNaN(d.getTime())) return "";
+      d.setHours(d.getHours() - 17);
       return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+    }
+
+    function statusLabel(status) {
+      var labels = {
+        ASSIGNED: "Awaiting Agent",
+        AWAITING_ACCEPTANCE: "Awaiting Agent",
+        AGENT_OPEN: "Agent Open",
+        WORKING: "Agent Working",
+      };
+      return labels[status] || status || "NEW";
     }
 
     async function loadShipments() {
@@ -76,10 +87,12 @@ window.GreenOSModules.email = {
         body.innerHTML = rows
           .map(function (s, index) {
             var when = s.receivedAt || s.createdAt;
-            var key = dayKey(when);
+            var key = operationalDayKey(when);
             var prevKey =
-              index > 0 ? dayKey(rows[index - 1].receivedAt || rows[index - 1].createdAt) : null;
-            // First row of a new calendar day in the list (newest-first → day boundary)
+              index > 0
+                ? operationalDayKey(rows[index - 1].receivedAt || rows[index - 1].createdAt)
+                : null;
+            // First row of a 17:00–16:59 operational day (newest-first).
             var isDayStart = index === 0 || (key && key !== prevKey);
             return (
               '<tr class="' +
@@ -88,7 +101,7 @@ window.GreenOSModules.email = {
               '<td class="lot-num">' +
               (index + 1) +
               (isDayStart
-                ? '<span class="lot-day-badge" title="First lot shown for this day">Day</span>'
+                ? '<span class="lot-day-badge" title="Operational day: 17:00–16:59">17:00–16:59</span>'
                 : "") +
               "</td>" +
               "<td>" +
@@ -112,7 +125,7 @@ window.GreenOSModules.email = {
               (s.miles != null ? s.miles : "—") +
               "</td>" +
               "<td><strong>" +
-              (s.status || "NEW") +
+              statusLabel(s.status) +
               "</strong></td>" +
               "<td>" +
               (s.source || "—") +
