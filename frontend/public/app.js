@@ -681,7 +681,7 @@ async function openEmployeeDrawer(employeeId) {
     const data = await apiFetch(`/employees/${employeeId}`);
     if (!data.success) return;
 
-    const { employee, session, events, intervals } = data.data;
+    const { employee, session, events, intervals, gmail } = data.data;
     const sessionEnd = session
         ? session.currentStatus === "INSIDE_OFFICE"
             ? new Date()
@@ -706,6 +706,17 @@ async function openEmployeeDrawer(employeeId) {
                 <div>Card: ${employee.cardNumber}</div>
             </div>
         </div>
+        ${gmail ? `
+        <div class="drawer-section">
+            <h4>Gmail</h4>
+            <div class="info-grid">
+                <div>Email: ${gmail.gmailAddress || "—"}</div>
+                <div>Status: ${gmail.status === "CONNECTED" ? "Connected" : gmail.status === "RECONNECT_REQUIRED" ? "Reconnect required" : "Not connected"}</div>
+                <div>Last Sync: ${gmail.lastSyncAt ? new Date(gmail.lastSyncAt).toLocaleString() : "—"}</div>
+                ${gmail.lastError ? `<div>Error: ${gmail.lastError}</div>` : ""}
+            </div>
+            <p style="margin-top:0.75rem">The broker can connect, reconnect, or disconnect Gmail from their Personal Dashboard.</p>
+        </div>` : ""}
         ${session ? `
         <div class="drawer-section">
             <h4>Today's Session</h4>

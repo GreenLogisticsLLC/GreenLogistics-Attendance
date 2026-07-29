@@ -1,11 +1,27 @@
 import fs from "fs";
 import path from "path";
 import { google } from "googleapis";
+import jwt from "jsonwebtoken";
 import { config } from "../../../config/env.js";
 import { prisma } from "../../../config/database.js";
 
 const GMAIL_CATEGORY = "gmail";
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
+
+type CompanyOAuthState = {
+    purpose: "company-gmail";
+    userId: string;
+};
+
+export function parseCompanyOAuthState(state: string | undefined | null): CompanyOAuthState | null {
+    if (!state) return null;
+    try {
+        const payload = jwt.verify(state, config.jwtSecret) as CompanyOAuthState;
+        return payload.purpose === "company-gmail" && payload.userId ? payload : null;
+    } catch {
+        return null;
+    }
+}
 
 export function getGmailRedirectUri(): string {
     return config.gmail.redirectUri;
@@ -56,7 +72,7 @@ export class GmailOAuthService {
         return Boolean(config.gmail.clientId && config.gmail.clientSecret);
     }
 
-    getAuthUrl(): string {
+    getAuthUrl(userId: string): string {
         if (!this.isClientConfigured()) {
             throw new Error("Gmail OAuth client is not configured (GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET)");
         }
@@ -66,6 +82,11 @@ export class GmailOAuthService {
             prompt: "consent",
             scope: [GMAIL_SCOPE],
             include_granted_scopes: true,
+            state: jwt.sign(
+                { purpose: "company-gmail", userId } satisfies CompanyOAuthState,
+                config.jwtSecret,
+                { expiresIn: "10m" }
+            ),
         });
     }
 

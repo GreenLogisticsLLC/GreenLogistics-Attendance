@@ -18,21 +18,21 @@ model Role {
 }
 
 model User {
-  userId                 String     @id @default(uuid()) @map("user_id")
-  username               String     @unique
-  passwordHash           String     @map("password_hash")
-  firstName              String     @map("first_name")
-  lastName               String     @map("last_name")
-  email                  String?    @unique
-  roleId                 String     @map("role_id")
-  isActive               Boolean    @default(true) @map("is_active")
-  availableForAssignment Boolean    @default(true) @map("available_for_assignment")
-  employeeId             String?    @unique @map("employee_id")
-  lastLogin              DateTime?  @map("last_login")
-  createdAt              DateTime   @default(now()) @map("created_at")
-  updatedAt              DateTime   @updatedAt @map("updated_at")
-  role                   Role       @relation(fields: [roleId], references: [roleId])
-  employee               Employee?  @relation(fields: [employeeId], references: [employeeId])
+  userId                 String                 @id @default(uuid()) @map("user_id")
+  username               String                 @unique
+  passwordHash           String                 @map("password_hash")
+  firstName              String                 @map("first_name")
+  lastName               String                 @map("last_name")
+  email                  String?                @unique
+  roleId                 String                 @map("role_id")
+  isActive               Boolean                @default(true) @map("is_active")
+  availableForAssignment Boolean                @default(true) @map("available_for_assignment")
+  employeeId             String?                @unique @map("employee_id")
+  lastLogin              DateTime?              @map("last_login")
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+  role                   Role                   @relation(fields: [roleId], references: [roleId])
+  employee               Employee?              @relation(fields: [employeeId], references: [employeeId])
   auditLogs              AuditLog[]
   brokerGmailAccount     BrokerGmailAccount?
   brokerMailboxMessages  BrokerMailboxMessage[]
@@ -76,6 +76,7 @@ model Employee {
   attendanceSessions AttendanceSession[]
   attendanceEvents   AttendanceEvent[]
   notifications      Notification[]
+  brokerGmailAccount BrokerGmailAccount?
 
   @@index([cardNumber])
   @@index([shiftId])
@@ -84,24 +85,24 @@ model Employee {
 }
 
 model AttendanceSession {
-  sessionId           String             @id @default(uuid()) @map("session_id")
-  employeeId          String             @map("employee_id")
-  shiftId             String             @map("shift_id")
-  workDate            String             @map("work_date")
-  scheduledStart      DateTime           @map("scheduled_start")
-  scheduledEnd        DateTime           @map("scheduled_end")
-  firstEntry          DateTime?          @map("first_entry")
-  lastExit            DateTime?          @map("last_exit")
-  currentStatus       String             @default("SCHEDULED") @map("current_status")
-  late                Boolean            @default(false)
-  lateMinutes         Int                @default(0) @map("late_minutes")
-  totalAbsenceMinutes Int                @default(0) @map("total_absence_minutes")
-  exitCount           Int                @default(0) @map("exit_count")
-  lastActivity        DateTime?          @map("last_activity")
-  createdAt           DateTime           @default(now()) @map("created_at")
-  updatedAt           DateTime           @updatedAt @map("updated_at")
-  employee            Employee           @relation(fields: [employeeId], references: [employeeId])
-  shift               Shift              @relation(fields: [shiftId], references: [shiftId])
+  sessionId           String            @id @default(uuid()) @map("session_id")
+  employeeId          String            @map("employee_id")
+  shiftId             String            @map("shift_id")
+  workDate            String            @map("work_date")
+  scheduledStart      DateTime          @map("scheduled_start")
+  scheduledEnd        DateTime          @map("scheduled_end")
+  firstEntry          DateTime?         @map("first_entry")
+  lastExit            DateTime?         @map("last_exit")
+  currentStatus       String            @default("SCHEDULED") @map("current_status")
+  late                Boolean           @default(false)
+  lateMinutes         Int               @default(0) @map("late_minutes")
+  totalAbsenceMinutes Int               @default(0) @map("total_absence_minutes")
+  exitCount           Int               @default(0) @map("exit_count")
+  lastActivity        DateTime?         @map("last_activity")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+  employee            Employee          @relation(fields: [employeeId], references: [employeeId])
+  shift               Shift             @relation(fields: [shiftId], references: [shiftId])
   attendanceEvents    AttendanceEvent[]
   absenceIntervals    AbsenceInterval[]
 
@@ -153,13 +154,13 @@ model AbsenceInterval {
 
 model Notification {
   notificationId   String    @id @default(uuid()) @map("notification_id")
-  employeeId     String?   @map("employee_id")
-  notificationType String  @map("notification_type")
-  priority       String
-  status         String    @default("UNREAD")
-  message        String
-  createdAt      DateTime  @default(now()) @map("created_at")
-  employee       Employee? @relation(fields: [employeeId], references: [employeeId])
+  employeeId       String?   @map("employee_id")
+  notificationType String    @map("notification_type")
+  priority         String
+  status           String    @default("UNREAD")
+  message          String
+  createdAt        DateTime  @default(now()) @map("created_at")
+  employee         Employee? @relation(fields: [employeeId], references: [employeeId])
 
   @@index([status])
   @@map("notifications")
@@ -184,15 +185,15 @@ model AuditLog {
 }
 
 model WebhookLog {
-  logId             String   @id @default(uuid()) @map("log_id")
-  webhookId         String   @map("webhook_id")
-  requestTime       DateTime @default(now()) @map("request_time")
-  employeeIdentifier String? @map("employee_identifier")
-  requestPayload    String   @map("request_payload")
-  responseCode      Int      @map("response_code")
-  processingStatus  String   @map("processing_status")
-  processingTimeMs  Int      @default(0) @map("processing_time_ms")
-  errorMessage      String?  @map("error_message")
+  logId              String   @id @default(uuid()) @map("log_id")
+  webhookId          String   @map("webhook_id")
+  requestTime        DateTime @default(now()) @map("request_time")
+  employeeIdentifier String?  @map("employee_identifier")
+  requestPayload     String   @map("request_payload")
+  responseCode       Int      @map("response_code")
+  processingStatus   String   @map("processing_status")
+  processingTimeMs   Int      @default(0) @map("processing_time_ms")
+  errorMessage       String?  @map("error_message")
 
   @@index([webhookId])
   @@index([processingStatus])
@@ -225,16 +226,16 @@ model PendingCardScan {
 }
 
 model PendingRegistration {
-  pendingId    String   @id @default(uuid()) @map("pending_id")
-  username     String
-  passwordHash String   @map("password_hash")
-  firstName    String   @map("first_name")
-  lastName     String   @map("last_name")
-  email        String
-  requestedRole String  @map("requested_role")
-  status       String   @default("PENDING")
-  decidedAt    DateTime? @map("decided_at")
-  createdAt    DateTime @default(now()) @map("created_at")
+  pendingId     String    @id @default(uuid()) @map("pending_id")
+  username      String
+  passwordHash  String    @map("password_hash")
+  firstName     String    @map("first_name")
+  lastName      String    @map("last_name")
+  email         String
+  requestedRole String    @map("requested_role")
+  status        String    @default("PENDING")
+  decidedAt     DateTime? @map("decided_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   @@index([status])
   @@index([username])
@@ -242,20 +243,20 @@ model PendingRegistration {
 }
 
 model EmailMessage {
-  emailMessageId String   @id @default(uuid()) @map("email_message_id")
-  gmailMessageId String   @unique @map("gmail_message_id")
-  gmailThreadId  String?  @map("gmail_thread_id")
-  fromAddress    String   @map("from_address")
+  emailMessageId String              @id @default(uuid()) @map("email_message_id")
+  gmailMessageId String              @unique @map("gmail_message_id")
+  gmailThreadId  String?             @map("gmail_thread_id")
+  fromAddress    String              @map("from_address")
   subject        String
   snippet        String?
-  receivedAt     DateTime @map("received_at")
-  processedAt    DateTime? @map("processed_at")
-  processStatus  String   @default("PENDING") @map("process_status")
+  receivedAt     DateTime            @map("received_at")
+  processedAt    DateTime?           @map("processed_at")
+  processStatus  String              @default("PENDING") @map("process_status")
   source         String?
-  rawHeaders     String?  @map("raw_headers")
-  bodyText       String?  @map("body_text")
-  bodyHtml       String?  @map("body_html")
-  createdAt      DateTime @default(now()) @map("created_at")
+  rawHeaders     String?             @map("raw_headers")
+  bodyText       String?             @map("body_text")
+  bodyHtml       String?             @map("body_html")
+  createdAt      DateTime            @default(now()) @map("created_at")
   shipmentLeads  ShipmentLead[]
   importLogs     ShipmentImportLog[]
 
@@ -268,63 +269,64 @@ model EmailMessage {
 /// Shipment Aggregate Root (table name kept for compatibility).
 /// One permanent card: Accept + Load Number NEVER creates a second record.
 model ShipmentLead {
-  shipmentLeadId     String   @id @default(uuid()) @map("shipment_lead_id")
+  shipmentLeadId        String                  @id @default(uuid()) @map("shipment_lead_id")
   /// Permanent human-readable Green OS Shipment ID (never changes).
-  greenOsShipmentId  String?  @unique @map("green_os_shipment_id")
-  source             String
-  externalShipmentId String?  @map("external_shipment_id")
-  shipmentTitle      String   @map("shipment_title")
-  customerName       String?  @map("customer_name")
-  pickupCity         String?  @map("pickup_city")
-  pickupState        String?  @map("pickup_state")
-  pickupZip          String?  @map("pickup_zip")
-  deliveryCity       String?  @map("delivery_city")
-  deliveryState      String?  @map("delivery_state")
-  deliveryZip        String?  @map("delivery_zip")
-  pickupFrom         DateTime? @map("pickup_from")
-  pickupTo           DateTime? @map("pickup_to")
-  deliveryFrom       DateTime? @map("delivery_from")
-  deliveryTo         DateTime? @map("delivery_to")
-  miles              Float?
-  category           String?
-  equipment          String?
-  vehicle            String?
-  weight             String?
-  price              Float?
-  priority           String   @default("NORMAL")
-  notes              String?
-  documentsJson      String?  @map("documents_json")
-  imageUrl           String?  @map("image_url")
-  viewUrl            String?  @unique @map("view_url")
-  status             String   @default("NEW")
+  greenOsShipmentId     String?                 @unique @map("green_os_shipment_id")
+  source                String
+  externalShipmentId    String?                 @map("external_shipment_id")
+  shipmentTitle         String                  @map("shipment_title")
+  customerName          String?                 @map("customer_name")
+  pickupCity            String?                 @map("pickup_city")
+  pickupState           String?                 @map("pickup_state")
+  pickupZip             String?                 @map("pickup_zip")
+  deliveryCity          String?                 @map("delivery_city")
+  deliveryState         String?                 @map("delivery_state")
+  deliveryZip           String?                 @map("delivery_zip")
+  pickupFrom            DateTime?               @map("pickup_from")
+  pickupTo              DateTime?               @map("pickup_to")
+  deliveryFrom          DateTime?               @map("delivery_from")
+  deliveryTo            DateTime?               @map("delivery_to")
+  miles                 Float?
+  category              String?
+  equipment             String?
+  vehicle               String?
+  weight                String?
+  price                 Float?
+  priority              String                  @default("NORMAL")
+  notes                 String?
+  documentsJson         String?                 @map("documents_json")
+  imageUrl              String?                 @map("image_url")
+  viewUrl               String?                 @unique @map("view_url")
+  status                String                  @default("NEW")
   /// Load Number extends THIS card — never a separate Load entity.
-  loadNumber         String?  @map("load_number")
+  loadNumber            String?                 @map("load_number")
   /// Sprint G — Operations fields (same card, no new entity).
-  carrierName        String?  @map("carrier_name")
-  driverName         String?  @map("driver_name")
-  truckNumber        String?  @map("truck_number")
-  trailerNumber      String?  @map("trailer_number")
-  rateConfirmation   String?  @map("rate_confirmation")
-  podUrl             String?  @map("pod_url")
-  invoiceNumber      String?  @map("invoice_number")
-  paymentStatus      String?  @map("payment_status")
-  opsPickupAt        DateTime? @map("ops_pickup_at")
-  opsDeliveryAt      DateTime? @map("ops_delivery_at")
-  assignedBrokerId   String?  @map("assigned_broker_id")
-  assignedAt         DateTime? @map("assigned_at")
-  acceptedAt         DateTime? @map("accepted_at")
-  acceptanceDeadline DateTime? @map("acceptance_deadline")
-  quoteSentAt        DateTime? @map("quote_sent_at")
-  closedAt           DateTime? @map("closed_at")
-  emailMessageId     String?  @map("email_message_id")
-  receivedAt         DateTime? @map("received_at")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-  emailMessage       EmailMessage? @relation(fields: [emailMessageId], references: [emailMessageId])
-  importLogs         ShipmentImportLog[]
-  timelineEvents     ShipmentTimelineEvent[]
-  domainEvents       DomainEvent[]
+  carrierName           String?                 @map("carrier_name")
+  driverName            String?                 @map("driver_name")
+  truckNumber           String?                 @map("truck_number")
+  trailerNumber         String?                 @map("trailer_number")
+  rateConfirmation      String?                 @map("rate_confirmation")
+  podUrl                String?                 @map("pod_url")
+  invoiceNumber         String?                 @map("invoice_number")
+  paymentStatus         String?                 @map("payment_status")
+  opsPickupAt           DateTime?               @map("ops_pickup_at")
+  opsDeliveryAt         DateTime?               @map("ops_delivery_at")
+  assignedBrokerId      String?                 @map("assigned_broker_id")
+  assignedAt            DateTime?               @map("assigned_at")
+  acceptedAt            DateTime?               @map("accepted_at")
+  acceptanceDeadline    DateTime?               @map("acceptance_deadline")
+  quoteSentAt           DateTime?               @map("quote_sent_at")
+  closedAt              DateTime?               @map("closed_at")
+  emailMessageId        String?                 @map("email_message_id")
+  receivedAt            DateTime?               @map("received_at")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+  emailMessage          EmailMessage?           @relation(fields: [emailMessageId], references: [emailMessageId])
+  importLogs            ShipmentImportLog[]
+  timelineEvents        ShipmentTimelineEvent[]
+  domainEvents          DomainEvent[]
   platformNotifications PlatformNotification[]
+  brokerMailboxMessages BrokerMailboxMessage[]
 
   @@index([source])
   @@index([status])
@@ -338,15 +340,15 @@ model ShipmentLead {
 
 /// Append-only Domain Events — source of truth for Timeline, Notifications, CRM, Analytics.
 model DomainEvent {
-  eventId          String   @id @default(uuid()) @map("event_id")
-  shipmentLeadId   String?  @map("shipment_lead_id")
-  eventType        String   @map("event_type")
-  title            String
-  message          String?
-  actorUserId      String?  @map("actor_user_id")
-  payloadJson      String?  @map("payload_json")
-  createdAt        DateTime @default(now()) @map("created_at")
-  shipmentLead     ShipmentLead? @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+  eventId        String        @id @default(uuid()) @map("event_id")
+  shipmentLeadId String?       @map("shipment_lead_id")
+  eventType      String        @map("event_type")
+  title          String
+  message        String?
+  actorUserId    String?       @map("actor_user_id")
+  payloadJson    String?       @map("payload_json")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  shipmentLead   ShipmentLead? @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
 
   @@index([shipmentLeadId])
   @@index([eventType])
@@ -355,15 +357,15 @@ model DomainEvent {
 }
 
 model ShipmentTimelineEvent {
-  eventId          String   @id @default(uuid()) @map("event_id")
-  shipmentLeadId   String   @map("shipment_lead_id")
-  stage            String
-  title            String
-  message          String?
-  actorUserId      String?  @map("actor_user_id")
-  metaJson         String?  @map("meta_json")
-  createdAt        DateTime @default(now()) @map("created_at")
-  shipmentLead     ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+  eventId        String       @id @default(uuid()) @map("event_id")
+  shipmentLeadId String       @map("shipment_lead_id")
+  stage          String
+  title          String
+  message        String?
+  actorUserId    String?      @map("actor_user_id")
+  metaJson       String?      @map("meta_json")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  shipmentLead   ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
 
   @@index([shipmentLeadId])
   @@index([stage])
@@ -372,14 +374,14 @@ model ShipmentTimelineEvent {
 }
 
 model ShipmentImportLog {
-  logId          String   @id @default(uuid()) @map("log_id")
-  eventType      String   @map("event_type")
+  logId          String        @id @default(uuid()) @map("log_id")
+  eventType      String        @map("event_type")
   message        String
-  gmailMessageId String?  @map("gmail_message_id")
-  emailMessageId String?  @map("email_message_id")
-  shipmentLeadId String?  @map("shipment_lead_id")
-  metaJson       String?  @map("meta_json")
-  createdAt      DateTime @default(now()) @map("created_at")
+  gmailMessageId String?       @map("gmail_message_id")
+  emailMessageId String?       @map("email_message_id")
+  shipmentLeadId String?       @map("shipment_lead_id")
+  metaJson       String?       @map("meta_json")
+  createdAt      DateTime      @default(now()) @map("created_at")
   emailMessage   EmailMessage? @relation(fields: [emailMessageId], references: [emailMessageId])
   shipmentLead   ShipmentLead? @relation(fields: [shipmentLeadId], references: [shipmentLeadId])
 
@@ -416,20 +418,25 @@ model AssignmentLog {
 
 /// Sprint C — each broker connects their own Gmail (uShip sync only).
 model BrokerGmailAccount {
-  brokerGmailId  String    @id @default(uuid()) @map("broker_gmail_id")
-  userId         String    @unique @map("user_id")
-  gmailAddress   String    @map("gmail_address")
-  refreshToken   String    @map("refresh_token")
-  accessToken    String?   @map("access_token")
-  connectedAt    DateTime  @default(now()) @map("connected_at")
-  lastSyncAt     DateTime? @map("last_sync_at")
-  lastError      String?   @map("last_error")
-  isActive       Boolean   @default(true) @map("is_active")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  user           User      @relation(fields: [userId], references: [userId], onDelete: Cascade)
-  messages       BrokerMailboxMessage[]
+  brokerGmailId String                 @id @default(uuid()) @map("broker_gmail_id")
+  brokerId      String?                @unique @map("broker_id")
+  userId        String                 @unique @map("user_id")
+  gmailAddress  String                 @map("gmail_address")
+  googleUserId  String?                @map("google_user_id")
+  refreshToken  String                 @map("refresh_token")
+  historyId     String?                @map("history_id")
+  status        String                 @default("CONNECTED")
+  connectedAt   DateTime               @default(now()) @map("connected_at")
+  lastSyncAt    DateTime?              @map("last_sync_at")
+  lastError     String?                @map("last_error")
+  isActive      Boolean                @default(true) @map("is_active")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+  broker        Employee?              @relation(fields: [brokerId], references: [employeeId], onDelete: Cascade)
+  user          User                   @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  messages      BrokerMailboxMessage[]
 
+  @@index([status])
   @@index([gmailAddress])
   @@index([isActive])
   @@map("broker_gmail_accounts")
@@ -437,21 +444,22 @@ model BrokerGmailAccount {
 
 /// uShip-related emails from a broker mailbox (history). Personal mail is never stored.
 model BrokerMailboxMessage {
-  messageId        String   @id @default(uuid()) @map("message_id")
-  userId           String   @map("user_id")
-  brokerGmailId    String   @map("broker_gmail_id")
-  gmailMessageId   String   @map("gmail_message_id")
-  gmailThreadId    String?  @map("gmail_thread_id")
-  shipmentLeadId   String?  @map("shipment_lead_id")
-  fromAddress      String   @map("from_address")
-  subject          String
-  snippet          String?
-  bodyText         String?  @map("body_text")
-  receivedAt       DateTime @map("received_at")
-  matchMethod      String?  @map("match_method")
-  createdAt        DateTime @default(now()) @map("created_at")
-  user             User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
-  brokerGmail      BrokerGmailAccount @relation(fields: [brokerGmailId], references: [brokerGmailId], onDelete: Cascade)
+  messageId      String             @id @default(uuid()) @map("message_id")
+  userId         String             @map("user_id")
+  brokerGmailId  String             @map("broker_gmail_id")
+  gmailMessageId String             @map("gmail_message_id")
+  gmailThreadId  String?            @map("gmail_thread_id")
+  shipmentLeadId String?            @map("shipment_lead_id")
+  fromAddress    String             @map("from_address")
+  subject        String
+  snippet        String?
+  bodyText       String?            @map("body_text")
+  receivedAt     DateTime           @map("received_at")
+  matchMethod    String?            @map("match_method")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  user           User               @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  brokerGmail    BrokerGmailAccount @relation(fields: [brokerGmailId], references: [brokerGmailId], onDelete: Cascade)
+  shipmentLead   ShipmentLead?      @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: SetNull)
 
   @@unique([userId, gmailMessageId])
   @@index([shipmentLeadId])
@@ -462,18 +470,18 @@ model BrokerMailboxMessage {
 
 /// Sprint F — GreenOS Notification Center (not Gmail).
 model PlatformNotification {
-  notificationId   String    @id @default(uuid()) @map("notification_id")
-  userId           String?   @map("user_id")
-  roleAudience     String?   @map("role_audience")
-  shipmentLeadId   String?   @map("shipment_lead_id")
-  notificationType String    @map("notification_type")
+  notificationId   String        @id @default(uuid()) @map("notification_id")
+  userId           String?       @map("user_id")
+  roleAudience     String?       @map("role_audience")
+  shipmentLeadId   String?       @map("shipment_lead_id")
+  notificationType String        @map("notification_type")
   title            String
   message          String
-  status           String    @default("UNREAD")
-  metaJson         String?   @map("meta_json")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  readAt           DateTime? @map("read_at")
-  user             User?     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  status           String        @default("UNREAD")
+  metaJson         String?       @map("meta_json")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  readAt           DateTime?     @map("read_at")
+  user             User?         @relation(fields: [userId], references: [userId], onDelete: Cascade)
   shipmentLead     ShipmentLead? @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
 
   @@index([userId, status])

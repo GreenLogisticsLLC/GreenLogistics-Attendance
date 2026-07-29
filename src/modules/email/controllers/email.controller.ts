@@ -6,13 +6,18 @@ import { emailImportService } from "../services/email-import.service.js";
 import { shipmentLeadService } from "../services/shipment-lead.service.js";
 import { shipmentImportLogRepository } from "../services/repositories.js";
 import { gmailListener } from "../gmail/gmail.listener.js";
-import { getGmailRedirectUri, gmailOAuthService } from "../gmail/gmail-oauth.service.js";
+import {
+    getGmailRedirectUri,
+    gmailOAuthService,
+    parseCompanyOAuthState,
+} from "../gmail/gmail-oauth.service.js";
 import {
     brokerGmailOAuthService,
     parseBrokerOAuthState,
 } from "../gmail/broker-gmail-oauth.service.js";
 import { brokerGmailSyncService } from "../gmail/broker-gmail-sync.service.js";
 import { prisma } from "../../../config/database.js";
+import { authService } from "../../../services/auth.service.js";
 
 function htmlPage(title: string, bodyHtml: string, ok = true) {
     return `<!DOCTYPE html>
@@ -33,9 +38,32 @@ function htmlPage(title: string, bodyHtml: string, ok = true) {
 </html>`;
 }
 
-/** GET /api/email/auth — company inbox OAuth (uShip import). */
-export async function gmailAuthController(_req: Request, res: Response) {
+function authenticatedUser(req: Request) {
+    const header = req.headers.authorization;
+    if (!header?.startsWith("Bearer ")) return null;
+    return authService.verifyToken(header.slice(7));
+}
+
+function wantsJson(req: Request): boolean {
+    return req.query.json === "1" || String(req.headers.accept || "").includes("application/json");
+}
+
+function escapeHtml(value: string): string {
+    return value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+/** GET /api/email/auth?brokerId=<employeeId> — authenticated Gmail OAuth start. */
+export async function gmailAuthController(req: Request, res: Response) {
     try {
+        const actor = authenticatedUser(req);
+        if (!actor) {
+            return res.status(401).json(apiResponse(false, "Unauthorized"));
+        }
         if (!gmailOAuthService.isClientConfigured()) {
             return res
                 .status(503)
@@ -48,7 +76,38 @@ export async function gmailAuthController(_req: Request, res: Response) {
                     )
                 );
         }
-        const url = gmailOAuthService.getAuthUrl();
+        const brokerId = typeof req.query.brokerId === "string" ? req.query.brokerId.trim() : "";
+        let url: string;
+        if (brokerId) {
+            const user = await prisma.user.findUnique({
+                where: { userId: actor.userId },
+                include: { role: true },
+            });
+            if (
+                !user ||
+                !user.isActive ||
+                user.role.roleName !== "Broker" ||
+                user.employeeId !== brokerId
+            ) {
+                return res.status(403).json(
+                    apiResponse(
+                        false,
+                        "A broker can connect Gmail only to their own employee profile"
+                    )
+                );
+            }
+            url = brokerGmailOAuthService.getAuthUrlForBroker(actor.userId, brokerId);
+        } else {
+            if (!["Administrator", "Owner"].includes(actor.role)) {
+                return res.status(403).json(
+                    apiResponse(false, "Only an Owner or Administrator can connect company Gmail")
+                );
+            }
+            url = gmailOAuthService.getAuthUrl(actor.userId);
+        }
+        if (wantsJson(req)) {
+            return res.json(apiResponse(true, "OK", { url }));
+        }
         return res.redirect(url);
     } catch (err) {
         const message = err instanceof Error ? err.message : "OAuth start failed";
@@ -65,11 +124,18 @@ export async function brokerGmailAuthController(req: AuthRequest, res: Response)
         if (!brokerGmailOAuthService.isClientConfigured()) {
             return res.status(503).json(apiResponse(false, "Gmail OAuth client is not configured"));
         }
-        const url = brokerGmailOAuthService.getAuthUrlForBroker(req.user.userId);
-        const wantJson =
-            req.query.json === "1" ||
-            String(req.headers.accept || "").includes("application/json");
-        if (wantJson) {
+        const user = await prisma.user.findUnique({
+            where: { userId: req.user.userId },
+            include: { role: true },
+        });
+        if (!user?.employeeId || user.role.roleName !== "Broker") {
+            return res.status(403).json(apiResponse(false, "Broker employee profile is required"));
+        }
+        const url = brokerGmailOAuthService.getAuthUrlForBroker(
+            req.user.userId,
+            user.employeeId
+        );
+        if (wantsJson(req)) {
             return res.json(apiResponse(true, "OK", { url }));
         }
         return res.redirect(url);
@@ -91,19 +157,27 @@ export async function gmailCallbackController(req: Request, res: Response) {
 
     const code = typeof req.query.code === "string" ? req.query.code : "";
     const state = typeof req.query.state === "string" ? req.query.state : "";
-    const brokerUserId = parseBrokerOAuthState(state);
+    const brokerState = parseBrokerOAuthState(state);
+    const companyState = parseCompanyOAuthState(state);
+    if (!brokerState && !companyState) {
+        return res
+            .status(400)
+            .type("html")
+            .send(htmlPage("Gmail OAuth", "<h1>Invalid or expired OAuth session</h1>", false));
+    }
 
     try {
-        if (brokerUserId) {
+        if (brokerState) {
             const { email } = await brokerGmailOAuthService.exchangeCodeAndSaveForBroker(
-                brokerUserId,
+                brokerState.userId,
+                brokerState.brokerId,
                 code
             );
             return res.status(200).type("html").send(
                 htmlPage(
                     "Broker Gmail connected",
                     `<h1>Broker Gmail connected</h1>
-                     <p>Mailbox: <strong>${email}</strong></p>
+                     <p>Mailbox: <strong>${escapeHtml(email)}</strong></p>
                      <p>GreenOS will monitor <em>uShip-related</em> emails only (personal mail is ignored).</p>
                      <p><a href="/">Back to GreenOS</a></p>`
                 )
@@ -115,7 +189,7 @@ export async function gmailCallbackController(req: Request, res: Response) {
             htmlPage(
                 "Gmail connected",
                 `<h1>Company Gmail connected</h1>
-                 <p>${email ? `Mailbox: <strong>${email}</strong>` : ""}</p>
+                 <p>${email ? `Mailbox: <strong>${escapeHtml(email)}</strong>` : ""}</p>
                  <p>Used for new uShip shipment import into GreenOS.</p>
                  <p><a href="/">Back to GreenOS</a></p>`
             )
@@ -126,20 +200,35 @@ export async function gmailCallbackController(req: Request, res: Response) {
         return res
             .status(500)
             .type("html")
-            .send(htmlPage("Gmail OAuth", `<h1>Connection failed</h1><p>${message}</p>`, false));
+            .send(
+                htmlPage(
+                    "Gmail OAuth",
+                    `<h1>Connection failed</h1><p>${escapeHtml(message)}</p>`,
+                    false
+                )
+            );
     }
 }
 
 export async function brokerGmailStatusController(req: AuthRequest, res: Response) {
     if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
     const account = await brokerGmailOAuthService.getAccount(req.user.userId);
+    const user = await prisma.user.findUnique({
+        where: { userId: req.user.userId },
+        select: { employeeId: true },
+    });
     return res.json(
         apiResponse(true, "OK", {
-            connected: Boolean(account?.isActive && account.refreshToken),
+            connected: Boolean(
+                account?.status === "CONNECTED" && account.isActive && account.refreshToken
+            ),
             gmailAddress: account?.gmailAddress || null,
+            status: account?.status || "DISCONNECTED",
             lastSyncAt: account?.lastSyncAt || null,
             lastError: account?.lastError || null,
-            authUrl: "/api/email/broker/auth",
+            authUrl: user?.employeeId
+                ? `/api/email/auth?brokerId=${encodeURIComponent(user.employeeId)}`
+                : null,
             oauthClientConfigured: brokerGmailOAuthService.isClientConfigured(),
         })
     );
@@ -189,6 +278,7 @@ export async function listBrokerGmailAccountsController(_req: AuthRequest, res: 
                 name: `${r.user.firstName} ${r.user.lastName}`.trim(),
                 gmailAddress: r.gmailAddress,
                 isActive: r.isActive,
+                status: r.status,
                 lastSyncAt: r.lastSyncAt,
                 lastError: r.lastError,
                 connectedAt: r.connectedAt,
@@ -235,7 +325,7 @@ export async function emailStatusController(_req: Request, res: Response) {
     const gmailUser = gmailConfigured ? await gmailOAuthService.getStoredUser() : config.gmail.user || "";
     const smtpConfigured = Boolean(config.smtp.host && config.smtp.user && config.smtp.pass);
     const brokerAccounts = await prisma.brokerGmailAccount.count({
-        where: { isActive: true, NOT: { refreshToken: "" } },
+        where: { status: "CONNECTED", isActive: true, NOT: { refreshToken: "" } },
     });
     return res.json(
         apiResponse(true, "OK", {

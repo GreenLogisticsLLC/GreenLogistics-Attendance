@@ -257,7 +257,10 @@ export class AssignmentEngine {
         return {
             version: "1.0",
             algorithm: "round_robin",
-            rules: ["Attendance card only: In Office joins queue, Out of Office leaves queue"],
+            rules: [
+                "Broker must be In Office and have a connected Gmail account",
+                "Out of Office or disconnected Gmail removes the broker from assignment",
+            ],
             heart: "Attendance → Assignment Queue → CRM Shipment",
             eligible: eligible.map((e) => ({
                 userId: e.userId,
@@ -431,23 +434,29 @@ export class AssignmentEngine {
     }
 
     /**
-     * Eligible = linked broker whose Attendance status is In Office.
+     * Eligible = linked broker whose Attendance status is In Office and Gmail is connected.
      * Out of Office → excluded. Queue order is driven by card swipes (arrival order).
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
         const users = await prisma.user.findMany({
             where: {
-                role: { roleName: { in: ["Broker", "Manager", "Owner"] } },
+                role: { roleName: "Broker" },
+                isActive: true,
+                availableForAssignment: true,
+                brokerGmailAccount: {
+                    is: {
+                        status: "CONNECTED",
+                        isActive: true,
+                        NOT: { refreshToken: "" },
+                    },
+                },
             },
-            include: { role: true, employee: true },
+            include: { role: true, employee: true, brokerGmailAccount: true },
             orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
         });
 
-        const preferred = users.filter((u) => u.role.roleName === "Broker");
-        const pool = preferred.length ? preferred : users;
-
         const eligible: EligibleBroker[] = [];
-        for (const user of pool) {
+        for (const user of users) {
             const employeeId = await this.resolveEmployeeId(user);
             if (!employeeId) continue;
 

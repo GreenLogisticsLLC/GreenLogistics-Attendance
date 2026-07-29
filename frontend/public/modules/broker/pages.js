@@ -120,8 +120,8 @@ window.GreenOSModules.broker = {
         this.card("Lost", s.lost || 0, "accent-warn") +
         "</div>" +
         '<section class="gos-module-placeholder" style="margin-top:1.25rem" id="broker-gmail-box">' +
-        "<h3>My Gmail (uShip sync)</h3>" +
-        '<p class="gos-muted">Connect your broker Gmail. GreenOS monitors uShip emails only — personal mail is ignored.</p>' +
+        "<h3>Gmail</h3>" +
+        '<p class="gos-muted">GreenOS reads shipment updates from this Gmail after assignment. You continue working only in GreenOS.</p>' +
         '<p id="broker-gmail-status">Checking…</p>' +
         '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem">' +
         '<button type="button" class="btn-primary" id="broker-gmail-connect" style="width:auto">Connect Gmail</button>' +
@@ -155,6 +155,7 @@ window.GreenOSModules.broker = {
   async bindGmailBox(body) {
     var statusEl = body.querySelector("#broker-gmail-status");
     var self = this;
+    var authUrl = null;
     async function refresh() {
       try {
         var data = await self.emailApi("/broker/status");
@@ -163,24 +164,41 @@ window.GreenOSModules.broker = {
           return;
         }
         var d = data.data || {};
+        authUrl = d.authUrl;
+        var connectButton = body.querySelector("#broker-gmail-connect");
+        var syncButton = body.querySelector("#broker-gmail-sync");
+        var disconnectButton = body.querySelector("#broker-gmail-disconnect");
         if (d.connected) {
           statusEl.innerHTML =
-            "Connected: <strong>" +
+            "<strong>" +
             self.esc(d.gmailAddress) +
-            "</strong>" +
-            (d.lastSyncAt ? " · last sync " + self.fmtDate(d.lastSyncAt) : "") +
+            "</strong><br>Status: <span style=\"color:#22c55e\">Connected</span>" +
+            "<br>Last Sync: " +
+            (d.lastSyncAt ? self.fmtDate(d.lastSyncAt) : "Not synced yet") +
             (d.lastError ? '<br><span style="color:var(--red)">' + self.esc(d.lastError) + "</span>" : "");
+          if (connectButton) connectButton.textContent = "Reconnect";
+          if (syncButton) syncButton.hidden = false;
+          if (disconnectButton) disconnectButton.hidden = false;
         } else {
-          statusEl.textContent = d.oauthClientConfigured
-            ? "Not connected — click Connect Gmail"
-            : "Gmail OAuth is not configured on the server";
+          statusEl.innerHTML = d.oauthClientConfigured
+            ? "Status: <strong>Not connected</strong>"
+            : "Status: <strong>OAuth is not configured on the server</strong>";
+          if (connectButton) connectButton.textContent = "Connect Gmail";
+          if (syncButton) syncButton.hidden = true;
+          if (disconnectButton) disconnectButton.hidden = true;
         }
       } catch {
         statusEl.textContent = "Could not load Gmail status";
       }
     }
     body.querySelector("#broker-gmail-connect")?.addEventListener("click", async function () {
-      var data = await self.emailApi("/broker/auth?json=1");
+      if (!authUrl) {
+        alert("This GreenOS account is not linked to an employee profile.");
+        return;
+      }
+      var separator = authUrl.indexOf("?") >= 0 ? "&" : "?";
+      var path = authUrl.replace("/api/email", "") + separator + "json=1";
+      var data = await self.emailApi(path);
       if (data.success && data.data && data.data.url) {
         window.location.href = data.data.url;
       } else {

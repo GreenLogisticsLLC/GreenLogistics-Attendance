@@ -2,7 +2,10 @@ import { google } from "googleapis";
 import { config } from "../../../config/env.js";
 import { prisma } from "../../../config/database.js";
 import { getGmailRedirectUri } from "./gmail-oauth.service.js";
-import { brokerGmailOAuthService } from "./broker-gmail-oauth.service.js";
+import {
+    brokerGmailOAuthService,
+    decryptBrokerRefreshToken,
+} from "./broker-gmail-oauth.service.js";
 import type { RawEmailMessage } from "../models/types.js";
 import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
 
@@ -70,43 +73,115 @@ function extractUshipRefs(text: string): { externalId?: string; viewUrl?: string
 
 async function matchShipment(input: {
     userId: string;
+    brokerGmailId: string;
+    gmailThreadId?: string;
     externalId?: string;
     viewUrl?: string;
     subject: string;
     body: string;
 }): Promise<{ shipmentLeadId: string; method: string } | null> {
+    let candidate: { shipmentLeadId: string; assignedBrokerId: string | null } | null = null;
+    let method = "";
     if (input.viewUrl) {
-        const byUrl = await prisma.shipmentLead.findUnique({ where: { viewUrl: input.viewUrl } });
-        if (byUrl) return { shipmentLeadId: byUrl.shipmentLeadId, method: "viewUrl" };
-    }
-    if (input.externalId) {
-        const byExt = await prisma.shipmentLead.findFirst({
-            where: { source: "USHIP", externalShipmentId: input.externalId },
+        candidate = await prisma.shipmentLead.findUnique({
+            where: { viewUrl: input.viewUrl },
+            select: { shipmentLeadId: true, assignedBrokerId: true },
         });
-        if (byExt) return { shipmentLeadId: byExt.shipmentLeadId, method: "externalShipmentId" };
+        method = "viewUrl";
+    }
+    if (!candidate && input.externalId) {
+        candidate = await prisma.shipmentLead.findFirst({
+            where: { source: "USHIP", externalShipmentId: input.externalId },
+            select: { shipmentLeadId: true, assignedBrokerId: true },
+        });
+        method = "externalShipmentId";
     }
 
     const gosMatch = `${input.subject} ${input.body}`.match(/GOS-\d{8}-\d+/i);
-    if (gosMatch) {
-        const byGos = await prisma.shipmentLead.findUnique({
+    if (!candidate && gosMatch) {
+        candidate = await prisma.shipmentLead.findUnique({
             where: { greenOsShipmentId: gosMatch[0].toUpperCase() },
+            select: { shipmentLeadId: true, assignedBrokerId: true },
         });
-        if (byGos) return { shipmentLeadId: byGos.shipmentLeadId, method: "greenOsShipmentId" };
+        method = "greenOsShipmentId";
     }
 
-    // Prefer open shipments assigned to this broker (weak match by title tokens — skip for safety)
-    return null;
+    if (!candidate && input.gmailThreadId) {
+        const prior = await prisma.brokerMailboxMessage.findFirst({
+            where: {
+                brokerGmailId: input.brokerGmailId,
+                gmailThreadId: input.gmailThreadId,
+                shipmentLeadId: { not: null },
+            },
+            orderBy: { receivedAt: "desc" },
+            select: {
+                shipmentLead: {
+                    select: { shipmentLeadId: true, assignedBrokerId: true },
+                },
+            },
+        });
+        candidate = prior?.shipmentLead || null;
+        method = "gmailThreadId";
+    }
+
+    // Hard routing boundary: a broker mailbox can update only that broker's assigned Shipment.
+    if (!candidate || candidate.assignedBrokerId !== input.userId) return null;
+    return { shipmentLeadId: candidate.shipmentLeadId, method };
 }
 
 export class BrokerGmailSyncService {
-    private clientFor(refreshToken: string) {
+    private clientFor(encryptedRefreshToken: string) {
         const oauth2 = new google.auth.OAuth2(
             config.gmail.clientId,
             config.gmail.clientSecret,
             getGmailRedirectUri()
         );
-        oauth2.setCredentials({ refresh_token: refreshToken });
+        oauth2.setCredentials({ refresh_token: decryptBrokerRefreshToken(encryptedRefreshToken) });
         return google.gmail({ version: "v1", auth: oauth2 });
+    }
+
+    private async listNewMessageIds(
+        gmail: ReturnType<typeof google.gmail>,
+        account: { historyId: string | null; lastSyncAt: Date | null },
+        maxMessages: number
+    ): Promise<string[]> {
+        const ids = new Set<string>();
+        if (account.historyId) {
+            try {
+                let pageToken: string | undefined;
+                do {
+                    const page = await gmail.users.history.list({
+                        userId: "me",
+                        startHistoryId: account.historyId,
+                        historyTypes: ["messageAdded"],
+                        pageToken,
+                        maxResults: Math.min(100, maxMessages),
+                    });
+                    for (const entry of page.data.history || []) {
+                        for (const added of entry.messagesAdded || []) {
+                            if (added.message?.id) ids.add(added.message.id);
+                            if (ids.size >= maxMessages) break;
+                        }
+                    }
+                    pageToken = page.data.nextPageToken || undefined;
+                } while (pageToken && ids.size < maxMessages);
+                return [...ids];
+            } catch (err) {
+                const code = (err as { code?: number }).code;
+                if (code !== 404) throw err;
+                console.warn("[BROKER GMAIL] history cursor expired; using time-based recovery");
+            }
+        }
+
+        const after = Math.floor(
+            ((account.lastSyncAt?.getTime() || Date.now()) - 5 * 60_000) / 1000
+        );
+        const list = await gmail.users.messages.list({
+            userId: "me",
+            q: `${USHIP_QUERY} after:${after}`,
+            maxResults: maxMessages,
+        });
+        return (list.data.messages || []).map((message) => message.id!).filter(Boolean);
     }
 
     private async fetchRaw(gmail: ReturnType<typeof google.gmail>, gmailMessageId: string): Promise<RawEmailMessage> {
@@ -143,6 +218,8 @@ export class BrokerGmailSyncService {
         userId: string;
         gmailAddress: string;
         refreshToken: string;
+        historyId: string | null;
+        lastSyncAt: Date | null;
     }, maxMessages = 20) {
         const gmail = this.clientFor(account.refreshToken);
         let synced = 0;
@@ -151,12 +228,7 @@ export class BrokerGmailSyncService {
         let errors = 0;
 
         try {
-            const list = await gmail.users.messages.list({
-                userId: "me",
-                q: `${USHIP_QUERY} is:unread`,
-                maxResults: maxMessages,
-            });
-            const ids = (list.data.messages || []).map((m) => m.id!).filter(Boolean);
+            const ids = await this.listNewMessageIds(gmail, account, maxMessages);
 
             for (const gmailMessageId of ids) {
                 try {
@@ -169,11 +241,6 @@ export class BrokerGmailSyncService {
                         },
                     });
                     if (existing) {
-                        await gmail.users.messages.modify({
-                            userId: "me",
-                            id: gmailMessageId,
-                            requestBody: { removeLabelIds: ["UNREAD"] },
-                        });
                         ignored += 1;
                         continue;
                     }
@@ -182,12 +249,7 @@ export class BrokerGmailSyncService {
                     const body = `${raw.bodyText || ""}\n${raw.bodyHtml || ""}`;
 
                     if (!isUshipRelated(raw.fromAddress, raw.subject, body)) {
-                        // Personal / unrelated — do not store; mark read so we don't loop
-                        await gmail.users.messages.modify({
-                            userId: "me",
-                            id: gmailMessageId,
-                            requestBody: { removeLabelIds: ["UNREAD"] },
-                        });
+                        // Personal / unrelated — never store it.
                         ignored += 1;
                         continue;
                     }
@@ -195,6 +257,8 @@ export class BrokerGmailSyncService {
                     const refs = extractUshipRefs(`${raw.subject}\n${body}\n${raw.snippet || ""}`);
                     const match = await matchShipment({
                         userId: account.userId,
+                        brokerGmailId: account.brokerGmailId,
+                        gmailThreadId: raw.gmailThreadId,
                         externalId: refs.externalId,
                         viewUrl: refs.viewUrl,
                         subject: raw.subject,
@@ -234,11 +298,6 @@ export class BrokerGmailSyncService {
                         });
                     }
 
-                    await gmail.users.messages.modify({
-                        userId: "me",
-                        id: gmailMessageId,
-                        requestBody: { removeLabelIds: ["UNREAD"] },
-                    });
                     synced += 1;
                 } catch (err) {
                     errors += 1;
@@ -249,15 +308,27 @@ export class BrokerGmailSyncService {
                 }
             }
 
+            const profile = await gmail.users.getProfile({ userId: "me" });
             await prisma.brokerGmailAccount.update({
                 where: { brokerGmailId: account.brokerGmailId },
-                data: { lastSyncAt: new Date(), lastError: null },
+                data: {
+                    historyId: profile.data.historyId || account.historyId,
+                    lastSyncAt: new Date(),
+                    status: "CONNECTED",
+                    isActive: true,
+                    lastError: null,
+                },
             });
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             await prisma.brokerGmailAccount.update({
                 where: { brokerGmailId: account.brokerGmailId },
-                data: { lastError: message.slice(0, 500) },
+                data: {
+                    lastError: message.slice(0, 500),
+                    status: /invalid_grant|unauthorized/i.test(message)
+                        ? "RECONNECT_REQUIRED"
+                        : "CONNECTED",
+                },
             });
             throw err;
         }
@@ -279,6 +350,8 @@ export class BrokerGmailSyncService {
                         userId: acc.userId,
                         gmailAddress: acc.gmailAddress,
                         refreshToken: acc.refreshToken,
+                        historyId: acc.historyId,
+                        lastSyncAt: acc.lastSyncAt,
                     },
                     maxPerAccount
                 );

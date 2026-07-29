@@ -181,7 +181,31 @@ export class DashboardService {
             });
         }
 
-        return { employee, session, events, intervals, workDate: date };
+        const brokerUser = await prisma.user.findFirst({
+            where: { employeeId, role: { roleName: "Broker" } },
+            select: {
+                brokerGmailAccount: {
+                    select: {
+                        gmailAddress: true,
+                        status: true,
+                        lastSyncAt: true,
+                        lastError: true,
+                        connectedAt: true,
+                    },
+                },
+            },
+        });
+        const gmail = brokerUser
+            ? brokerUser.brokerGmailAccount || {
+                  gmailAddress: null,
+                  status: "DISCONNECTED",
+                  lastSyncAt: null,
+                  lastError: null,
+                  connectedAt: null,
+              }
+            : null;
+
+        return { employee, session, events, intervals, gmail, workDate: date };
     }
 }
 
