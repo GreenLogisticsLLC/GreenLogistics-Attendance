@@ -13,7 +13,6 @@ export interface PeriodReportRow {
     employeeNumber: string;
     employeeName: string;
     department: string | null;
-    shiftName: string;
     firstEntry: string | null;
     lastExit: string | null;
     status: string;
@@ -59,7 +58,7 @@ export class ReportService {
                 workDate: { gte: from, lte: to },
             },
             include: {
-                employee: { include: { shift: true } },
+                employee: true,
                 absenceIntervals: { orderBy: { startTime: "asc" } },
             },
             orderBy: [{ workDate: "desc" }, { employee: { lastName: "asc" } }],
@@ -114,7 +113,6 @@ export class ReportService {
                 employeeNumber: s.employee.employeeNumber,
                 employeeName: `${s.employee.firstName} ${s.employee.lastName}`,
                 department: s.employee.department,
-                shiftName: s.employee.shift.shiftName,
                 firstEntry: formatDateTime(s.firstEntry),
                 lastExit: formatDateTime(s.lastExit),
                 status: statusLabel(s.currentStatus),

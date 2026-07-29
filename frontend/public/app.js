@@ -14,7 +14,6 @@ consumeTokenFromUrl();
 let refreshTimer = null;
 let currentUser = null;
 let adminEmployees = [];
-let shifts = [];
 
 const $ = (sel) => document.querySelector(sel);
 const loginScreen = $("#login-screen");
@@ -169,7 +168,6 @@ function switchView(view) {
         }, 10000);
     } else if (view === "admin") {
         loadAdminEmployees();
-        loadShiftsForForm();
         loadPendingScans();
         updateWebhookUrlDisplays();
         if (cardScanPollTimer) {
@@ -532,7 +530,7 @@ function renderReportStats(summary, from, to) {
 function renderReportTable(rows) {
     const tbody = $("#report-body");
     if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;color:var(--muted)">Нет данных за выбранный период</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted)">Нет данных за выбранный период</td></tr>`;
         return;
     }
     tbody.innerHTML = rows.map((r) => `
@@ -540,7 +538,6 @@ function renderReportTable(rows) {
             <td>${r.workDate}</td>
             <td><strong>${r.employeeName}</strong><br><small style="color:var(--muted)">${r.employeeNumber}</small></td>
             <td>${r.department || "—"}</td>
-            <td>${r.shiftName}</td>
             <td>${r.firstEntry || "—"}</td>
             <td>${r.lastExit || "—"}</td>
             <td>${formatDuration(r.timeInOfficeMinutes)}</td>
@@ -706,7 +703,6 @@ async function openEmployeeDrawer(employeeId) {
             <div class="info-grid">
                 <div>Department: ${employee.department || "—"}</div>
                 <div>Position: ${employee.position || "—"}</div>
-                <div>Shift: ${employee.shift.shiftName}</div>
                 <div>Card: ${employee.cardNumber}</div>
             </div>
         </div>
@@ -757,32 +753,6 @@ async function loadAdminEmployees() {
     renderAdminTable();
 }
 
-async function loadShiftsForForm() {
-    try {
-        const data = await apiFetch("/shifts");
-        if (!data.success || !data.data?.length) {
-            const msg = "Смены не загружены — обновите страницу (F5) или перезапустите сервер";
-            const empShift = $("#emp-shift");
-            const quickShift = $("#quick-shift");
-            if (empShift) empShift.innerHTML = `<option value="">${msg}</option>`;
-            if (quickShift) quickShift.innerHTML = `<option value="">${msg}</option>`;
-            return false;
-        }
-        shifts = data.data;
-        const options = `<option value="">— не обязательно —</option>` + shifts.map((s) =>
-            `<option value="${s.shiftId}">${s.shiftName} (${s.startTime}–${s.endTime})</option>`
-        ).join("");
-        const empShift = $("#emp-shift");
-        const quickShift = $("#quick-shift");
-        if (empShift) empShift.innerHTML = options;
-        if (quickShift) quickShift.innerHTML = options;
-        return true;
-    } catch (err) {
-        console.error("loadShiftsForForm failed", err);
-        return false;
-    }
-}
-
 function renderAdminTable() {
     const tbody = $("#admin-employees-body");
     tbody.innerHTML = adminEmployees.map((emp) => `
@@ -790,7 +760,6 @@ function renderAdminTable() {
             <td>${emp.firstName} ${emp.lastName}</td>
             <td>${emp.employeeNumber}</td>
             <td><code>${emp.cardNumber}</code></td>
-            <td>${emp.shift?.shiftName || "—"}</td>
             <td class="status-${emp.status.toLowerCase()}">${emp.status}</td>
             <td class="action-btns">
                 <button data-action="test-scan" data-id="${emp.employeeId}" class="btn-test">Test Entry</button>
@@ -909,7 +878,6 @@ $("#quick-register-form")?.addEventListener("submit", async (e) => {
     const cardNumber = normalizeCardInput($("#quick-card").value);
     const firstName = $("#quick-first").value.trim();
     const lastName = $("#quick-last").value.trim();
-    const shiftId = $("#quick-shift").value;
 
     if (!cardNumber) {
         setSyncStatus(statusEl, "Введите UID или нажмите «Сгенерировать временный UID»", false);
@@ -930,7 +898,6 @@ $("#quick-register-form")?.addEventListener("submit", async (e) => {
         cardNumber,
         syncToDevice: false,
     };
-    if (shiftId) payload.shiftId = shiftId;
 
     setSyncStatus(statusEl, "Saving...", true);
     try {
@@ -952,7 +919,6 @@ $("#quick-register-form")?.addEventListener("submit", async (e) => {
 });
 
 async function openEmployeeModal(employeeId = null, prefilledCard = null) {
-    await loadShiftsForForm();
     if (!employeeId) {
         await loadAdminEmployees();
     }
@@ -970,7 +936,6 @@ async function openEmployeeModal(employeeId = null, prefilledCard = null) {
             $("#emp-position").value = emp.position || "";
             $("#emp-card").value = emp.cardNumber;
             $("#emp-extref").value = emp.externalRef || "";
-            $("#emp-shift").value = emp.shiftId;
             $("#emp-cardtype").value = String(emp.cardType || 2);
             $("#emp-status").value = emp.status;
         }
@@ -993,7 +958,6 @@ $("#cancel-modal").addEventListener("click", () => $("#employee-modal").classLis
 $("#employee-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#emp-id").value;
-    const shiftId = $("#emp-shift").value;
     const payload = {
         employeeNumber: $("#emp-number").value.trim(),
         firstName: $("#emp-first").value.trim(),
@@ -1002,7 +966,6 @@ $("#employee-form").addEventListener("submit", async (e) => {
         position: $("#emp-position").value.trim() || undefined,
         cardNumber: normalizeCardInput($("#emp-card").value),
         externalRef: $("#emp-extref").value.trim() || undefined,
-        shiftId: shiftId || "",
         cardType: parseInt($("#emp-cardtype").value, 10),
         status: $("#emp-status").value,
         syncToDevice: $("#emp-sync").checked,

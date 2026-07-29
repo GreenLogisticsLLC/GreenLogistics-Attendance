@@ -80,7 +80,6 @@ export class DashboardService {
                 employeeName: `${emp.firstName} ${emp.lastName}`,
                 department: emp.department,
                 position: emp.position,
-                shiftName: emp.shift?.shiftName || "Flexible",
                 scheduledStart: formatDateTime(session?.scheduledStart ?? null) || "—",
                 firstEntry: formatDateTime(session?.firstEntry ?? null),
                 lastExit: formatDateTime(session?.lastExit ?? null),

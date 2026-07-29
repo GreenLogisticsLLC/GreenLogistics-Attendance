@@ -210,7 +210,6 @@
                             <th>Date</th>
                             <th>Employee</th>
                             <th>Department</th>
-                            <th>Shift</th>
                             <th>First Entry</th>
                             <th>Last Exit</th>
                             <th>In Office</th>
@@ -233,7 +232,7 @@
                         <li><strong>Удалите</strong> старого сотрудника — кнопка <em>Delete</em> (красная) в таблице справа.</li>
                         <li><strong>RESTART.bat</strong> — перезапустите сервер. Окно терминала не закрывайте.</li>
                         <li><strong>Test Webhook (local)</strong> — в блоке выше. Если Dashboard меняется — программа работает.</li>
-                        <li><strong>Зарегистрируйте сотрудника</strong> — «Быстрая регистрация»: кнопка «Сгенерировать временный UID», имя, фамилия, смена. Карта привяжется позже через Edit.</li>
+                        <li><strong>Зарегистрируйте сотрудника</strong> — «Быстрая регистрация»: кнопка «Сгенерировать временный UID», имя и фамилия. Карта привяжется позже через Edit.</li>
                         <li><strong>Legacy Reader</strong> — без webhook от считывателя реальные проходы не попадут в Dashboard (дверь открывается отдельно).</li>
                     </ol>
                     <p class="panel-hint">Логин: <code>admin</code> / <code>Admin123!@Green</code></p>
@@ -250,7 +249,7 @@
                             только в чипе карты. Пока связи нет, используйте один из способов ниже.
                         </p>
                         <ol class="setup-steps offline-steps">
-                            <li><strong>Способ A (быстро):</strong> нажмите «Сгенерировать временный UID», введите имя и фамилию, выберите смену → «Сохранить». После привязки карты замените UID в Edit.</li>
+                            <li><strong>Способ A (быстро):</strong> нажмите «Сгенерировать временный UID», введите имя и фамилию → «Сохранить». После привязки карты замените UID в Edit.</li>
                             <li><strong>Способ B (если знаете UID):</strong> прочитайте UID через приложение NFC Tools (Android) или панель Legacy Reader → вставьте в поле Card UID.</li>
                             <li><strong>Способ C (когда webhook заработает):</strong> сотрудник приложит карту к двери → UID появится в списке «Недавние сканы» или после «Scan Card Now».</li>
                             <li>После регистрации нажмите <strong>Test Entry</strong> в таблице — так проверяется посещаемость без двери.</li>
@@ -271,12 +270,6 @@
                                 </div>
                                 <div><label>First Name *</label><input id="quick-first" required></div>
                                 <div><label>Last Name *</label><input id="quick-last" required></div>
-                                <div>
-                                    <label>Shift (optional)</label>
-                                    <select id="quick-shift">
-                                        <option value="">— не обязательно —</option>
-                                    </select>
-                                </div>
                             </div>
                             <p class="panel-hint">Номер сотрудника (GL-00X) назначается автоматически.</p>
                             <button type="submit" class="btn-primary btn-sm">Сохранить сотрудника</button>
@@ -322,7 +315,6 @@
                                     <th>Name</th>
                                     <th>Number</th>
                                     <th>Card</th>
-                                    <th>Shift</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr>
@@ -410,12 +402,6 @@
                     <div><label>Position</label><input id="emp-position"></div>
                     <div><label>Card Number (UID) *</label><input id="emp-card" required placeholder="уникальный UID карты"></div>
                     <div><label>External Ref</label><input id="emp-extref" placeholder="ORD-10045"></div>
-                    <div>
-                        <label>Shift (optional)</label>
-                        <select id="emp-shift">
-                            <option value="">— не обязательно —</option>
-                        </select>
-                    </div>
                     <div><label>Card Type</label>
                         <select id="emp-cardtype">
                             <option value="2">Normal (2)</option>

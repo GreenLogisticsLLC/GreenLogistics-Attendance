@@ -61,7 +61,6 @@ export interface DashboardEmployeeRow {
     employeeName: string;
     department: string | null;
     position: string | null;
-    shiftName: string;
     scheduledStart: string;
     firstEntry: string | null;
     lastExit: string | null;
