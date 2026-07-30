@@ -1,7 +1,12 @@
-name: Resend approval mail
+name: Resend registration approval mail
 
 on:
   workflow_dispatch:
+    inputs:
+      email:
+        description: Pending registration email
+        required: true
+        type: string
 
 jobs:
   resend:
@@ -14,22 +19,39 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Install deps if needed and resend approvals
+      - name: Resend pending approval
+        env:
+          TARGET_EMAIL: ${{ inputs.email }}
         run: |
+          TARGET_EMAIL_B64="$(printf '%s' "$TARGET_EMAIL" | base64 -w0)"
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
-            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            "TARGET_EMAIL_B64='${TARGET_EMAIL_B64}' bash -s" << 'EOF'
           set -euo pipefail
           cd /root/GreenLogistics-Attendance
-          git fetch origin
-          git checkout origin/main -- scripts/resend-approvals-on-server.mjs
-          sed -i 's/^APPROVAL_EMAIL=.*/APPROVAL_EMAIL=effiegreenlogistics@gmail.com/' .env || echo 'APPROVAL_EMAIL=effiegreenlogistics@gmail.com' >> .env
+          TARGET_EMAIL="$(printf '%s' "$TARGET_EMAIL_B64" | base64 -d | tr -d '\r\n')"
+          export TARGET_EMAIL
+          node --input-type=module << 'NODE'
+          import { authService } from "./dist/services/auth.service.js";
+          import { prisma } from "./dist/config/database.js";
 
-          echo "Checking googleapis..."
-          node -e "console.log(require.resolve('googleapis'))" || {
-            echo "Installing dependencies..."
-            npm ci
-            npx prisma generate
+          const email = String(process.env.TARGET_EMAIL || "").trim().toLowerCase();
+          if (!email || !email.includes("@")) {
+              throw new Error("A valid pending registration email is required");
           }
 
-          node scripts/resend-approvals-on-server.mjs
+          const result = await authService.resendPendingApprovalEmails(1, email);
+          console.log(JSON.stringify({
+              email,
+              attempted: result.attempted,
+              sent: result.sent,
+              failed: result.failed,
+              error: result.results[0]?.error || null,
+          }));
+          await prisma.$disconnect();
+
+          if (result.attempted !== 1 || result.sent !== 1) {
+              process.exit(1);
+          }
+          NODE
           EOF

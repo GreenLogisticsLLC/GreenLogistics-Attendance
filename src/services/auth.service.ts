@@ -258,9 +258,14 @@ export class AuthService {
      * Retry approval notices after the company Gmail OAuth connection is refreshed.
      * Pending registrations remain valid if their first delivery attempt failed.
      */
-    async resendPendingApprovalEmails(limit = 20) {
+    async resendPendingApprovalEmails(limit = 20, registrationEmail?: string) {
         const pending = await prisma.pendingRegistration.findMany({
-            where: { status: "PENDING" },
+            where: {
+                status: "PENDING",
+                ...(registrationEmail
+                    ? { email: registrationEmail.trim().toLowerCase() }
+                    : {}),
+            },
             orderBy: { createdAt: "desc" },
             take: limit,
         });
