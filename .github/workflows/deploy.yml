@@ -27,12 +27,18 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
         run: |
           OPENAI_KEY_B64="$(printf '%s' "${OPENAI_API_KEY:-}" | base64 -w0)"
           OPENAI_MODEL_SAFE="${OPENAI_MODEL:-gpt-5.5}"
+          GMAIL_CLIENT_ID_B64="$(printf '%s' "${GMAIL_CLIENT_ID:-}" | base64 -w0)"
+          GMAIL_CLIENT_SECRET_B64="$(printf '%s' "${GMAIL_CLIENT_SECRET:-}" | base64 -w0)"
+          PUBLIC_APP_URL_B64="$(printf '%s' "${PUBLIC_APP_URL:-}" | base64 -w0)"
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
-            "OPENAI_KEY_B64='${OPENAI_KEY_B64}' OPENAI_MODEL_SAFE='${OPENAI_MODEL_SAFE}' bash -s" << 'EOF'
+            "OPENAI_KEY_B64='${OPENAI_KEY_B64}' OPENAI_MODEL_SAFE='${OPENAI_MODEL_SAFE}' GMAIL_CLIENT_ID_B64='${GMAIL_CLIENT_ID_B64}' GMAIL_CLIENT_SECRET_B64='${GMAIL_CLIENT_SECRET_B64}' PUBLIC_APP_URL_B64='${PUBLIC_APP_URL_B64}' bash -s" << 'EOF'
           set -euo pipefail
           cd /root/GreenLogistics-Attendance
           git fetch origin
@@ -67,6 +73,22 @@ jobs:
             echo "Synced OPENAI_API_KEY (len=${#OPENAI_API_KEY}) and OPENAI_MODEL to server .env"
           else
             echo "WARN: OPENAI_API_KEY GitHub secret is empty — AI Assistant will stay disabled"
+          fi
+
+          # Gmail OAuth — sync shared client credentials used by company and broker accounts
+          if [ -n "${GMAIL_CLIENT_ID_B64:-}" ] && [ -n "${GMAIL_CLIENT_SECRET_B64:-}" ]; then
+            GMAIL_CLIENT_ID="$(printf '%s' "$GMAIL_CLIENT_ID_B64" | base64 -d | tr -d '\r\n')"
+            GMAIL_CLIENT_SECRET="$(printf '%s' "$GMAIL_CLIENT_SECRET_B64" | base64 -d | tr -d '\r\n')"
+            PUBLIC_APP_URL="$(printf '%s' "${PUBLIC_APP_URL_B64:-}" | base64 -d | tr -d '\r\n')"
+            PUBLIC_APP_URL="${PUBLIC_APP_URL:-https://os.greengrouplogistics.com}"
+            GMAIL_REDIRECT_URI="${PUBLIC_APP_URL%/}/api/email/callback"
+            grep -vE '^(GMAIL_CLIENT_ID|GMAIL_CLIENT_SECRET|PUBLIC_APP_URL|GMAIL_REDIRECT_URI)=' .env > .env.gmail.tmp || true
+            printf 'GMAIL_CLIENT_ID=%s\nGMAIL_CLIENT_SECRET=%s\nPUBLIC_APP_URL=%s\nGMAIL_REDIRECT_URI=%s\n' \
+              "$GMAIL_CLIENT_ID" "$GMAIL_CLIENT_SECRET" "$PUBLIC_APP_URL" "$GMAIL_REDIRECT_URI" >> .env.gmail.tmp
+            mv .env.gmail.tmp .env
+            echo "Synced Gmail OAuth configuration to server .env"
+          else
+            echo "WARN: Gmail OAuth GitHub secrets are empty"
           fi
 
           npm run build
