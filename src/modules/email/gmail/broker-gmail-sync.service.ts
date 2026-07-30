@@ -341,30 +341,42 @@ export class BrokerGmailSyncService {
             return { configured: false, accounts: 0, results: [] as unknown[] };
         }
         const accounts = await brokerGmailOAuthService.listActiveAccounts();
-        const results = [];
-        for (const acc of accounts) {
-            try {
-                const r = await this.syncOneAccount(
-                    {
-                        brokerGmailId: acc.brokerGmailId,
+        const results: Array<Record<string, unknown>> = new Array(accounts.length);
+        let nextIndex = 0;
+
+        // Bounded parallelism keeps a large account list inside the 30-second
+        // scheduler window without opening hundreds of Gmail/DB requests at once.
+        const worker = async () => {
+            while (true) {
+                const index = nextIndex++;
+                const acc = accounts[index];
+                if (!acc) return;
+                try {
+                    const synced = await this.syncOneAccount(
+                        {
+                            brokerGmailId: acc.brokerGmailId,
+                            userId: acc.userId,
+                            gmailAddress: acc.gmailAddress,
+                            refreshToken: acc.refreshToken,
+                            historyId: acc.historyId,
+                            lastSyncAt: acc.lastSyncAt,
+                        },
+                        maxPerAccount
+                    );
+                    results[index] = { userId: acc.userId, ok: true, ...synced };
+                } catch (err) {
+                    results[index] = {
                         userId: acc.userId,
+                        ok: false,
+                        error: err instanceof Error ? err.message : String(err),
                         gmailAddress: acc.gmailAddress,
-                        refreshToken: acc.refreshToken,
-                        historyId: acc.historyId,
-                        lastSyncAt: acc.lastSyncAt,
-                    },
-                    maxPerAccount
-                );
-                results.push({ userId: acc.userId, ok: true, ...r });
-            } catch (err) {
-                results.push({
-                    userId: acc.userId,
-                    ok: false,
-                    error: err instanceof Error ? err.message : String(err),
-                    gmailAddress: acc.gmailAddress,
-                });
+                    };
+                }
             }
-        }
+        };
+        const concurrency = Math.min(4, accounts.length);
+        await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
         return { configured: true, accounts: accounts.length, results };
     }
 

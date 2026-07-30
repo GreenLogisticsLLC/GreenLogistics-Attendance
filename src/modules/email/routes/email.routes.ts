@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authMiddleware, requireRole } from "../../../middlewares/auth.middleware.js";
 import { Roles } from "../../../auth/roles.js";
 import {
+    adminDisconnectBrokerGmailController,
     brokerGmailAuthController,
     brokerGmailDisconnectController,
     brokerGmailMessagesController,
@@ -49,4 +50,9 @@ emailRouter.get(
     "/broker/accounts",
     requireRole("Administrator", "Owner", "Manager", Roles.TeamLead),
     listBrokerGmailAccountsController
+);
+emailRouter.post(
+    "/broker/accounts/:userId/disconnect",
+    requireRole("Administrator", "Owner"),
+    adminDisconnectBrokerGmailController
 );

@@ -207,6 +207,7 @@ window.GreenOSRegistry = [
     roles: ["Administrator", "Owner"],
     children: [
       { id: "users", title: "Users" },
+      { id: "email-accounts", title: "Email Accounts" },
       { id: "roles", title: "Roles" },
       { id: "permissions", title: "Permissions" },
       { id: "company-settings", title: "Company Settings" },

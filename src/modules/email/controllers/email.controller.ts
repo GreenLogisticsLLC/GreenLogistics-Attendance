@@ -274,29 +274,69 @@ export async function brokerGmailMessagesController(req: AuthRequest, res: Respo
 }
 
 export async function listBrokerGmailAccountsController(_req: AuthRequest, res: Response) {
-    const rows = await prisma.brokerGmailAccount.findMany({
-        orderBy: { connectedAt: "desc" },
+    const brokers = await prisma.user.findMany({
+        where: { role: { roleName: "Broker" } },
+        orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
         include: {
-            user: { select: { userId: true, username: true, firstName: true, lastName: true } },
+            employee: {
+                select: {
+                    employeeId: true,
+                    employeeNumber: true,
+                    firstName: true,
+                    lastName: true,
+                },
+            },
+            brokerGmailAccount: {
+                select: {
+                    gmailAddress: true,
+                    isActive: true,
+                    status: true,
+                    lastSyncAt: true,
+                    lastError: true,
+                    connectedAt: true,
+                },
+            },
         },
     });
     return res.json(
         apiResponse(
             true,
             "OK",
-            rows.map((r) => ({
-                userId: r.userId,
-                username: r.user.username,
-                name: `${r.user.firstName} ${r.user.lastName}`.trim(),
-                gmailAddress: r.gmailAddress,
-                isActive: r.isActive,
-                status: r.status,
-                lastSyncAt: r.lastSyncAt,
-                lastError: r.lastError,
-                connectedAt: r.connectedAt,
+            brokers.map((broker) => ({
+                userId: broker.userId,
+                employeeId: broker.employeeId,
+                employeeNumber: broker.employee?.employeeNumber || null,
+                username: broker.username,
+                name:
+                    `${broker.employee?.firstName || broker.firstName} ${
+                        broker.employee?.lastName || broker.lastName
+                    }`.trim(),
+                gmailAddress: broker.brokerGmailAccount?.gmailAddress || null,
+                isActive: broker.brokerGmailAccount?.isActive || false,
+                status: broker.brokerGmailAccount?.status || "DISCONNECTED",
+                lastSyncAt: broker.brokerGmailAccount?.lastSyncAt || null,
+                lastError: broker.brokerGmailAccount?.lastError || null,
+                connectedAt: broker.brokerGmailAccount?.connectedAt || null,
             }))
         )
     );
+}
+
+export async function adminDisconnectBrokerGmailController(req: AuthRequest, res: Response) {
+    const userId = String(req.params.userId || "").trim();
+    const broker = await prisma.user.findUnique({
+        where: { userId },
+        include: { role: true },
+    });
+    if (!broker || broker.role.roleName !== "Broker") {
+        return res.status(404).json(apiResponse(false, "Broker not found"));
+    }
+
+    const disconnected = await brokerGmailOAuthService.disconnect(userId);
+    if (!disconnected) {
+        return res.status(404).json(apiResponse(false, "Broker Gmail account not found"));
+    }
+    return res.json(apiResponse(true, "Broker Gmail disconnected"));
 }
 
 export async function listShipmentsController(_req: Request, res: Response) {
