@@ -254,6 +254,47 @@ export class AuthService {
         };
     }
 
+    /**
+     * Retry approval notices after the company Gmail OAuth connection is refreshed.
+     * Pending registrations remain valid if their first delivery attempt failed.
+     */
+    async resendPendingApprovalEmails(limit = 20) {
+        const pending = await prisma.pendingRegistration.findMany({
+            where: { status: "PENDING" },
+            orderBy: { createdAt: "desc" },
+            take: limit,
+        });
+        const results: Array<{ pendingId: string; email: string; sent: boolean; error?: string }> = [];
+
+        for (const registration of pending) {
+            try {
+                await sendMail({
+                    to: config.approvalEmail,
+                    ...this.buildApprovalEmail(registration),
+                });
+                results.push({
+                    pendingId: registration.pendingId,
+                    email: registration.email,
+                    sent: true,
+                });
+            } catch (err) {
+                results.push({
+                    pendingId: registration.pendingId,
+                    email: registration.email,
+                    sent: false,
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            }
+        }
+
+        return {
+            attempted: results.length,
+            sent: results.filter((result) => result.sent).length,
+            failed: results.filter((result) => !result.sent).length,
+            results,
+        };
+    }
+
     async decideRegistration(token: string, decision: "APPROVED" | "REJECTED") {
         const payload = this.verifyApprovalToken(token);
         if (!payload) {

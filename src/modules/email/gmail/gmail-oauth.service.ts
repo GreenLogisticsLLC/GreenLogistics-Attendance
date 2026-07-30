@@ -6,7 +6,10 @@ import { config } from "../../../config/env.js";
 import { prisma } from "../../../config/database.js";
 
 const GMAIL_CATEGORY = "gmail";
-const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
+const GMAIL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.send",
+];
 
 type CompanyOAuthState = {
     purpose: "company-gmail";
@@ -80,7 +83,7 @@ export class GmailOAuthService {
         return oauth2.generateAuthUrl({
             access_type: "offline",
             prompt: "consent",
-            scope: [GMAIL_SCOPE],
+            scope: GMAIL_SCOPES,
             include_granted_scopes: true,
             state: jwt.sign(
                 { purpose: "company-gmail", userId } satisfies CompanyOAuthState,

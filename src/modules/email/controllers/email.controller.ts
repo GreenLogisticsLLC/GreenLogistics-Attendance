@@ -185,12 +185,24 @@ export async function gmailCallbackController(req: Request, res: Response) {
         }
 
         const { email } = await gmailOAuthService.exchangeCodeAndSave(code);
+        const approvalRetry = await authService.resendPendingApprovalEmails().catch((err) => {
+            console.error(
+                "[GMAIL OAUTH] Pending approval resend failed:",
+                err instanceof Error ? err.message : err
+            );
+            return null;
+        });
         return res.status(200).type("html").send(
             htmlPage(
                 "Gmail connected",
                 `<h1>Company Gmail connected</h1>
                  <p>${email ? `Mailbox: <strong>${escapeHtml(email)}</strong>` : ""}</p>
                  <p>Used for new uShip shipment import into GreenOS.</p>
+                 ${
+                     approvalRetry
+                         ? `<p>Approval emails resent: <strong>${approvalRetry.sent}</strong>; failed: <strong>${approvalRetry.failed}</strong>.</p>`
+                         : ""
+                 }
                  <p><a href="/">Back to GreenOS</a></p>`
             )
         );
