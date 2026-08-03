@@ -71,3 +71,20 @@ export async function deleteUserController(req: AuthRequest, res: Response) {
         return res.status(500).json(apiResponse(false, message));
     }
 }
+
+export async function syncAttendanceBadgesController(_req: AuthRequest, res: Response) {
+    try {
+        const result = await usersService.backfillAttendanceBadges();
+        return res.json(
+            apiResponse(
+                true,
+                `Attendance badges synced: ${result.created} created, ${result.linked} linked (${result.checked} checked)`,
+                result
+            )
+        );
+    } catch (err) {
+        console.error("[users] syncAttendanceBadgesController:", err);
+        const message = err instanceof Error ? err.message : "Sync failed";
+        return res.status(500).json(apiResponse(false, message));
+    }
+}

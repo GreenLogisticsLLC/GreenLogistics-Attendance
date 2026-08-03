@@ -97,6 +97,15 @@ export class UsersService {
             },
         });
 
+        try {
+            const { ensureAttendanceBadgeForUser } = await import(
+                "./user-attendance-link.service.js"
+            );
+            await ensureAttendanceBadgeForUser(updated.userId);
+        } catch (err) {
+            console.error("[users] attendance badge ensure after team-lead failed:", err);
+        }
+
         return {
             ok: true as const,
             data: {
@@ -113,6 +122,13 @@ export class UsersService {
                     : "Broker removed from Team Lead",
             },
         };
+    }
+
+    async backfillAttendanceBadges() {
+        const { backfillMissingAttendanceBadges } = await import(
+            "./user-attendance-link.service.js"
+        );
+        return backfillMissingAttendanceBadges();
     }
 
     async updateUserRole(actor: { userId: string; role: string }, userId: string, roleName: string) {
@@ -177,6 +193,26 @@ export class UsersService {
                 })
             );
 
+            let attendanceNote = "";
+            if (
+                updated.role.roleName === Roles.Broker ||
+                updated.role.roleName === Roles.TeamLead
+            ) {
+                try {
+                    const { ensureAttendanceBadgeForUser } = await import(
+                        "./user-attendance-link.service.js"
+                    );
+                    const badge = await ensureAttendanceBadgeForUser(updated.userId);
+                    if (badge?.created) {
+                        attendanceNote = ` Attendance badge ${badge.employeeNumber} created.`;
+                    } else if (badge) {
+                        attendanceNote = ` Attendance badge ${badge.employeeNumber} linked.`;
+                    }
+                } catch (err) {
+                    console.error("[users] attendance badge ensure failed:", err);
+                }
+            }
+
             return {
                 ok: true as const,
                 data: {
@@ -187,7 +223,7 @@ export class UsersService {
                     email: updated.email,
                     role: updated.role.roleName,
                     isActive: updated.isActive,
-                    message: `Role updated: ${user.role.roleName} → ${updated.role.roleName}. User must sign in again for the new access to apply.`,
+                    message: `Role updated: ${user.role.roleName} → ${updated.role.roleName}. User must sign in again for the new access to apply.${attendanceNote}`,
                 },
             };
         } catch (err) {

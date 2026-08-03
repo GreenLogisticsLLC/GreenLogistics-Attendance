@@ -56,6 +56,7 @@ import {
     updateUserRoleController,
     updateUserTeamLeadController,
     deleteUserController,
+    syncAttendanceBadgesController,
 } from "../controllers/users.controller.js";
 import { emailRouter } from "../modules/email/routes/email.routes.js";
 import { crmRouter } from "../modules/crm/routes/crm.routes.js";
@@ -140,6 +141,12 @@ apiRouter.delete(
     authMiddleware,
     requireRole("Administrator", "Owner", "Manager", "HR"),
     deleteUserController
+);
+apiRouter.post(
+    "/v1/users/sync-attendance-badges",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    syncAttendanceBadgesController
 );
 
 apiRouter.post("/v1/webhook/attendance", legacyWebhookController);

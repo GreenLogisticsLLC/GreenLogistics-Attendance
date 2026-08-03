@@ -10,6 +10,7 @@ import {
     type SignupRoleName,
 } from "../auth/roles.js";
 import { assertValidTeamLeadId, listTeamLeadOptions } from "../auth/team-scope.js";
+import { ensureAttendanceBadgeForUser } from "./user-attendance-link.service.js";
 
 export const SIGNUP_ROLES = SIGNUP_ROLE_NAMES;
 export type SignupRole = SignupRoleName;
@@ -498,7 +499,7 @@ export class AuthService {
             }
         }
 
-        await prisma.user.create({
+        const createdUser = await prisma.user.create({
             data: {
                 username: pending.username,
                 passwordHash: pending.passwordHash,
@@ -515,11 +516,30 @@ export class AuthService {
             data: { status: "APPROVED", decidedAt: new Date() },
         });
 
+        let attendanceNote = "";
+        if (
+            pending.requestedRole === Roles.Broker ||
+            pending.requestedRole === Roles.TeamLead
+        ) {
+            try {
+                const badge = await ensureAttendanceBadgeForUser(createdUser.userId);
+                if (badge?.created) {
+                    attendanceNote = ` Attendance badge ${badge.employeeNumber} created.`;
+                } else if (badge) {
+                    attendanceNote = ` Attendance badge ${badge.employeeNumber} linked.`;
+                }
+            } catch (err) {
+                console.error("Attendance badge auto-create failed:", err);
+                attendanceNote =
+                    " Warning: Attendance badge was not created — add them manually in Attendance.";
+            }
+        }
+
         return {
             ok: true as const,
             message: `Registration approved. ${pending.firstName} ${pending.lastName} (${pending.username}) can now sign in as ${pending.requestedRole}${
                 teamLeadId ? " (team-scoped to their Team Lead)" : ""
-            }.`,
+            }.${attendanceNote}`,
         };
     }
 

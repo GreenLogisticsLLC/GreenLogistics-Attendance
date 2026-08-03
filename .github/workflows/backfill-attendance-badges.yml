@@ -1,0 +1,55 @@
+name: Backfill Attendance badges for Brokers
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Create missing Attendance badges
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          npx prisma generate
+          node --input-type=module << 'NODE'
+          import { backfillMissingAttendanceBadges } from "./dist/services/user-attendance-link.service.js";
+          import { prisma } from "./dist/config/database.js";
+
+          const result = await backfillMissingAttendanceBadges();
+          console.log("BACKFILL", result);
+
+          const rows = await prisma.employee.findMany({
+            where: { status: "ACTIVE" },
+            orderBy: { employeeNumber: "asc" },
+            select: {
+              employeeNumber: true,
+              firstName: true,
+              lastName: true,
+              department: true,
+              position: true,
+              user: { select: { username: true } },
+            },
+          });
+          for (const r of rows) {
+            console.log(
+              r.employeeNumber,
+              r.firstName,
+              r.lastName,
+              r.department,
+              r.position,
+              r.user?.username || "(unlinked)"
+            );
+          }
+          await prisma.$disconnect();
+          NODE
+          EOF
