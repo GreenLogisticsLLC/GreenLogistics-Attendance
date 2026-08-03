@@ -1,0 +1,75 @@
+name: List users and employees
+
+on:
+  workflow_dispatch:
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Dump users + attendance employees
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          node --input-type=module << 'NODE'
+          import pkg from "@prisma/client";
+          const { PrismaClient } = pkg;
+          const prisma = new PrismaClient();
+
+          const users = await prisma.user.findMany({
+            include: {
+              role: true,
+              teamLead: { select: { firstName: true, lastName: true, username: true, email: true } },
+              employee: { select: { employeeId: true, employeeNumber: true, cardNumber: true, status: true } },
+            },
+            orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+          });
+          console.log("=== USERS ===");
+          for (const u of users) {
+            console.log(JSON.stringify({
+              userId: u.userId,
+              name: `${u.firstName} ${u.lastName}`,
+              username: u.username,
+              email: u.email,
+              role: u.role.roleName,
+              active: u.isActive,
+              teamLead: u.teamLead ? `${u.teamLead.firstName} ${u.teamLead.lastName}` : null,
+              employeeId: u.employeeId,
+              badge: u.employee,
+            }));
+          }
+
+          const emps = await prisma.employee.findMany({
+            include: { shift: true, user: { select: { username: true, firstName: true, lastName: true } } },
+            orderBy: { employeeNumber: "asc" },
+          });
+          console.log("=== EMPLOYEES ===", emps.length);
+          for (const e of emps) {
+            console.log(JSON.stringify({
+              employeeId: e.employeeId,
+              number: e.employeeNumber,
+              name: `${e.firstName} ${e.lastName}`,
+              card: e.cardNumber,
+              status: e.status,
+              department: e.department,
+              position: e.position,
+              shift: e.shift?.shiftName,
+              linkedUser: e.user ? `${e.user.firstName} ${e.user.lastName} (${e.user.username})` : null,
+            }));
+          }
+
+          const shifts = await prisma.shift.findMany();
+          console.log("=== SHIFTS ===", shifts);
+
+          await prisma.$disconnect();
+          NODE
+          EOF
