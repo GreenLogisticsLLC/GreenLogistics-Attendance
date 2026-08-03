@@ -241,13 +241,19 @@
   letter-spacing: 0.03em;
 }
 
-.emp-role-select {
+.emp-role-select,
+.emp-team-lead-select {
   min-width: 10rem;
   padding: 0.4rem 0.5rem;
   border-radius: 8px;
   border: 1px solid var(--gos-border);
   background: var(--gos-surface2);
   color: inherit;
+}
+
+.emp-team-lead-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .emp-badge-off {

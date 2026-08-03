@@ -78,12 +78,12 @@ window.GreenOSModules["employees"] = {
     body.innerHTML =
       "<h2>Platform users</h2>" +
       "<p class=\"gos-muted\">After signup approval, each person has a Green OS account. " +
-      "Change their <strong>role / status</strong> here (for example Broker → Team Lead). " +
-      "They need to sign in again for the new menu to appear.</p>" +
+      "Change their <strong>role</strong> and assign Brokers to a <strong>Team Lead</strong> (Gary or Alen). " +
+      "Gary sees only his brokers; Alen sees only his. Users need to sign in again after a role change.</p>" +
       '<p id="emp-users-status" class="gos-muted">Loading…</p>' +
       '<div class="emp-users-wrap"><table class="emp-users-table" id="emp-users-table">' +
       "<thead><tr>" +
-      "<th>Name</th><th>Username</th><th>Email</th><th>Role / status</th><th>Actions</th>" +
+      "<th>Name</th><th>Username</th><th>Email</th><th>Role / status</th><th>Team Lead</th><th>Actions</th>" +
       "</tr></thead><tbody></tbody></table></div>";
 
     var statusEl = body.querySelector("#emp-users-status");
@@ -127,12 +127,40 @@ window.GreenOSModules["employees"] = {
         .replace(/"/g, "&quot;");
     }
 
+    function teamLeadOptionsHtml(teamLeads, selectedId, enabled) {
+      var opts =
+        '<option value="">' +
+        (enabled ? "Select Gary or Alen…" : "—") +
+        "</option>";
+      (teamLeads || []).forEach(function (tl) {
+        var selected = tl.userId === selectedId ? " selected" : "";
+        opts +=
+          '<option value="' +
+          esc(tl.userId) +
+          '"' +
+          selected +
+          ">" +
+          esc(tl.name) +
+          "</option>";
+      });
+      return (
+        '<select class="emp-team-lead-select"' +
+        (enabled ? "" : " disabled") +
+        ' data-prev="' +
+        esc(selectedId || "") +
+        '">' +
+        opts +
+        "</select>"
+      );
+    }
+
     async function loadTable() {
       statusEl.textContent = "Loading…";
       statusEl.style.color = "";
       try {
         var rolesRes = await api("/roles");
         var usersRes = await api("/users");
+        var leadsRes = await api("/auth/team-leads");
         if (!rolesRes.success || !usersRes.success) {
           statusEl.textContent =
             rolesRes.message || usersRes.message || "Failed to load users";
@@ -143,6 +171,7 @@ window.GreenOSModules["employees"] = {
 
         var roles = rolesRes.data || [];
         var users = usersRes.data || [];
+        var teamLeads = (leadsRes && leadsRes.success && leadsRes.data) || [];
         statusEl.textContent = users.length + " account(s)";
         statusEl.style.color = "";
 
@@ -175,6 +204,7 @@ window.GreenOSModules["employees"] = {
                 "</option>" +
                 options;
             }
+            var isBroker = u.role === "Broker";
             return (
               '<tr data-user-id="' +
               esc(u.userId) +
@@ -194,6 +224,9 @@ window.GreenOSModules["employees"] = {
               '">' +
               options +
               "</select></td>" +
+              "<td>" +
+              teamLeadOptionsHtml(teamLeads, u.teamLeadId || "", isBroker) +
+              "</td>" +
               '<td class="emp-actions">' +
               '<button type="button" class="btn-primary emp-role-save" style="width:auto;padding:0.4rem 0.75rem">Save</button> ' +
               '<button type="button" class="emp-user-delete" style="width:auto;padding:0.4rem 0.75rem">Delete</button>' +
@@ -203,45 +236,95 @@ window.GreenOSModules["employees"] = {
           })
           .join("");
 
+        tbody.querySelectorAll(".emp-role-select").forEach(function (select) {
+          select.addEventListener("change", function () {
+            var tr = select.closest("tr");
+            if (!tr) return;
+            var tl = tr.querySelector(".emp-team-lead-select");
+            if (!tl) return;
+            var broker = select.value === "Broker";
+            tl.disabled = !broker;
+            if (!broker) tl.value = "";
+          });
+        });
+
         tbody.querySelectorAll(".emp-role-save").forEach(function (btn) {
           btn.addEventListener("click", async function () {
             var tr = btn.closest("tr");
             if (!tr) return;
             var userId = tr.getAttribute("data-user-id");
-            var select = tr.querySelector(".emp-role-select");
-            if (!select || !userId) return;
-            var role = select.value;
-            var prev = select.getAttribute("data-prev") || "";
-            if (role === prev) {
-              statusEl.textContent = "No change — pick a different role first";
+            var roleSelect = tr.querySelector(".emp-role-select");
+            var tlSelect = tr.querySelector(".emp-team-lead-select");
+            if (!roleSelect || !userId) return;
+
+            var role = roleSelect.value;
+            var prevRole = roleSelect.getAttribute("data-prev") || "";
+            var teamLeadId = tlSelect ? tlSelect.value || null : null;
+            var prevTl = tlSelect ? tlSelect.getAttribute("data-prev") || "" : "";
+            var roleChanged = role !== prevRole;
+            var tlChanged =
+              role === "Broker"
+                ? String(teamLeadId || "") !== String(prevTl || "")
+                : String(prevTl || "") !== "";
+
+            if (!roleChanged && !tlChanged) {
+              statusEl.textContent = "No change — update role or Team Lead first";
               statusEl.style.color = "#eab308";
               return;
             }
+            if (role === "Broker" && !teamLeadId) {
+              statusEl.textContent = "Select Team Lead (Gary or Alen) for this Broker";
+              statusEl.style.color = "#ef4444";
+              return;
+            }
+
             btn.disabled = true;
             statusEl.textContent = "Saving…";
             statusEl.style.color = "";
             try {
-              var data = await api(
-                "/users/" + encodeURIComponent(userId) + "/role",
-                {
-                  method: "PUT",
-                  body: { role: role },
+              if (roleChanged) {
+                var roleData = await api(
+                  "/users/" + encodeURIComponent(userId) + "/role",
+                  {
+                    method: "PUT",
+                    body: { role: role },
+                  }
+                );
+                if (!roleData.success) {
+                  statusEl.textContent = roleData.message || "Role update failed";
+                  statusEl.style.color = "#ef4444";
+                  roleSelect.value = prevRole;
+                  return;
                 }
-              );
-              if (!data.success) {
-                statusEl.textContent = data.message || "Update failed";
-                statusEl.style.color = "#ef4444";
-                select.value = prev;
-                return;
               }
-              statusEl.textContent = data.message || "Role updated";
+
+              if (role === "Broker" || tlChanged) {
+                var tlPayload = role === "Broker" ? teamLeadId : null;
+                var tlData = await api(
+                  "/users/" + encodeURIComponent(userId) + "/team-lead",
+                  {
+                    method: "PATCH",
+                    body: { teamLeadId: tlPayload },
+                  }
+                );
+                if (!tlData.success) {
+                  statusEl.textContent = tlData.message || "Team Lead update failed";
+                  statusEl.style.color = "#ef4444";
+                  return;
+                }
+              }
+
+              statusEl.textContent =
+                role === "Broker"
+                  ? "Saved — broker assigned to selected Team Lead"
+                  : "Saved";
               statusEl.style.color = "#22c55e";
               await loadTable();
             } catch (e) {
               statusEl.textContent =
                 e && e.message ? e.message : "Connection error";
               statusEl.style.color = "#ef4444";
-              select.value = prev;
+              roleSelect.value = prevRole;
             } finally {
               btn.disabled = false;
             }
