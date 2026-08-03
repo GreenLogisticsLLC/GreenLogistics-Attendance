@@ -1,0 +1,63 @@
+name: Dedupe Team Lead accounts
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dedupe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Keep gary@ and allen@; disable duplicates
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          node --input-type=module << 'NODE'
+          import { PrismaClient } from "@prisma/client";
+          const prisma = new PrismaClient();
+          const keepUsernames = new Set([
+            "gary@greengrouplogistics.com",
+            "allen@greengrouplogistics.com",
+          ]);
+          const leads = await prisma.user.findMany({
+            where: { role: { roleName: "Team Lead" } },
+            select: { userId: true, username: true, email: true, firstName: true, lastName: true, isActive: true },
+          });
+          console.log("BEFORE", leads);
+          for (const lead of leads) {
+            const keep = keepUsernames.has((lead.username || "").toLowerCase()) ||
+              keepUsernames.has((lead.email || "").toLowerCase());
+            if (!keep) {
+              await prisma.user.update({
+                where: { userId: lead.userId },
+                data: { isActive: false },
+              });
+              console.log("DISABLED", lead.username, lead.email);
+            } else {
+              await prisma.user.update({
+                where: { userId: lead.userId },
+                data: { isActive: true, firstName: lead.firstName || (lead.username.includes("gary") ? "Gary" : "Alen"), lastName: lead.lastName || (lead.username.includes("gary") ? "Michael" : "Young") },
+              });
+              console.log("KEEP", lead.username, lead.email);
+            }
+          }
+          const after = await prisma.user.findMany({
+            where: { isActive: true, role: { roleName: "Team Lead" } },
+            select: { userId: true, username: true, email: true, firstName: true, lastName: true },
+          });
+          console.log("AFTER ACTIVE", after);
+          await prisma.$disconnect();
+          NODE
+          pm2 restart greenos --update-env
+          sleep 3
+          curl -sS http://localhost:3847/api/v1/auth/team-leads
+          echo
+          EOF
