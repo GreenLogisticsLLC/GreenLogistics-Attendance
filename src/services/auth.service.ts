@@ -339,14 +339,55 @@ export class AuthService {
         };
     }
 
-    async decideRegistration(token: string, decision: "APPROVED" | "REJECTED") {
-        const payload = this.verifyApprovalToken(token);
-        if (!payload) {
-            return { ok: false as const, status: 400, message: "Invalid or expired approval link" };
-        }
+    async listPendingRegistrations() {
+        const rows = await prisma.pendingRegistration.findMany({
+            where: { status: "PENDING" },
+            orderBy: { createdAt: "desc" },
+        });
+        const leadIds = [
+            ...new Set(
+                rows
+                    .map((r) => r.requestedTeamLeadId)
+                    .filter((id): id is string => Boolean(id))
+            ),
+        ];
+        const leads =
+            leadIds.length > 0
+                ? await prisma.user.findMany({
+                      where: { userId: { in: leadIds } },
+                      select: {
+                          userId: true,
+                          firstName: true,
+                          lastName: true,
+                          username: true,
+                      },
+                  })
+                : [];
+        const leadNameById = new Map(
+            leads.map((u) => [
+                u.userId,
+                `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username,
+            ])
+        );
 
+        return rows.map((r) => ({
+            pendingId: r.pendingId,
+            username: r.username,
+            firstName: r.firstName,
+            lastName: r.lastName,
+            email: r.email,
+            requestedRole: r.requestedRole,
+            requestedTeamLeadId: r.requestedTeamLeadId,
+            requestedTeamLeadName: r.requestedTeamLeadId
+                ? leadNameById.get(r.requestedTeamLeadId) || null
+                : null,
+            createdAt: r.createdAt,
+        }));
+    }
+
+    async decidePendingById(pendingId: string, decision: "APPROVED" | "REJECTED") {
         const pending = await prisma.pendingRegistration.findUnique({
-            where: { pendingId: payload.pendingId },
+            where: { pendingId },
         });
         if (!pending) {
             return { ok: false as const, status: 404, message: "Registration request not found" };
@@ -396,7 +437,7 @@ export class AuthService {
                     ok: false as const,
                     status: 422,
                     message:
-                        "Cannot approve: Broker has no valid Team Lead selected. Reject and ask them to re-register choosing Gary or Alen.",
+                        "Cannot approve: Broker has no valid Team Lead selected. Delete and ask them to re-register choosing Gary or Alen.",
                 };
             }
         }
@@ -424,6 +465,35 @@ export class AuthService {
                 teamLeadId ? " (team-scoped to their Team Lead)" : ""
             }.`,
         };
+    }
+
+    async deletePendingRegistration(pendingId: string) {
+        const pending = await prisma.pendingRegistration.findUnique({
+            where: { pendingId },
+        });
+        if (!pending) {
+            return { ok: false as const, status: 404, message: "Registration request not found" };
+        }
+        if (pending.status !== "PENDING") {
+            return {
+                ok: false as const,
+                status: 409,
+                message: `This request was already ${pending.status.toLowerCase()}`,
+            };
+        }
+        await prisma.pendingRegistration.delete({ where: { pendingId } });
+        return {
+            ok: true as const,
+            message: `Pending registration for ${pending.firstName} ${pending.lastName} (${pending.username}) was deleted.`,
+        };
+    }
+
+    async decideRegistration(token: string, decision: "APPROVED" | "REJECTED") {
+        const payload = this.verifyApprovalToken(token);
+        if (!payload) {
+            return { ok: false as const, status: 400, message: "Invalid or expired approval link" };
+        }
+        return this.decidePendingById(payload.pendingId, decision);
     }
 
     async login(username: string, password: string) {

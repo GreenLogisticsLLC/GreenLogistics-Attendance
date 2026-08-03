@@ -80,6 +80,7 @@ window.GreenOSRegistry = [
     roles: ["Administrator", "Owner", "Manager", "HR"],
     children: [
       { id: "accounts", title: "Platform users" },
+      { id: "pending", title: "Pending approve" },
       { id: "employees", title: "Badge employees" },
       { id: "departments", title: "Departments" },
       { id: "positions", title: "Positions" },

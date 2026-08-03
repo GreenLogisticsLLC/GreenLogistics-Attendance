@@ -96,6 +96,29 @@ export async function rejectRegistrationController(req: Request, res: Response) 
     return res.send(approvalPage("Registration rejected", result.message, true));
 }
 
+export async function listPendingRegistrationsController(_req: AuthRequest, res: Response) {
+    const data = await authService.listPendingRegistrations();
+    return res.json(apiResponse(true, "Pending registrations", data));
+}
+
+export async function approvePendingRegistrationController(req: AuthRequest, res: Response) {
+    const pendingId = String(req.params.pendingId || "");
+    const result = await authService.decidePendingById(pendingId, "APPROVED");
+    if (!result.ok) {
+        return res.status(result.status).json(apiResponse(false, result.message));
+    }
+    return res.json(apiResponse(true, result.message));
+}
+
+export async function deletePendingRegistrationController(req: AuthRequest, res: Response) {
+    const pendingId = String(req.params.pendingId || "");
+    const result = await authService.deletePendingRegistration(pendingId);
+    if (!result.ok) {
+        return res.status(result.status).json(apiResponse(false, result.message));
+    }
+    return res.json(apiResponse(true, result.message));
+}
+
 export async function meController(req: AuthRequest, res: Response) {
     if (!req.user) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));

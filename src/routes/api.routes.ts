@@ -1,5 +1,15 @@
 import { Router } from "express";
-import { loginController, registerController, approveRegistrationController, rejectRegistrationController, meController, listTeamLeadsController } from "../controllers/auth.controller.js";
+import {
+    loginController,
+    registerController,
+    approveRegistrationController,
+    rejectRegistrationController,
+    meController,
+    listTeamLeadsController,
+    listPendingRegistrationsController,
+    approvePendingRegistrationController,
+    deletePendingRegistrationController,
+} from "../controllers/auth.controller.js";
 import {
     getDashboardController,
     getEmployeeDetailController,
@@ -69,6 +79,24 @@ apiRouter.get("/v1/auth/team-leads", listTeamLeadsController);
 apiRouter.get("/v1/auth/registration/approve", approveRegistrationController);
 apiRouter.get("/v1/auth/registration/reject", rejectRegistrationController);
 apiRouter.get("/v1/auth/me", authMiddleware, meController);
+apiRouter.get(
+    "/v1/auth/registrations/pending",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    listPendingRegistrationsController
+);
+apiRouter.post(
+    "/v1/auth/registrations/:pendingId/approve",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    approvePendingRegistrationController
+);
+apiRouter.delete(
+    "/v1/auth/registrations/:pendingId",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    deletePendingRegistrationController
+);
 
 apiRouter.get(
     "/v1/users",
