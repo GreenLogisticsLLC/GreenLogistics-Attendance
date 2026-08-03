@@ -1,0 +1,285 @@
+name: Sync Attendance employees from users
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Create Attendance badges Alen team then Gary team
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          pm2 stop greenos || true
+
+          python3 << 'PY'
+          import re, sqlite3, uuid
+          from pathlib import Path
+          from datetime import datetime, timezone
+
+          root = Path("/root/GreenLogistics-Attendance")
+          env = (root / ".env").read_text(encoding="utf-8", errors="ignore")
+          m = re.search(r'^DATABASE_URL=(.*)$', env, re.M)
+          raw = (m.group(1).strip().strip('"').strip("'") if m else "")
+          candidates = []
+          if raw.startswith("file:"):
+              candidates.append(Path(raw[5:].split("?")[0]))
+          candidates += [root / "data" / "attendance.db", root / "prisma" / "data" / "attendance.db"]
+          db = next((p for p in candidates if p.is_file()), None)
+          if not db:
+              raise SystemExit("DB not found")
+          print("DB", db)
+
+          con = sqlite3.connect(str(db), timeout=60)
+          con.row_factory = sqlite3.Row
+          cur = con.cursor()
+
+          # Ensure a flexible shift exists
+          shift = cur.execute("SELECT shift_id, shift_name FROM shifts LIMIT 1").fetchone()
+          if not shift:
+              sid = str(uuid.uuid4())
+              now = datetime.now(timezone.utc).isoformat()
+              cur.execute(
+                  """
+                  INSERT INTO shifts (shift_id, shift_name, start_time, end_time, grace_period_minutes, cross_midnight, is_active, created_at, updated_at)
+                  VALUES (?, 'Flexible', '00:00', '23:59', 15, 0, 1, ?, ?)
+                  """,
+                  (sid, now, now),
+              )
+              shift_id = sid
+              print("Created Flexible shift", sid)
+          else:
+              shift_id = shift["shift_id"]
+              print("Using shift", shift["shift_name"], shift_id)
+
+          users = cur.execute(
+              """
+              SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, u.is_active,
+                     u.employee_id, u.team_lead_id, r.role_name
+              FROM users u
+              JOIN roles r ON r.role_id = u.role_id
+              WHERE u.is_active = 1
+              ORDER BY u.last_name, u.first_name
+              """
+          ).fetchall()
+
+          print("=== USERS BEFORE ===")
+          for u in users:
+              print(dict(u))
+
+          # Identify Team Leads
+          tls = [u for u in users if u["role_name"] == "Team Lead"]
+          alen = next(
+              (
+                  u
+                  for u in tls
+                  if "alen" in (u["first_name"] or "").lower()
+                  or "allen" in (u["username"] or "").lower()
+                  or "allen" in (u["email"] or "").lower()
+              ),
+              None,
+          )
+          gary = next(
+              (
+                  u
+                  for u in tls
+                  if "gary" in (u["first_name"] or "").lower()
+                  or "gary" in (u["username"] or "").lower()
+                  or "gary" in (u["email"] or "").lower()
+              ),
+              None,
+          )
+          print("ALEN", dict(alen) if alen else None)
+          print("GARY", dict(gary) if gary else None)
+
+          def team_of(u):
+              tid = u["team_lead_id"]
+              if alen and (u["user_id"] == alen["user_id"] or tid == alen["user_id"]):
+                  return "alen"
+              if gary and (u["user_id"] == gary["user_id"] or tid == gary["user_id"]):
+                  return "gary"
+              return "other"
+
+          # Brokers + Team Leads only (attendance badge workers)
+          candidates = [
+              u
+              for u in users
+              if u["role_name"] in ("Broker", "Team Lead")
+          ]
+
+          alen_team = [u for u in candidates if team_of(u) == "alen"]
+          gary_team = [u for u in candidates if team_of(u) == "gary"]
+          # Brokers without TL yet: put after known teams, still create badges
+          other = [u for u in candidates if team_of(u) == "other"]
+
+          # Stable order: Alen TL first, then Alen brokers; Gary TL first, then Gary brokers; others
+          def sort_team(rows, lead):
+              lead_id = lead["user_id"] if lead else None
+              head = [u for u in rows if lead_id and u["user_id"] == lead_id]
+              rest = sorted(
+                  [u for u in rows if not lead_id or u["user_id"] != lead_id],
+                  key=lambda x: ((x["last_name"] or "").lower(), (x["first_name"] or "").lower()),
+              )
+              return head + rest
+
+          ordered = sort_team(alen_team, alen) + sort_team(gary_team, gary) + sorted(
+              other,
+              key=lambda x: ((x["last_name"] or "").lower(), (x["first_name"] or "").lower()),
+          )
+
+          print("ORDERED COUNT", len(ordered))
+          for u in ordered:
+              print(" -", u["first_name"], u["last_name"], u["role_name"], "team="+team_of(u))
+
+          existing_emps = cur.execute(
+              "SELECT employee_id, employee_number, first_name, last_name, card_number, status FROM employees"
+          ).fetchall()
+          by_name = {
+              ((e["first_name"] or "").strip().lower(), (e["last_name"] or "").strip().lower()): e
+              for e in existing_emps
+              if e["status"] == "ACTIVE"
+          }
+          used_numbers = {e["employee_number"] for e in existing_emps}
+          used_cards = {(e["card_number"] or "").lower() for e in existing_emps}
+
+          def next_number(i):
+              n = f"GL-{i:03d}"
+              while n in used_numbers:
+                  i += 1
+                  n = f"GL-{i:03d}"
+              used_numbers.add(n)
+              return n, i + 1
+
+          def next_card(prefix, i):
+              while True:
+                  card = f"{prefix}{i:03d}"
+                  if card.lower() not in used_cards:
+                      used_cards.add(card.lower())
+                      return card, i + 1
+                  i += 1
+
+          now = datetime.now(timezone.utc).isoformat()
+          num_i = 1
+          card_i = 1
+          created = 0
+          linked = 0
+          updated = 0
+
+          for u in ordered:
+              team = team_of(u)
+              dept = (
+                  "Team Alen Young"
+                  if team == "alen"
+                  else "Team Gary Michael"
+                  if team == "gary"
+                  else "Unassigned Team"
+              )
+              position = u["role_name"]
+              key = ((u["first_name"] or "").strip().lower(), (u["last_name"] or "").strip().lower())
+              emp = by_name.get(key)
+
+              if emp:
+                  emp_id = emp["employee_id"]
+                  cur.execute(
+                      """
+                      UPDATE employees
+                      SET department = ?, position = ?, status = 'ACTIVE', updated_at = ?
+                      WHERE employee_id = ?
+                      """,
+                      (dept, position, now, emp_id),
+                  )
+                  updated += 1
+                  print("UPDATE", u["first_name"], u["last_name"], emp["employee_number"], dept)
+              else:
+                  emp_id = str(uuid.uuid4())
+                  number, num_i = next_number(num_i)
+                  prefix = "alen" if team == "alen" else "gary" if team == "gary" else "temp"
+                  card, card_i = next_card(prefix, card_i)
+                  cur.execute(
+                      """
+                      INSERT INTO employees (
+                        employee_id, employee_number, first_name, last_name, department, position,
+                        card_number, external_ref, card_type, shift_id, status, created_at, updated_at
+                      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 2, ?, 'ACTIVE', ?, ?)
+                      """,
+                      (
+                          emp_id,
+                          number,
+                          u["first_name"],
+                          u["last_name"],
+                          dept,
+                          position,
+                          card,
+                          number,
+                          shift_id,
+                          now,
+                          now,
+                      ),
+                  )
+                  created += 1
+                  by_name[key] = {
+                      "employee_id": emp_id,
+                      "employee_number": number,
+                      "first_name": u["first_name"],
+                      "last_name": u["last_name"],
+                      "card_number": card,
+                      "status": "ACTIVE",
+                  }
+                  print("CREATE", number, u["first_name"], u["last_name"], card, dept)
+
+              # Link platform user → employee
+              if u["employee_id"] != emp_id:
+                  # Clear any other user pointing at this employee
+                  cur.execute(
+                      "UPDATE users SET employee_id = NULL WHERE employee_id = ? AND user_id != ?",
+                      (emp_id, u["user_id"]),
+                  )
+                  cur.execute(
+                      "UPDATE users SET employee_id = ?, updated_at = ? WHERE user_id = ?",
+                      (emp_id, now, u["user_id"]),
+                  )
+                  linked += 1
+
+          con.commit()
+
+          print("=== SUMMARY ===")
+          print("created", created, "updated", updated, "linked", linked)
+
+          print("=== EMPLOYEES AFTER (by department) ===")
+          rows = cur.execute(
+              """
+              SELECT e.employee_number, e.first_name, e.last_name, e.department, e.position, e.card_number, e.status,
+                     u.username
+              FROM employees e
+              LEFT JOIN users u ON u.employee_id = e.employee_id
+              WHERE e.status = 'ACTIVE'
+              ORDER BY
+                CASE e.department
+                  WHEN 'Team Alen Young' THEN 1
+                  WHEN 'Team Gary Michael' THEN 2
+                  ELSE 3
+                END,
+                e.employee_number
+              """
+          ).fetchall()
+          for r in rows:
+              print(dict(r))
+
+          con.close()
+          print("DONE")
+          PY
+
+          pm2 restart greenos --update-env
+          sleep 5
+          curl --fail http://localhost:3847/api/health || true
+          EOF

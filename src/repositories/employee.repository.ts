@@ -1,6 +1,26 @@
 import { prisma } from "../config/database.js";
 import { normalizeCardToken } from "../utils/helpers.js";
 
+/** Attendance list: Alen Young team first, then Gary Michael, then others. */
+function teamOrder(department: string | null | undefined): number {
+    const d = (department || "").trim().toLowerCase();
+    if (d === "team alen young") return 1;
+    if (d === "team gary michael") return 2;
+    return 3;
+}
+
+function sortEmployeesByTeam<T extends { department?: string | null; lastName: string; firstName: string }>(
+    rows: T[]
+): T[] {
+    return [...rows].sort((a, b) => {
+        const td = teamOrder(a.department) - teamOrder(b.department);
+        if (td !== 0) return td;
+        const ln = a.lastName.localeCompare(b.lastName, undefined, { sensitivity: "base" });
+        if (ln !== 0) return ln;
+        return a.firstName.localeCompare(b.firstName, undefined, { sensitivity: "base" });
+    });
+}
+
 export class EmployeeRepository {
     async findByCardNumber(cardNumber: string) {
         const normalized = normalizeCardToken(cardNumber);
@@ -35,18 +55,18 @@ export class EmployeeRepository {
     }
 
     async findAllActive() {
-        return prisma.employee.findMany({
+        const rows = await prisma.employee.findMany({
             where: { status: "ACTIVE" },
             include: { shift: true },
-            orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
         });
+        return sortEmployeesByTeam(rows);
     }
 
     async findAll() {
-        return prisma.employee.findMany({
+        const rows = await prisma.employee.findMany({
             include: { shift: true },
-            orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
         });
+        return sortEmployeesByTeam(rows);
     }
 
     async create(data: {
