@@ -111,26 +111,34 @@ async function sendViaGmailApi(options: {
         config.gmail.user ||
         "me";
 
-    // Fresh client every send — pick up settings token after reconnect without restart.
+    // Shared company client — same refresh/access token as the inbox importer.
     gmailOAuthService.applyRuntimeCredentials(refreshToken, from !== "me" ? from : undefined);
-    const oauth2 = gmailOAuthService.createAuthedClient(refreshToken);
+    const oauth2 = gmailOAuthService.getSharedAuthedClient(refreshToken);
     if (source === "env") {
         console.warn("[mail] Gmail refresh token came from .env fallback, not settings");
     }
 
     const gmail = google.gmail({ version: "v1", auth: oauth2 });
-    await gmail.users.messages.send({
-        userId: "me",
-        requestBody: {
-            raw: buildRawMime({
-                from,
-                to: options.to,
-                subject: options.subject,
-                text: options.text,
-                html: options.html,
-            }),
-        },
-    });
+    try {
+        await gmail.users.messages.send({
+            userId: "me",
+            requestBody: {
+                raw: buildRawMime({
+                    from,
+                    to: options.to,
+                    subject: options.subject,
+                    text: options.text,
+                    html: options.html,
+                }),
+            },
+        });
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/invalid_grant|expired or revoked/i.test(msg)) {
+            gmailOAuthService.invalidateCompanyClient();
+        }
+        throw err;
+    }
 }
 
 /**

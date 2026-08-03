@@ -81,6 +81,12 @@ function tryPersistRefreshTokenToEnv(refreshToken: string) {
 }
 
 export class GmailOAuthService {
+    /** One shared company OAuth2 client — reuse access tokens; drop on reconnect / rotation. */
+    private companyAuth: {
+        refreshToken: string;
+        oauth2: ReturnType<typeof createOAuthClient>;
+    } | null = null;
+
     isClientConfigured(): boolean {
         return Boolean(config.gmail.clientId && config.gmail.clientSecret);
     }
@@ -159,11 +165,69 @@ export class GmailOAuthService {
         if (user) config.gmail.user = user;
     }
 
-    /** Fresh OAuth2 client per call — never reuse credentials across reconnects. */
-    createAuthedClient(refreshToken: string) {
+    /** Drop cached company client (after reconnect or invalid_grant). */
+    invalidateCompanyClient() {
+        this.companyAuth = null;
+    }
+
+    private async persistRotatedTokens(tokens: {
+        refresh_token?: string | null;
+        access_token?: string | null;
+    }) {
+        if (tokens.refresh_token) {
+            await upsertGmailSetting(
+                "refresh_token",
+                tokens.refresh_token,
+                "Gmail OAuth refresh token"
+            );
+            this.applyRuntimeCredentials(tokens.refresh_token);
+            tryPersistRefreshTokenToEnv(tokens.refresh_token);
+            if (this.companyAuth) {
+                this.companyAuth.refreshToken = tokens.refresh_token;
+            }
+            console.log(
+                `[GMAIL OAUTH] Persisted rotated refresh token (${tokenFingerprint(tokens.refresh_token)})`
+            );
+        }
+        if (tokens.access_token) {
+            await upsertGmailSetting(
+                "access_token",
+                tokens.access_token,
+                "Gmail OAuth access token (short-lived)"
+            );
+        }
+    }
+
+    /**
+     * Shared company OAuth2 client.
+     * Reuses access tokens across list/fetch/mark/send so we do not refresh
+     * dozens of times per inbox tick (that caused intermittent invalid_grant).
+     * Rebuilt when the settings refresh token changes or after invalidateCompanyClient().
+     */
+    getSharedAuthedClient(refreshToken: string) {
+        const token = (refreshToken || "").trim();
+        if (!token) {
+            throw new Error("Missing Gmail refresh token");
+        }
+        if (this.companyAuth?.refreshToken === token) {
+            return this.companyAuth.oauth2;
+        }
+
+        this.invalidateCompanyClient();
         const oauth2 = createOAuthClient();
-        oauth2.setCredentials({ refresh_token: refreshToken });
+        oauth2.setCredentials({ refresh_token: token });
+        oauth2.on("tokens", (tokens) => {
+            void this.persistRotatedTokens(tokens).catch((err) => {
+                console.warn("[GMAIL OAUTH] Failed to persist rotated tokens:", err);
+            });
+        });
+        this.companyAuth = { refreshToken: token, oauth2 };
         return oauth2;
+    }
+
+    /** @deprecated Prefer getSharedAuthedClient — kept for one-off non-company use. */
+    createAuthedClient(refreshToken: string) {
+        return this.getSharedAuthedClient(refreshToken);
     }
 
     async exchangeCodeAndSave(code: string): Promise<{ email: string }> {
@@ -173,6 +237,9 @@ export class GmailOAuthService {
         if (!code) {
             throw new Error("Missing authorization code");
         }
+
+        // Drop any pre-reconnect client that still holds the revoked refresh token.
+        this.invalidateCompanyClient();
 
         const oauth2 = createOAuthClient();
         const { tokens } = await oauth2.getToken(code);
@@ -213,6 +280,8 @@ export class GmailOAuthService {
 
         this.applyRuntimeCredentials(tokens.refresh_token, email || undefined);
         tryPersistRefreshTokenToEnv(tokens.refresh_token);
+        // Warm shared client with the new token only (never the old one).
+        this.getSharedAuthedClient(tokens.refresh_token);
 
         console.log(
             `[GMAIL OAUTH] Connected successfully as ${email || "(unknown)"} (${tokenFingerprint(tokens.refresh_token)})`

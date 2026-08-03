@@ -1,5 +1,6 @@
 import { emailImportService } from "./services/email-import.service.js";
 import { gmailListener } from "./gmail/gmail.listener.js";
+import { gmailOAuthService } from "./gmail/gmail-oauth.service.js";
 import { brokerGmailSyncService } from "./gmail/broker-gmail-sync.service.js";
 import { brokerGmailOAuthService } from "./gmail/broker-gmail-oauth.service.js";
 import { isAdminWriteActive } from "../../config/database.js";
@@ -20,11 +21,27 @@ export function startEmailImportScheduler(intervalMs = 30_000) {
         running = true;
         try {
             if (await gmailListener.ensureCredentials()) {
-                const result = await emailImportService.checkInbox({ maxMessages: 20 });
-                if (result.processed > 0) {
-                    console.log(
-                        `[email] processed=${result.processed} imported=${result.imported} ignored=${result.ignored} duplicates=${result.duplicates} errors=${result.errors}`
-                    );
+                try {
+                    const result = await emailImportService.checkInbox({ maxMessages: 20 });
+                    if (result.processed > 0) {
+                        console.log(
+                            `[email] processed=${result.processed} imported=${result.imported} ignored=${result.ignored} duplicates=${result.duplicates} errors=${result.errors}`
+                        );
+                    }
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    if (/invalid_grant|expired or revoked/i.test(msg)) {
+                        // Drop cached client and retry once with settings token.
+                        gmailOAuthService.invalidateCompanyClient();
+                        const result = await emailImportService.checkInbox({ maxMessages: 20 });
+                        if (result.processed > 0) {
+                            console.log(
+                                `[email] processed=${result.processed} imported=${result.imported} ignored=${result.ignored} duplicates=${result.duplicates} errors=${result.errors}`
+                            );
+                        }
+                    } else {
+                        throw err;
+                    }
                 }
             }
 

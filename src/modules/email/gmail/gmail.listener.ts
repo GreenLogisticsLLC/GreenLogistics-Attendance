@@ -63,14 +63,14 @@ export class GmailListener {
         if (!gmailOAuthService.isClientConfigured()) {
             throw new Error("Gmail is not configured");
         }
-        // Always read the current settings token (never a process-lifetime OAuth2Client cache).
         const { token: refreshToken, source } = await gmailOAuthService.getStoredRefreshToken();
         const user = await gmailOAuthService.getStoredUser();
         if (!refreshToken || !user) {
             throw new Error("Gmail is not configured");
         }
         gmailOAuthService.applyRuntimeCredentials(refreshToken, user);
-        const oauth2 = gmailOAuthService.createAuthedClient(refreshToken);
+        // Shared client: one access-token refresh for the whole inbox tick.
+        const oauth2 = gmailOAuthService.getSharedAuthedClient(refreshToken);
         if (source === "env") {
             console.warn(
                 "[GMAIL] Using refresh token from .env fallback — reconnect via /api/email/auth to persist in settings"
