@@ -75,7 +75,7 @@ export class GmailOAuthService {
         return Boolean(config.gmail.clientId && config.gmail.clientSecret);
     }
 
-    getAuthUrl(userId: string): string {
+    getAuthUrl(userId = "company"): string {
         if (!this.isClientConfigured()) {
             throw new Error("Gmail OAuth client is not configured (GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET)");
         }
@@ -86,7 +86,10 @@ export class GmailOAuthService {
             scope: GMAIL_SCOPES,
             include_granted_scopes: true,
             state: jwt.sign(
-                { purpose: "company-gmail", userId } satisfies CompanyOAuthState,
+                {
+                    purpose: "company-gmail",
+                    userId: userId || "company",
+                } satisfies CompanyOAuthState,
                 config.jwtSecret,
                 { expiresIn: "10m" }
             ),

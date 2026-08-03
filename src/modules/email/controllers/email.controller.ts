@@ -57,13 +57,12 @@ function escapeHtml(value: string): string {
         .replaceAll("'", "&#039;");
 }
 
-/** GET /api/email/auth?brokerId=<employeeId> — authenticated Gmail OAuth start. */
+/**
+ * GET /api/email/auth — public company Gmail OAuth start (302 → Google).
+ * Optional ?brokerId= still requires JWT (prefer /api/email/broker/auth for brokers).
+ */
 export async function gmailAuthController(req: Request, res: Response) {
     try {
-        const actor = authenticatedUser(req);
-        if (!actor) {
-            return res.status(401).json(apiResponse(false, "Unauthorized"));
-        }
         if (!gmailOAuthService.isClientConfigured()) {
             return res
                 .status(503)
@@ -76,9 +75,16 @@ export async function gmailAuthController(req: Request, res: Response) {
                     )
                 );
         }
+
         const brokerId = typeof req.query.brokerId === "string" ? req.query.brokerId.trim() : "";
         let url: string;
+
         if (brokerId) {
+            // Broker mailbox binding must stay authenticated.
+            const actor = authenticatedUser(req);
+            if (!actor) {
+                return res.status(401).json(apiResponse(false, "Unauthorized"));
+            }
             const user = await prisma.user.findUnique({
                 where: { userId: actor.userId },
                 include: { role: true },
@@ -98,20 +104,20 @@ export async function gmailAuthController(req: Request, res: Response) {
             }
             url = brokerGmailOAuthService.getAuthUrlForBroker(actor.userId, brokerId);
         } else {
-            if (!["Administrator", "Owner"].includes(actor.role)) {
-                return res.status(403).json(
-                    apiResponse(false, "Only an Owner or Administrator can connect company Gmail")
-                );
-            }
-            url = gmailOAuthService.getAuthUrl(actor.userId);
+            // Company inbox (effie) — public 302 into Google OAuth.
+            url = gmailOAuthService.getAuthUrl("company");
         }
+
         if (wantsJson(req)) {
             return res.json(apiResponse(true, "OK", { url }));
         }
         return res.redirect(url);
     } catch (err) {
         const message = err instanceof Error ? err.message : "OAuth start failed";
-        return res.status(500).type("html").send(htmlPage("Gmail OAuth", `<h1>Error</h1><p>${message}</p>`, false));
+        return res
+            .status(500)
+            .type("html")
+            .send(htmlPage("Gmail OAuth", `<h1>Error</h1><p>${escapeHtml(message)}</p>`, false));
     }
 }
 

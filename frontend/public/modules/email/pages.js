@@ -12,7 +12,7 @@ window.GreenOSModules.email = {
       "</section>" +
       '<div class="gos-module-placeholder" style="margin-bottom:1rem">' +
       '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center">' +
-      '<button type="button" class="btn-primary" id="email-connect-gmail" style="width:auto;padding:0.65rem 1rem">Connect Company Gmail</button>' +
+      '<a class="btn-primary" id="email-connect-gmail" href="/api/email/auth" style="width:auto;padding:0.65rem 1rem;text-decoration:none;display:inline-block">Connect Company Gmail</a>' +
       '<button type="button" class="btn-primary" id="email-check-now" style="width:auto;padding:0.65rem 1rem">Check Gmail Now</button>' +
       '<span id="email-import-status" class="sync-status"></span>' +
       "</div></div>" +
@@ -153,19 +153,6 @@ window.GreenOSModules.email = {
       } catch {
         statusEl.textContent = "Check failed";
         statusEl.style.color = "#ef4444";
-      }
-    });
-
-    root.querySelector("#email-connect-gmail")?.addEventListener("click", async function () {
-      try {
-        const data = await api("/auth?json=1");
-        if (data.success && data.data && data.data.url) {
-          window.location.href = data.data.url;
-          return;
-        }
-        alert(data.message || "Could not start Gmail OAuth");
-      } catch {
-        alert("Could not start Gmail OAuth");
       }
     });
 
