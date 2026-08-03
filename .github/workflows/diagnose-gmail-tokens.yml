@@ -1,0 +1,101 @@
+name: Diagnose Gmail tokens
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Compare refresh token sources + broker status + logs
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+
+          python3 << 'PY'
+          import hashlib, re, sqlite3
+          from pathlib import Path
+
+          def fp(value: str) -> str:
+              value = (value or "").strip().strip('"').strip("'")
+              if not value:
+                  return "EMPTY"
+              digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+              return f"len={len(value)} sha256_12={digest} prefix={value[:6]}…suffix={value[-4:]}"
+
+          root = Path("/root/GreenLogistics-Attendance")
+          env_text = (root / ".env").read_text(encoding="utf-8", errors="ignore")
+          env_refresh = ""
+          env_client = ""
+          for line in env_text.splitlines():
+              if line.startswith("GMAIL_REFRESH_TOKEN="):
+                  env_refresh = line.split("=", 1)[1]
+              elif line.startswith("GMAIL_CLIENT_ID="):
+                  env_client = line.split("=", 1)[1]
+
+          print("=== .env Gmail client ===")
+          print("GMAIL_CLIENT_ID prefix:", (env_client[:28] + "…") if env_client else "MISSING")
+          print("GMAIL_REFRESH_TOKEN:", fp(env_refresh))
+
+          m = re.search(r'^DATABASE_URL=(.*)$', env_text, re.M)
+          raw = (m.group(1).strip().strip('"').strip("'") if m else "")
+          candidates = []
+          if raw.startswith("file:"):
+              candidates.append(Path(raw[5:]))
+          candidates += [root / "data" / "attendance.db", root / "prisma" / "data" / "attendance.db"]
+          db = next((p for p in candidates if p.is_file()), None)
+          print("DB:", db)
+          if not db:
+              raise SystemExit(0)
+
+          con = sqlite3.connect(str(db))
+          cur = con.cursor()
+          rows = cur.execute(
+              "SELECT setting_key, setting_value FROM settings WHERE category='gmail'"
+          ).fetchall()
+          settings = {k: v for k, v in rows}
+          print("=== settings gmail ===")
+          for key in ("user", "connected_at", "refresh_token", "access_token"):
+              val = settings.get(key, "")
+              if key == "refresh_token":
+                  print(f"{key}:", fp(val))
+              elif key == "access_token":
+                  print(f"{key}:", f"len={len(val)}" if val else "EMPTY")
+              else:
+                  print(f"{key}:", val or "EMPTY")
+
+          same = (settings.get("refresh_token") or "").strip() == (env_refresh or "").strip()
+          print("settings.refresh_token == .env GMAIL_REFRESH_TOKEN:", same)
+
+          print("=== broker_gmail_accounts ===")
+          try:
+              brokers = cur.execute(
+                  """
+                  SELECT broker_gmail_id, user_id, gmail_address, status, is_active,
+                         length(refresh_token), substr(last_error,1,160), updated_at
+                  FROM broker_gmail_accounts
+                  ORDER BY updated_at DESC
+                  LIMIT 20
+                  """
+              ).fetchall()
+              if not brokers:
+                  print("(none)")
+              for row in brokers:
+                  print(row)
+          except Exception as e:
+              print("broker query failed:", e)
+          con.close()
+          PY
+
+          echo "=== Recent Gmail-related PM2 logs ==="
+          pm2 logs greenos --lines 120 --nostream | grep -Ei 'invalid_grant|expired or revoked|GMAIL|broker-gmail|\[email\]|\[mail\]|oauth' || true
+          EOF

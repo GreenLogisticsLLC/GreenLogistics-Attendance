@@ -321,13 +321,16 @@ export class BrokerGmailSyncService {
             });
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+            const reconnect = /invalid_grant|expired or revoked|unauthorized/i.test(message);
+            console.warn(
+                `[broker-gmail] sync failed for ${account.gmailAddress}: ${message.slice(0, 200)}` +
+                    (reconnect ? " → RECONNECT_REQUIRED" : "")
+            );
             await prisma.brokerGmailAccount.update({
                 where: { brokerGmailId: account.brokerGmailId },
                 data: {
                     lastError: message.slice(0, 500),
-                    status: /invalid_grant|unauthorized/i.test(message)
-                        ? "RECONNECT_REQUIRED"
-                        : "CONNECTED",
+                    status: reconnect ? "RECONNECT_REQUIRED" : "CONNECTED",
                 },
             });
             throw err;

@@ -30,6 +30,15 @@ export function startEmailImportScheduler(intervalMs = 30_000) {
 
             if (brokerGmailOAuthService.isClientConfigured()) {
                 const broker = await brokerGmailSyncService.syncAllBrokers(12);
+                const failures = broker.results.filter(
+                    (r) => r && typeof r === "object" && "ok" in r && (r as { ok?: boolean }).ok === false
+                );
+                for (const fail of failures) {
+                    const row = fail as { gmailAddress?: string; error?: string };
+                    console.warn(
+                        `[broker-gmail] ${row.gmailAddress || "unknown"}: ${String(row.error || "sync failed").slice(0, 200)}`
+                    );
+                }
                 const touched = broker.results.filter(
                     (r) =>
                         r &&

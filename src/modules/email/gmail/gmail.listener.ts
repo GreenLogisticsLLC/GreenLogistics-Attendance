@@ -51,7 +51,7 @@ export class GmailListener {
 
     async ensureCredentials(): Promise<boolean> {
         if (!gmailOAuthService.isClientConfigured()) return false;
-        const [refreshToken, user] = await Promise.all([
+        const [{ token: refreshToken }, user] = await Promise.all([
             gmailOAuthService.getStoredRefreshToken(),
             gmailOAuthService.getStoredUser(),
         ]);
@@ -60,16 +60,22 @@ export class GmailListener {
     }
 
     private async getClient() {
-        const ok = await this.ensureCredentials();
-        if (!ok) {
+        if (!gmailOAuthService.isClientConfigured()) {
             throw new Error("Gmail is not configured");
         }
-        const oauth2 = new google.auth.OAuth2(
-            config.gmail.clientId,
-            config.gmail.clientSecret,
-            config.gmail.redirectUri
-        );
-        oauth2.setCredentials({ refresh_token: config.gmail.refreshToken });
+        // Always read the current settings token (never a process-lifetime OAuth2Client cache).
+        const { token: refreshToken, source } = await gmailOAuthService.getStoredRefreshToken();
+        const user = await gmailOAuthService.getStoredUser();
+        if (!refreshToken || !user) {
+            throw new Error("Gmail is not configured");
+        }
+        gmailOAuthService.applyRuntimeCredentials(refreshToken, user);
+        const oauth2 = gmailOAuthService.createAuthedClient(refreshToken);
+        if (source === "env") {
+            console.warn(
+                "[GMAIL] Using refresh token from .env fallback — reconnect via /api/email/auth to persist in settings"
+            );
+        }
         return google.gmail({ version: "v1", auth: oauth2 });
     }
 

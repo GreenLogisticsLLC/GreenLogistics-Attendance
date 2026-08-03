@@ -99,7 +99,7 @@ async function sendViaGmailApi(options: {
         throw new Error("Gmail OAuth client is not configured (GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET)");
     }
 
-    const refreshToken = await gmailOAuthService.getStoredRefreshToken();
+    const { token: refreshToken, source } = await gmailOAuthService.getStoredRefreshToken();
     if (!refreshToken) {
         throw new Error(
             "Gmail is not connected. Open /api/email/auth while logged into effiegreenlogistics@gmail.com"
@@ -111,12 +111,12 @@ async function sendViaGmailApi(options: {
         config.gmail.user ||
         "me";
 
-    const oauth2 = new google.auth.OAuth2(
-        config.gmail.clientId,
-        config.gmail.clientSecret,
-        config.gmail.redirectUri
-    );
-    oauth2.setCredentials({ refresh_token: refreshToken });
+    // Fresh client every send — pick up settings token after reconnect without restart.
+    gmailOAuthService.applyRuntimeCredentials(refreshToken, from !== "me" ? from : undefined);
+    const oauth2 = gmailOAuthService.createAuthedClient(refreshToken);
+    if (source === "env") {
+        console.warn("[mail] Gmail refresh token came from .env fallback, not settings");
+    }
 
     const gmail = google.gmail({ version: "v1", auth: oauth2 });
     await gmail.users.messages.send({
@@ -153,7 +153,13 @@ export async function sendMail(options: {
         return;
     } catch (err) {
         gmailError = err;
-        console.error("[mail] Gmail API send failed, trying SMTP:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+            "[mail] Gmail API send failed, trying SMTP:",
+            /invalid_grant|expired or revoked/i.test(msg)
+                ? `${msg} (company refresh token rejected — reconnect Email Imports → Connect Company Gmail)`
+                : err
+        );
     }
 
     if (smtpReady) {

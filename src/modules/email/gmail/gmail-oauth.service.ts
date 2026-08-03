@@ -11,6 +11,8 @@ const GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
 ];
 
+let warnedStaleEnvToken = false;
+
 type CompanyOAuthState = {
     purpose: "company-gmail";
     userId: string;
@@ -51,6 +53,12 @@ async function upsertGmailSetting(key: string, value: string, description: strin
     });
 }
 
+function tokenFingerprint(refreshToken: string): string {
+    const value = (refreshToken || "").trim();
+    if (!value) return "empty";
+    return `len=${value.length} prefix=${value.slice(0, 6)}…suffix=${value.slice(-4)}`;
+}
+
 function tryPersistRefreshTokenToEnv(refreshToken: string) {
     try {
         const envPath = path.resolve(process.cwd(), ".env");
@@ -64,6 +72,8 @@ function tryPersistRefreshTokenToEnv(refreshToken: string) {
         } else {
             content += `\nGMAIL_REFRESH_TOKEN=${refreshToken}\n`;
         }
+        // Keep env GMAIL_USER aligned when present so boot-time config cannot
+        // look "configured" with a stale mailbox identity.
         fs.writeFileSync(envPath, content, "utf8");
     } catch (err) {
         console.warn("[GMAIL OAUTH] Could not write refresh token to .env:", err);
@@ -96,7 +106,11 @@ export class GmailOAuthService {
         });
     }
 
-    async getStoredRefreshToken(): Promise<string> {
+    /**
+     * Company refresh token source of truth is settings (category=gmail).
+     * .env / process env is only a boot-time fallback and is rewritten on OAuth.
+     */
+    async getStoredRefreshToken(): Promise<{ token: string; source: "settings" | "env" | "none" }> {
         const row = await prisma.setting.findUnique({
             where: {
                 category_settingKey: {
@@ -105,7 +119,26 @@ export class GmailOAuthService {
                 },
             },
         });
-        return row?.settingValue || config.gmail.refreshToken || "";
+        const fromSettings = (row?.settingValue || "").trim();
+        if (fromSettings) {
+            const fromEnv = (config.gmail.refreshToken || "").trim();
+            if (fromEnv && fromEnv !== fromSettings) {
+                if (!warnedStaleEnvToken) {
+                    warnedStaleEnvToken = true;
+                    console.warn(
+                        `[GMAIL OAUTH] Stale .env refresh token ignored (settings ${tokenFingerprint(fromSettings)} != env ${tokenFingerprint(fromEnv)}); aligning .env to settings`
+                    );
+                }
+                // Keep runtime + .env aligned with settings so a later restart
+                // cannot revive the revoked token.
+                this.applyRuntimeCredentials(fromSettings);
+                tryPersistRefreshTokenToEnv(fromSettings);
+            }
+            return { token: fromSettings, source: "settings" };
+        }
+        const fromEnv = (config.gmail.refreshToken || "").trim();
+        if (fromEnv) return { token: fromEnv, source: "env" };
+        return { token: "", source: "none" };
     }
 
     async getStoredUser(): Promise<string> {
@@ -124,6 +157,13 @@ export class GmailOAuthService {
     applyRuntimeCredentials(refreshToken: string, user?: string) {
         config.gmail.refreshToken = refreshToken;
         if (user) config.gmail.user = user;
+    }
+
+    /** Fresh OAuth2 client per call — never reuse credentials across reconnects. */
+    createAuthedClient(refreshToken: string) {
+        const oauth2 = createOAuthClient();
+        oauth2.setCredentials({ refresh_token: refreshToken });
+        return oauth2;
     }
 
     async exchangeCodeAndSave(code: string): Promise<{ email: string }> {
@@ -147,6 +187,7 @@ export class GmailOAuthService {
         const profile = await gmail.users.getProfile({ userId: "me" });
         const email = profile.data.emailAddress || config.gmail.user || "";
 
+        // Full replace: settings + runtime + .env. Old refresh tokens are discarded.
         await upsertGmailSetting(
             "refresh_token",
             tokens.refresh_token,
@@ -158,6 +199,8 @@ export class GmailOAuthService {
                 tokens.access_token,
                 "Gmail OAuth access token (short-lived)"
             );
+        } else {
+            await upsertGmailSetting("access_token", "", "Gmail OAuth access token (short-lived)");
         }
         if (email) {
             await upsertGmailSetting("user", email, "Connected Gmail mailbox");
@@ -171,7 +214,9 @@ export class GmailOAuthService {
         this.applyRuntimeCredentials(tokens.refresh_token, email || undefined);
         tryPersistRefreshTokenToEnv(tokens.refresh_token);
 
-        console.log(`[GMAIL OAUTH] Connected successfully as ${email || "(unknown)"}`);
+        console.log(
+            `[GMAIL OAUTH] Connected successfully as ${email || "(unknown)"} (${tokenFingerprint(tokens.refresh_token)})`
+        );
         return { email };
     }
 }
