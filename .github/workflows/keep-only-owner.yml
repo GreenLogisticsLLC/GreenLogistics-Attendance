@@ -1,0 +1,221 @@
+name: Keep only Owner account
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_email:
+        description: "Owner email to keep (all other users + pending deleted)"
+        required: true
+        default: "aggreenlogistic@gmail.com"
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Delete all users except keep Owner
+        env:
+          KEEP_EMAIL: ${{ github.event.inputs.keep_email }}
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            "KEEP_EMAIL=$(printf %q "$KEEP_EMAIL") bash -s" << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          pm2 stop greenos || true
+
+          python3 << 'PY'
+          import os, re, sqlite3, json
+          from pathlib import Path
+
+          keep_email = (os.environ.get("KEEP_EMAIL") or "aggreenlogistic@gmail.com").strip().lower()
+          root = Path("/root/GreenLogistics-Attendance")
+          env = (root / ".env").read_text(encoding="utf-8", errors="ignore")
+          m = re.search(r'^DATABASE_URL=(.*)$', env, re.M)
+          raw = (m.group(1).strip().strip('"').strip("'") if m else "")
+          candidates = []
+          if raw.startswith("file:"):
+              candidates.append(Path(raw[5:]))
+          candidates += [root / "data" / "attendance.db", root / "prisma" / "data" / "attendance.db"]
+          db = next((p for p in candidates if p.is_file()), None)
+          if not db:
+              raise SystemExit("SQLite DB not found")
+
+          print(f"Using DB={db}")
+          print(f"KEEP_EMAIL={keep_email}")
+          con = sqlite3.connect(str(db), timeout=60)
+          con.execute("PRAGMA foreign_keys = OFF")
+          cur = con.cursor()
+
+          users = cur.execute(
+              """
+              SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, r.role_name, u.employee_id, u.is_active
+              FROM users u
+              JOIN roles r ON r.role_id = u.role_id
+              ORDER BY r.role_name, u.username
+              """
+          ).fetchall()
+          print("=== users BEFORE ===")
+          for row in users:
+              print(row)
+
+          keep = [u for u in users if (u[2] or "").strip().lower() == keep_email]
+          if not keep:
+              keep = [u for u in users if (u[1] or "").strip().lower() == keep_email]
+          if not keep:
+              local = keep_email.split("@")[0]
+              keep = [u for u in users if local and local in ((u[2] or "").strip().lower())]
+          if not keep:
+              raise SystemExit(f"KEEP user not found for email/username={keep_email}")
+          if len(keep) > 1:
+              owners = [u for u in keep if u[5] == "Owner"]
+              keep = owners[:1] or keep[:1]
+          keep_user = keep[0]
+          keep_id = keep_user[0]
+          print("KEEP:", keep_user)
+
+          delete_ids = [u[0] for u in users if u[0] != keep_id]
+          print(f"Will delete {len(delete_ids)} user(s)")
+
+          pending_before = cur.execute(
+              "SELECT username, email, requested_role, status FROM pending_registrations"
+          ).fetchall()
+          print("=== pending BEFORE ===")
+          for row in pending_before:
+              print(row)
+
+          cur.execute("DELETE FROM pending_registrations")
+          print(f"Deleted pending_registrations: {cur.rowcount}")
+
+          try:
+              cur.execute("DELETE FROM broker_mailbox_messages")
+              print(f"Deleted broker_mailbox_messages: {cur.rowcount}")
+          except Exception as e:
+              print("broker_mailbox_messages:", e)
+          try:
+              cur.execute("DELETE FROM broker_gmail_accounts")
+              print(f"Deleted broker_gmail_accounts: {cur.rowcount}")
+          except Exception as e:
+              print("broker_gmail_accounts:", e)
+
+          try:
+              if delete_ids:
+                  q = ",".join("?" * len(delete_ids))
+                  cur.execute(f"DELETE FROM platform_notifications WHERE user_id IN ({q})", delete_ids)
+                  print(f"Deleted platform_notifications: {cur.rowcount}")
+          except Exception as e:
+              print("platform_notifications:", e)
+
+          for user_id in delete_ids:
+              row = next(u for u in users if u[0] == user_id)
+              username, email, employee_id = row[1], row[2], row[6]
+              print(f"-- deleting {username} ({email}) role={row[5]}")
+
+              cur.execute("DELETE FROM audit_logs WHERE user_id = ?", (user_id,))
+              cur.execute(
+                  """
+                  DELETE FROM shipment_import_logs WHERE shipment_lead_id IN (
+                    SELECT shipment_lead_id from shipment_leads WHERE assigned_broker_id = ?
+                  )
+                  """,
+                  (user_id,),
+              )
+              cur.execute(
+                  """
+                  DELETE FROM shipment_timeline_events WHERE shipment_lead_id IN (
+                    SELECT shipment_lead_id FROM shipment_leads WHERE assigned_broker_id = ?
+                  )
+                  """,
+                  (user_id,),
+              )
+              cur.execute("DELETE FROM shipment_leads WHERE assigned_broker_id = ?", (user_id,))
+              cur.execute(
+                  "UPDATE shipment_timeline_events SET actor_user_id = NULL WHERE actor_user_id = ?",
+                  (user_id,),
+              )
+              cur.execute("DELETE FROM assignment_logs WHERE assigned_user_id = ?", (user_id,))
+
+              if employee_id:
+                  cur.execute("UPDATE users SET employee_id = NULL WHERE user_id = ?", (user_id,))
+
+              cur.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+
+              if employee_id:
+                  sessions = cur.execute(
+                      "SELECT session_id FROM attendance_sessions WHERE employee_id = ?",
+                      (employee_id,),
+                  ).fetchall()
+                  session_ids = [s[0] for s in sessions]
+                  if session_ids:
+                      q = ",".join("?" * len(session_ids))
+                      cur.execute(f"DELETE FROM absence_intervals WHERE session_id IN ({q})", session_ids)
+                  cur.execute("DELETE FROM attendance_events WHERE employee_id = ?", (employee_id,))
+                  cur.execute("DELETE FROM attendance_sessions WHERE employee_id = ?", (employee_id,))
+                  cur.execute("DELETE FROM notifications WHERE employee_id = ?", (employee_id,))
+                  cur.execute("DELETE FROM assignment_logs WHERE assigned_employee_id = ?", (employee_id,))
+                  cur.execute("DELETE FROM employees WHERE employee_id = ?", (employee_id,))
+
+          try:
+              queue = cur.execute(
+                  "SELECT ordered_user_ids_json FROM assignment_queue_state WHERE queue_key = 'brokers'"
+              ).fetchone()
+              if queue:
+                  try:
+                      ordered = json.loads(queue[0] or "[]")
+                  except Exception:
+                      ordered = []
+                  if not isinstance(ordered, list):
+                      ordered = []
+                  filtered = [uid for uid in ordered if uid == keep_id]
+                  cur.execute(
+                      """
+                      UPDATE assignment_queue_state
+                      SET ordered_user_ids_json = ?, next_index = 0
+                      WHERE queue_key = 'brokers'
+                      """,
+                      (json.dumps(filtered),),
+                  )
+                  print(f"assignment queue now: {filtered}")
+          except Exception as e:
+              print("assignment queue:", e)
+
+          owner_role = cur.execute("SELECT role_id FROM roles WHERE role_name = 'Owner'").fetchone()
+          if owner_role:
+              cur.execute(
+                  "UPDATE users SET role_id = ?, is_active = 1 WHERE user_id = ?",
+                  (owner_role[0], keep_id),
+              )
+              print("Ensured keep user is active Owner")
+
+          con.commit()
+
+          print("=== users AFTER ===")
+          for row in cur.execute(
+              """
+              SELECT u.user_id, u.username, u.email, u.first_name, u.last_name, r.role_name, u.is_active
+              FROM users u JOIN roles r ON r.role_id = u.role_id
+              ORDER BY u.username
+              """
+          ):
+              print(row)
+
+          print("=== pending AFTER ===", cur.execute("SELECT COUNT(*) FROM pending_registrations").fetchone()[0])
+          try:
+              print("broker_gmail_accounts AFTER:", cur.execute("SELECT COUNT(*) FROM broker_gmail_accounts").fetchone()[0])
+          except Exception:
+              pass
+
+          con.close()
+          print("DONE")
+          PY
+
+          pm2 restart greenos --update-env
+          sleep 3
+          curl --fail http://localhost:3847/api/health || true
+          EOF
