@@ -63,6 +63,15 @@
                     <option value="Manager">Manager — operations</option>
                     <option value="Owner">Owner — full system access</option>
                 </select>
+                <div id="signup-team-lead-wrap" class="hidden">
+                    <label>Team Lead</label>
+                    <select id="signup-team-lead">
+                        <option value="">Select Team Lead (Gary or Alen)…</option>
+                    </select>
+                    <p class="gos-muted" style="font-size:0.85rem;margin:0.35rem 0 0">
+                        Brokers under Alen are visible only to Alen. Brokers under Gary are visible only to Gary.
+                    </p>
+                </div>
                 <button type="submit" class="btn-primary">Create Account</button>
                 <button type="button" id="show-login-btn" class="btn-secondary btn-block">Back to Sign In</button>
                 <p id="signup-error" class="error hidden"></p>

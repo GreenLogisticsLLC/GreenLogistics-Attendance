@@ -1,0 +1,131 @@
+name: Ensure Team Leads Gary and Alen
+
+on:
+  workflow_dispatch:
+    inputs:
+      gary_password:
+        description: "Temporary password for Gary Michael"
+        required: true
+        default: "GaryTeamLead1!"
+      alen_password:
+        description: "Temporary password for Alen Young"
+        required: true
+        default: "AlenTeamLead1!"
+
+jobs:
+  ensure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Create/update Gary + Alen Team Lead accounts
+        env:
+          GARY_PASSWORD: ${{ github.event.inputs.gary_password }}
+          ALEN_PASSWORD: ${{ github.event.inputs.alen_password }}
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            "GARY_PASSWORD=$(printf %q "$GARY_PASSWORD") ALEN_PASSWORD=$(printf %q "$ALEN_PASSWORD") bash -s" << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          npm run db:push
+          npx prisma generate
+
+          node --input-type=module << 'NODE'
+          import bcrypt from "bcryptjs";
+          import { PrismaClient } from "@prisma/client";
+
+          const prisma = new PrismaClient();
+          const garyPass = process.env.GARY_PASSWORD || "GaryTeamLead1!";
+          const alenPass = process.env.ALEN_PASSWORD || "AlenTeamLead1!";
+
+          const role = await prisma.role.upsert({
+            where: { roleName: "Team Lead" },
+            update: { description: "Team lead — team shipments and broker oversight" },
+            create: {
+              roleName: "Team Lead",
+              description: "Team lead — team shipments and broker oversight",
+            },
+          });
+
+          async function upsertLead({
+            username,
+            email,
+            firstName,
+            lastName,
+            password,
+          }) {
+            const passwordHash = await bcrypt.hash(password, 12);
+            const existing = await prisma.user.findFirst({
+              where: { OR: [{ username }, { email }] },
+            });
+            if (existing) {
+              const updated = await prisma.user.update({
+                where: { userId: existing.userId },
+                data: {
+                  firstName,
+                  lastName,
+                  email,
+                  username,
+                  roleId: role.roleId,
+                  isActive: true,
+                  passwordHash,
+                  teamLeadId: null,
+                },
+              });
+              console.log("UPDATED", updated.username, updated.email, updated.userId);
+              return updated;
+            }
+            const created = await prisma.user.create({
+              data: {
+                username,
+                email,
+                firstName,
+                lastName,
+                passwordHash,
+                roleId: role.roleId,
+                isActive: true,
+              },
+            });
+            console.log("CREATED", created.username, created.email, created.userId);
+            return created;
+          }
+
+          const gary = await upsertLead({
+            username: "gary.michael",
+            email: "gary.michael@greengrouplogistics.com",
+            firstName: "Gary",
+            lastName: "Michael",
+            password: garyPass,
+          });
+          const alen = await upsertLead({
+            username: "alen.young",
+            email: "alen.young@greengrouplogistics.com",
+            firstName: "Alen",
+            lastName: "Young",
+            password: alenPass,
+          });
+
+          const leads = await prisma.user.findMany({
+            where: { role: { roleName: "Team Lead" } },
+            select: { userId: true, username: true, email: true, firstName: true, lastName: true, isActive: true },
+          });
+          console.log("TEAM LEADS:", JSON.stringify(leads, null, 2));
+          console.log("GARY_ID", gary.userId);
+          console.log("ALEN_ID", alen.userId);
+          await prisma.$disconnect();
+          NODE
+
+          pm2 restart greenos --update-env
+          sleep 4
+          curl --fail http://localhost:3847/api/health || true
+          curl -sS http://localhost:3847/api/v1/auth/team-leads || true
+          echo
+          EOF

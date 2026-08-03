@@ -32,6 +32,28 @@ export async function updateUserRoleController(req: AuthRequest, res: Response) 
     }
 }
 
+export async function updateUserTeamLeadController(req: AuthRequest, res: Response) {
+    if (!req.user) {
+        return res.status(401).json(apiResponse(false, "Unauthorized"));
+    }
+    try {
+        const userId = String(req.params.userId || "");
+        const teamLeadId =
+            req.body?.teamLeadId === null || req.body?.teamLeadId === ""
+                ? null
+                : String(req.body?.teamLeadId || "");
+        const result = await usersService.updateBrokerTeamLead(req.user, userId, teamLeadId);
+        if (!result.ok) {
+            return res.status(result.status).json(apiResponse(false, result.message));
+        }
+        return res.json(apiResponse(true, result.data.message, result.data));
+    } catch (err) {
+        console.error("[users] updateUserTeamLeadController:", err);
+        const message = err instanceof Error ? err.message : "Update failed";
+        return res.status(500).json(apiResponse(false, message));
+    }
+}
+
 export async function deleteUserController(req: AuthRequest, res: Response) {
     if (!req.user) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));

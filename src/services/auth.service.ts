@@ -9,6 +9,7 @@ import {
     SIGNUP_ROLE_NAMES,
     type SignupRoleName,
 } from "../auth/roles.js";
+import { assertValidTeamLeadId, listTeamLeadOptions } from "../auth/team-scope.js";
 
 export const SIGNUP_ROLES = SIGNUP_ROLE_NAMES;
 export type SignupRole = SignupRoleName;
@@ -86,12 +87,15 @@ export class AuthService {
         username: string;
         email: string;
         requestedRole: string;
+        requestedTeamLeadId?: string | null;
+        teamLeadName?: string | null;
     }) {
         const token = this.createApprovalToken(pending.pendingId);
         const approveUrl = `${config.publicAppUrl}/api/v1/auth/registration/approve?token=${encodeURIComponent(token)}`;
         const rejectUrl = `${config.publicAppUrl}/api/v1/auth/registration/reject?token=${encodeURIComponent(token)}`;
         const roleNote = ROLE_DESCRIPTIONS[pending.requestedRole] || pending.requestedRole;
         const isBroker = pending.requestedRole === Roles.Broker;
+        const teamLeadLabel = pending.teamLeadName || pending.requestedTeamLeadId || "";
 
         const subject = isBroker
             ? `[Green OS] Broker registration request — ${pending.firstName} ${pending.lastName}`
@@ -106,9 +110,10 @@ export class AuthService {
             `Email: ${pending.email}`,
             `Requested access: ${pending.requestedRole}`,
             `Role note: ${roleNote}`,
+            ...(teamLeadLabel ? [`Team Lead: ${teamLeadLabel}`] : []),
             "",
             isBroker
-                ? "If you Approve, they will receive Broker access (My Shipments only)."
+                ? "If you Approve, they join only that Team Lead's team (Gary and Alen stay isolated)."
                 : "If you Approve, they will receive the requested role access.",
             "",
             `Approve: ${approveUrl}`,
@@ -131,10 +136,15 @@ export class AuthService {
               <tr><td style="padding:4px 12px 4px 0"><strong>Email</strong></td><td>${pending.email}</td></tr>
               <tr><td style="padding:4px 12px 4px 0"><strong>Requested access</strong></td><td><strong>${pending.requestedRole}</strong></td></tr>
               <tr><td style="padding:4px 12px 4px 0"><strong>Role note</strong></td><td>${roleNote}</td></tr>
+              ${
+                  teamLeadLabel
+                      ? `<tr><td style="padding:4px 12px 4px 0"><strong>Team Lead</strong></td><td><strong>${teamLeadLabel}</strong></td></tr>`
+                      : ""
+              }
             </table>
             <p>${
                 isBroker
-                    ? "Approve → Broker login with Personal Dashboard, My Shipments, My Customers, Notifications only."
+                    ? "Approve → Broker under that Team Lead only. Teams of Gary and Alen cannot see each other."
                     : "Approve to grant the requested role."
             }</p>
             <p>
@@ -155,6 +165,7 @@ export class AuthService {
         lastName: string;
         email?: string;
         role: string;
+        teamLeadId?: string;
     }) {
         const username = input.username.trim();
         const firstName = input.firstName.trim();
@@ -174,6 +185,27 @@ export class AuthService {
                 status: 422,
                 message: `Role must be one of: ${SIGNUP_ROLES.join(", ")}`,
             };
+        }
+
+        let requestedTeamLeadId: string | null = null;
+        if (roleName === Roles.Broker) {
+            const leads = await listTeamLeadOptions();
+            if (!leads.length) {
+                return {
+                    ok: false as const,
+                    status: 422,
+                    message:
+                        "No Team Lead accounts exist yet. Ask the Owner to create Gary / Alen as Team Lead first.",
+                };
+            }
+            requestedTeamLeadId = await assertValidTeamLeadId(input.teamLeadId);
+            if (!requestedTeamLeadId) {
+                return {
+                    ok: false as const,
+                    status: 422,
+                    message: "Select a Team Lead (Gary or Alen) for this Broker account",
+                };
+            }
         }
 
         const existingUser = await prisma.user.findFirst({
@@ -208,12 +240,17 @@ export class AuthService {
                 lastName,
                 email,
                 requestedRole: roleName,
+                requestedTeamLeadId,
                 status: "PENDING",
             },
         });
 
+        const leads = requestedTeamLeadId ? await listTeamLeadOptions() : [];
+        const teamLeadName =
+            leads.find((l) => l.userId === requestedTeamLeadId)?.name || null;
+
         try {
-            const mail = this.buildApprovalEmail(pending);
+            const mail = this.buildApprovalEmail({ ...pending, teamLeadName });
             await sendMail({
                 to: config.approvalEmail,
                 subject: mail.subject,
@@ -221,9 +258,7 @@ export class AuthService {
                 html: mail.html,
             });
         } catch (err) {
-            // Keep the pending request — do not roll back. Owner can still approve via
-            // logged links or after SMTP is fixed (resubmit not required).
-            const mail = this.buildApprovalEmail(pending);
+            const mail = this.buildApprovalEmail({ ...pending, teamLeadName });
             console.error("[auth] Approval email failed; pending registration kept:", err);
             console.log("[auth] Manual approve URL:", mail.text.match(/Approve: (.+)/)?.[1] || "(see logs)");
             console.log("[auth] Manual reject URL:", mail.text.match(/Reject: (.+)/)?.[1] || "(see logs)");
@@ -252,6 +287,10 @@ export class AuthService {
                     "Registration request submitted. An administrator will review it and approve access by email.",
             },
         };
+    }
+
+    async listPublicTeamLeads() {
+        return listTeamLeadOptions();
     }
 
     /**
@@ -349,6 +388,19 @@ export class AuthService {
         }
 
         const role = await this.ensureRole(pending.requestedRole as SignupRole);
+        let teamLeadId: string | null = null;
+        if (pending.requestedRole === Roles.Broker) {
+            teamLeadId = await assertValidTeamLeadId(pending.requestedTeamLeadId);
+            if (!teamLeadId) {
+                return {
+                    ok: false as const,
+                    status: 422,
+                    message:
+                        "Cannot approve: Broker has no valid Team Lead selected. Reject and ask them to re-register choosing Gary or Alen.",
+                };
+            }
+        }
+
         await prisma.user.create({
             data: {
                 username: pending.username,
@@ -357,6 +409,7 @@ export class AuthService {
                 lastName: pending.lastName,
                 email: pending.email,
                 roleId: role.roleId,
+                ...(teamLeadId ? { teamLeadId } : {}),
             },
         });
 
@@ -367,7 +420,9 @@ export class AuthService {
 
         return {
             ok: true as const,
-            message: `Registration approved. ${pending.firstName} ${pending.lastName} (${pending.username}) can now sign in as ${pending.requestedRole}.`,
+            message: `Registration approved. ${pending.firstName} ${pending.lastName} (${pending.username}) can now sign in as ${pending.requestedRole}${
+                teamLeadId ? " (team-scoped to their Team Lead)" : ""
+            }.`,
         };
     }
 

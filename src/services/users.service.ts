@@ -14,8 +14,10 @@ import {
     Roles,
     canAssignRole,
     canDeleteUserAccount,
+    canManageUserRoles,
     isKnownRole,
 } from "../auth/roles.js";
+import { assertValidTeamLeadId } from "../auth/team-scope.js";
 
 export class UsersService {
     listAssignableRoles(actorRole: string) {
@@ -30,7 +32,12 @@ export class UsersService {
     async listUsers() {
         return withDbRetry("listUsers", async () => {
             const users = await prisma.user.findMany({
-                include: { role: true },
+                include: {
+                    role: true,
+                    teamLead: {
+                        select: { userId: true, firstName: true, lastName: true, username: true },
+                    },
+                },
                 orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
             });
 
@@ -45,8 +52,67 @@ export class UsersService {
                 lastLogin: u.lastLogin,
                 createdAt: u.createdAt,
                 employeeId: u.employeeId,
+                teamLeadId: u.teamLeadId,
+                teamLeadName: u.teamLead
+                    ? `${u.teamLead.firstName} ${u.teamLead.lastName}`.trim() || u.teamLead.username
+                    : null,
             }));
         });
+    }
+
+    async updateBrokerTeamLead(
+        actor: { userId: string; role: string },
+        userId: string,
+        teamLeadId: string | null
+    ) {
+        if (!canManageUserRoles(actor.role)) {
+            return { ok: false as const, status: 403, message: "Forbidden" };
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { userId },
+            include: { role: true },
+        });
+        if (!user) return { ok: false as const, status: 404, message: "User not found" };
+        if (user.role.roleName !== Roles.Broker) {
+            return { ok: false as const, status: 422, message: "Only Brokers can be assigned to a Team Lead" };
+        }
+
+        let nextTeamLeadId: string | null = null;
+        if (teamLeadId) {
+            nextTeamLeadId = await assertValidTeamLeadId(teamLeadId);
+            if (!nextTeamLeadId) {
+                return { ok: false as const, status: 422, message: "Invalid Team Lead" };
+            }
+        }
+
+        const updated = await prisma.user.update({
+            where: { userId },
+            data: { teamLeadId: nextTeamLeadId },
+            include: {
+                role: true,
+                teamLead: {
+                    select: { userId: true, firstName: true, lastName: true, username: true },
+                },
+            },
+        });
+
+        return {
+            ok: true as const,
+            data: {
+                userId: updated.userId,
+                username: updated.username,
+                role: updated.role.roleName,
+                teamLeadId: updated.teamLeadId,
+                teamLeadName: updated.teamLead
+                    ? `${updated.teamLead.firstName} ${updated.teamLead.lastName}`.trim() ||
+                      updated.teamLead.username
+                    : null,
+                message: nextTeamLeadId
+                    ? "Broker assigned to Team Lead"
+                    : "Broker removed from Team Lead",
+            },
+        };
     }
 
     async updateUserRole(actor: { userId: string; role: string }, userId: string, roleName: string) {

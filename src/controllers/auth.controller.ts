@@ -51,7 +51,7 @@ export async function loginController(req: Request, res: Response) {
 }
 
 export async function registerController(req: Request, res: Response) {
-    const { username, password, firstName, lastName, email, role } = req.body;
+    const { username, password, firstName, lastName, email, role, teamLeadId } = req.body;
     const result = await authService.register({
         username: username || "",
         password: password || "",
@@ -59,6 +59,7 @@ export async function registerController(req: Request, res: Response) {
         lastName: lastName || "",
         email,
         role: role || "",
+        teamLeadId: teamLeadId || "",
     });
 
     if (!result.ok) {
@@ -66,6 +67,11 @@ export async function registerController(req: Request, res: Response) {
     }
 
     return res.status(201).json(apiResponse(true, result.data.message, result.data));
+}
+
+export async function listTeamLeadsController(_req: Request, res: Response) {
+    const data = await authService.listPublicTeamLeads();
+    return res.json(apiResponse(true, "Team leads", data));
 }
 
 export async function approveRegistrationController(req: Request, res: Response) {

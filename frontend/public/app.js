@@ -303,6 +303,7 @@ $("#show-signup-btn").addEventListener("click", () => {
     loginError.classList.add("hidden");
     signupError.classList.add("hidden");
     signupSuccess.classList.add("hidden");
+    loadSignupTeamLeads();
 });
 
 $("#show-login-btn").addEventListener("click", () => {
@@ -313,22 +314,64 @@ $("#show-login-btn").addEventListener("click", () => {
     loginError.classList.add("hidden");
 });
 
+async function loadSignupTeamLeads() {
+    const select = $("#signup-team-lead");
+    const wrap = $("#signup-team-lead-wrap");
+    if (!select || !wrap) return;
+    try {
+        const res = await fetch(`${API}/auth/team-leads`);
+        const data = await res.json();
+        const leads = (data.success && data.data) || [];
+        select.innerHTML =
+            '<option value="">Select Team Lead (Gary or Alen)…</option>' +
+            leads
+                .map(
+                    (l) =>
+                        `<option value="${l.userId}">${l.name}${l.email ? " — " + l.email : ""}</option>`
+                )
+                .join("");
+        wrap.dataset.ready = leads.length ? "1" : "0";
+    } catch {
+        select.innerHTML = '<option value="">Team Leads unavailable</option>';
+    }
+    toggleSignupTeamLead();
+}
+
+function toggleSignupTeamLead() {
+    const wrap = $("#signup-team-lead-wrap");
+    const role = $("#signup-role")?.value;
+    if (!wrap) return;
+    wrap.classList.toggle("hidden", role !== "Broker");
+}
+
+$("#signup-role")?.addEventListener("change", toggleSignupTeamLead);
+
 signupForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     signupError.classList.add("hidden");
     signupSuccess.classList.add("hidden");
     try {
+        const role = $("#signup-role").value;
+        const body = {
+            firstName: $("#signup-first-name").value,
+            lastName: $("#signup-last-name").value,
+            username: $("#signup-username").value,
+            email: $("#signup-email").value,
+            password: $("#signup-password").value,
+            role,
+        };
+        if (role === "Broker") {
+            body.teamLeadId = $("#signup-team-lead")?.value || "";
+            if (!body.teamLeadId) {
+                signupError.textContent = "Select a Team Lead (Gary or Alen) for this Broker";
+                signupError.classList.remove("hidden");
+                return;
+            }
+        }
         const res = await fetch(`${API}/auth/register`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                firstName: $("#signup-first-name").value,
-                lastName: $("#signup-last-name").value,
-                username: $("#signup-username").value,
-                email: $("#signup-email").value,
-                password: $("#signup-password").value,
-                role: $("#signup-role").value,
-            }),
+            body: JSON.stringify(body),
         });
         const data = await res.json();
         if (!data.success) {
@@ -337,6 +380,7 @@ signupForm.addEventListener("submit", async (e) => {
             return;
         }
         signupForm.reset();
+        toggleSignupTeamLead();
         signupSuccess.textContent =
             (data.data && data.data.message) ||
             data.message ||

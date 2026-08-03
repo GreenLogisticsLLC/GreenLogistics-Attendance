@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { loginController, registerController, approveRegistrationController, rejectRegistrationController, meController } from "../controllers/auth.controller.js";
+import { loginController, registerController, approveRegistrationController, rejectRegistrationController, meController, listTeamLeadsController } from "../controllers/auth.controller.js";
 import {
     getDashboardController,
     getEmployeeDetailController,
@@ -43,6 +43,7 @@ import {
     listUsersController,
     listAssignableRolesController,
     updateUserRoleController,
+    updateUserTeamLeadController,
     deleteUserController,
 } from "../controllers/users.controller.js";
 import { emailRouter } from "../modules/email/routes/email.routes.js";
@@ -64,6 +65,7 @@ apiRouter.use("/ai", aiRouter);
 
 apiRouter.post("/v1/auth/login", loginController);
 apiRouter.post("/v1/auth/register", registerController);
+apiRouter.get("/v1/auth/team-leads", listTeamLeadsController);
 apiRouter.get("/v1/auth/registration/approve", approveRegistrationController);
 apiRouter.get("/v1/auth/registration/reject", rejectRegistrationController);
 apiRouter.get("/v1/auth/me", authMiddleware, meController);
@@ -91,6 +93,12 @@ apiRouter.put(
     authMiddleware,
     requireRole("Administrator", "Owner", "Manager", "HR"),
     updateUserRoleController
+);
+apiRouter.patch(
+    "/v1/users/:userId/team-lead",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    updateUserTeamLeadController
 );
 apiRouter.delete(
     "/v1/users/:userId",

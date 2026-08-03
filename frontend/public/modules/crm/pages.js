@@ -6,13 +6,33 @@ window.GreenOSModules.crm = {
   children: [
     { id: "dashboard", title: "Dashboard" },
     { id: "shipments", title: "Shipments" },
-    { id: "brokers", title: "Brokers" },
+    { id: "brokers", title: "My Team" },
   ],
+
+  currentRole() {
+    try {
+      var raw = localStorage.getItem("gl_user");
+      if (!raw) return "";
+      var u = JSON.parse(raw);
+      return u.role || u.roleName || "";
+    } catch {
+      return "";
+    }
+  },
+
+  isTeamLead() {
+    return this.currentRole() === "Team Lead" || this._lastScope === "team";
+  },
 
   render(root, subPageId) {
     if (!root) return;
     var self = this;
-    var children = this.children || [];
+    var children = (this.children || []).map(function (c) {
+      if (c.id === "brokers" && !self.isTeamLead()) {
+        return { id: "brokers", title: "Brokers" };
+      }
+      return c;
+    });
     var active = children.find(function (c) {
       return c.id === subPageId;
     }) || children[0];
@@ -117,11 +137,19 @@ window.GreenOSModules.crm = {
       var d = data.data || {};
       var k = d.kpis || {};
       var workload = d.brokerWorkload || [];
+      this._lastScope = d.scope || "company";
+      var teamMode = d.scope === "team";
 
       body.innerHTML =
         '<section class="gos-dash-hero">' +
-        "<h1>CRM Dashboard <span class=\"crm-ver\">v1.0</span></h1>" +
-        "<p>Real-time view of shipments, pipeline, and broker workload</p>" +
+        "<h1>" +
+        (teamMode ? "My Team CRM" : "CRM Dashboard") +
+        ' <span class="crm-ver">v1.0</span></h1>' +
+        "<p>" +
+        (teamMode
+          ? "Oversight of your brokers, their shipments, and pipeline"
+          : "Real-time view of shipments, pipeline, and broker workload") +
+        "</p>" +
         "</section>" +
         '<div class="gos-card-grid crm-kpi-grid">' +
         this.kpiCard("Unassigned", k.unassigned || 0, "accent-warn") +
@@ -144,7 +172,9 @@ window.GreenOSModules.crm = {
         '<div id="crm-unassigned"></div>' +
         "</section>" +
         '<section class="crm-section">' +
-        "<h2>Broker Workload</h2>" +
+        "<h2>" +
+        (teamMode ? "Team Workload" : "Broker Workload") +
+        "</h2>" +
         '<div class="crm-workload" id="crm-workload"></div>' +
         "</section>" +
         '<section class="crm-section">' +
@@ -400,21 +430,33 @@ window.GreenOSModules.crm = {
         return;
       }
       var rows = data.data || [];
+      var teamMode = /team/i.test(data.message || "") || this.isTeamLead();
       body.innerHTML =
         '<section class="gos-dash-hero">' +
-        "<h1>Brokers</h1>" +
-        "<p>Select a broker to open their workspace</p>" +
+        "<h1>" +
+        (teamMode ? "My Team" : "Brokers") +
+        "</h1>" +
+        "<p>" +
+        (teamMode
+          ? "Brokers reporting to you — open a workspace to review their full pipeline"
+          : "Select a broker to open their workspace") +
+        "</p>" +
         "</section>" +
         '<div class="table-wrap"><table class="crm-table">' +
         "<thead><tr>" +
-        "<th>Broker</th><th>Status</th><th>Online</th><th>Current Shipments</th>" +
+        "<th>Broker</th><th>Status</th><th>In Office</th><th>Current Shipments</th>" +
         "<th>Awaiting Acceptance</th><th>Follow Up</th><th>Quotes Sent</th>" +
         "<th>Won</th><th>Lost</th><th>Avg Response</th>" +
         "</tr></thead><tbody id=\"crm-broker-body\"></tbody></table></div>";
 
       var tbody = body.querySelector("#crm-broker-body");
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="10">No brokers</td></tr>';
+        tbody.innerHTML =
+          '<tr><td colspan="10">' +
+          (teamMode
+            ? "No brokers on your team yet — approve Broker registrations and they will appear here"
+            : "No brokers") +
+          "</td></tr>";
         return;
       }
       var esc = this.esc.bind(this);
@@ -431,7 +473,7 @@ window.GreenOSModules.crm = {
             esc(b.status) +
             "</td>" +
             "<td>" +
-            (b.online ? "🟢" : "⚫") +
+            (b.inOffice ? "In Office" : "Out") +
             "</td>" +
             "<td>" +
             b.currentShipments +

@@ -141,6 +141,11 @@ export function isDataScopedRole(role: string): boolean {
     return role === Roles.Broker;
 }
 
+/** Team Lead sees only their brokers' work (not company-wide). */
+export function isTeamScopedRole(role: string): boolean {
+    return role === Roles.TeamLead;
+}
+
 export function canAccessModule(role: string, moduleId: string): boolean {
     const allowed = MODULE_ACCESS[moduleId as ModuleId];
     if (!allowed) return false;
@@ -149,6 +154,7 @@ export function canAccessModule(role: string, moduleId: string): boolean {
 
 export function defaultModuleForRole(role: string): ModuleId {
     if (role === Roles.Broker) return "broker";
+    if (role === Roles.TeamLead) return "crm";
     return "dashboard";
 }
 
@@ -156,8 +162,9 @@ export function modulesForRole(role: string): ModuleId[] {
     return ALL_MODULES.filter((m) => canAccessModule(role, m));
 }
 
+/** Company-wide shipment visibility (Owner/Manager/Admin). Team Lead is team-scoped. */
 export function canViewAllShipments(role: string): boolean {
-    return !isDataScopedRole(role);
+    return !isDataScopedRole(role) && !isTeamScopedRole(role);
 }
 
 export function canManageBrokers(role: string): boolean {

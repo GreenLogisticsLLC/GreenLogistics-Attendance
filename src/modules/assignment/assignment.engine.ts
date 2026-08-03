@@ -4,6 +4,7 @@ import { domainEventEngine } from "../shipment/services/domain-event.engine.js";
 import { ensureGreenOsShipmentId } from "../shipment/shipment.id.js";
 import { platformNotificationService } from "../shipment/services/platform-notification.service.js";
 import { sseEmitToRoles, sseEmitToUser } from "../crm/services/realtime.hub.js";
+import { getBrokerTeamLeadId } from "../../auth/team-scope.js";
 import {
     shipmentImportLogRepository,
     shipmentLeadRepository,
@@ -71,7 +72,7 @@ export class AssignmentEngine {
                 });
             }
             try {
-                sseEmitToRoles(["Owner", "Manager", "Administrator", "Team Lead"], {
+                sseEmitToRoles(["Owner", "Manager", "Administrator"], {
                     type: "SHIPMENT_UNASSIGNED",
                     shipmentLeadId,
                     shipmentTitle: lead.shipmentTitle,
@@ -148,7 +149,8 @@ export class AssignmentEngine {
                 message: `New Shipment Assigned — ${gosId || shipmentLeadId.slice(0, 8)}`,
             };
             sseEmitToUser(broker.userId, notifyPayload);
-            sseEmitToRoles(["Owner", "Manager", "Administrator", "Team Lead"], {
+            // Company roles see all assignments; Team Leads only get their own broker's events.
+            sseEmitToRoles(["Owner", "Manager", "Administrator"], {
                 type: "SHIPMENT_ASSIGNED_BROADCAST",
                 shipmentLeadId,
                 greenOsShipmentId: gosId,
@@ -158,6 +160,19 @@ export class AssignmentEngine {
                 assignedAt: new Date().toISOString(),
                 message: `New Shipment Assigned — ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
             });
+            const teamLeadId = await getBrokerTeamLeadId(broker.userId);
+            if (teamLeadId) {
+                sseEmitToUser(teamLeadId, {
+                    type: "SHIPMENT_ASSIGNED_BROADCAST",
+                    shipmentLeadId,
+                    greenOsShipmentId: gosId,
+                    shipmentNumber: gosId || shipmentLeadId.slice(0, 8),
+                    shipmentTitle: leadRow?.shipmentTitle || lead.shipmentTitle,
+                    brokerName: broker.displayName,
+                    assignedAt: new Date().toISOString(),
+                    message: `New Shipment Assigned — ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
+                });
+            }
             await platformNotificationService
                 .notifyUser({
                     userId: broker.userId,
@@ -170,7 +185,7 @@ export class AssignmentEngine {
                 .catch(() => null);
             await platformNotificationService
                 .notifyRoles({
-                    roles: ["Owner", "Manager", "Administrator", "Team Lead"],
+                    roles: ["Owner", "Manager", "Administrator"],
                     notificationType: "SHIPMENT_ASSIGNED",
                     title: "New Shipment Assigned",
                     message: `Shipment # ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
@@ -179,6 +194,18 @@ export class AssignmentEngine {
                     meta: { greenOsShipmentId: gosId, brokerName: broker.displayName },
                 })
                 .catch(() => null);
+            if (teamLeadId) {
+                await platformNotificationService
+                    .notifyUser({
+                        userId: teamLeadId,
+                        notificationType: "SHIPMENT_ASSIGNED",
+                        title: "New Shipment Assigned (your team)",
+                        message: `Shipment # ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
+                        shipmentLeadId,
+                        meta: { greenOsShipmentId: gosId, brokerName: broker.displayName },
+                    })
+                    .catch(() => null);
+            }
         } catch (err) {
             console.warn("[assignment] SSE notify failed:", err);
         }

@@ -2,8 +2,14 @@ import { Response } from "express";
 import { apiResponse } from "../../../utils/helpers.js";
 import type { AuthRequest } from "../../../middlewares/auth.middleware.js";
 import { crmService } from "../services/crm.service.js";
-import { assertShipmentAccess, scopedBrokerId } from "../../../auth/access.js";
-import { canManageBrokers, isDataScopedRole } from "../../../auth/roles.js";
+import {
+    assertBrokerWorkspaceAccess,
+    assertShipmentAccess,
+    scopedBrokerId,
+    teamScopeUserId,
+} from "../../../auth/access.js";
+import { canManageBrokers, isDataScopedRole, isTeamScopedRole } from "../../../auth/roles.js";
+import { isBrokerOnTeam, listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { prisma } from "../../../config/database.js";
 
 export async function crmDashboardController(req: AuthRequest, res: Response) {
@@ -18,8 +24,15 @@ export async function crmDashboardController(req: AuthRequest, res: Response) {
             })
         );
     }
-    const data = await crmService.getDashboard();
-    return res.json(apiResponse(true, "CRM dashboard", data));
+    const teamLeadId = teamScopeUserId(req) || undefined;
+    const data = await crmService.getDashboard(teamLeadId ? { teamLeadId } : undefined);
+    return res.json(
+        apiResponse(
+            true,
+            teamLeadId ? "Team CRM dashboard" : "CRM dashboard",
+            data
+        )
+    );
 }
 
 export async function crmListShipmentsController(req: AuthRequest, res: Response) {
@@ -33,8 +46,19 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
     ) {
         return res.status(403).json(apiResponse(false, "Forbidden — cannot list another broker's shipments"));
     }
+    const teamLeadId = teamScopeUserId(req);
+    if (teamLeadId && requested) {
+        const onTeam = await isBrokerOnTeam(teamLeadId, requested);
+        if (!onTeam) {
+            return res.status(403).json(apiResponse(false, "Forbidden — broker is not on your team"));
+        }
+    }
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
-    const data = await crmService.listShipments({ brokerId, status });
+    const data = await crmService.listShipments({
+        brokerId,
+        status,
+        teamLeadId: !brokerId && teamLeadId ? teamLeadId : undefined,
+    });
     return res.json(apiResponse(true, "Shipments loaded", data));
 }
 
@@ -79,16 +103,24 @@ export async function crmListBrokersController(req: AuthRequest, res: Response) 
     if (!canManageBrokers(req.user?.role || "")) {
         return res.status(403).json(apiResponse(false, "Forbidden"));
     }
-    const data = await crmService.getBrokerWorkload();
-    return res.json(apiResponse(true, "Brokers loaded", data));
+    const teamLeadId = teamScopeUserId(req) || undefined;
+    const data = await crmService.getBrokerWorkload(
+        teamLeadId ? { teamLeadId } : undefined
+    );
+    return res.json(
+        apiResponse(true, teamLeadId ? "Team brokers loaded" : "Brokers loaded", data)
+    );
 }
 
 export async function crmBrokerWorkspaceController(req: AuthRequest, res: Response) {
     const id = String(req.params.id);
-    if (isDataScopedRole(req.user?.role || "") && id !== req.user!.userId) {
-        return res.status(403).json(apiResponse(false, "Forbidden — cannot open another broker workspace"));
-    }
-    if (!canManageBrokers(req.user?.role || "") && !isDataScopedRole(req.user?.role || "")) {
+    const allowed = await assertBrokerWorkspaceAccess(req, res, id);
+    if (!allowed) return;
+    if (
+        !canManageBrokers(req.user?.role || "") &&
+        !isDataScopedRole(req.user?.role || "") &&
+        !isTeamScopedRole(req.user?.role || "")
+    ) {
         return res.status(403).json(apiResponse(false, "Forbidden"));
     }
     const data = await crmService.getBrokerWorkspace(id);
@@ -140,7 +172,14 @@ export async function crmMyCustomersController(req: AuthRequest, res: Response) 
     if (!brokerId && isDataScopedRole(req.user?.role || "")) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));
     }
-    const where = brokerId ? { assignedBrokerId: brokerId } : {};
+    const teamLeadId = teamScopeUserId(req);
+    let where: Record<string, unknown> = {};
+    if (brokerId) {
+        where = { assignedBrokerId: brokerId };
+    } else if (teamLeadId) {
+        const ids = await listTeamBrokerIds(teamLeadId);
+        where = { assignedBrokerId: { in: ids } };
+    }
     const rows = await prisma.shipmentLead.findMany({
         where,
         select: {

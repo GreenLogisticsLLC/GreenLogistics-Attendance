@@ -6,6 +6,7 @@ import { domainEventEngine } from "../../shipment/services/domain-event.engine.j
 import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { ensureGreenOsShipmentId } from "../../shipment/shipment.id.js";
 import { statusLabel } from "../../shipment/shipment.lifecycle.js";
+import { listTeamBrokerIds } from "../../../auth/team-scope.js";
 
 function startOfToday(timezone: string): Date {
     const parts = new Intl.DateTimeFormat("en-CA", {
@@ -79,8 +80,19 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
 }
 
 export class CrmService {
-    async getDashboard() {
+    async getDashboard(options?: { teamLeadId?: string }) {
         const todayStart = startOfToday(config.timezone);
+        const teamBrokerIds = options?.teamLeadId
+            ? await listTeamBrokerIds(options.teamLeadId)
+            : null;
+        const teamAssigned =
+            teamBrokerIds != null
+                ? { assignedBrokerId: { in: teamBrokerIds } }
+                : {};
+        const unassignedWhere = {
+            status: { in: ["NEW", "UNASSIGNED"] },
+            OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+        };
 
         const [
             newToday,
@@ -95,36 +107,52 @@ export class CrmService {
             unassignedRows,
         ] = await Promise.all([
             prisma.shipmentLead.count({
-                where: { createdAt: { gte: todayStart } },
+                where: {
+                    createdAt: { gte: todayStart },
+                    ...(teamBrokerIds
+                        ? {
+                              OR: [
+                                  { assignedBrokerId: { in: teamBrokerIds } },
+                                  unassignedWhere,
+                              ],
+                          }
+                        : {}),
+                },
+            }),
+            prisma.shipmentLead.count({ where: unassignedWhere }),
+            prisma.shipmentLead.count({
+                where: { status: "AWAITING_ACCEPTANCE", ...teamAssigned },
             }),
             prisma.shipmentLead.count({
-                where: {
-                    status: { in: ["NEW", "UNASSIGNED"] },
-                    OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
-                },
+                where: { status: "WORKING", ...teamAssigned },
             }),
-            prisma.shipmentLead.count({ where: { status: "AWAITING_ACCEPTANCE" } }),
-            prisma.shipmentLead.count({ where: { status: "WORKING" } }),
-            prisma.shipmentLead.count({ where: { status: "QUOTE_SENT" } }),
-            prisma.shipmentLead.count({ where: { status: "WON" } }),
-            prisma.shipmentLead.count({ where: { status: "LOST" } }),
-            prisma.shipmentLead.count({ where: { status: { in: [...ACTIVE_STATUSES] } } }),
-            this.getBrokerWorkload(),
+            prisma.shipmentLead.count({
+                where: { status: "QUOTE_SENT", ...teamAssigned },
+            }),
+            prisma.shipmentLead.count({
+                where: { status: "WON", ...teamAssigned },
+            }),
+            prisma.shipmentLead.count({
+                where: { status: "LOST", ...teamAssigned },
+            }),
+            prisma.shipmentLead.count({
+                where: { status: { in: [...ACTIVE_STATUSES] }, ...teamAssigned },
+            }),
+            this.getBrokerWorkload(options?.teamLeadId ? { teamLeadId: options.teamLeadId } : undefined),
             prisma.shipmentLead.findMany({
-                where: {
-                    status: { in: ["NEW", "UNASSIGNED"] },
-                    OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
-                },
+                where: unassignedWhere,
                 orderBy: { createdAt: "asc" },
                 take: 50,
             }),
         ]);
 
-        const avgResponseMs = await this.averageResponseTimeMs();
+        const avgResponseMs = await this.averageResponseTimeMs(teamBrokerIds || undefined);
         const brokersById = await userMap([]);
 
         return {
             version: "1.0",
+            scope: options?.teamLeadId ? "team" : "company",
+            teamBrokerCount: teamBrokerIds?.length ?? null,
             kpis: {
                 newShipmentsToday: newToday,
                 unassigned: unassignedCount,
@@ -147,9 +175,13 @@ export class CrmService {
         };
     }
 
-    private async averageResponseTimeMs(): Promise<number | null> {
+    private async averageResponseTimeMs(teamBrokerIds?: string[]): Promise<number | null> {
         const rows = await prisma.shipmentLead.findMany({
-            where: { assignedAt: { not: null }, acceptedAt: { not: null } },
+            where: {
+                assignedAt: { not: null },
+                acceptedAt: { not: null },
+                ...(teamBrokerIds ? { assignedBrokerId: { in: teamBrokerIds } } : {}),
+            },
             select: { assignedAt: true, acceptedAt: true },
             take: 500,
             orderBy: { acceptedAt: "desc" },
@@ -162,9 +194,25 @@ export class CrmService {
         return diffs.reduce((a, b) => a + b, 0) / diffs.length;
     }
 
-    async listShipments(options?: { brokerId?: string; status?: string; limit?: number }) {
+    async listShipments(options?: {
+        brokerId?: string;
+        status?: string;
+        limit?: number;
+        teamLeadId?: string;
+    }) {
         const where: Record<string, unknown> = {};
-        if (options?.brokerId) where.assignedBrokerId = options.brokerId;
+        if (options?.brokerId) {
+            where.assignedBrokerId = options.brokerId;
+        } else if (options?.teamLeadId) {
+            const teamBrokerIds = await listTeamBrokerIds(options.teamLeadId);
+            where.OR = [
+                { assignedBrokerId: { in: teamBrokerIds } },
+                {
+                    status: { in: ["NEW", "UNASSIGNED"] },
+                    OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+                },
+            ];
+        }
         if (options?.status) where.status = options.status;
 
         const rows = await prisma.shipmentLead.findMany({
@@ -244,13 +292,17 @@ export class CrmService {
         };
     }
 
-    async getBrokerWorkload() {
+    async getBrokerWorkload(options?: { teamLeadId?: string }) {
         const brokers = await prisma.user.findMany({
             where: {
                 isActive: true,
                 role: { roleName: { in: ["Broker", "Manager", "Owner"] } },
+                ...(options?.teamLeadId ? { teamLeadId: options.teamLeadId } : {}),
             },
-            include: { role: true },
+            include: {
+                role: true,
+                teamLead: { select: { userId: true, firstName: true, lastName: true, username: true } },
+            },
             orderBy: { firstName: "asc" },
         });
         const preferred = brokers.filter((b) => b.role.roleName === "Broker");
@@ -267,6 +319,8 @@ export class CrmService {
             availableForAssignment: boolean;
             inOffice: boolean;
             employeeId: string | null;
+            teamLeadId: string | null;
+            teamLeadName: string | null;
             currentShipments: number;
             awaitingAcceptance: number;
             followUp: number;
@@ -320,6 +374,7 @@ export class CrmService {
                 inOffice = session?.currentStatus === "INSIDE_OFFICE";
             }
 
+            const tl = b.teamLead;
             result.push({
                 brokerId: b.userId,
                 name: brokerName(b),
@@ -331,6 +386,8 @@ export class CrmService {
                 availableForAssignment: b.availableForAssignment,
                 inOffice,
                 employeeId: b.employeeId,
+                teamLeadId: b.teamLeadId || null,
+                teamLeadName: tl ? brokerName(tl) : null,
                 currentShipments,
                 awaitingAcceptance,
                 followUp,
@@ -346,7 +403,10 @@ export class CrmService {
     async getBrokerWorkspace(brokerId: string) {
         const user = await prisma.user.findUnique({
             where: { userId: brokerId },
-            include: { role: true },
+            include: {
+                role: true,
+                teamLead: { select: { userId: true, firstName: true, lastName: true, username: true } },
+            },
         });
         if (!user) return null;
 
@@ -360,6 +420,8 @@ export class CrmService {
                 username: user.username,
                 role: user.role.roleName,
                 online: user.isActive,
+                teamLeadId: user.teamLeadId || null,
+                teamLeadName: user.teamLead ? brokerName(user.teamLead) : null,
             },
             stats: stats || {
                 currentShipments: 0,
