@@ -8,6 +8,7 @@ import {
     listTeamLeadsController,
     listPendingRegistrationsController,
     approvePendingRegistrationController,
+    setPendingTeamLeadController,
     deletePendingRegistrationController,
 } from "../controllers/auth.controller.js";
 import {
@@ -90,6 +91,12 @@ apiRouter.post(
     authMiddleware,
     requireRole("Administrator", "Owner", "Manager", "HR"),
     approvePendingRegistrationController
+);
+apiRouter.patch(
+    "/v1/auth/registrations/:pendingId/team-lead",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    setPendingTeamLeadController
 );
 apiRouter.delete(
     "/v1/auth/registrations/:pendingId",

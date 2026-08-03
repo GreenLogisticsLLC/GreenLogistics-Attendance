@@ -130,7 +130,8 @@ window.GreenOSModules["employees"] = {
     body.innerHTML =
       "<h2>Pending approve</h2>" +
       "<p class=\"gos-muted\">People who signed up and are waiting for confirmation. " +
-      "<strong>Approve</strong> creates their Green OS login. <strong>Delete</strong> removes the request.</p>" +
+      "For Brokers, choose <strong>Team Lead</strong> (Gary or Alen), then <strong>Approve</strong>. " +
+      "<strong>Delete</strong> removes the request.</p>" +
       '<p id="emp-pending-status" class="gos-muted">Loading…</p>' +
       '<div class="emp-users-wrap"><table class="emp-users-table" id="emp-pending-table">' +
       "<thead><tr>" +
@@ -151,11 +152,35 @@ window.GreenOSModules["employees"] = {
       }
     }
 
+    function teamLeadSelectHtml(teamLeads, selectedId, isBroker) {
+      if (!isBroker) {
+        return '<span class="gos-muted">n/a</span>';
+      }
+      var opts = '<option value="">Select Gary or Alen…</option>';
+      (teamLeads || []).forEach(function (tl) {
+        var selected = tl.userId === selectedId ? " selected" : "";
+        opts +=
+          '<option value="' +
+          esc(tl.userId) +
+          '"' +
+          selected +
+          ">" +
+          esc(tl.name) +
+          "</option>";
+      });
+      return (
+        '<select class="emp-team-lead-select emp-pending-team-lead">' +
+        opts +
+        "</select>"
+      );
+    }
+
     async function loadTable() {
       statusEl.textContent = "Loading…";
       statusEl.style.color = "";
       try {
         var res = await api("/auth/registrations/pending");
+        var leadsRes = await api("/auth/team-leads");
         if (!res.success) {
           statusEl.textContent = res.message || "Failed to load pending requests";
           statusEl.style.color = "#ef4444";
@@ -163,6 +188,7 @@ window.GreenOSModules["employees"] = {
           return;
         }
         var rows = res.data || [];
+        var teamLeads = (leadsRes && leadsRes.success && leadsRes.data) || [];
         statusEl.textContent =
           rows.length === 0
             ? "No pending requests"
@@ -171,9 +197,12 @@ window.GreenOSModules["employees"] = {
 
         tbody.innerHTML = rows
           .map(function (r) {
+            var isBroker = r.requestedRole === "Broker";
             return (
               '<tr data-pending-id="' +
               esc(r.pendingId) +
+              '" data-role="' +
+              esc(r.requestedRole) +
               '">' +
               "<td>" +
               esc(r.firstName + " " + r.lastName) +
@@ -188,10 +217,7 @@ window.GreenOSModules["employees"] = {
               esc(r.requestedRole) +
               "</td>" +
               "<td>" +
-              esc(
-                r.requestedTeamLeadName ||
-                  (r.requestedRole === "Broker" ? "—" : "n/a")
-              ) +
+              teamLeadSelectHtml(teamLeads, r.requestedTeamLeadId || "", isBroker) +
               "</td>" +
               "<td>" +
               esc(formatWhen(r.createdAt)) +
@@ -205,12 +231,52 @@ window.GreenOSModules["employees"] = {
           })
           .join("");
 
+        tbody.querySelectorAll(".emp-pending-team-lead").forEach(function (select) {
+          select.addEventListener("change", async function () {
+            var tr = select.closest("tr");
+            if (!tr) return;
+            var pendingId = tr.getAttribute("data-pending-id");
+            var teamLeadId = select.value || "";
+            if (!pendingId || !teamLeadId) return;
+            statusEl.textContent = "Saving Team Lead…";
+            statusEl.style.color = "";
+            try {
+              var data = await api(
+                "/auth/registrations/" +
+                  encodeURIComponent(pendingId) +
+                  "/team-lead",
+                { method: "PATCH", body: { teamLeadId: teamLeadId } }
+              );
+              if (!data.success) {
+                statusEl.textContent = data.message || "Failed to set Team Lead";
+                statusEl.style.color = "#ef4444";
+                return;
+              }
+              statusEl.textContent = data.message || "Team Lead saved";
+              statusEl.style.color = "#22c55e";
+            } catch (e) {
+              statusEl.textContent =
+                e && e.message ? e.message : "Connection error";
+              statusEl.style.color = "#ef4444";
+            }
+          });
+        });
+
         tbody.querySelectorAll(".emp-pending-approve").forEach(function (btn) {
           btn.addEventListener("click", async function () {
             var tr = btn.closest("tr");
             if (!tr) return;
             var pendingId = tr.getAttribute("data-pending-id");
             if (!pendingId) return;
+            var role = tr.getAttribute("data-role") || "";
+            var tlSelect = tr.querySelector(".emp-pending-team-lead");
+            var teamLeadId = tlSelect ? tlSelect.value || null : null;
+            if (role === "Broker" && !teamLeadId) {
+              statusEl.textContent =
+                "Select Team Lead (Gary or Alen) before approving this Broker";
+              statusEl.style.color = "#ef4444";
+              return;
+            }
             var name =
               (tr.cells[0] && tr.cells[0].textContent) || "this person";
             var ok = window.confirm(
@@ -223,11 +289,13 @@ window.GreenOSModules["employees"] = {
             statusEl.textContent = "Approving…";
             statusEl.style.color = "";
             try {
+              var body =
+                role === "Broker" ? { teamLeadId: teamLeadId } : {};
               var data = await api(
                 "/auth/registrations/" +
                   encodeURIComponent(pendingId) +
                   "/approve",
-                { method: "POST" }
+                { method: "POST", body: body }
               );
               if (!data.success) {
                 statusEl.textContent = data.message || "Approve failed";

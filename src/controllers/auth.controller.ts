@@ -103,11 +103,26 @@ export async function listPendingRegistrationsController(_req: AuthRequest, res:
 
 export async function approvePendingRegistrationController(req: AuthRequest, res: Response) {
     const pendingId = String(req.params.pendingId || "");
-    const result = await authService.decidePendingById(pendingId, "APPROVED");
+    const teamLeadId =
+        req.body && Object.prototype.hasOwnProperty.call(req.body, "teamLeadId")
+            ? req.body.teamLeadId
+            : undefined;
+    const result = await authService.decidePendingById(pendingId, "APPROVED", {
+        teamLeadId,
+    });
     if (!result.ok) {
         return res.status(result.status).json(apiResponse(false, result.message));
     }
     return res.json(apiResponse(true, result.message));
+}
+
+export async function setPendingTeamLeadController(req: AuthRequest, res: Response) {
+    const pendingId = String(req.params.pendingId || "");
+    const result = await authService.setPendingTeamLead(pendingId, req.body?.teamLeadId);
+    if (!result.ok) {
+        return res.status(result.status).json(apiResponse(false, result.message));
+    }
+    return res.json(apiResponse(true, result.message, result.data));
 }
 
 export async function deletePendingRegistrationController(req: AuthRequest, res: Response) {

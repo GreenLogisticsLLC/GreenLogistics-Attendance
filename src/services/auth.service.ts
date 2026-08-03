@@ -385,7 +385,53 @@ export class AuthService {
         }));
     }
 
-    async decidePendingById(pendingId: string, decision: "APPROVED" | "REJECTED") {
+    async setPendingTeamLead(pendingId: string, teamLeadId: string | null | undefined) {
+        const pending = await prisma.pendingRegistration.findUnique({
+            where: { pendingId },
+        });
+        if (!pending) {
+            return { ok: false as const, status: 404, message: "Registration request not found" };
+        }
+        if (pending.status !== "PENDING") {
+            return {
+                ok: false as const,
+                status: 409,
+                message: `This request was already ${pending.status.toLowerCase()}`,
+            };
+        }
+        if (pending.requestedRole !== Roles.Broker) {
+            return {
+                ok: false as const,
+                status: 422,
+                message: "Team Lead can only be set for Broker registrations",
+            };
+        }
+        const validId = await assertValidTeamLeadId(teamLeadId);
+        if (!validId) {
+            return {
+                ok: false as const,
+                status: 422,
+                message: "Select a valid Team Lead (Gary or Alen)",
+            };
+        }
+        await prisma.pendingRegistration.update({
+            where: { pendingId },
+            data: { requestedTeamLeadId: validId },
+        });
+        const leads = await listTeamLeadOptions();
+        const name = leads.find((l) => l.userId === validId)?.name || null;
+        return {
+            ok: true as const,
+            message: `Team Lead set to ${name || "selected lead"}`,
+            data: { pendingId, requestedTeamLeadId: validId, requestedTeamLeadName: name },
+        };
+    }
+
+    async decidePendingById(
+        pendingId: string,
+        decision: "APPROVED" | "REJECTED",
+        options?: { teamLeadId?: string | null }
+    ) {
         const pending = await prisma.pendingRegistration.findUnique({
             where: { pendingId },
         });
@@ -431,14 +477,24 @@ export class AuthService {
         const role = await this.ensureRole(pending.requestedRole as SignupRole);
         let teamLeadId: string | null = null;
         if (pending.requestedRole === Roles.Broker) {
-            teamLeadId = await assertValidTeamLeadId(pending.requestedTeamLeadId);
+            const preferred =
+                options?.teamLeadId !== undefined && options?.teamLeadId !== null && options.teamLeadId !== ""
+                    ? options.teamLeadId
+                    : pending.requestedTeamLeadId;
+            teamLeadId = await assertValidTeamLeadId(preferred);
             if (!teamLeadId) {
                 return {
                     ok: false as const,
                     status: 422,
                     message:
-                        "Cannot approve: Broker has no valid Team Lead selected. Delete and ask them to re-register choosing Gary or Alen.",
+                        "Cannot approve: select Team Lead (Gary or Alen) for this Broker first.",
                 };
+            }
+            if (pending.requestedTeamLeadId !== teamLeadId) {
+                await prisma.pendingRegistration.update({
+                    where: { pendingId: pending.pendingId },
+                    data: { requestedTeamLeadId: teamLeadId },
+                });
             }
         }
 
