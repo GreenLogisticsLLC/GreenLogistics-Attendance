@@ -1,0 +1,129 @@
+name: Delete leftover employees
+
+on:
+  workflow_dispatch:
+    inputs:
+      employee_numbers:
+        description: "Comma-separated employee_number values to delete"
+        required: true
+        default: "GL-009,GL-003,GL-007"
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Delete named employees
+        env:
+          EMPLOYEE_NUMBERS: ${{ github.event.inputs.employee_numbers }}
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            "EMPLOYEE_NUMBERS=$(printf %q "$EMPLOYEE_NUMBERS") bash -s" << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          pm2 stop greenos || true
+
+          python3 << 'PY'
+          import os, re, sqlite3
+          from pathlib import Path
+
+          raw_nums = (os.environ.get("EMPLOYEE_NUMBERS") or "GL-009,GL-003,GL-007")
+          targets = [x.strip().upper() for x in raw_nums.split(",") if x.strip()]
+          root = Path("/root/GreenLogistics-Attendance")
+          env = (root / ".env").read_text(encoding="utf-8", errors="ignore")
+          m = re.search(r'^DATABASE_URL=(.*)$', env, re.M)
+          raw = (m.group(1).strip().strip('"').strip("'") if m else "")
+          candidates = []
+          if raw.startswith("file:"):
+              candidates.append(Path(raw[5:]))
+          candidates += [root / "data" / "attendance.db", root / "prisma" / "data" / "attendance.db"]
+          db = next((p for p in candidates if p.is_file()), None)
+          if not db:
+              raise SystemExit("SQLite DB not found")
+
+          print(f"Using DB={db}")
+          print(f"TARGETS={targets}")
+          con = sqlite3.connect(str(db), timeout=60)
+          con.execute("PRAGMA foreign_keys = OFF")
+          cur = con.cursor()
+
+          rows = cur.execute(
+              """
+              SELECT employee_id, employee_number, first_name, last_name, card_number, status
+              FROM employees
+              ORDER BY employee_number
+              """
+          ).fetchall()
+          print("=== employees BEFORE ===")
+          for row in rows:
+              print(row)
+
+          to_delete = [r for r in rows if (r[1] or "").upper() in targets]
+          # Also match by common names if numbers differ
+          name_hints = {
+              ("rich", "gray"),
+              ("andy", "murry"),
+              ("andy", "murray"),
+              ("alen", "yang"),
+          }
+          for r in rows:
+              key = ((r[2] or "").strip().lower(), (r[3] or "").strip().lower())
+              if key in name_hints and r not in to_delete:
+                  to_delete.append(r)
+
+          if not to_delete:
+              raise SystemExit("No matching employees found")
+
+          print("=== deleting ===")
+          for row in to_delete:
+              print(row)
+
+          for emp_id, number, first, last, card, status in to_delete:
+              print(f"-- {number} {first} {last}")
+              # Unlink any platform user still pointing here
+              cur.execute("UPDATE users SET employee_id = NULL WHERE employee_id = ?", (emp_id,))
+              sessions = cur.execute(
+                  "SELECT session_id FROM attendance_sessions WHERE employee_id = ?",
+                  (emp_id,),
+              ).fetchall()
+              session_ids = [s[0] for s in sessions]
+              if session_ids:
+                  q = ",".join("?" * len(session_ids))
+                  cur.execute(f"DELETE FROM absence_intervals WHERE session_id IN ({q})", session_ids)
+              cur.execute("DELETE FROM attendance_events WHERE employee_id = ?", (emp_id,))
+              cur.execute("DELETE FROM attendance_sessions WHERE employee_id = ?", (emp_id,))
+              cur.execute("DELETE FROM notifications WHERE employee_id = ?", (emp_id,))
+              cur.execute("DELETE FROM assignment_logs WHERE assigned_employee_id = ?", (emp_id,))
+              try:
+                  cur.execute("UPDATE broker_gmail_accounts SET broker_id = NULL WHERE broker_id = ?", (emp_id,))
+              except Exception:
+                  pass
+              if card:
+                  try:
+                      cur.execute("DELETE FROM pending_card_scans WHERE card_token = ?", (str(card).strip().lower(),))
+                  except Exception:
+                      pass
+              cur.execute("DELETE FROM employees WHERE employee_id = ?", (emp_id,))
+              print(f"   deleted employee {number}")
+
+          con.commit()
+          print("=== employees AFTER ===")
+          for row in cur.execute(
+              "SELECT employee_id, employee_number, first_name, last_name, card_number, status FROM employees ORDER BY employee_number"
+          ):
+              print(row)
+          print("DONE count=", cur.execute("SELECT COUNT(*) FROM employees").fetchone()[0])
+          con.close()
+          PY
+
+          pm2 restart greenos --update-env
+          sleep 4
+          curl --fail http://localhost:3847/api/health || true
+          EOF
