@@ -493,8 +493,8 @@ export class AssignmentEngine {
     }
 
     /**
-     * Eligible = linked broker whose Attendance status is In Office and Gmail is connected.
-     * Out of Office → excluded. Queue order is driven by card swipes (arrival order).
+     * Eligible = Broker In Office (Attendance check-in).
+     * Out of Office → excluded. Queue order follows card swipe arrival.
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
         const users = await prisma.user.findMany({
@@ -502,13 +502,6 @@ export class AssignmentEngine {
                 role: { roleName: "Broker" },
                 isActive: true,
                 availableForAssignment: true,
-                brokerGmailAccount: {
-                    is: {
-                        status: "CONNECTED",
-                        isActive: true,
-                        NOT: { refreshToken: "" },
-                    },
-                },
             },
             include: { role: true, employee: true, brokerGmailAccount: true },
             orderBy: [{ firstName: "asc" }, { lastName: "asc" }],

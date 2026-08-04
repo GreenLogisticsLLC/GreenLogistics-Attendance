@@ -204,13 +204,18 @@
     es.addEventListener("SHIPMENT_ASSIGNED_BROADCAST", function (ev) {
       try {
         var d = JSON.parse(ev.data);
-        // Brokers already get SHIPMENT_ASSIGNED; managers get a quieter toast
+        // Brokers already get SHIPMENT_ASSIGNED; Owner / Team Lead see who got it
         if (window.GreenOSUser && window.GreenOSUser.role === "Broker") return;
         unread += 1;
         updateBadge();
+        var num = d.greenOsShipmentId || d.shipmentNumber || "";
+        var broker = d.brokerName || "broker";
         showSimpleToast(
-          "Shipment assigned",
-          (d.shipmentTitle || "Shipment") + " → " + (d.brokerName || "broker")
+          "New shipment → " + broker,
+          (num ? "Shipment # " + num + " — " : "") +
+            (d.shipmentTitle || "Shipment") +
+            " assigned to " +
+            broker
         );
       } catch (e) {
         /* ignore */

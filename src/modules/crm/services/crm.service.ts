@@ -105,6 +105,7 @@ export class CrmService {
             active,
             brokers,
             unassignedRows,
+            recentAssignedRows,
         ] = await Promise.all([
             prisma.shipmentLead.count({
                 where: {
@@ -144,10 +145,25 @@ export class CrmService {
                 orderBy: { createdAt: "asc" },
                 take: 50,
             }),
+            prisma.shipmentLead.findMany({
+                where: {
+                    assignedBrokerId: { not: null },
+                    assignedAt: { not: null },
+                    ...(teamBrokerIds
+                        ? { assignedBrokerId: { in: teamBrokerIds } }
+                        : {}),
+                },
+                orderBy: { assignedAt: "desc" },
+                take: 30,
+            }),
         ]);
 
+        const brokerIdsForMap = [
+            ...unassignedRows.map((r) => r.assignedBrokerId),
+            ...recentAssignedRows.map((r) => r.assignedBrokerId),
+        ].filter(Boolean) as string[];
+        const brokersById = await userMap(brokerIdsForMap);
         const avgResponseMs = await this.averageResponseTimeMs(teamBrokerIds || undefined);
-        const brokersById = await userMap([]);
 
         return {
             version: "1.0",
@@ -165,6 +181,9 @@ export class CrmService {
                 averageResponseTimeMinutes: avgResponseMs == null ? null : Math.round(avgResponseMs / 60000),
             },
             unassignedShipments: unassignedRows.map((row) =>
+                enrichLead(row as unknown as Record<string, unknown>, brokersById)
+            ),
+            recentlyAssigned: recentAssignedRows.map((row) =>
                 enrichLead(row as unknown as Record<string, unknown>, brokersById)
             ),
             brokerWorkload: brokers.map((b) => ({

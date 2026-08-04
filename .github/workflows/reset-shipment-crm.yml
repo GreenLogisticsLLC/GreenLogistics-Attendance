@@ -1,0 +1,40 @@
+name: Reset Shipment CRM + assignment queue
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type RESET_SHIPMENT_CRM
+        required: true
+        type: string
+
+jobs:
+  reset:
+    if: ${{ inputs.confirmation == 'RESET_SHIPMENT_CRM' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Wipe shipment CRM data and reset round-robin queue
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          npm run build
+          pm2 stop greenos || true
+          trap 'pm2 restart greenos --update-env >/dev/null 2>&1 || true' EXIT
+          node scripts/reset-shipment-crm-data.mjs --confirm=RESET_SHIPMENT_CRM
+          pm2 restart greenos --update-env
+          pm2 save
+          trap - EXIT
+          sleep 5
+          curl --fail http://localhost:3847/api/health || true
+          EOF

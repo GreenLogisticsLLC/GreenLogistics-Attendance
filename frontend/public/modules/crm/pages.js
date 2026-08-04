@@ -168,8 +168,13 @@ window.GreenOSModules.crm = {
         "</div>" +
         '<section class="crm-section">' +
         "<h2>Unassigned Shipments</h2>" +
-        "<p class=\"gos-muted\">Waiting for a broker In Office — auto-assigned when someone swipes in.</p>" +
+        "<p class=\"gos-muted\">Waiting for a broker In Office — new shipments go round-robin to whoever is checked in.</p>" +
         '<div id="crm-unassigned"></div>' +
+        "</section>" +
+        '<section class="crm-section">' +
+        "<h2>Recently Assigned</h2>" +
+        "<p class=\"gos-muted\">Which shipment went to which broker — you and the Team Lead both see the name.</p>" +
+        '<div id="crm-recent-assigned"></div>' +
         "</section>" +
         '<section class="crm-section">' +
         "<h2>" +
@@ -185,7 +190,7 @@ window.GreenOSModules.crm = {
       var unassigned = d.unassignedShipments || [];
       var ua = body.querySelector("#crm-unassigned");
       if (!unassigned.length) {
-        ua.innerHTML = "<p class=\"gos-muted\">None — all shipments are assigned or none are waiting.</p>";
+        ua.innerHTML = "<p class=\"gos-muted\">None — waiting for new shipments. Brokers In Office receive them in turn.</p>";
       } else {
         ua.innerHTML =
           '<table class="crm-table"><thead><tr>' +
@@ -218,6 +223,53 @@ window.GreenOSModules.crm = {
             .join("") +
           "</tbody></table>";
         ua.querySelectorAll(".crm-open-unassigned").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            window.GreenOSModules.crm.openShipmentCard(root, btn.getAttribute("data-id"));
+          });
+        });
+      }
+
+      var recent = d.recentlyAssigned || [];
+      var ra = body.querySelector("#crm-recent-assigned");
+      if (!recent.length) {
+        ra.innerHTML =
+          "<p class=\"gos-muted\">No assignments yet — when a shipment is given out, the broker name appears here.</p>";
+      } else {
+        ra.innerHTML =
+          '<table class="crm-table"><thead><tr>' +
+          "<th>Shipment</th><th>Title</th><th>Assigned to (Broker)</th><th>When</th><th></th>" +
+          "</tr></thead><tbody>" +
+          recent
+            .map(function (s) {
+              return (
+                "<tr>" +
+                "<td><strong>" +
+                window.GreenOSModules.crm.esc(
+                  s.greenOsShipmentId ||
+                    s.externalShipmentId ||
+                    String(s.shipmentLeadId || "").slice(0, 8)
+                ) +
+                "</strong></td>" +
+                "<td>" +
+                window.GreenOSModules.crm.esc(s.shipmentTitle || "—") +
+                "</td>" +
+                '<td><strong style="color:#34d399">' +
+                window.GreenOSModules.crm.esc(s.brokerName || "—") +
+                "</strong></td>" +
+                "<td>" +
+                window.GreenOSModules.crm.esc(
+                  s.assignedAt ? new Date(s.assignedAt).toLocaleString() : "—"
+                ) +
+                "</td>" +
+                '<td><button type="button" class="btn-primary crm-open-recent" data-id="' +
+                s.shipmentLeadId +
+                '" style="width:auto;padding:0.35rem 0.7rem">Open</button></td>' +
+                "</tr>"
+              );
+            })
+            .join("") +
+          "</tbody></table>";
+        ra.querySelectorAll(".crm-open-recent").forEach(function (btn) {
           btn.addEventListener("click", function () {
             window.GreenOSModules.crm.openShipmentCard(root, btn.getAttribute("data-id"));
           });
