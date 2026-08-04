@@ -10,15 +10,29 @@ window.GreenOSModules.broker = {
     { id: "customers", title: "My Customers" },
     { id: "notifications", title: "Notifications" },
   ],
+  _shipmentsTimer: null,
+
+  stopShipmentsAutoRefresh() {
+    if (this._shipmentsTimer) {
+      clearInterval(this._shipmentsTimer);
+      this._shipmentsTimer = null;
+    }
+  },
 
   render(root, subPageId) {
     if (!root) return;
     var self = this;
+    this.stopShipmentsAutoRefresh();
     var children = this.children;
     var active =
       children.find(function (c) {
         return c.id === subPageId;
       }) || children[0];
+
+    if (window.GreenOS) {
+      window.GreenOS.currentModule = "broker";
+      window.GreenOS.currentSub = active.id;
+    }
 
     var nav = children
       .map(function (c) {
@@ -233,24 +247,31 @@ window.GreenOSModules.broker = {
 
   async renderShipments(body, root) {
     var self = this;
-    body.innerHTML = "<p>Loading my shipments…</p>";
+    body.innerHTML =
+      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>Shipments assigned to you — list refreshes automatically every 10 seconds</p></section>' +
+      '<p class="gos-muted" id="broker-ship-sync" style="margin:0 0 0.75rem">Loading…</p>' +
+      '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+      "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Updated</th>" +
+      '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="7">Loading…</td></tr></tbody></table></div>';
 
     async function paint() {
+      var tbody = document.getElementById("broker-ship-body");
+      var syncEl = document.getElementById("broker-ship-sync");
+      if (!tbody) return;
       try {
         var data = await self.api("/shipments");
         if (!data.success) {
-          body.innerHTML = "<p>" + self.esc(data.message) + "</p>";
+          if (syncEl) syncEl.textContent = data.message || "Failed to load";
           return;
         }
         var rows = data.data || [];
-        if (!body.querySelector("#broker-ship-body")) {
-          body.innerHTML =
-            '<section class="gos-dash-hero"><h1>My Shipments</h1><p>Shipments assigned to you — statuses update automatically from uShip email</p></section>' +
-            '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-            "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Updated</th>" +
-            '</tr></thead><tbody id="broker-ship-body"></tbody></table></div>';
+        if (syncEl) {
+          syncEl.textContent =
+            "Auto-refresh on · " +
+            rows.length +
+            " shipment(s) · updated " +
+            new Date().toLocaleTimeString();
         }
-        var tbody = body.querySelector("#broker-ship-body");
         if (!rows.length) {
           tbody.innerHTML = '<tr><td colspan="7">No shipments assigned yet</td></tr>';
           return;
@@ -293,16 +314,25 @@ window.GreenOSModules.broker = {
           });
         });
       } catch {
-        if (!body.querySelector("#broker-ship-body")) {
-          body.innerHTML = "<p>Failed to load shipments</p>";
-        }
+        if (syncEl) syncEl.textContent = "Refresh failed — retrying…";
       }
     }
 
     window.GreenOSBrokerReloadShipments = function () {
-      if (!document.body.contains(body)) return;
+      if (!document.getElementById("broker-ship-body")) return;
       paint();
     };
+
+    self.stopShipmentsAutoRefresh();
+    self._shipmentsTimer = setInterval(function () {
+      if (document.hidden) return;
+      if (!document.getElementById("broker-ship-body")) {
+        self.stopShipmentsAutoRefresh();
+        return;
+      }
+      paint();
+    }, 10000);
+
     await paint();
   },
 

@@ -159,6 +159,20 @@
         `</div>`;
     },
 
+    /** Soft re-render current module (used by realtime / poll). */
+    refreshModule() {
+      if (!this.currentModule) return;
+      if (
+        this.currentModule === "broker" &&
+        this.currentSub === "shipments" &&
+        typeof window.GreenOSBrokerReloadShipments === "function"
+      ) {
+        window.GreenOSBrokerReloadShipments();
+        return;
+      }
+      this.navigate(this.currentModule, this.currentSub || undefined);
+    },
+
     renderDashboard(root) {
       const cards = DEMO_CARDS.map(
         (c) =>

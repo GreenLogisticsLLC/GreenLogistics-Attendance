@@ -167,18 +167,17 @@
     if (typeof window.GreenOSEmailReload === "function") {
       window.GreenOSEmailReload();
     }
+    // Prefer soft My Shipments reload for brokers (avoid full remount).
+    if (typeof window.GreenOSBrokerReloadShipments === "function") {
+      window.GreenOSBrokerReloadShipments();
+    }
     if (
       window.GreenOS &&
       typeof window.GreenOS.refreshModule === "function" &&
-      (window.GreenOS.currentModule === "crm" ||
-        window.GreenOS.currentModule === "broker" ||
-        window.GreenOS.currentModule === "email" ||
-        window.GreenOS.currentModule === "administration")
+      window.GreenOS.currentModule &&
+      window.GreenOS.currentModule !== "broker"
     ) {
       window.GreenOS.refreshModule();
-    }
-    if (typeof window.GreenOSBrokerReloadShipments === "function") {
-      window.GreenOSBrokerReloadShipments();
     }
     if (typeof window.GreenOSEmailAccountsReload === "function") {
       window.GreenOSEmailAccountsReload();
@@ -231,8 +230,18 @@
       es = new EventSource(url);
     } catch (e) {
       console.warn("[realtime] EventSource failed", e);
-      return;
+      es = null;
     }
+
+    // Always keep My Shipments / boards refreshing — even if SSE is unavailable.
+    if (!window.__gosShipmentPoll) {
+      window.__gosShipmentPoll = setInterval(function () {
+        if (document.hidden) return;
+        refreshOpenViews();
+      }, 10000);
+    }
+
+    if (!es) return;
 
     es.addEventListener("connected", function () {
       console.log("[realtime] SSE connected");
@@ -354,14 +363,6 @@
         /* ignore */
       }
     });
-
-    // Keep shipment boards in sync even if an SSE event is missed (Gmail sync is every ~30s).
-    if (!window.__gosShipmentPoll) {
-      window.__gosShipmentPoll = setInterval(function () {
-        if (document.hidden) return;
-        refreshOpenViews();
-      }, 30000);
-    }
 
     es.onerror = function () {
       // Browser auto-reconnects EventSource
