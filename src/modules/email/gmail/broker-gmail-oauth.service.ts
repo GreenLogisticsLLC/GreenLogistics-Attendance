@@ -6,9 +6,10 @@ import { prisma } from "../../../config/database.js";
 import { getGmailRedirectUri } from "./gmail-oauth.service.js";
 
 const BROKER_GMAIL_SCOPES = [
-    "openid",
-    "email",
-    "https://www.googleapis.com/auth/gmail.readonly",
+    // Same Gmail scopes as company inbox — already approved on the Google Cloud OAuth client.
+    // gmail.modify includes read (needed for uShip sync). Avoid gmail.readonly-only, which
+    // often fails with "insufficient authentication scopes" when not listed on the consent screen.
+    "https://www.googleapis.com/auth/gmail.modify",
 ];
 const TOKEN_PREFIX = "enc:v1:";
 
@@ -136,7 +137,7 @@ export class BrokerGmailOAuthService {
             access_type: "offline",
             prompt: "consent",
             scope: BROKER_GMAIL_SCOPES,
-            include_granted_scopes: true,
+            include_granted_scopes: false,
             state: encodeBrokerOAuthState(userId, brokerId),
         });
     }
@@ -181,8 +182,8 @@ export class BrokerGmailOAuthService {
         const profile = await gmail.users.getProfile({ userId: "me" });
         const email = profile.data.emailAddress || "";
         if (!email) throw new Error("Could not read Gmail address from Google profile");
-        const oauthProfile = await google.oauth2({ version: "v2", auth: oauth2 }).userinfo.get();
-        const googleUserId = oauthProfile.data.id || null;
+        // Prefer Gmail profile email; do not call oauth2 userinfo (needs extra scopes).
+        const googleUserId = null;
         const encryptedRefreshToken = encryptBrokerRefreshToken(refreshToken);
 
         const data = {
