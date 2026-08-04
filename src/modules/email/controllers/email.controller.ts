@@ -13,6 +13,7 @@ import {
 } from "../gmail/gmail-oauth.service.js";
 import {
     brokerGmailOAuthService,
+    parseBrokerGmailInvite,
     parseBrokerOAuthState,
 } from "../gmail/broker-gmail-oauth.service.js";
 import { brokerGmailSyncService } from "../gmail/broker-gmail-sync.service.js";
@@ -352,6 +353,163 @@ export async function adminDisconnectBrokerGmailController(req: AuthRequest, res
         return res.status(404).json(apiResponse(false, "Broker Gmail account not found"));
     }
     return res.json(apiResponse(true, "Broker Gmail disconnected"));
+}
+
+/**
+ * POST /api/email/broker/accounts/:userId/invite — shareable link (optional).
+ * Prefer Owner Connect Gmail (same pattern as company inbox).
+ */
+export async function adminInviteBrokerGmailController(req: AuthRequest, res: Response) {
+    try {
+        const userId = String(req.params.userId || "").trim();
+        const { teamScopeUserId } = await import("../../../auth/access.js");
+        const { listTeamBrokerIds } = await import("../../../auth/team-scope.js");
+        const teamLeadId = teamScopeUserId(req);
+        if (teamLeadId) {
+            const ids = await listTeamBrokerIds(teamLeadId);
+            if (!ids.includes(userId)) {
+                return res.status(403).json(apiResponse(false, "You can only invite brokers on your team"));
+            }
+        }
+        const invite = await brokerGmailOAuthService.createInviteUrl(userId);
+        return res.json(
+            apiResponse(true, "Invite link created", {
+                ...invite,
+                instructions:
+                    "Prefer Administration → Connect Gmail (Owner signs into that mailbox once, like company Gmail). This link is optional if someone else must complete Google consent.",
+            })
+        );
+    } catch (err) {
+        const status = (err as { status?: number })?.status || 500;
+        const message = err instanceof Error ? err.message : "Invite failed";
+        return res.status(status).json(apiResponse(false, message));
+    }
+}
+
+/**
+ * GET /api/email/broker/accounts/:userId/connect
+ * Owner/Admin starts Google OAuth for a broker mailbox — same idea as company Connect Gmail.
+ * Sign into the broker's personal Gmail on the Google screen once; GreenOS stores the token.
+ */
+export async function adminConnectBrokerGmailController(req: AuthRequest, res: Response) {
+    try {
+        if (!req.user?.userId) {
+            return res.status(401).json(apiResponse(false, "Unauthorized"));
+        }
+        if (!brokerGmailOAuthService.isClientConfigured()) {
+            return res.status(503).json(apiResponse(false, "Gmail OAuth client is not configured"));
+        }
+
+        const userId = String(req.params.userId || "").trim();
+        const { teamScopeUserId } = await import("../../../auth/access.js");
+        const { listTeamBrokerIds } = await import("../../../auth/team-scope.js");
+        const teamLeadId = teamScopeUserId(req);
+        if (teamLeadId) {
+            const ids = await listTeamBrokerIds(teamLeadId);
+            if (!ids.includes(userId)) {
+                return res.status(403).json(apiResponse(false, "You can only connect Gmail for brokers on your team"));
+            }
+        }
+
+        const broker = await prisma.user.findUnique({
+            where: { userId },
+            include: { role: true, employee: true },
+        });
+        if (!broker || !broker.isActive || broker.role.roleName !== "Broker") {
+            return res.status(404).json(apiResponse(false, "Broker not found"));
+        }
+        if (!broker.employeeId) {
+            return res.status(400).json(
+                apiResponse(false, "Broker must be linked to an Attendance employee before connecting Gmail")
+            );
+        }
+
+        const url = brokerGmailOAuthService.getAuthUrlForBroker(broker.userId, broker.employeeId);
+        if (wantsJson(req)) {
+            return res.json(
+                apiResponse(true, "OK", {
+                    url,
+                    brokerName: `${broker.firstName} ${broker.lastName}`.trim() || broker.username,
+                    hint: "On Google, choose (or sign into) the personal Gmail that receives this broker's uShip emails. One consent — then GreenOS syncs automatically.",
+                })
+            );
+        }
+        return res.redirect(url);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Connect failed";
+        if (wantsJson(req)) {
+            return res.status(500).json(apiResponse(false, message));
+        }
+        return res
+            .status(500)
+            .type("html")
+            .send(htmlPage("Gmail OAuth", `<h1>Error</h1><p>${escapeHtml(message)}</p>`, false));
+    }
+}
+
+/**
+ * GET /api/email/broker/connect-invite?token=… — public; starts Google OAuth for the invited broker.
+ */
+export async function brokerGmailConnectInviteController(req: Request, res: Response) {
+    try {
+        if (!brokerGmailOAuthService.isClientConfigured()) {
+            return res
+                .status(503)
+                .type("html")
+                .send(
+                    htmlPage(
+                        "Gmail OAuth",
+                        "<h1>Gmail OAuth is not configured</h1><p>Ask an administrator to set GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET.</p>",
+                        false
+                    )
+                );
+        }
+        const token = typeof req.query.token === "string" ? req.query.token : "";
+        const invite = parseBrokerGmailInvite(token);
+        if (!invite) {
+            return res
+                .status(400)
+                .type("html")
+                .send(
+                    htmlPage(
+                        "Invite expired",
+                        "<h1>Invite link invalid or expired</h1><p>Ask your Team Lead / Owner for a new Connect Gmail invite (valid 48 hours).</p>",
+                        false
+                    )
+                );
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { userId: invite.userId },
+            include: { role: true },
+        });
+        if (
+            !user ||
+            !user.isActive ||
+            user.role.roleName !== "Broker" ||
+            user.employeeId !== invite.brokerId
+        ) {
+            return res
+                .status(403)
+                .type("html")
+                .send(
+                    htmlPage(
+                        "Invite invalid",
+                        "<h1>This invite no longer matches an active Broker</h1><p>Ask Owner to generate a new invite after the employee link is fixed.</p>",
+                        false
+                    )
+                );
+        }
+
+        const url = brokerGmailOAuthService.getAuthUrlForBroker(invite.userId, invite.brokerId);
+        return res.redirect(url);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Invite connect failed";
+        return res
+            .status(500)
+            .type("html")
+            .send(htmlPage("Gmail OAuth", `<h1>Error</h1><p>${escapeHtml(message)}</p>`, false));
+    }
 }
 
 export async function listShipmentsController(req: AuthRequest, res: Response) {

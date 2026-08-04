@@ -766,7 +766,7 @@ async function openEmployeeDrawer(employeeId) {
                 <div>Last Sync: ${gmail.lastSyncAt ? new Date(gmail.lastSyncAt).toLocaleString() : "—"}</div>
                 ${gmail.lastError ? `<div>Error: ${gmail.lastError}</div>` : ""}
             </div>
-            <p style="margin-top:0.75rem">The broker can connect, reconnect, or disconnect Gmail from their Personal Dashboard.</p>
+            <p style="margin-top:0.75rem">Owner connects this mailbox once: Administration → Email Accounts → Connect Gmail (same as company Gmail).</p>
         </div>` : ""}
         ${session ? `
         <div class="drawer-section">

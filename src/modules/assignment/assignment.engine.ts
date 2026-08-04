@@ -614,6 +614,18 @@ export class AssignmentEngine {
             // Only In Office participates; Out of Office / other statuses are excluded.
             if (!session || session.currentStatus !== "INSIDE_OFFICE") continue;
 
+            // After assignment, uShip updates go to the broker's personal Gmail —
+            // without CONNECTED Gmail, GreenOS loses the shipment lifecycle.
+            const gmail = user.brokerGmailAccount;
+            if (
+                !gmail ||
+                gmail.status !== "CONNECTED" ||
+                !gmail.isActive ||
+                !gmail.refreshToken
+            ) {
+                continue;
+            }
+
             if (!user.employeeId) {
                 try {
                     await prisma.user.update({

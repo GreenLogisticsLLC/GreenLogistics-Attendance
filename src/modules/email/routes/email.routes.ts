@@ -2,8 +2,11 @@ import { Router } from "express";
 import { authMiddleware, requireRole } from "../../../middlewares/auth.middleware.js";
 import { Roles } from "../../../auth/roles.js";
 import {
+    adminConnectBrokerGmailController,
     adminDisconnectBrokerGmailController,
+    adminInviteBrokerGmailController,
     brokerGmailAuthController,
+    brokerGmailConnectInviteController,
     brokerGmailDisconnectController,
     brokerGmailMessagesController,
     brokerGmailStatusController,
@@ -23,6 +26,8 @@ export const emailRouter = Router();
 // OAuth must be public — Google redirects here without a JWT.
 emailRouter.get("/auth", gmailAuthController);
 emailRouter.get("/callback", gmailCallbackController);
+// Owner invite link: broker opens this (no GreenOS JWT) → Google consent for personal Gmail.
+emailRouter.get("/broker/connect-invite", brokerGmailConnectInviteController);
 
 emailRouter.use(authMiddleware);
 
@@ -50,6 +55,16 @@ emailRouter.get(
     "/broker/accounts",
     requireRole("Administrator", "Owner", "Manager", Roles.TeamLead),
     listBrokerGmailAccountsController
+);
+emailRouter.get(
+    "/broker/accounts/:userId/connect",
+    requireRole("Administrator", "Owner", Roles.TeamLead),
+    adminConnectBrokerGmailController
+);
+emailRouter.post(
+    "/broker/accounts/:userId/invite",
+    requireRole("Administrator", "Owner", Roles.TeamLead),
+    adminInviteBrokerGmailController
 );
 emailRouter.post(
     "/broker/accounts/:userId/disconnect",

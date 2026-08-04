@@ -18,6 +18,12 @@ type BrokerOAuthState = {
     brokerId: string;
 };
 
+type BrokerGmailInvite = {
+    purpose: "broker-gmail-invite";
+    userId: string;
+    brokerId: string;
+};
+
 function tokenKey(): Buffer {
     return crypto.createHash("sha256").update(config.jwtSecret).digest();
 }
@@ -66,6 +72,46 @@ export function parseBrokerOAuthState(state: string | undefined | null): BrokerO
     } catch {
         return null;
     }
+}
+
+/** Owner/Admin invite: broker opens link and consents with their personal Gmail (no GreenOS login required). */
+export function encodeBrokerGmailInvite(userId: string, brokerId: string): string {
+    return jwt.sign(
+        { purpose: "broker-gmail-invite", userId, brokerId } satisfies BrokerGmailInvite,
+        config.jwtSecret,
+        { expiresIn: "48h" }
+    );
+}
+
+export function parseBrokerGmailInvite(token: string | undefined | null): BrokerGmailInvite | null {
+    if (!token) return null;
+    try {
+        const payload = jwt.verify(token, config.jwtSecret) as BrokerGmailInvite;
+        if (
+            payload.purpose !== "broker-gmail-invite" ||
+            typeof payload.userId !== "string" ||
+            typeof payload.brokerId !== "string"
+        ) {
+            return null;
+        }
+        return payload;
+    } catch {
+        return null;
+    }
+}
+
+export function isBrokerGmailConnected(account: {
+    status?: string | null;
+    isActive?: boolean | null;
+    refreshToken?: string | null;
+} | null | undefined): boolean {
+    return Boolean(
+        account &&
+            account.status === "CONNECTED" &&
+            account.isActive &&
+            typeof account.refreshToken === "string" &&
+            account.refreshToken.length > 0
+    );
 }
 
 function createOAuthClient() {
@@ -231,6 +277,43 @@ export class BrokerGmailOAuthService {
                 user: { select: { userId: true, username: true, firstName: true, lastName: true, roleId: true } },
             },
         });
+    }
+
+    /**
+     * Build a shareable invite URL. The broker opens it while signed into the
+     * personal Gmail that receives uShip updates — Owner never needs their password.
+     */
+    async createInviteUrl(userId: string): Promise<{
+        inviteUrl: string;
+        expiresInHours: number;
+        brokerName: string;
+        employeeId: string;
+    }> {
+        if (!this.isClientConfigured()) {
+            throw Object.assign(new Error("Gmail OAuth client is not configured"), { status: 503 });
+        }
+        const user = await prisma.user.findUnique({
+            where: { userId },
+            include: { role: true, employee: true },
+        });
+        if (!user || !user.isActive || user.role.roleName !== "Broker") {
+            throw Object.assign(new Error("Broker not found"), { status: 404 });
+        }
+        if (!user.employeeId || !user.employee) {
+            throw Object.assign(
+                new Error("Broker must be linked to an Attendance employee before connecting Gmail"),
+                { status: 400 }
+            );
+        }
+        const token = encodeBrokerGmailInvite(user.userId, user.employeeId);
+        const inviteUrl = `${config.publicAppUrl}/api/email/broker/connect-invite?token=${encodeURIComponent(token)}`;
+        const brokerName = `${user.firstName} ${user.lastName}`.trim() || user.username;
+        return {
+            inviteUrl,
+            expiresInHours: 48,
+            brokerName,
+            employeeId: user.employeeId,
+        };
     }
 }
 

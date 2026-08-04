@@ -120,8 +120,8 @@ window.GreenOSModules.broker = {
         this.card("Lost", s.lost || 0, "accent-warn") +
         "</div>" +
         '<section class="gos-module-placeholder" style="margin-top:1.25rem" id="broker-gmail-box">' +
-        "<h3>Gmail</h3>" +
-        '<p class="gos-muted">GreenOS reads shipment updates from this Gmail after assignment. You continue working only in GreenOS.</p>' +
+        "<h3>Personal Gmail (uShip updates)</h3>" +
+        '<p class="gos-muted">Your Team Lead / Owner connects this mailbox once (like company Gmail). After that, GreenOS automatically shows questions, accepted codes, and booking updates on your shipment cards.</p>' +
         '<p id="broker-gmail-status">Checking…</p>' +
         '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem">' +
         '<button type="button" class="btn-primary" id="broker-gmail-connect" style="width:auto">Connect Gmail</button>' +
@@ -176,14 +176,14 @@ window.GreenOSModules.broker = {
             "<br>Last Sync: " +
             (d.lastSyncAt ? self.fmtDate(d.lastSyncAt) : "Not synced yet") +
             (d.lastError ? '<br><span style="color:var(--red)">' + self.esc(d.lastError) + "</span>" : "");
-          if (connectButton) connectButton.textContent = "Reconnect";
+          if (connectButton) connectButton.hidden = true;
           if (syncButton) syncButton.hidden = false;
-          if (disconnectButton) disconnectButton.hidden = false;
+          if (disconnectButton) disconnectButton.hidden = true;
         } else {
           statusEl.innerHTML = d.oauthClientConfigured
-            ? "Status: <strong>Not connected</strong>"
+            ? "Status: <strong>Not connected yet</strong><br><span class=\"gos-muted\">Owner connects your uShip Gmail once under Administration → Email Accounts. You do not need to do anything here.</span>"
             : "Status: <strong>OAuth is not configured on the server</strong>";
-          if (connectButton) connectButton.textContent = "Connect Gmail";
+          if (connectButton) connectButton.hidden = true;
           if (syncButton) syncButton.hidden = true;
           if (disconnectButton) disconnectButton.hidden = true;
         }

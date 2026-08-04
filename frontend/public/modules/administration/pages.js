@@ -56,15 +56,22 @@ window.GreenOSModules['administration'] = {
     body.innerHTML =
       '<section class="gos-dash-hero">' +
       '<h1>Email Accounts</h1>' +
-      '<p>Company Gmail creates new Shipments. Each broker Gmail updates only Shipments assigned to that broker.</p>' +
+      '<p>Same as company Gmail: Owner connects each broker mailbox once. After that, uShip emails on that Gmail update the shipment card automatically (questions, accepted codes, booked, lost). Brokers do not need to connect anything.</p>' +
       '</section>' +
+      '<div class="gos-card" style="margin-bottom:1rem;padding:1rem 1.25rem">' +
+      '<strong>Connect a broker Gmail (one time)</strong>' +
+      '<ol style="margin:0.5rem 0 0;padding-left:1.25rem;line-height:1.55">' +
+      '<li>Click <em>Connect Gmail</em> on the broker row.</li>' +
+      '<li>On Google, sign in as <strong>that broker\'s personal Gmail</strong> (the one uShip emails) — same idea as connecting company Gmail.</li>' +
+      '<li>Click Allow. GreenOS stores access and syncs uShip mail forever (until Disconnect).</li>' +
+      '</ol>' +
+      '</div>' +
       '<div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem">' +
-      '<button type="button" class="btn-primary" id="email-account-connect-help" style="width:auto">+ Connect Gmail</button>' +
       '<button type="button" class="btn-secondary" id="email-accounts-refresh" style="width:auto">Refresh</button>' +
       '<span class="gos-muted" id="email-accounts-summary">Loading…</span>' +
       '</div>' +
       '<div class="table-wrap"><table>' +
-      '<thead><tr><th>Email</th><th>Employee</th><th>Status</th><th>Last Sync</th><th>Action</th></tr></thead>' +
+      '<thead><tr><th>Gmail</th><th>Broker</th><th>Status</th><th>Last Sync</th><th>Action</th></tr></thead>' +
       '<tbody id="email-accounts-body"><tr><td colspan="5">Loading…</td></tr></tbody>' +
       '</table></div>';
 
@@ -94,10 +101,33 @@ window.GreenOSModules['administration'] = {
         method: (options && options.method) || 'GET',
         headers: {
           'Content-Type': 'application/json',
+          Accept: 'application/json',
           Authorization: token ? 'Bearer ' + token : '',
         },
       });
       return response.json();
+    }
+
+    async function connectBroker(userId, button) {
+      button.disabled = true;
+      button.textContent = 'Opening Google…';
+      try {
+        var result = await api(
+          '/broker/accounts/' + encodeURIComponent(userId) + '/connect?json=1'
+        );
+        if (!result.success || !result.data || !result.data.url) {
+          alert(result.message || 'Could not start Gmail connect');
+          button.textContent = 'Connect Gmail';
+          button.disabled = false;
+          return;
+        }
+        // Same pattern as company Connect Gmail — browser goes to Google consent.
+        window.location.href = result.data.url;
+      } catch (err) {
+        alert('Connect failed');
+        button.textContent = 'Connect Gmail';
+        button.disabled = false;
+      }
     }
 
     async function load() {
@@ -113,7 +143,10 @@ window.GreenOSModules['administration'] = {
       var connected = rows.filter(function (row) {
         return row.status === 'CONNECTED' && row.isActive;
       }).length;
-      summary.textContent = connected + ' connected / ' + rows.length + ' broker(s)';
+      var missing = rows.length - connected;
+      summary.textContent =
+        connected + ' connected / ' + rows.length + ' broker(s)' +
+        (missing ? ' — ' + missing + ' not eligible for assignment until connected' : '');
 
       tbody.innerHTML = rows.map(function (row) {
         var isConnected = row.status === 'CONNECTED' && row.isActive;
@@ -123,24 +156,46 @@ window.GreenOSModules['administration'] = {
             : isConnected
               ? '✅ Connected'
               : '❌ Not connected';
+        var connectLabel =
+          row.status === 'RECONNECT_REQUIRED'
+            ? 'Reconnect Gmail'
+            : isConnected
+              ? 'Reconnect'
+              : 'Connect Gmail';
         return (
           '<tr>' +
           '<td>' + esc(row.gmailAddress || '—') + '</td>' +
           '<td><strong>' + esc(row.name) + '</strong>' +
           (row.employeeNumber ? '<br><span class="gos-muted">' + esc(row.employeeNumber) + '</span>' : '') +
+          (!row.employeeId ? '<br><span style="color:var(--red)">No employee link</span>' : '') +
           '</td>' +
           '<td>' + statusLabel +
           (row.lastError ? '<br><span style="color:var(--red)">' + esc(row.lastError) + '</span>' : '') +
           '</td>' +
           '<td>' + fmtDate(row.lastSyncAt) + '</td>' +
-          '<td>' +
+          '<td style="display:flex;gap:0.4rem;flex-wrap:wrap">' +
+          (row.employeeId
+            ? '<button type="button" class="btn-primary" style="width:auto" data-connect-user="' +
+              esc(row.userId) +
+              '">' +
+              connectLabel +
+              '</button>'
+            : '<span class="gos-muted">Link employee first</span>') +
           (isConnected
-            ? '<button type="button" class="btn-secondary" data-disconnect-user="' + esc(row.userId) + '">Disconnect</button>'
-            : '<span class="gos-muted">Broker must connect</span>') +
+            ? '<button type="button" class="btn-secondary" style="width:auto" data-disconnect-user="' +
+              esc(row.userId) +
+              '">Disconnect</button>'
+            : '') +
           '</td>' +
           '</tr>'
         );
       }).join('') || '<tr><td colspan="5">No Broker accounts found</td></tr>';
+
+      tbody.querySelectorAll('[data-connect-user]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          connectBroker(button.getAttribute('data-connect-user'), button);
+        });
+      });
 
       tbody.querySelectorAll('[data-disconnect-user]').forEach(function (button) {
         button.addEventListener('click', async function () {
@@ -156,11 +211,6 @@ window.GreenOSModules['administration'] = {
       });
     }
 
-    body.querySelector('#email-account-connect-help').addEventListener('click', function () {
-      alert(
-        'For security, each broker connects their own Gmail: sign in as Broker → My Workspace → Personal Dashboard → Connect Gmail. Administrators can monitor and disconnect accounts here.'
-      );
-    });
     body.querySelector('#email-accounts-refresh').addEventListener('click', load);
 
     await load();

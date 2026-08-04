@@ -76,7 +76,7 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
     }
 
     if (
-        /customer\s+accepted|accepted\s+your\s+bid|your\s+bid\s+was\s+accepted|bid\s+accepted|booking\s+confirmed/.test(
+        /customer\s+accepted|accepted\s+your\s+bid|your\s+bid\s+was\s+accepted|bid\s+accepted|booking\s+confirmed|your\s+code\s+has\s+been\s+accepted|code\s+has\s+been\s+accepted\s+by\s+(?:the\s+)?customer|quote\s+has\s+been\s+accepted/.test(
             h
         )
     ) {
@@ -128,7 +128,11 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    if (/customer\s+question|asked\s+a\s+question|new\s+question/.test(h)) {
+    if (
+        /customer\s+question|asked\s+a\s+question|new\s+question|question\s+from\s+(?:the\s+)?customer|you\s+have\s+a\s+new\s+question/.test(
+            h
+        )
+    ) {
         return {
             kind: "CUSTOMER_QUESTION",
             title: "Customer Question",
