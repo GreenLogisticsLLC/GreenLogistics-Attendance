@@ -20,6 +20,7 @@ export type UshipLifecycleKind =
     | "LOAD_NUMBER_ASSIGNED"
     | "SHIPMENT_BOOKED"
     | "SHIPMENT_LOST"
+    | "SHIPMENT_DELETED_BY_CUSTOMER"
     | "NEW_MESSAGE"
     | "UNKNOWN";
 
@@ -51,6 +52,19 @@ function extractLoadNumber(text: string): string | undefined {
 export function detectUshipLifecycleEvent(subject: string, body: string): DetectedLifecycleEvent {
     const h = haystack(subject, body);
     const loadNumber = extractLoadNumber(`${subject}\n${body}`);
+
+    if (
+        /listing\s+(?:was\s+)?deleted|shipment\s+(?:was\s+)?deleted|deleted\s+(?:this\s+)?(?:listing|shipment)|customer\s+deleted|removed\s+(?:the\s+)?(?:listing|shipment)|no\s+longer\s+available|listing\s+has\s+been\s+removed|shipment\s+has\s+been\s+removed/.test(
+            h
+        )
+    ) {
+        return {
+            kind: "SHIPMENT_DELETED_BY_CUSTOMER",
+            title: "Deleted from Customer",
+            domainEventType: "SHIPMENT_DELETED_BY_CUSTOMER",
+            targetStatus: "DELETED_FROM_CUSTOMER",
+        };
+    }
 
     if (
         /shipment\s+lost|listing\s+closed|another\s+carrier|bid\s+not\s+selected|unfortunately.{0,40}lost|canceled|cancelled/.test(
@@ -178,6 +192,7 @@ const NOTIFY_KINDS = new Set<UshipLifecycleKind>([
     "LOAD_NUMBER_ASSIGNED",
     "SHIPMENT_BOOKED",
     "SHIPMENT_LOST",
+    "SHIPMENT_DELETED_BY_CUSTOMER",
     "NEW_MESSAGE",
     "BID_SUBMITTED",
     "BID_UPDATED",
@@ -253,7 +268,7 @@ export async function applyUshipLifecycleEvent(input: {
     } else if (detected.targetStatus) {
         const current = normalizeStatus(shipment.status);
         const target = normalizeStatus(detected.targetStatus);
-        // Don't regress past load/dispatch/completed unless LOST
+        // Don't regress past load/dispatch/completed unless LOST / deleted by customer
         const rank: Record<string, number> = {
             NEW: 0,
             UNASSIGNED: 0,
@@ -268,10 +283,12 @@ export async function applyUshipLifecycleEvent(input: {
             COMPLETED: 8,
             CLOSED: 9,
             LOST: 9,
+            DELETED_FROM_CUSTOMER: 9,
             FOLLOW_UP: 2,
         };
         const shouldUpdateStatus =
             detected.targetStatus === "LOST" ||
+            detected.targetStatus === "DELETED_FROM_CUSTOMER" ||
             (rank[target] ?? 0) >= (rank[current] ?? 0);
 
         if (shouldUpdateStatus && current !== target) {
@@ -339,6 +356,7 @@ export async function applyUshipLifecycleEvent(input: {
             SHIPMENT_BOOKED: "SHIPMENT_BOOKED",
             LOAD_NUMBER_ASSIGNED: "LOAD_NUMBER_RECEIVED",
             SHIPMENT_LOST: "SHIPMENT_LOST",
+            SHIPMENT_DELETED_BY_CUSTOMER: "SHIPMENT_DELETED_BY_CUSTOMER",
             BID_SUBMITTED: "BID_SUBMITTED",
             BID_UPDATED: "BID_SUBMITTED",
             QUOTE_SUBMITTED: "BID_SUBMITTED",

@@ -130,7 +130,7 @@ export class ShipmentService {
         if (input.extras?.priority !== undefined) data.priority = input.extras.priority;
         if (to === "BID_SUBMITTED") data.quoteSentAt = new Date();
         if (to === "ACCEPTED" && !shipment.acceptedAt) data.acceptedAt = new Date();
-        if (to === "COMPLETED" || to === "CLOSED" || to === "LOST") {
+        if (to === "COMPLETED" || to === "CLOSED" || to === "LOST" || to === "DELETED_FROM_CUSTOMER") {
             data.closedAt = new Date();
         }
 

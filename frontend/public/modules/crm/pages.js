@@ -120,7 +120,15 @@ window.GreenOSModules.crm = {
       DELIVERED: { cls: "crm-st-quote", label: "🔵 Delivered" },
       WON: { cls: "crm-st-won", label: "✅ Won" },
       LOST: { cls: "crm-st-lost", label: "🔴 Lost" },
+      DELETED_FROM_CUSTOMER: { cls: "crm-st-deleted", label: "⚫ Deleted from Customer" },
+      DELETED: { cls: "crm-st-deleted", label: "⚫ Deleted from Customer" },
+      CLOSED: { cls: "crm-st-done", label: "⚫ Closed" },
       COMPLETED: { cls: "crm-st-done", label: "⚫ Completed" },
+      BID_SUBMITTED: { cls: "crm-st-quote", label: "🔵 Bid Submitted" },
+      CUSTOMER_REPLIED: { cls: "crm-st-nego", label: "🟣 Customer Replied" },
+      ACCEPTED: { cls: "crm-st-won", label: "✅ Accepted" },
+      LOAD_CREATED: { cls: "crm-st-quote", label: "🔵 Load Created" },
+      DISPATCH: { cls: "crm-st-quote", label: "🔵 Dispatch" },
     };
     var m = map[status] || { cls: "crm-st-done", label: status || "—" };
     return '<span class="crm-badge ' + m.cls + '">' + m.label + "</span>";
@@ -684,6 +692,24 @@ window.GreenOSModules.crm = {
         })
         .join("");
 
+      var statusLabels = {
+        AGENT_OPEN: "AGENT OPEN",
+        WORKING: "WORKING",
+        FOLLOW_UP: "FOLLOW UP",
+        BID_SUBMITTED: "BID SUBMITTED",
+        CUSTOMER_REPLIED: "CUSTOMER REPLIED",
+        ACCEPTED: "ACCEPTED",
+        LOAD_CREATED: "LOAD CREATED",
+        DISPATCH: "DISPATCH",
+        COMPLETED: "COMPLETED",
+        CLOSED: "CLOSED",
+        LOST: "LOST",
+        DELETED_FROM_CUSTOMER: "DELETED FROM CUSTOMER",
+        QUOTE_SENT: "QUOTE SENT",
+        NEGOTIATION: "NEGOTIATION",
+        BOOKED: "BOOKED",
+        WON: "WON",
+      };
       var statusActions = [
         "AGENT_OPEN",
         "WORKING",
@@ -696,6 +722,7 @@ window.GreenOSModules.crm = {
         "COMPLETED",
         "CLOSED",
         "LOST",
+        "DELETED_FROM_CUSTOMER",
         "QUOTE_SENT",
         "NEGOTIATION",
         "BOOKED",
@@ -706,9 +733,11 @@ window.GreenOSModules.crm = {
             '<option value="' +
             st +
             '"' +
-            (s.status === st ? " selected" : "") +
+            (s.status === st || (st === "DELETED_FROM_CUSTOMER" && s.status === "DELETED")
+              ? " selected"
+              : "") +
             ">" +
-            st +
+            (statusLabels[st] || st) +
             "</option>"
           );
         })

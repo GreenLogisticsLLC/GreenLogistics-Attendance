@@ -36,6 +36,7 @@ export const SHIPMENT_STATUSES = [
     "COMPLETED",
     "CLOSED",
     "LOST",
+    "DELETED_FROM_CUSTOMER",
     // Legacy aliases (normalized by lifecycle.normalizeStatus)
     "QUOTE_SENT",
     "NEGOTIATION",
@@ -43,6 +44,7 @@ export const SHIPMENT_STATUSES = [
     "PICKED_UP",
     "DELIVERED",
     "WON",
+    "DELETED",
 ] as const;
 
 export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number] | string;
@@ -63,6 +65,8 @@ export const STATUS_LABELS: Record<string, string> = {
     COMPLETED: "Completed",
     CLOSED: "Closed",
     LOST: "Lost",
+    DELETED_FROM_CUSTOMER: "Deleted from Customer",
+    DELETED: "Deleted from Customer",
     QUOTE_SENT: "Bid Submitted",
     NEGOTIATION: "Customer Replied",
     BOOKED: "Accepted",
@@ -87,6 +91,7 @@ export const DOMAIN_EVENT_TYPES = [
     "SHIPMENT_COMPLETED",
     "SHIPMENT_CLOSED",
     "SHIPMENT_LOST",
+    "SHIPMENT_DELETED_BY_CUSTOMER",
     "STATUS_CHANGED",
     "NOTE_ADDED",
 ] as const;
@@ -105,6 +110,7 @@ export const LIFECYCLE_PIPELINE = [
     { stage: "DISPATCH_STARTED", title: "Dispatch", status: "DISPATCH" },
     { stage: "SHIPMENT_COMPLETED", title: "Completed", status: "COMPLETED" },
     { stage: "SHIPMENT_CLOSED", title: "Closed", status: "CLOSED" },
+    { stage: "SHIPMENT_DELETED_BY_CUSTOMER", title: "Deleted from Customer", status: "DELETED_FROM_CUSTOMER" },
 ] as const;
 
 export const ACTIVE_STATUSES = [

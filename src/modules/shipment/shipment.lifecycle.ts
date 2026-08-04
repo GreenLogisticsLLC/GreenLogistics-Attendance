@@ -9,6 +9,7 @@ const ALIASES: Record<string, string> = {
     PICKED_UP: "DISPATCH",
     DELIVERED: "COMPLETED",
     ASSIGNED: "AWAITING_ACCEPTANCE",
+    DELETED: "DELETED_FROM_CUSTOMER",
 };
 
 export function normalizeStatus(status: string): string {
@@ -23,13 +24,37 @@ export function statusLabel(status: string): string {
 
 /**
  * Allowed transitions. Assignment path + marketplace lifecycle + load on same card.
- * CLOSED / LOST are mostly terminal (LOST may close).
+ * CLOSED / LOST / DELETED_FROM_CUSTOMER are terminal (customer deleted listing on uShip).
  */
 const ALLOWED: Record<string, string[]> = {
-    NEW: ["UNASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN", "WORKING", "BID_SUBMITTED", "LOST"],
-    UNASSIGNED: ["NEW", "AWAITING_ACCEPTANCE", "AGENT_OPEN", "WORKING", "LOST"],
-    AWAITING_ACCEPTANCE: ["AGENT_OPEN", "WORKING", "FOLLOW_UP", "UNASSIGNED", "BID_SUBMITTED", "LOST"],
-    AGENT_OPEN: ["WORKING", "FOLLOW_UP", "UNASSIGNED", "BID_SUBMITTED", "CUSTOMER_REPLIED", "LOST"],
+    NEW: [
+        "UNASSIGNED",
+        "AWAITING_ACCEPTANCE",
+        "AGENT_OPEN",
+        "WORKING",
+        "BID_SUBMITTED",
+        "LOST",
+        "DELETED_FROM_CUSTOMER",
+    ],
+    UNASSIGNED: ["NEW", "AWAITING_ACCEPTANCE", "AGENT_OPEN", "WORKING", "LOST", "DELETED_FROM_CUSTOMER"],
+    AWAITING_ACCEPTANCE: [
+        "AGENT_OPEN",
+        "WORKING",
+        "FOLLOW_UP",
+        "UNASSIGNED",
+        "BID_SUBMITTED",
+        "LOST",
+        "DELETED_FROM_CUSTOMER",
+    ],
+    AGENT_OPEN: [
+        "WORKING",
+        "FOLLOW_UP",
+        "UNASSIGNED",
+        "BID_SUBMITTED",
+        "CUSTOMER_REPLIED",
+        "LOST",
+        "DELETED_FROM_CUSTOMER",
+    ],
     WORKING: [
         "FOLLOW_UP",
         "BID_SUBMITTED",
@@ -37,22 +62,48 @@ const ALLOWED: Record<string, string[]> = {
         "ACCEPTED",
         "LOAD_CREATED",
         "LOST",
+        "DELETED_FROM_CUSTOMER",
     ],
-    FOLLOW_UP: ["AGENT_OPEN", "WORKING", "BID_SUBMITTED", "CUSTOMER_REPLIED", "AWAITING_ACCEPTANCE", "LOST"],
-    BID_SUBMITTED: ["CUSTOMER_REPLIED", "ACCEPTED", "BID_SUBMITTED", "LOST", "WORKING"],
-    CUSTOMER_REPLIED: ["BID_SUBMITTED", "ACCEPTED", "CUSTOMER_REPLIED", "LOST", "WORKING"],
-    ACCEPTED: ["LOAD_CREATED", "DISPATCH", "COMPLETED", "LOST"],
-    LOAD_CREATED: ["DISPATCH", "COMPLETED", "CLOSED", "LOST"],
-    DISPATCH: ["COMPLETED", "CLOSED", "LOST"],
-    COMPLETED: ["CLOSED"],
+    FOLLOW_UP: [
+        "AGENT_OPEN",
+        "WORKING",
+        "BID_SUBMITTED",
+        "CUSTOMER_REPLIED",
+        "AWAITING_ACCEPTANCE",
+        "LOST",
+        "DELETED_FROM_CUSTOMER",
+    ],
+    BID_SUBMITTED: [
+        "CUSTOMER_REPLIED",
+        "ACCEPTED",
+        "BID_SUBMITTED",
+        "LOST",
+        "WORKING",
+        "DELETED_FROM_CUSTOMER",
+    ],
+    CUSTOMER_REPLIED: [
+        "BID_SUBMITTED",
+        "ACCEPTED",
+        "CUSTOMER_REPLIED",
+        "LOST",
+        "WORKING",
+        "DELETED_FROM_CUSTOMER",
+    ],
+    ACCEPTED: ["LOAD_CREATED", "DISPATCH", "COMPLETED", "LOST", "DELETED_FROM_CUSTOMER"],
+    LOAD_CREATED: ["DISPATCH", "COMPLETED", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
+    DISPATCH: ["COMPLETED", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
+    COMPLETED: ["CLOSED", "DELETED_FROM_CUSTOMER"],
     CLOSED: [],
     LOST: ["CLOSED"],
+    DELETED_FROM_CUSTOMER: [],
 };
 
 export function canTransition(from: string, to: string): boolean {
     const a = normalizeStatus(from);
     const b = normalizeStatus(to);
     if (a === b) return true;
+    // Customer removed the listing — allowed from any non-terminal active state.
+    if (b === "DELETED_FROM_CUSTOMER" && a !== "CLOSED") return true;
     const next = ALLOWED[a];
     if (!next) return true; // unknown → allow (forward-compat)
     return next.includes(b);
@@ -91,6 +142,7 @@ export function eventTypeForStatus(status: string): string {
         COMPLETED: "SHIPMENT_COMPLETED",
         CLOSED: "SHIPMENT_CLOSED",
         LOST: "SHIPMENT_LOST",
+        DELETED_FROM_CUSTOMER: "SHIPMENT_DELETED_BY_CUSTOMER",
         FOLLOW_UP: "STATUS_CHANGED",
     };
     return map[n] || "STATUS_CHANGED";
