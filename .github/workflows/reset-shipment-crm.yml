@@ -28,7 +28,7 @@ jobs:
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
-          npm run build
+          npx tsc
           pm2 stop greenos || true
           trap 'pm2 restart greenos --update-env >/dev/null 2>&1 || true' EXIT
           node scripts/reset-shipment-crm-data.mjs --confirm=RESET_SHIPMENT_CRM
