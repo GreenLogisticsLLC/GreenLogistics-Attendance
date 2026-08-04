@@ -217,6 +217,16 @@
             " assigned to " +
             broker
         );
+        if (typeof window.GreenOSEmailReload === "function") {
+          window.GreenOSEmailReload();
+        }
+        if (
+          window.GreenOS &&
+          window.GreenOS.currentModule === "crm" &&
+          typeof window.GreenOS.refreshModule === "function"
+        ) {
+          window.GreenOS.refreshModule();
+        }
       } catch (e) {
         /* ignore */
       }
@@ -232,6 +242,27 @@
           "Unassigned shipment",
           (d.shipmentTitle || "Shipment") + " — waiting for broker In Office"
         );
+        if (typeof window.GreenOSEmailReload === "function") {
+          window.GreenOSEmailReload();
+        }
+      } catch (e) {
+        /* ignore */
+      }
+    });
+
+    es.addEventListener("ACCEPTANCE_MISSED_BROADCAST", function (ev) {
+      try {
+        var d = JSON.parse(ev.data);
+        if (window.GreenOSUser && window.GreenOSUser.role === "Broker") return;
+        unread += 1;
+        updateBadge();
+        showSimpleToast(
+          d.title || "Acceptance missed",
+          d.message || "Reassigning shipment"
+        );
+        if (typeof window.GreenOSEmailReload === "function") {
+          window.GreenOSEmailReload();
+        }
       } catch (e) {
         /* ignore */
       }

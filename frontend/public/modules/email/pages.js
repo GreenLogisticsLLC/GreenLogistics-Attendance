@@ -8,7 +8,7 @@ window.GreenOSModules.email = {
     root.innerHTML =
       '<section class="gos-dash-hero">' +
       "<h1>Email Imports</h1>" +
-      "<p>uShip shipment emails → Shipment Leads → Assignment pipeline</p>" +
+      "<p>uShip shipment emails → Shipment Leads → Assignment pipeline. Broker column shows who is working the load.</p>" +
       "</section>" +
       '<div class="gos-module-placeholder" style="margin-bottom:1rem">' +
       '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center">' +
@@ -19,9 +19,9 @@ window.GreenOSModules.email = {
       '<div class="table-wrap">' +
       '<table id="email-shipments-table" class="email-lots-table">' +
       "<thead><tr>" +
-      "<th>#</th><th>Received</th><th>Title</th><th>Pickup</th><th>Delivery</th><th>Miles</th><th>Status</th><th>Imported By</th><th>Created</th>" +
+      "<th>#</th><th>Received</th><th>Title</th><th>Pickup</th><th>Delivery</th><th>Miles</th><th>Status</th><th>Broker</th><th>Imported By</th><th>Created</th>" +
       "</tr></thead>" +
-      '<tbody id="email-shipments-body"><tr><td colspan="9">Loading…</td></tr></tbody>' +
+      '<tbody id="email-shipments-body"><tr><td colspan="10">Loading…</td></tr></tbody>' +
       "</table></div>";
 
     const statusEl = root.querySelector("#email-import-status");
@@ -38,6 +38,14 @@ window.GreenOSModules.email = {
         },
       });
       return res.json();
+    }
+
+    function esc(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
     }
 
     function fmtPlace(city, state, zip) {
@@ -68,6 +76,7 @@ window.GreenOSModules.email = {
         AWAITING_ACCEPTANCE: "Awaiting Agent",
         AGENT_OPEN: "Agent Open",
         WORKING: "Agent Working",
+        UNASSIGNED: "Unassigned",
       };
       return labels[status] || status || "NEW";
     }
@@ -76,12 +85,12 @@ window.GreenOSModules.email = {
       try {
         const data = await api("/shipments");
         if (!data.success) {
-          body.innerHTML = '<tr><td colspan="9">' + (data.message || "Failed") + "</td></tr>";
+          body.innerHTML = '<tr><td colspan="10">' + esc(data.message || "Failed") + "</td></tr>";
           return;
         }
         const rows = data.data || [];
         if (!rows.length) {
-          body.innerHTML = '<tr><td colspan="9">No shipments imported yet</td></tr>';
+          body.innerHTML = '<tr><td colspan="10">No shipments imported yet</td></tr>';
           return;
         }
         body.innerHTML = rows
@@ -92,11 +101,15 @@ window.GreenOSModules.email = {
               index > 0
                 ? operationalDayKey(rows[index - 1].receivedAt || rows[index - 1].createdAt)
                 : null;
-            // First row of a 17:00–16:59 operational day (newest-first).
             var isDayStart = index === 0 || (key && key !== prevKey);
+            var broker =
+              s.brokerName ||
+              (s.assignedBrokerId ? "—" : "Unassigned");
             return (
               '<tr class="' +
               (isDayStart ? "lot-day-start" : "") +
+              '" data-shipment-id="' +
+              esc(s.shipmentLeadId) +
               '">' +
               '<td class="lot-num">' +
               (index + 1) +
@@ -108,27 +121,30 @@ window.GreenOSModules.email = {
               fmtDate(when) +
               "</td>" +
               "<td>" +
-              (s.shipmentTitle || "—") +
+              esc(s.shipmentTitle || "—") +
               (s.viewUrl
                 ? ' <a href="' +
-                  s.viewUrl +
+                  esc(s.viewUrl) +
                   '" target="_blank" rel="noopener">Open in uShip</a>'
                 : "") +
               "</td>" +
               "<td>" +
-              fmtPlace(s.pickupCity, s.pickupState, s.pickupZip) +
+              esc(fmtPlace(s.pickupCity, s.pickupState, s.pickupZip)) +
               "</td>" +
               "<td>" +
-              fmtPlace(s.deliveryCity, s.deliveryState, s.deliveryZip) +
+              esc(fmtPlace(s.deliveryCity, s.deliveryState, s.deliveryZip)) +
               "</td>" +
               "<td>" +
               (s.miles != null ? s.miles : "—") +
               "</td>" +
               "<td><strong>" +
-              statusLabel(s.status) +
+              esc(statusLabel(s.status)) +
+              "</strong></td>" +
+              '<td class="email-broker-cell"><strong style="color:#34d399">' +
+              esc(broker) +
               "</strong></td>" +
               "<td>" +
-              (s.source || "—") +
+              esc(s.source || "—") +
               "</td>" +
               "<td>" +
               fmtDate(s.createdAt) +
@@ -138,9 +154,12 @@ window.GreenOSModules.email = {
           })
           .join("");
       } catch (err) {
-        body.innerHTML = '<tr><td colspan="9">Connection error</td></tr>';
+        body.innerHTML = '<tr><td colspan="10">Connection error</td></tr>';
       }
     }
+
+    // Keep Broker column in sync when assignment / reassignment events arrive
+    window.GreenOSEmailReload = loadShipments;
 
     root.querySelector("#email-check-now")?.addEventListener("click", async function () {
       statusEl.textContent = "Checking Gmail…";

@@ -521,6 +521,7 @@ export class CrmService {
             data: {
                 status: "WORKING",
                 acceptedAt: new Date(),
+                acceptanceDeadline: null,
             },
         });
         await ensureGreenOsShipmentId(shipmentLeadId).catch(() => null);

@@ -377,7 +377,38 @@ export async function listShipmentsController(req: AuthRequest, res: Response) {
         );
     }
 
-    return res.json(apiResponse(true, "Shipments loaded", shipments));
+    const brokerIds = [
+        ...new Set(
+            shipments
+                .map((s) => s.assignedBrokerId)
+                .filter((id): id is string => Boolean(id))
+        ),
+    ];
+    const brokers =
+        brokerIds.length > 0
+            ? await prisma.user.findMany({
+                  where: { userId: { in: brokerIds } },
+                  select: {
+                      userId: true,
+                      firstName: true,
+                      lastName: true,
+                      username: true,
+                  },
+              })
+            : [];
+    const nameById = new Map(
+        brokers.map((u) => [
+            u.userId,
+            `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username,
+        ])
+    );
+
+    const enriched = shipments.map((s) => ({
+        ...s,
+        brokerName: s.assignedBrokerId ? nameById.get(s.assignedBrokerId) || "—" : null,
+    }));
+
+    return res.json(apiResponse(true, "Shipments loaded", enriched));
 }
 
 export async function getShipmentController(req: AuthRequest, res: Response) {
@@ -389,7 +420,17 @@ export async function getShipmentController(req: AuthRequest, res: Response) {
     if (!shipment) {
         return res.status(404).json(apiResponse(false, "Shipment not found"));
     }
-    return res.json(apiResponse(true, "OK", shipment));
+    let brokerName: string | null = null;
+    if (shipment.assignedBrokerId) {
+        const u = await prisma.user.findUnique({
+            where: { userId: shipment.assignedBrokerId },
+            select: { firstName: true, lastName: true, username: true },
+        });
+        brokerName = u
+            ? `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username
+            : null;
+    }
+    return res.json(apiResponse(true, "OK", { ...shipment, brokerName }));
 }
 
 export async function checkEmailController(_req: Request, res: Response) {

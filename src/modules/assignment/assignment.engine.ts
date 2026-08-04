@@ -4,7 +4,6 @@ import { domainEventEngine } from "../shipment/services/domain-event.engine.js";
 import { ensureGreenOsShipmentId } from "../shipment/shipment.id.js";
 import { platformNotificationService } from "../shipment/services/platform-notification.service.js";
 import { sseEmitToRoles, sseEmitToUser } from "../crm/services/realtime.hub.js";
-import { getBrokerTeamLeadId } from "../../auth/team-scope.js";
 import {
     shipmentImportLogRepository,
     shipmentLeadRepository,
@@ -12,7 +11,8 @@ import {
 import type { ShipmentLeadStatus } from "../email/models/types.js";
 
 const QUEUE_KEY = "brokers";
-const ACCEPTANCE_MINUTES = 15;
+/** Minutes to accept / react before load is passed to the next In Office broker. */
+const ACCEPTANCE_MINUTES = 20;
 
 export type EligibleBroker = {
     userId: string;
@@ -86,34 +86,56 @@ export class AssignmentEngine {
         }
 
         const { broker, queueSnapshot } = pick;
-        const acceptanceDeadline = new Date(Date.now() + ACCEPTANCE_MINUTES * 60_000);
+        return this.assignLeadToBroker(shipmentLeadId, broker, queueSnapshot);
+    }
 
+    /**
+     * Assign (or reassign) a lead to a broker with a fresh 20-minute acceptance window.
+     */
+    async assignLeadToBroker(
+        shipmentLeadId: string,
+        broker: EligibleBroker,
+        queueSnapshot: string,
+        options?: { reassignFrom?: string }
+    ) {
+        const lead = await shipmentLeadRepository.findById(shipmentLeadId);
+        if (!lead) return lead;
+
+        const acceptanceDeadline = new Date(Date.now() + ACCEPTANCE_MINUTES * 60_000);
         const assigned = await shipmentLeadRepository.update(shipmentLeadId, {
             status: "ASSIGNED",
             assignedBrokerId: broker.userId,
             assignedAt: new Date(),
             acceptanceDeadline,
+            acceptedAt: null,
         });
 
-        await this.pipelineLog(
-            shipmentLeadId,
-            `Round-robin assigned to ${broker.displayName} (${broker.userId})`
-        );
+        const reason = options?.reassignFrom
+            ? `Reassigned from ${options.reassignFrom} → ${broker.displayName} (no reaction in ${ACCEPTANCE_MINUTES}m)`
+            : `Round-robin assigned to ${broker.displayName} (${broker.userId})`;
+
+        await this.pipelineLog(shipmentLeadId, reason);
         await domainEventEngine.emit({
             shipmentLeadId,
             eventType: "BROKER_ASSIGNED",
             title: `Assigned to ${broker.displayName}`,
-            message: `Round Robin → ${broker.displayName}`,
+            message: options?.reassignFrom
+                ? `Passed from ${options.reassignFrom} → ${broker.displayName}`
+                : `Round Robin → ${broker.displayName}`,
             actorUserId: broker.userId,
             timelineStage: "BROKER_ASSIGNED",
-            payload: { brokerId: broker.userId, employeeId: broker.employeeId },
+            payload: {
+                brokerId: broker.userId,
+                employeeId: broker.employeeId,
+                reassignFrom: options?.reassignFrom || null,
+            },
         });
         await this.assignmentLog({
             shipmentLeadId,
             assignedUserId: broker.userId,
             assignedEmployeeId: broker.employeeId,
-            eventType: "ASSIGNED",
-            message: `Assigned to ${broker.displayName} via Round Robin`,
+            eventType: options?.reassignFrom ? "REASSIGNED" : "ASSIGNED",
+            message: reason,
             queueSnapshot,
         });
 
@@ -122,7 +144,6 @@ export class AssignmentEngine {
         });
         await this.pipelineLog(shipmentLeadId, "Status → AWAITING_ACCEPTANCE");
 
-        // Live notify assigned broker (SSE) — no page refresh needed
         try {
             const gosId = await ensureGreenOsShipmentId(shipmentLeadId).catch(() => null);
             const leadRow = awaiting || assigned;
@@ -166,8 +187,10 @@ export class AssignmentEngine {
                 },
                 broadcastType: "SHIPMENT_ASSIGNED_BROADCAST",
                 notificationType: "SHIPMENT_ASSIGNED",
-                title: "New Shipment Assigned",
-                teamLeadTitle: "New Shipment Assigned (your team)",
+                title: options?.reassignFrom ? "Shipment reassigned" : "New Shipment Assigned",
+                teamLeadTitle: options?.reassignFrom
+                    ? "Shipment reassigned (your team)"
+                    : "New Shipment Assigned (your team)",
                 message: `Shipment # ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
                 shipmentLeadId,
                 meta: { greenOsShipmentId: gosId, brokerName: broker.displayName },
@@ -191,85 +214,125 @@ export class AssignmentEngine {
 
     async processDueAcceptances() {
         const now = new Date();
+        // No accept within the window → pass to next In Office broker.
+        // AGENT_OPEN alone (opened card) does not count as acceptance.
         const expired = await prisma.shipmentLead.findMany({
             where: {
-                status: "AWAITING_ACCEPTANCE",
+                status: { in: ["AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
+                acceptedAt: null,
                 acceptanceDeadline: { lt: now },
+                assignedBrokerId: { not: null },
             },
             take: 50,
         });
 
+        let reassigned = 0;
         for (const lead of expired) {
-            await shipmentLeadRepository.update(lead.shipmentLeadId, {
-                status: "FOLLOW_UP",
+            const previousBrokerId = lead.assignedBrokerId!;
+            const previousUser = await prisma.user.findUnique({
+                where: { userId: previousBrokerId },
+                select: { firstName: true, lastName: true, username: true },
             });
-            await this.pipelineLog(lead.shipmentLeadId, "Acceptance timer expired → FOLLOW_UP");
+            const previousLabel = previousUser
+                ? `${previousUser.firstName || ""} ${previousUser.lastName || ""}`.trim() ||
+                  previousUser.username
+                : "broker";
+            const gosId = lead.greenOsShipmentId || lead.shipmentLeadId.slice(0, 8);
+
+            await this.pipelineLog(
+                lead.shipmentLeadId,
+                `No reaction from ${previousLabel} within ${ACCEPTANCE_MINUTES}m — reassigning`
+            );
             await domainEventEngine.emit({
                 shipmentLeadId: lead.shipmentLeadId,
                 eventType: "STATUS_CHANGED",
-                title: "Needs Follow Up",
-                message: "Acceptance timer expired",
+                title: "Acceptance missed — reassigning",
+                message: `${previousLabel} did not accept within ${ACCEPTANCE_MINUTES} minutes`,
                 timelineStage: "STATUS_CHANGED",
-                payload: { status: "FOLLOW_UP" },
+                payload: {
+                    previousBrokerId,
+                    previousBrokerName: previousLabel,
+                    reason: "ACCEPTANCE_TIMEOUT",
+                },
             });
 
-            const gosId = lead.greenOsShipmentId || lead.shipmentLeadId.slice(0, 8);
-            const brokerName = lead.assignedBrokerId
-                ? (
-                      await prisma.user.findUnique({
-                          where: { userId: lead.assignedBrokerId },
-                          select: { firstName: true, lastName: true, username: true },
-                      })
-                  )
-                : null;
-            const brokerLabel = brokerName
-                ? `${brokerName.firstName || ""} ${brokerName.lastName || ""}`.trim() ||
-                  brokerName.username
-                : "broker";
-
-            const payload = {
+            const missPayload = {
                 type: "ACCEPTANCE_MISSED",
                 shipmentLeadId: lead.shipmentLeadId,
                 greenOsShipmentId: lead.greenOsShipmentId,
                 shipmentNumber: gosId,
-                brokerName: brokerLabel,
-                message: `${brokerLabel} did not accept shipment # ${gosId} in time`,
+                brokerName: previousLabel,
+                message: `${previousLabel} did not accept shipment # ${gosId} in time — reassigning`,
                 at: new Date().toISOString(),
             };
-
-            if (lead.assignedBrokerId) {
-                sseEmitToUser(lead.assignedBrokerId, payload);
-                await platformNotificationService
-                    .notifyUser({
-                        userId: lead.assignedBrokerId,
-                        notificationType: "ACCEPTANCE_MISSED",
-                        title: "Acceptance missed",
-                        message: `You did not accept shipment # ${gosId} in time — status is Follow Up`,
-                        shipmentLeadId: lead.shipmentLeadId,
-                        meta: { greenOsShipmentId: lead.greenOsShipmentId },
-                    })
-                    .catch(() => null);
-            }
+            sseEmitToUser(previousBrokerId, missPayload);
+            await platformNotificationService
+                .notifyUser({
+                    userId: previousBrokerId,
+                    notificationType: "ACCEPTANCE_MISSED",
+                    title: "Shipment reassigned",
+                    message: `You did not accept shipment # ${gosId} within ${ACCEPTANCE_MINUTES} minutes — it was passed to the next broker`,
+                    shipmentLeadId: lead.shipmentLeadId,
+                    meta: { greenOsShipmentId: lead.greenOsShipmentId },
+                })
+                .catch(() => null);
 
             const { notifyOpsAndOwningTeamLead } = await import(
                 "../../services/team-notify.service.js"
             );
             await notifyOpsAndOwningTeamLead({
-                assignedBrokerId: lead.assignedBrokerId,
-                ssePayload: payload,
+                assignedBrokerId: previousBrokerId,
+                ssePayload: missPayload,
                 broadcastType: "ACCEPTANCE_MISSED_BROADCAST",
                 notificationType: "ACCEPTANCE_MISSED",
-                title: "Acceptance missed",
-                teamLeadTitle: "Team broker missed acceptance",
-                message: `${brokerLabel} did not accept shipment # ${gosId} in time`,
+                title: "Acceptance missed — reassigning",
+                teamLeadTitle: "Team broker missed acceptance — reassigning",
+                message: `${previousLabel} did not accept shipment # ${gosId} — passing to next In Office broker`,
                 shipmentLeadId: lead.shipmentLeadId,
                 meta: {
                     greenOsShipmentId: lead.greenOsShipmentId,
-                    brokerName: brokerLabel,
+                    brokerName: previousLabel,
                 },
             });
+
+            const pick = await this.pickNextBrokerRoundRobin({
+                excludeUserIds: [previousBrokerId],
+            });
+
+            if (!pick) {
+                await shipmentLeadRepository.update(lead.shipmentLeadId, {
+                    status: "UNASSIGNED",
+                    assignedBrokerId: null,
+                    acceptanceDeadline: null,
+                });
+                await this.pipelineLog(
+                    lead.shipmentLeadId,
+                    "No other broker In Office — parked UNASSIGNED"
+                );
+                await domainEventEngine.emit({
+                    shipmentLeadId: lead.shipmentLeadId,
+                    eventType: "SHIPMENT_UNASSIGNED",
+                    title: "Unassigned",
+                    message: "No other broker In Office after acceptance timeout",
+                    timelineStage: "SHIPMENT_UNASSIGNED",
+                });
+                sseEmitToRoles(["Owner", "Manager", "Administrator"], {
+                    type: "SHIPMENT_UNASSIGNED",
+                    shipmentLeadId: lead.shipmentLeadId,
+                    shipmentTitle: lead.shipmentTitle,
+                    reason: "No other broker In Office after timeout",
+                    previousBrokerName: previousLabel,
+                    at: new Date().toISOString(),
+                });
+                continue;
+            }
+
+            await this.assignLeadToBroker(lead.shipmentLeadId, pick.broker, pick.queueSnapshot, {
+                reassignFrom: previousLabel,
+            });
+            reassigned += 1;
         }
-        return expired.length;
+        return reassigned || expired.length;
     }
 
     async markQuoteSent(shipmentLeadId: string) {
@@ -567,11 +630,13 @@ export class AssignmentEngine {
         return null;
     }
 
-    private async pickNextBrokerRoundRobin(): Promise<{
+    private async pickNextBrokerRoundRobin(options?: {
+        excludeUserIds?: string[];
+    }): Promise<{
         broker: EligibleBroker;
         queueSnapshot: string;
     } | null> {
-        // Rebuild from Attendance first, then sync persisted arrival-order queue.
+        const exclude = new Set(options?.excludeUserIds || []);
         const eligible = await this.listEligibleBrokers();
         if (!eligible.length) {
             await this.saveQueueState([], 0);
@@ -580,30 +645,36 @@ export class AssignmentEngine {
 
         const eligibleIds = eligible.map((e) => e.userId);
         const state = await this.loadQueueState();
-        // Keep arrival order; drop anyone no longer In Office; append any In Office missing from queue.
         const synced = this.syncQueueOrder(state.orderedUserIds, eligibleIds, state.nextIndex);
         await this.saveQueueState(synced.orderedUserIds, synced.nextIndex);
 
         if (!synced.orderedUserIds.length) return null;
 
-        const idx = synced.nextIndex % synced.orderedUserIds.length;
-        const chosenId = synced.orderedUserIds[idx];
-        const broker = eligible.find((e) => e.userId === chosenId);
-        if (!broker) return null;
+        const n = synced.orderedUserIds.length;
+        for (let i = 0; i < n; i++) {
+            const idx = (synced.nextIndex + i) % n;
+            const chosenId = synced.orderedUserIds[idx];
+            if (exclude.has(chosenId)) continue;
+            const broker = eligible.find((e) => e.userId === chosenId);
+            if (!broker) continue;
 
-        const nextIndex = (idx + 1) % synced.orderedUserIds.length;
-        await this.saveQueueState(synced.orderedUserIds, nextIndex);
+            const nextIndex = (idx + 1) % n;
+            await this.saveQueueState(synced.orderedUserIds, nextIndex);
 
-        const queueSnapshot = JSON.stringify({
-            order: synced.orderedUserIds,
-            pickedIndex: idx,
-            nextIndex,
-            names: synced.orderedUserIds.map(
-                (id) => eligible.find((e) => e.userId === id)?.displayName || id
-            ),
-        });
+            const queueSnapshot = JSON.stringify({
+                order: synced.orderedUserIds,
+                pickedIndex: idx,
+                nextIndex,
+                excluded: [...exclude],
+                names: synced.orderedUserIds.map(
+                    (id) => eligible.find((e) => e.userId === id)?.displayName || id
+                ),
+            });
 
-        return { broker, queueSnapshot };
+            return { broker, queueSnapshot };
+        }
+
+        return null;
     }
 
     /**
