@@ -247,6 +247,16 @@ export class AssignmentEngine {
                 timelineStage: "SHIPMENT_UNASSIGNED",
                 payload: { previousBrokerId: brokerId },
             });
+            // Remove from the previous broker's My Shipments immediately.
+            sseEmitToUser(brokerId, {
+                type: "SHIPMENT_UNASSIGNED",
+                shipmentLeadId: lead.shipmentLeadId,
+                greenOsShipmentId: lead.greenOsShipmentId,
+                shipmentTitle: lead.shipmentTitle,
+                reason: "Broker not In Office — removed from your queue",
+                removedFromYourQueue: true,
+                at: new Date().toISOString(),
+            });
         }
 
         // 2) No accept within the window → pass to next In Office broker.
@@ -350,6 +360,16 @@ export class AssignmentEngine {
                     title: "Unassigned",
                     message: "No other broker In Office after acceptance timeout",
                     timelineStage: "SHIPMENT_UNASSIGNED",
+                });
+                // Ensure previous broker's My Shipments drops this row (assignedBrokerId already cleared).
+                sseEmitToUser(previousBrokerId, {
+                    type: "SHIPMENT_UNASSIGNED",
+                    shipmentLeadId: lead.shipmentLeadId,
+                    greenOsShipmentId: lead.greenOsShipmentId,
+                    shipmentTitle: lead.shipmentTitle,
+                    reason: "No other broker In Office after timeout — removed from your queue",
+                    removedFromYourQueue: true,
+                    at: new Date().toISOString(),
                 });
                 sseEmitToRoles(["Owner", "Manager", "Administrator"], {
                     type: "SHIPMENT_UNASSIGNED",

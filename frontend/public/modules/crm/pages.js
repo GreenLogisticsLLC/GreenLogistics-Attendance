@@ -660,6 +660,7 @@ window.GreenOSModules.crm = {
     var modal = root.querySelector("#crm-modal");
     if (!modal) return;
     modal.classList.remove("hidden");
+    modal.setAttribute("data-shipment-id", id);
     modal.innerHTML = '<div class="crm-modal-card"><p>Loading…</p></div>';
     try {
       var data = await this.api("/shipments/" + encodeURIComponent(id));

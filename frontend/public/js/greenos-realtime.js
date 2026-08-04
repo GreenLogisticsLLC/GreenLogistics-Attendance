@@ -163,11 +163,56 @@
     }, 8000);
   }
 
+  function refreshOpenViews() {
+    if (typeof window.GreenOSEmailReload === "function") {
+      window.GreenOSEmailReload();
+    }
+    if (
+      window.GreenOS &&
+      typeof window.GreenOS.refreshModule === "function" &&
+      (window.GreenOS.currentModule === "crm" ||
+        window.GreenOS.currentModule === "broker" ||
+        window.GreenOS.currentModule === "email" ||
+        window.GreenOS.currentModule === "administration")
+    ) {
+      window.GreenOS.refreshModule();
+    }
+    if (typeof window.GreenOSBrokerReloadShipments === "function") {
+      window.GreenOSBrokerReloadShipments();
+    }
+    if (typeof window.GreenOSEmailAccountsReload === "function") {
+      window.GreenOSEmailAccountsReload();
+    }
+  }
+
   function onAssigned(data) {
     unread += 1;
     updateBadge();
     playNotifySound();
     showAssignedToast(data || {});
+    refreshOpenViews();
+  }
+
+  function removeFromMyQueue(d) {
+    unread += 1;
+    updateBadge();
+    playNotifySound();
+    var num = d.greenOsShipmentId || d.shipmentNumber || "";
+    showSimpleToast(
+      d.title || "Removed from your queue",
+      (num ? "Shipment # " + num + " — " : "") +
+        (d.message || d.reason || "Passed to another broker")
+    );
+    var modal = document.getElementById("crm-modal");
+    if (modal && !modal.classList.contains("hidden") && d.shipmentLeadId) {
+      var openId = modal.getAttribute("data-shipment-id");
+      if (openId === d.shipmentLeadId) {
+        modal.classList.add("hidden");
+        modal.innerHTML = "";
+        modal.removeAttribute("data-shipment-id");
+      }
+    }
+    refreshOpenViews();
   }
 
   function connect() {
@@ -208,25 +253,16 @@
         if (window.GreenOSUser && window.GreenOSUser.role === "Broker") return;
         unread += 1;
         updateBadge();
-        var num = d.greenOsShipmentId || d.shipmentNumber || "";
-        var broker = d.brokerName || "broker";
         showSimpleToast(
-          "New shipment → " + broker,
-          (num ? "Shipment # " + num + " — " : "") +
+          "New shipment → " + (d.brokerName || "broker"),
+          (d.greenOsShipmentId || d.shipmentNumber
+            ? "Shipment # " + (d.greenOsShipmentId || d.shipmentNumber) + " — "
+            : "") +
             (d.shipmentTitle || "Shipment") +
             " assigned to " +
-            broker
+            (d.brokerName || "broker")
         );
-        if (typeof window.GreenOSEmailReload === "function") {
-          window.GreenOSEmailReload();
-        }
-        if (
-          window.GreenOS &&
-          window.GreenOS.currentModule === "crm" &&
-          typeof window.GreenOS.refreshModule === "function"
-        ) {
-          window.GreenOS.refreshModule();
-        }
+        refreshOpenViews();
       } catch (e) {
         /* ignore */
       }
@@ -235,16 +271,40 @@
     es.addEventListener("SHIPMENT_UNASSIGNED", function (ev) {
       try {
         var d = JSON.parse(ev.data);
-        if (window.GreenOSUser && window.GreenOSUser.role === "Broker") return;
+        if (window.GreenOSUser && window.GreenOSUser.role === "Broker") {
+          // Previous assignee: drop row from My Shipments immediately.
+          removeFromMyQueue(
+            Object.assign({}, d, {
+              title: "Removed from your queue",
+              message: d.reason || "Shipment is no longer assigned to you",
+            })
+          );
+          return;
+        }
         unread += 1;
         updateBadge();
         showSimpleToast(
           "Unassigned shipment",
           (d.shipmentTitle || "Shipment") + " — waiting for broker In Office"
         );
-        if (typeof window.GreenOSEmailReload === "function") {
-          window.GreenOSEmailReload();
-        }
+        refreshOpenViews();
+      } catch (e) {
+        /* ignore */
+      }
+    });
+
+    // Fired to the broker who missed the 20-minute accept window (shipment leaves their account).
+    es.addEventListener("ACCEPTANCE_MISSED", function (ev) {
+      try {
+        var d = JSON.parse(ev.data);
+        removeFromMyQueue(
+          Object.assign({}, d, {
+            title: "Shipment reassigned",
+            message:
+              d.message ||
+              "You did not accept in time — shipment passed to the next broker",
+          })
+        );
       } catch (e) {
         /* ignore */
       }
@@ -260,35 +320,11 @@
           d.title || "Acceptance missed",
           d.message || "Reassigning shipment"
         );
-        if (typeof window.GreenOSEmailReload === "function") {
-          window.GreenOSEmailReload();
-        }
+        refreshOpenViews();
       } catch (e) {
         /* ignore */
       }
     });
-
-    function refreshOpenViews() {
-      if (typeof window.GreenOSEmailReload === "function") {
-        window.GreenOSEmailReload();
-      }
-      if (
-        window.GreenOS &&
-        typeof window.GreenOS.refreshModule === "function" &&
-        (window.GreenOS.currentModule === "crm" ||
-          window.GreenOS.currentModule === "broker" ||
-          window.GreenOS.currentModule === "email" ||
-          window.GreenOS.currentModule === "administration")
-      ) {
-        window.GreenOS.refreshModule();
-      }
-      if (typeof window.GreenOSBrokerReloadShipments === "function") {
-        window.GreenOSBrokerReloadShipments();
-      }
-      if (typeof window.GreenOSEmailAccountsReload === "function") {
-        window.GreenOSEmailAccountsReload();
-      }
-    }
 
     function onLifecycle(d) {
       unread += 1;
