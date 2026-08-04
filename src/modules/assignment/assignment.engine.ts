@@ -149,21 +149,13 @@ export class AssignmentEngine {
                 message: `New Shipment Assigned — ${gosId || shipmentLeadId.slice(0, 8)}`,
             };
             sseEmitToUser(broker.userId, notifyPayload);
-            // Company roles see all assignments; Team Leads only get their own broker's events.
-            sseEmitToRoles(["Owner", "Manager", "Administrator"], {
-                type: "SHIPMENT_ASSIGNED_BROADCAST",
-                shipmentLeadId,
-                greenOsShipmentId: gosId,
-                shipmentNumber: gosId || shipmentLeadId.slice(0, 8),
-                shipmentTitle: leadRow?.shipmentTitle || lead.shipmentTitle,
-                brokerName: broker.displayName,
-                assignedAt: new Date().toISOString(),
-                message: `New Shipment Assigned — ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
-            });
-            const teamLeadId = await getBrokerTeamLeadId(broker.userId);
-            if (teamLeadId) {
-                sseEmitToUser(teamLeadId, {
-                    type: "SHIPMENT_ASSIGNED_BROADCAST",
+            const { notifyOpsAndOwningTeamLead } = await import(
+                "../../services/team-notify.service.js"
+            );
+            await notifyOpsAndOwningTeamLead({
+                assignedBrokerId: broker.userId,
+                ssePayload: {
+                    type: "SHIPMENT_ASSIGNED",
                     shipmentLeadId,
                     greenOsShipmentId: gosId,
                     shipmentNumber: gosId || shipmentLeadId.slice(0, 8),
@@ -171,8 +163,15 @@ export class AssignmentEngine {
                     brokerName: broker.displayName,
                     assignedAt: new Date().toISOString(),
                     message: `New Shipment Assigned — ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
-                });
-            }
+                },
+                broadcastType: "SHIPMENT_ASSIGNED_BROADCAST",
+                notificationType: "SHIPMENT_ASSIGNED",
+                title: "New Shipment Assigned",
+                teamLeadTitle: "New Shipment Assigned (your team)",
+                message: `Shipment # ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
+                shipmentLeadId,
+                meta: { greenOsShipmentId: gosId, brokerName: broker.displayName },
+            });
             await platformNotificationService
                 .notifyUser({
                     userId: broker.userId,
@@ -183,29 +182,6 @@ export class AssignmentEngine {
                     meta: { greenOsShipmentId: gosId },
                 })
                 .catch(() => null);
-            await platformNotificationService
-                .notifyRoles({
-                    roles: ["Owner", "Manager", "Administrator"],
-                    notificationType: "SHIPMENT_ASSIGNED",
-                    title: "New Shipment Assigned",
-                    message: `Shipment # ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
-                    shipmentLeadId,
-                    excludeUserId: broker.userId,
-                    meta: { greenOsShipmentId: gosId, brokerName: broker.displayName },
-                })
-                .catch(() => null);
-            if (teamLeadId) {
-                await platformNotificationService
-                    .notifyUser({
-                        userId: teamLeadId,
-                        notificationType: "SHIPMENT_ASSIGNED",
-                        title: "New Shipment Assigned (your team)",
-                        message: `Shipment # ${gosId || shipmentLeadId.slice(0, 8)} → ${broker.displayName}`,
-                        shipmentLeadId,
-                        meta: { greenOsShipmentId: gosId, brokerName: broker.displayName },
-                    })
-                    .catch(() => null);
-            }
         } catch (err) {
             console.warn("[assignment] SSE notify failed:", err);
         }
@@ -235,6 +211,62 @@ export class AssignmentEngine {
                 message: "Acceptance timer expired",
                 timelineStage: "STATUS_CHANGED",
                 payload: { status: "FOLLOW_UP" },
+            });
+
+            const gosId = lead.greenOsShipmentId || lead.shipmentLeadId.slice(0, 8);
+            const brokerName = lead.assignedBrokerId
+                ? (
+                      await prisma.user.findUnique({
+                          where: { userId: lead.assignedBrokerId },
+                          select: { firstName: true, lastName: true, username: true },
+                      })
+                  )
+                : null;
+            const brokerLabel = brokerName
+                ? `${brokerName.firstName || ""} ${brokerName.lastName || ""}`.trim() ||
+                  brokerName.username
+                : "broker";
+
+            const payload = {
+                type: "ACCEPTANCE_MISSED",
+                shipmentLeadId: lead.shipmentLeadId,
+                greenOsShipmentId: lead.greenOsShipmentId,
+                shipmentNumber: gosId,
+                brokerName: brokerLabel,
+                message: `${brokerLabel} did not accept shipment # ${gosId} in time`,
+                at: new Date().toISOString(),
+            };
+
+            if (lead.assignedBrokerId) {
+                sseEmitToUser(lead.assignedBrokerId, payload);
+                await platformNotificationService
+                    .notifyUser({
+                        userId: lead.assignedBrokerId,
+                        notificationType: "ACCEPTANCE_MISSED",
+                        title: "Acceptance missed",
+                        message: `You did not accept shipment # ${gosId} in time — status is Follow Up`,
+                        shipmentLeadId: lead.shipmentLeadId,
+                        meta: { greenOsShipmentId: lead.greenOsShipmentId },
+                    })
+                    .catch(() => null);
+            }
+
+            const { notifyOpsAndOwningTeamLead } = await import(
+                "../../services/team-notify.service.js"
+            );
+            await notifyOpsAndOwningTeamLead({
+                assignedBrokerId: lead.assignedBrokerId,
+                ssePayload: payload,
+                broadcastType: "ACCEPTANCE_MISSED_BROADCAST",
+                notificationType: "ACCEPTANCE_MISSED",
+                title: "Acceptance missed",
+                teamLeadTitle: "Team broker missed acceptance",
+                message: `${brokerLabel} did not accept shipment # ${gosId} in time`,
+                shipmentLeadId: lead.shipmentLeadId,
+                meta: {
+                    greenOsShipmentId: lead.greenOsShipmentId,
+                    brokerName: brokerLabel,
+                },
             });
         }
         return expired.length;

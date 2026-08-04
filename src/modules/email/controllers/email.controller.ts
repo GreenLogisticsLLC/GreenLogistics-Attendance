@@ -279,9 +279,18 @@ export async function brokerGmailMessagesController(req: AuthRequest, res: Respo
     return res.json(apiResponse(true, "OK", rows));
 }
 
-export async function listBrokerGmailAccountsController(_req: AuthRequest, res: Response) {
+export async function listBrokerGmailAccountsController(req: AuthRequest, res: Response) {
+    const where: Record<string, unknown> = { role: { roleName: "Broker" } };
+    const { teamScopeUserId } = await import("../../../auth/access.js");
+    const { listTeamBrokerIds } = await import("../../../auth/team-scope.js");
+    const teamLeadId = teamScopeUserId(req);
+    if (teamLeadId) {
+        const ids = await listTeamBrokerIds(teamLeadId);
+        where.userId = { in: ids.length ? ids : ["__none__"] };
+    }
+
     const brokers = await prisma.user.findMany({
-        where: { role: { roleName: "Broker" } },
+        where,
         orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
         include: {
             employee: {
@@ -345,13 +354,37 @@ export async function adminDisconnectBrokerGmailController(req: AuthRequest, res
     return res.json(apiResponse(true, "Broker Gmail disconnected"));
 }
 
-export async function listShipmentsController(_req: Request, res: Response) {
-    const shipments = await shipmentLeadService.list(200);
+export async function listShipmentsController(req: AuthRequest, res: Response) {
+    const { teamScopeUserId, scopedBrokerId } = await import("../../../auth/access.js");
+    const { listTeamBrokerIds } = await import("../../../auth/team-scope.js");
+    const { isDataScopedRole } = await import("../../../auth/roles.js");
+
+    let shipments = await shipmentLeadService.list(200);
+    const brokerId = scopedBrokerId(req);
+    const teamLeadId = teamScopeUserId(req);
+
+    if (brokerId || isDataScopedRole(req.user?.role || "")) {
+        const id = brokerId || req.user?.userId;
+        shipments = shipments.filter((s) => s.assignedBrokerId === id);
+    } else if (teamLeadId) {
+        const teamIds = new Set(await listTeamBrokerIds(teamLeadId));
+        shipments = shipments.filter(
+            (s) =>
+                (s.assignedBrokerId && teamIds.has(s.assignedBrokerId)) ||
+                !s.assignedBrokerId ||
+                s.status === "NEW" ||
+                s.status === "UNASSIGNED"
+        );
+    }
+
     return res.json(apiResponse(true, "Shipments loaded", shipments));
 }
 
-export async function getShipmentController(req: Request, res: Response) {
+export async function getShipmentController(req: AuthRequest, res: Response) {
     const id = String(req.params.id);
+    const { assertShipmentAccess } = await import("../../../auth/access.js");
+    const access = await assertShipmentAccess(req, res, id);
+    if (!access.ok) return;
     const shipment = await shipmentLeadService.getById(id);
     if (!shipment) {
         return res.status(404).json(apiResponse(false, "Shipment not found"));

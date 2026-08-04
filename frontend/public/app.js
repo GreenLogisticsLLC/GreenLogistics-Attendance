@@ -457,11 +457,17 @@ function formatDuration(minutes) {
 
 function renderTable(employees) {
     const tbody = $("#employees-body");
-    tbody.innerHTML = employees.map((emp) => `
-        <tr data-id="${emp.employeeId}" data-status="${emp.currentStatus}">
-            <td><strong>${emp.employeeName}</strong><br><small style="color:var(--muted)">${emp.employeeNumber}</small></td>
+    tbody.innerHTML = employees.map((emp) => {
+        const lateClass = emp.late ? " late-row" : "";
+        const nameClass = emp.late ? "late-yes" : "";
+        const lateHint = emp.late
+            ? `<br><small class="late-yes">Late${emp.lateMinutes ? ` +${emp.lateMinutes}m` : ""}</small>`
+            : "";
+        return `
+        <tr class="${lateClass.trim()}" data-id="${emp.employeeId}" data-status="${emp.currentStatus}" data-late="${emp.late ? "1" : "0"}">
+            <td><strong class="${nameClass}">${emp.employeeName}</strong>${lateHint}<br><small style="color:var(--muted)">${emp.employeeNumber}</small></td>
             <td>${emp.department || "—"}</td>
-            <td>${emp.firstEntry || "—"}</td>
+            <td class="${nameClass}">${emp.firstEntry || "—"}</td>
             <td><span class="status-badge status-${emp.currentStatus}">${statusLabel(emp.currentStatus)}</span></td>
             <td>${emp.currentStatus === "INSIDE_OFFICE" ? formatDuration(emp.currentOfficeMinutes) : "—"}</td>
             <td>${emp.currentStatus === "OUTSIDE_OFFICE" ? formatDuration(emp.currentAbsenceMinutes) : "—"}</td>
@@ -470,7 +476,8 @@ function renderTable(employees) {
             <td>${emp.exitCount || 0}</td>
             <td>${emp.lastActivity || "—"}</td>
         </tr>
-    `).join("");
+    `;
+    }).join("");
 
     tbody.querySelectorAll("tr").forEach((row) => {
         row.addEventListener("click", () => openEmployeeDrawer(row.dataset.id));

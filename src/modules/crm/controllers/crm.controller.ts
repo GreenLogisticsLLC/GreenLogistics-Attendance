@@ -269,10 +269,16 @@ export async function crmCustomerDetailController(req: AuthRequest, res: Respons
     if (!name) return res.status(422).json(apiResponse(false, "Customer name required"));
 
     const brokerId = scopedBrokerId(req);
+    const teamLeadId = teamScopeUserId(req);
     const where: Record<string, unknown> = {
         customerName: { equals: name },
     };
-    if (brokerId) where.assignedBrokerId = brokerId;
+    if (brokerId) {
+        where.assignedBrokerId = brokerId;
+    } else if (teamLeadId) {
+        const teamIds = await listTeamBrokerIds(teamLeadId);
+        where.assignedBrokerId = { in: teamIds.length ? teamIds : ["__none__"] };
+    }
 
     const shipments = await prisma.shipmentLead.findMany({
         where,

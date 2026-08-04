@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import type { AuthRequest } from "../../../middlewares/auth.middleware.js";
+import { assertShipmentAccess } from "../../../auth/access.js";
 import { crmService } from "../../crm/services/crm.service.js";
 import { domainEventEngine } from "../services/domain-event.engine.js";
 import { shipmentService } from "../services/shipment.service.js";
@@ -10,9 +11,11 @@ function errStatus(err: unknown): number {
 }
 
 export const shipmentController = {
-    async getCard(req: Request, res: Response) {
+    async getCard(req: AuthRequest, res: Response) {
         try {
             const id = String(req.params.id || "");
+            const access = await assertShipmentAccess(req, res, id);
+            if (!access.ok) return;
             await ensureGreenOsShipmentId(id).catch(() => null);
             const card = await crmService.getShipmentCard(id);
             if (!card) {
@@ -31,6 +34,8 @@ export const shipmentController = {
     async applyLoadNumber(req: AuthRequest, res: Response) {
         try {
             const id = String(req.params.id || "");
+            const access = await assertShipmentAccess(req, res, id);
+            if (!access.ok) return;
             const loadNumber = String(req.body?.loadNumber || req.body?.load_number || "");
             await shipmentService.applyLoadNumber({
                 shipmentLeadId: id,
@@ -51,9 +56,11 @@ export const shipmentController = {
         }
     },
 
-    async listEvents(req: Request, res: Response) {
+    async listEvents(req: AuthRequest, res: Response) {
         try {
             const id = String(req.params.id || "");
+            const access = await assertShipmentAccess(req, res, id);
+            if (!access.ok) return;
             const events = await domainEventEngine.listForShipment(id);
             res.json({ success: true, data: events });
         } catch (err) {
@@ -67,6 +74,8 @@ export const shipmentController = {
     async updateOperations(req: AuthRequest, res: Response) {
         try {
             const id = String(req.params.id || "");
+            const access = await assertShipmentAccess(req, res, id);
+            if (!access.ok) return;
             await shipmentService.updateOperations(id, req.body || {}, req.user?.userId);
             const card = await crmService.getShipmentCard(id);
             res.json({

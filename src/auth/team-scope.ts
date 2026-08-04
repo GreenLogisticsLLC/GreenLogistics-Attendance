@@ -87,3 +87,19 @@ export async function getBrokerTeamLeadId(brokerUserId: string): Promise<string 
     });
     return row?.teamLeadId || null;
 }
+
+/** Active Attendance employeeIds for a Team Lead's team (brokers + the TL themselves). */
+export async function listTeamEmployeeIds(teamLeadUserId: string): Promise<string[]> {
+    if (!teamLeadUserId) return [];
+    const users = await prisma.user.findMany({
+        where: {
+            isActive: true,
+            OR: [{ userId: teamLeadUserId }, { teamLeadId: teamLeadUserId }],
+            employeeId: { not: null },
+        },
+        select: { employeeId: true },
+    });
+    return users
+        .map((u) => u.employeeId)
+        .filter((id): id is string => Boolean(id));
+}

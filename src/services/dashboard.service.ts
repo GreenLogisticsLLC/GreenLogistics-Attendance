@@ -17,9 +17,14 @@ import type {
 } from "../types/attendance.types.js";
 
 export class DashboardService {
-    async getDashboard(date?: string) {
+    async getDashboard(date?: string, options?: { teamLeadUserId?: string | null }) {
         const now = new Date();
-        const employees = await employeeRepository.findAllActive();
+        let employees = await employeeRepository.findAllActive();
+        if (options?.teamLeadUserId) {
+            const { listTeamEmployeeIds } = await import("../auth/team-scope.js");
+            const allowed = new Set(await listTeamEmployeeIds(options.teamLeadUserId));
+            employees = employees.filter((e) => allowed.has(e.employeeId));
+        }
 
         const workDate =
             date ||
@@ -84,6 +89,8 @@ export class DashboardService {
                 firstEntry: formatDateTime(session?.firstEntry ?? null),
                 lastExit: formatDateTime(session?.lastExit ?? null),
                 currentStatus: session?.currentStatus ?? "SCHEDULED",
+                late: Boolean(session?.late),
+                lateMinutes: session?.lateMinutes ?? 0,
                 currentAbsenceMinutes,
                 currentOfficeMinutes,
                 totalAbsenceMinutes: excessOutsideMinutes(rawOutsideMinutes),

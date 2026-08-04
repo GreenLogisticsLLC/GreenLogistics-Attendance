@@ -1,7 +1,7 @@
 import { prisma } from "../../../../config/database.js";
 import { domainEventEngine } from "../../../shipment/services/domain-event.engine.js";
 import { shipmentService } from "../../../shipment/services/shipment.service.js";
-import { sseEmitToRoles, sseEmitToUser } from "../../../crm/services/realtime.hub.js";
+import { sseEmitToUser } from "../../../crm/services/realtime.hub.js";
 import { normalizeStatus } from "../../../shipment/shipment.lifecycle.js";
 import { platformNotificationService } from "../../../shipment/services/platform-notification.service.js";
 
@@ -325,14 +325,10 @@ export async function applyUshipLifecycleEvent(input: {
         if (shipment.assignedBrokerId) {
             sseEmitToUser(shipment.assignedBrokerId, payload);
         }
-        sseEmitToRoles(["Owner", "Manager", "Administrator", "Team Lead"], {
-            ...payload,
-            type: "SHIPMENT_LIFECYCLE_BROADCAST",
-        });
 
         const typeMap: Record<string, string> = {
             CUSTOMER_REPLIED: "CUSTOMER_REPLIED",
-            CUSTOMER_QUESTION: "CUSTOMER_REPLIED",
+            CUSTOMER_QUESTION: "CUSTOMER_QUESTION",
             AGENT_WORKING: "AGENT_WORKING",
             NEW_MESSAGE: "CUSTOMER_REPLIED",
             CUSTOMER_ACCEPTED: "BID_ACCEPTED",
@@ -357,17 +353,19 @@ export async function applyUshipLifecycleEvent(input: {
                 })
                 .catch(() => null);
         }
-        await platformNotificationService
-            .notifyRoles({
-                roles: ["Owner", "Manager", "Administrator", "Team Lead"],
-                notificationType: nType,
-                title: detected.title,
-                message: msg,
-                shipmentLeadId: input.shipmentLeadId,
-                excludeUserId: shipment.assignedBrokerId || undefined,
-                meta: { kind: detected.kind },
-            })
-            .catch(() => null);
+        const { notifyOpsAndOwningTeamLead } = await import(
+            "../../../../services/team-notify.service.js"
+        );
+        await notifyOpsAndOwningTeamLead({
+            assignedBrokerId: shipment.assignedBrokerId,
+            ssePayload: payload,
+            broadcastType: "SHIPMENT_LIFECYCLE_BROADCAST",
+            notificationType: nType,
+            title: detected.title,
+            message: msg,
+            shipmentLeadId: input.shipmentLeadId,
+            meta: { kind: detected.kind },
+        });
     }
 
     return { applied: true as const, detected };
