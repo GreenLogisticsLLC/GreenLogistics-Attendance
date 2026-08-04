@@ -10,7 +10,7 @@ import type { RawEmailMessage } from "../models/types.js";
 import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
 
 const USHIP_QUERY =
-    "from:(uship.com OR email.uship.com OR notifications.uship.com) newer_than:21d";
+    "from:(uship.com OR email.uship.com OR notifications.uship.com OR mail.uship.com) newer_than:21d";
 
 function decodeBase64Url(data?: string | null): string {
     if (!data) return "";
@@ -47,27 +47,65 @@ function headerValue(
     return headers?.find((h) => (h.name || "").toLowerCase() === name.toLowerCase())?.value || "";
 }
 
+function stripHtml(html: string): string {
+    return html
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 function isUshipRelated(fromAddress: string, subject: string, body: string): boolean {
     const from = (fromAddress || "").toLowerCase();
     const hay = `${subject}\n${body}`.toLowerCase();
-    if (from.includes("uship.com") || from.includes("email.uship.com")) return true;
-    if (hay.includes("uship.com") && (hay.includes("shipment") || hay.includes("listing") || hay.includes("bid"))) {
+    if (
+        from.includes("uship.com") ||
+        from.includes("email.uship.com") ||
+        from.includes("notifications.uship.com") ||
+        from.includes("mail.uship.com")
+    ) {
+        return true;
+    }
+    if (
+        hay.includes("uship.com") &&
+        (hay.includes("shipment") ||
+            hay.includes("listing") ||
+            hay.includes("bid") ||
+            hay.includes("quote"))
+    ) {
         return true;
     }
     return false;
 }
 
+function normalizeListingUrl(url: string): string {
+    const cleaned = url.replace(/[>,)\]]+$/, "").trim();
+    try {
+        const u = new URL(cleaned);
+        const m = u.pathname.match(/\/listing\/(\d+)/i);
+        if (m?.[1]) return `https://www.uship.com/listing/${m[1]}`;
+        return `${u.origin}${u.pathname}`.replace(/\/$/, "");
+    } catch {
+        return cleaned.split("?")[0].split("#")[0].replace(/\/$/, "");
+    }
+}
+
 /** Extract uShip listing id or view URL from email body/subject. */
 function extractUshipRefs(text: string): { externalId?: string; viewUrl?: string } {
-    const view =
+    const rawView =
         text.match(/https?:\/\/(?:www\.)?uship\.com\/listing\/[^\s"'<>]+/i)?.[0] ||
         text.match(/https?:\/\/(?:www\.)?uship\.com\/[^\s"'<>]*listing[^\s"'<>]*/i)?.[0];
     const external =
-        text.match(/\/listing\/(\d+)/i)?.[1] ||
+        text.match(/\/listing\/(\d{5,})/i)?.[1] ||
+        text.match(/listing\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/i)?.[1] ||
         text.match(/shipment\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/i)?.[1];
+    const viewUrl = rawView ? normalizeListingUrl(rawView) : undefined;
     return {
-        viewUrl: view ? view.replace(/[>,)\]]+$/, "") : undefined,
-        externalId: external,
+        viewUrl,
+        externalId: external || (viewUrl ? viewUrl.match(/\/listing\/(\d+)/i)?.[1] : undefined),
     };
 }
 
@@ -82,16 +120,31 @@ async function matchShipment(input: {
 }): Promise<{ shipmentLeadId: string; method: string } | null> {
     let candidate: { shipmentLeadId: string; assignedBrokerId: string | null } | null = null;
     let method = "";
+
     if (input.viewUrl) {
-        candidate = await prisma.shipmentLead.findUnique({
-            where: { viewUrl: input.viewUrl },
+        const normalized = normalizeListingUrl(input.viewUrl);
+        candidate = await prisma.shipmentLead.findFirst({
+            where: {
+                OR: [
+                    { viewUrl: normalized },
+                    { viewUrl: input.viewUrl },
+                    { viewUrl: { contains: `/listing/${normalized.match(/\/listing\/(\d+)/i)?.[1] || "__none__"}` } },
+                ],
+            },
             select: { shipmentLeadId: true, assignedBrokerId: true },
         });
         method = "viewUrl";
     }
+
     if (!candidate && input.externalId) {
         candidate = await prisma.shipmentLead.findFirst({
-            where: { source: "USHIP", externalShipmentId: input.externalId },
+            where: {
+                OR: [
+                    { source: "USHIP", externalShipmentId: input.externalId },
+                    { viewUrl: { contains: `/listing/${input.externalId}` } },
+                    { externalShipmentId: input.externalId },
+                ],
+            },
             select: { shipmentLeadId: true, assignedBrokerId: true },
         });
         method = "externalShipmentId";
@@ -122,6 +175,45 @@ async function matchShipment(input: {
         });
         candidate = prior?.shipmentLead || null;
         method = "gmailThreadId";
+    }
+
+    // Soft fallback: unique vehicle / title match among this broker's active loads.
+    if (!candidate) {
+        const hay = `${input.subject}\n${input.body}`.toLowerCase();
+        const active = await prisma.shipmentLead.findMany({
+            where: {
+                assignedBrokerId: input.userId,
+                status: {
+                    in: [
+                        "AWAITING_ACCEPTANCE",
+                        "AGENT_OPEN",
+                        "WORKING",
+                        "FOLLOW_UP",
+                        "BID_SUBMITTED",
+                        "CUSTOMER_REPLIED",
+                    ],
+                },
+            },
+            select: {
+                shipmentLeadId: true,
+                assignedBrokerId: true,
+                shipmentTitle: true,
+                vehicle: true,
+                pickupCity: true,
+                deliveryCity: true,
+            },
+            take: 40,
+        });
+        const hits = active.filter((row) => {
+            const tokens = [row.vehicle, row.shipmentTitle, row.pickupCity, row.deliveryCity]
+                .map((v) => String(v || "").trim().toLowerCase())
+                .filter((v) => v.length >= 4);
+            return tokens.some((t) => hay.includes(t));
+        });
+        if (hits.length === 1) {
+            candidate = hits[0];
+            method = "activeShipmentHeuristic";
+        }
     }
 
     // Hard routing boundary: a broker mailbox can update only that broker's assigned Shipment.
@@ -165,7 +257,6 @@ export class BrokerGmailSyncService {
                     }
                     pageToken = page.data.nextPageToken || undefined;
                 } while (pageToken && ids.size < maxMessages);
-                return [...ids];
             } catch (err) {
                 const code = (err as { code?: number }).code;
                 if (code !== 404) throw err;
@@ -173,15 +264,30 @@ export class BrokerGmailSyncService {
             }
         }
 
-        const after = Math.floor(
-            ((account.lastSyncAt?.getTime() || Date.now()) - 5 * 60_000) / 1000
-        );
+        // Always merge a recent uShip query so Quote Confirmation emails are not missed
+        // when History API skips or when the first sync after connect is delayed.
         const list = await gmail.users.messages.list({
             userId: "me",
-            q: `${USHIP_QUERY} after:${after}`,
-            maxResults: maxMessages,
+            q: USHIP_QUERY,
+            maxResults: Math.max(maxMessages, 25),
         });
-        return (list.data.messages || []).map((message) => message.id!).filter(Boolean);
+        for (const message of list.data.messages || []) {
+            if (message.id) ids.add(message.id);
+        }
+
+        if (!ids.size && account.lastSyncAt) {
+            const after = Math.floor((account.lastSyncAt.getTime() - 5 * 60_000) / 1000);
+            const fallback = await gmail.users.messages.list({
+                userId: "me",
+                q: `${USHIP_QUERY} after:${after}`,
+                maxResults: maxMessages,
+            });
+            for (const message of fallback.data.messages || []) {
+                if (message.id) ids.add(message.id);
+            }
+        }
+
+        return [...ids].slice(0, Math.max(maxMessages * 2, 40));
     }
 
     private async fetchRaw(gmail: ReturnType<typeof google.gmail>, gmailMessageId: string): Promise<RawEmailMessage> {
@@ -213,6 +319,89 @@ export class BrokerGmailSyncService {
         };
     }
 
+    private async applyMatchedLifecycle(input: {
+        shipmentLeadId: string;
+        subject: string;
+        body: string;
+        actorUserId: string;
+        gmailMessageId: string;
+    }) {
+        await applyUshipLifecycleEvent({
+            shipmentLeadId: input.shipmentLeadId,
+            subject: input.subject,
+            body: input.body,
+            actorUserId: input.actorUserId,
+            gmailMessageId: input.gmailMessageId,
+            source: "broker_gmail",
+        }).catch((err) => {
+            console.warn(
+                "[BROKER GMAIL] lifecycle apply failed:",
+                err instanceof Error ? err.message : err
+            );
+        });
+    }
+
+    /** Re-try unmatched / misclassified uShip emails (e.g. Quote Confirmation). */
+    private async rematchUnmatched(account: {
+        brokerGmailId: string;
+        userId: string;
+    }) {
+        const rows = await prisma.brokerMailboxMessage.findMany({
+            where: {
+                brokerGmailId: account.brokerGmailId,
+                receivedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+            },
+            orderBy: { receivedAt: "desc" },
+            take: 40,
+        });
+        let rematched = 0;
+        for (const row of rows) {
+            const body = `${row.bodyText || ""}\n${row.snippet || ""}`;
+            let shipmentLeadId = row.shipmentLeadId;
+            let method = row.matchMethod;
+
+            if (!shipmentLeadId) {
+                const refs = extractUshipRefs(`${row.subject}\n${body}`);
+                const match = await matchShipment({
+                    userId: account.userId,
+                    brokerGmailId: account.brokerGmailId,
+                    gmailThreadId: row.gmailThreadId || undefined,
+                    externalId: refs.externalId,
+                    viewUrl: refs.viewUrl,
+                    subject: row.subject,
+                    body,
+                });
+                if (!match) continue;
+                shipmentLeadId = match.shipmentLeadId;
+                method = match.method;
+                await prisma.brokerMailboxMessage.update({
+                    where: { messageId: row.messageId },
+                    data: {
+                        shipmentLeadId,
+                        matchMethod: method,
+                    },
+                });
+            }
+
+            const looksQuoteOrBid =
+                /quote|bid\s+confirmation|bid\s+submitted|submitted\s+a\s+(?:quote|bid)/i.test(
+                    `${row.subject}\n${body}`
+                );
+            // Re-apply for newly matched rows, or quote/bid confirmations that may have been UNKNOWN before.
+            if (!row.shipmentLeadId || looksQuoteOrBid) {
+                await this.applyMatchedLifecycle({
+                    shipmentLeadId,
+                    subject: row.subject,
+                    body,
+                    actorUserId: account.userId,
+                    gmailMessageId: row.gmailMessageId,
+                });
+                rematched += 1;
+            }
+        }
+        return rematched;
+    }
+
     async syncOneAccount(account: {
         brokerGmailId: string;
         userId: string;
@@ -241,20 +430,52 @@ export class BrokerGmailSyncService {
                         },
                     });
                     if (existing) {
+                        // Previously stored unmatched — try again with improved matcher/detector.
+                        if (!existing.shipmentLeadId) {
+                            const body = `${existing.bodyText || ""}\n${existing.snippet || ""}`;
+                            const refs = extractUshipRefs(`${existing.subject}\n${body}`);
+                            const match = await matchShipment({
+                                userId: account.userId,
+                                brokerGmailId: account.brokerGmailId,
+                                gmailThreadId: existing.gmailThreadId || undefined,
+                                externalId: refs.externalId,
+                                viewUrl: refs.viewUrl,
+                                subject: existing.subject,
+                                body,
+                            });
+                            if (match) {
+                                await prisma.brokerMailboxMessage.update({
+                                    where: { messageId: existing.messageId },
+                                    data: {
+                                        shipmentLeadId: match.shipmentLeadId,
+                                        matchMethod: match.method,
+                                    },
+                                });
+                                await this.applyMatchedLifecycle({
+                                    shipmentLeadId: match.shipmentLeadId,
+                                    subject: existing.subject,
+                                    body,
+                                    actorUserId: account.userId,
+                                    gmailMessageId,
+                                });
+                                matched += 1;
+                            }
+                        }
                         ignored += 1;
                         continue;
                     }
 
                     const raw = await this.fetchRaw(gmail, gmailMessageId);
-                    const body = `${raw.bodyText || ""}\n${raw.bodyHtml || ""}`;
+                    const bodyText = raw.bodyText || "";
+                    const bodyHtml = raw.bodyHtml ? stripHtml(raw.bodyHtml) : "";
+                    const body = `${bodyText}\n${bodyHtml}\n${raw.snippet || ""}`;
 
                     if (!isUshipRelated(raw.fromAddress, raw.subject, body)) {
-                        // Personal / unrelated — never store it.
                         ignored += 1;
                         continue;
                     }
 
-                    const refs = extractUshipRefs(`${raw.subject}\n${body}\n${raw.snippet || ""}`);
+                    const refs = extractUshipRefs(`${raw.subject}\n${body}`);
                     const match = await matchShipment({
                         userId: account.userId,
                         brokerGmailId: account.brokerGmailId,
@@ -275,7 +496,7 @@ export class BrokerGmailSyncService {
                             fromAddress: raw.fromAddress,
                             subject: raw.subject,
                             snippet: raw.snippet,
-                            bodyText: (raw.bodyText || "").slice(0, 20000) || null,
+                            bodyText: body.slice(0, 20000) || null,
                             receivedAt: raw.receivedAt,
                             matchMethod: match?.method || null,
                         },
@@ -283,19 +504,17 @@ export class BrokerGmailSyncService {
 
                     if (match?.shipmentLeadId) {
                         matched += 1;
-                        await applyUshipLifecycleEvent({
+                        await this.applyMatchedLifecycle({
                             shipmentLeadId: match.shipmentLeadId,
                             subject: raw.subject,
                             body,
                             actorUserId: account.userId,
                             gmailMessageId,
-                            source: "broker_gmail",
-                        }).catch((err) => {
-                            console.warn(
-                                "[BROKER GMAIL] lifecycle apply failed:",
-                                err instanceof Error ? err.message : err
-                            );
                         });
+                    } else {
+                        console.warn(
+                            `[BROKER GMAIL] unmatched uShip mail for ${account.gmailAddress}: "${raw.subject.slice(0, 120)}"`
+                        );
                     }
 
                     synced += 1;
@@ -307,6 +526,9 @@ export class BrokerGmailSyncService {
                     );
                 }
             }
+
+            const rematched = await this.rematchUnmatched(account);
+            if (rematched > 0) matched += rematched;
 
             const profile = await gmail.users.getProfile({ userId: "me" });
             await prisma.brokerGmailAccount.update({
@@ -347,39 +569,36 @@ export class BrokerGmailSyncService {
         const results: Array<Record<string, unknown>> = new Array(accounts.length);
         let nextIndex = 0;
 
-        // Bounded parallelism keeps a large account list inside the 30-second
-        // scheduler window without opening hundreds of Gmail/DB requests at once.
-        const worker = async () => {
+        const workers = Array.from({ length: Math.min(4, Math.max(1, accounts.length)) }, async () => {
             while (true) {
-                const index = nextIndex++;
-                const acc = accounts[index];
-                if (!acc) return;
+                const i = nextIndex++;
+                if (i >= accounts.length) break;
+                const acc = accounts[i];
                 try {
-                    const synced = await this.syncOneAccount(
-                        {
-                            brokerGmailId: acc.brokerGmailId,
-                            userId: acc.userId,
-                            gmailAddress: acc.gmailAddress,
-                            refreshToken: acc.refreshToken,
-                            historyId: acc.historyId,
-                            lastSyncAt: acc.lastSyncAt,
-                        },
-                        maxPerAccount
-                    );
-                    results[index] = { userId: acc.userId, ok: true, ...synced };
+                    results[i] = {
+                        ok: true,
+                        ...(await this.syncOneAccount(
+                            {
+                                brokerGmailId: acc.brokerGmailId,
+                                userId: acc.userId,
+                                gmailAddress: acc.gmailAddress,
+                                refreshToken: acc.refreshToken,
+                                historyId: acc.historyId,
+                                lastSyncAt: acc.lastSyncAt,
+                            },
+                            maxPerAccount
+                        )),
+                    };
                 } catch (err) {
-                    results[index] = {
-                        userId: acc.userId,
+                    results[i] = {
                         ok: false,
-                        error: err instanceof Error ? err.message : String(err),
                         gmailAddress: acc.gmailAddress,
+                        error: err instanceof Error ? err.message : String(err),
                     };
                 }
             }
-        };
-        const concurrency = Math.min(4, accounts.length);
-        await Promise.all(Array.from({ length: concurrency }, () => worker()));
-
+        });
+        await Promise.all(workers);
         return { configured: true, accounts: accounts.length, results };
     }
 
@@ -388,13 +607,16 @@ export class BrokerGmailSyncService {
             where: { userId },
             orderBy: { receivedAt: "desc" },
             take: limit,
-        });
-    }
-
-    listMessagesForShipment(shipmentLeadId: string) {
-        return prisma.brokerMailboxMessage.findMany({
-            where: { shipmentLeadId },
-            orderBy: { receivedAt: "asc" },
+            include: {
+                shipmentLead: {
+                    select: {
+                        shipmentLeadId: true,
+                        greenOsShipmentId: true,
+                        shipmentTitle: true,
+                        status: true,
+                    },
+                },
+            },
         });
     }
 }

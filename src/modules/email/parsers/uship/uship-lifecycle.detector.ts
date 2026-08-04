@@ -120,7 +120,21 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    if (/bid\s+submitted|you\s+submitted\s+a\s+bid|quote\s+submitted|submitted\s+a\s+quote/.test(h)) {
+    // uShip "Quote Confirmation" / quote posted — common after broker places a quote.
+    if (
+        /quote\s+confirmation|confirmation\s+of\s+your\s+quote|your\s+quote\s+(?:has\s+been\s+)?(?:submitted|received|confirmed|posted|placed)|you\s+(?:have\s+)?(?:submitted|placed|posted)\s+a\s+quote|quote\s+successfully|successfully\s+(?:submitted|posted)\s+(?:your\s+)?quote|we\s+received\s+your\s+quote|quote\s+was\s+submitted/.test(
+            h
+        )
+    ) {
+        return {
+            kind: "QUOTE_SUBMITTED",
+            title: "Quote Submitted",
+            domainEventType: "BID_SUBMITTED",
+            targetStatus: "BID_SUBMITTED",
+        };
+    }
+
+    if (/bid\s+submitted|you\s+submitted\s+a\s+bid|quote\s+submitted|submitted\s+a\s+quote|bid\s+confirmation|confirmation\s+of\s+your\s+bid/.test(h)) {
         return {
             kind: kindFromQuote(h),
             title: /quote/.test(h) ? "Quote Submitted" : "Bid Submitted",
@@ -130,7 +144,7 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
     }
 
     if (
-        /your\s+(?:code|quote|question)\s+has\s+been\s+completed|(?:code|quote|question)\s+has\s+been\s+completed/.test(
+        /your\s+(?:code|question)\s+has\s+been\s+completed|(?:code|question)\s+has\s+been\s+completed/.test(
             h
         )
     ) {
