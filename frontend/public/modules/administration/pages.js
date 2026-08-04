@@ -67,6 +67,7 @@ window.GreenOSModules['administration'] = {
       '</ol>' +
       '</div>' +
       '<div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem">' +
+      '<button type="button" class="btn-primary" id="email-accounts-sync-all" style="width:auto">Sync all now</button>' +
       '<button type="button" class="btn-secondary" id="email-accounts-refresh" style="width:auto">Refresh</button>' +
       '<span class="gos-muted" id="email-accounts-summary">Loading…</span>' +
       '</div>' +
@@ -212,6 +213,27 @@ window.GreenOSModules['administration'] = {
     }
 
     body.querySelector('#email-accounts-refresh').addEventListener('click', load);
+    body.querySelector('#email-accounts-sync-all').addEventListener('click', async function () {
+      var btn = body.querySelector('#email-accounts-sync-all');
+      btn.disabled = true;
+      btn.textContent = 'Syncing…';
+      try {
+        var result = await api('/check', { method: 'POST' });
+        if (!result.success) {
+          alert(result.message || 'Sync failed');
+        }
+      } catch (e) {
+        alert('Sync failed');
+      }
+      btn.disabled = false;
+      btn.textContent = 'Sync all now';
+      await load();
+    });
+
+    window.GreenOSEmailAccountsReload = function () {
+      if (!document.body.contains(body)) return;
+      load();
+    };
 
     await load();
   },

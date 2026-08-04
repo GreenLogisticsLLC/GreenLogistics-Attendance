@@ -232,64 +232,78 @@ window.GreenOSModules.broker = {
   },
 
   async renderShipments(body, root) {
+    var self = this;
     body.innerHTML = "<p>Loading my shipments…</p>";
-    try {
-      var data = await this.api("/shipments");
-      if (!data.success) {
-        body.innerHTML = "<p>" + this.esc(data.message) + "</p>";
-        return;
-      }
-      var rows = data.data || [];
-      body.innerHTML =
-        '<section class="gos-dash-hero"><h1>My Shipments</h1><p>Shipments assigned to you</p></section>' +
-        '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-        "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Updated</th>" +
-        '</tr></thead><tbody id="broker-ship-body"></tbody></table></div>';
-      var tbody = body.querySelector("#broker-ship-body");
-      if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="7">No shipments assigned yet</td></tr>';
-        return;
-      }
-      var esc = this.esc.bind(this);
-      var fmt = this.fmtDate.bind(this);
-      var badge = this.statusBadge.bind(this);
-      tbody.innerHTML = rows
-        .map(function (s, i) {
-          return (
-            '<tr class="crm-row" data-id="' +
-            s.shipmentLeadId +
-            '"><td>' +
-            (i + 1) +
-            "</td><td><strong>" +
-            esc(s.greenOsShipmentId || s.shipmentTitle) +
-            "</strong>" +
-            (s.greenOsShipmentId
-              ? '<br><small class="gos-muted">' + esc(s.shipmentTitle) + "</small>"
-              : "") +
-            "</td><td>" +
-            esc(s.customer) +
-            "</td><td>" +
-            esc(s.pickup) +
-            "</td><td>" +
-            esc(s.delivery) +
-            "</td><td>" +
-            badge(s.status) +
-            "</td><td>" +
-            fmt(s.updatedAt) +
-            "</td></tr>"
-          );
-        })
-        .join("");
-      tbody.querySelectorAll("[data-id]").forEach(function (tr) {
-        tr.addEventListener("click", function () {
-          if (window.GreenOSModules.crm && window.GreenOSModules.crm.openShipmentCard) {
-            window.GreenOSModules.crm.openShipmentCard(root, tr.getAttribute("data-id"));
-          }
+
+    async function paint() {
+      try {
+        var data = await self.api("/shipments");
+        if (!data.success) {
+          body.innerHTML = "<p>" + self.esc(data.message) + "</p>";
+          return;
+        }
+        var rows = data.data || [];
+        if (!body.querySelector("#broker-ship-body")) {
+          body.innerHTML =
+            '<section class="gos-dash-hero"><h1>My Shipments</h1><p>Shipments assigned to you — statuses update automatically from uShip email</p></section>' +
+            '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+            "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Updated</th>" +
+            '</tr></thead><tbody id="broker-ship-body"></tbody></table></div>';
+        }
+        var tbody = body.querySelector("#broker-ship-body");
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="7">No shipments assigned yet</td></tr>';
+          return;
+        }
+        var esc = self.esc.bind(self);
+        var fmt = self.fmtDate.bind(self);
+        var badge = self.statusBadge.bind(self);
+        tbody.innerHTML = rows
+          .map(function (s, i) {
+            return (
+              '<tr class="crm-row" data-id="' +
+              s.shipmentLeadId +
+              '"><td>' +
+              (i + 1) +
+              "</td><td><strong>" +
+              esc(s.greenOsShipmentId || s.shipmentTitle) +
+              "</strong>" +
+              (s.greenOsShipmentId
+                ? '<br><small class="gos-muted">' + esc(s.shipmentTitle) + "</small>"
+                : "") +
+              "</td><td>" +
+              esc(s.customer) +
+              "</td><td>" +
+              esc(s.pickup) +
+              "</td><td>" +
+              esc(s.delivery) +
+              "</td><td>" +
+              badge(s.status) +
+              "</td><td>" +
+              fmt(s.updatedAt) +
+              "</td></tr>"
+            );
+          })
+          .join("");
+        tbody.querySelectorAll("[data-id]").forEach(function (tr) {
+          tr.addEventListener("click", function () {
+            if (window.GreenOSModules.crm && window.GreenOSModules.crm.openShipmentCard) {
+              window.GreenOSModules.crm.openShipmentCard(root, tr.getAttribute("data-id"));
+            }
+          });
         });
-      });
-    } catch {
-      body.innerHTML = "<p>Failed to load shipments</p>";
+      } catch {
+        if (!body.querySelector("#broker-ship-body")) {
+          body.innerHTML = "<p>Failed to load shipments</p>";
+        }
+      }
     }
+
+    window.GreenOSBrokerReloadShipments = function () {
+      if (!document.body.contains(body)) return;
+      paint();
+    };
+    await paint();
   },
 
   async renderCustomers(body, root) {

@@ -20,7 +20,8 @@ export function startEmailImportScheduler(intervalMs = 30_000) {
         }
         running = true;
         try {
-            if (await gmailListener.ensureCredentials()) {
+            // Company + broker syncs must be independent — one failure must not block the other.
+            if (await gmailListener.ensureCredentials().catch(() => false)) {
                 try {
                     const result = await emailImportService.checkInbox({ maxMessages: 20 });
                     if (result.processed > 0) {
@@ -31,40 +32,53 @@ export function startEmailImportScheduler(intervalMs = 30_000) {
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
                     if (/invalid_grant|expired or revoked/i.test(msg)) {
-                        // Drop cached client and retry once with settings token.
                         gmailOAuthService.invalidateCompanyClient();
-                        const result = await emailImportService.checkInbox({ maxMessages: 20 });
-                        if (result.processed > 0) {
-                            console.log(
-                                `[email] processed=${result.processed} imported=${result.imported} ignored=${result.ignored} duplicates=${result.duplicates} errors=${result.errors}`
+                        try {
+                            const result = await emailImportService.checkInbox({ maxMessages: 20 });
+                            if (result.processed > 0) {
+                                console.log(
+                                    `[email] processed=${result.processed} imported=${result.imported} ignored=${result.ignored} duplicates=${result.duplicates} errors=${result.errors}`
+                                );
+                            }
+                        } catch (retryErr) {
+                            console.error(
+                                "[email] company inbox retry failed",
+                                retryErr instanceof Error ? retryErr.message : retryErr
                             );
                         }
                     } else {
-                        throw err;
+                        console.error("[email] company inbox tick failed", msg);
                     }
                 }
             }
 
             if (brokerGmailOAuthService.isClientConfigured()) {
-                const broker = await brokerGmailSyncService.syncAllBrokers(12);
-                const failures = broker.results.filter(
-                    (r) => r && typeof r === "object" && "ok" in r && (r as { ok?: boolean }).ok === false
-                );
-                for (const fail of failures) {
-                    const row = fail as { gmailAddress?: string; error?: string };
-                    console.warn(
-                        `[broker-gmail] ${row.gmailAddress || "unknown"}: ${String(row.error || "sync failed").slice(0, 200)}`
+                try {
+                    const broker = await brokerGmailSyncService.syncAllBrokers(12);
+                    const failures = broker.results.filter(
+                        (r) => r && typeof r === "object" && "ok" in r && (r as { ok?: boolean }).ok === false
                     );
-                }
-                const touched = broker.results.filter(
-                    (r) =>
-                        r &&
-                        typeof r === "object" &&
-                        "synced" in r &&
-                        Number((r as { synced?: number }).synced || 0) > 0
-                );
-                if (touched.length) {
-                    console.log(`[broker-gmail] synced ${touched.length} mailbox update(s)`);
+                    for (const fail of failures) {
+                        const row = fail as { gmailAddress?: string; error?: string };
+                        console.warn(
+                            `[broker-gmail] ${row.gmailAddress || "unknown"}: ${String(row.error || "sync failed").slice(0, 200)}`
+                        );
+                    }
+                    const touched = broker.results.filter(
+                        (r) =>
+                            r &&
+                            typeof r === "object" &&
+                            "synced" in r &&
+                            Number((r as { synced?: number }).synced || 0) > 0
+                    );
+                    if (touched.length) {
+                        console.log(`[broker-gmail] synced ${touched.length} mailbox update(s)`);
+                    }
+                } catch (err) {
+                    console.error(
+                        "[broker-gmail] syncAll failed",
+                        err instanceof Error ? err.message : err
+                    );
                 }
             }
         } catch (err) {

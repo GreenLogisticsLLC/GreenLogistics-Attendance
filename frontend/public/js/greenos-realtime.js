@@ -268,6 +268,28 @@
       }
     });
 
+    function refreshOpenViews() {
+      if (typeof window.GreenOSEmailReload === "function") {
+        window.GreenOSEmailReload();
+      }
+      if (
+        window.GreenOS &&
+        typeof window.GreenOS.refreshModule === "function" &&
+        (window.GreenOS.currentModule === "crm" ||
+          window.GreenOS.currentModule === "broker" ||
+          window.GreenOS.currentModule === "email" ||
+          window.GreenOS.currentModule === "administration")
+      ) {
+        window.GreenOS.refreshModule();
+      }
+      if (typeof window.GreenOSBrokerReloadShipments === "function") {
+        window.GreenOSBrokerReloadShipments();
+      }
+      if (typeof window.GreenOSEmailAccountsReload === "function") {
+        window.GreenOSEmailAccountsReload();
+      }
+    }
+
     function onLifecycle(d) {
       unread += 1;
       updateBadge();
@@ -277,6 +299,7 @@
         d.title || "Shipment update",
         (num ? "Shipment # " + num + " — " : "") + (d.subject || d.kind || "")
       );
+      refreshOpenViews();
     }
 
     es.addEventListener("SHIPMENT_LIFECYCLE", function (ev) {
@@ -295,6 +318,14 @@
         /* ignore */
       }
     });
+
+    // Keep shipment boards in sync even if an SSE event is missed (Gmail sync is every ~30s).
+    if (!window.__gosShipmentPoll) {
+      window.__gosShipmentPoll = setInterval(function () {
+        if (document.hidden) return;
+        refreshOpenViews();
+      }, 30000);
+    }
 
     es.onerror = function () {
       // Browser auto-reconnects EventSource
