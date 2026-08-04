@@ -433,10 +433,11 @@ export class AssignmentEngine {
         );
         return {
             version: "1.0",
-            algorithm: "round_robin",
+            algorithm: "round_robin_sequential_in_office",
             rules: [
-                "Broker must be In Office and have a connected Gmail account",
-                "Out of Office or disconnected Gmail removes the broker from assignment",
+                "Each NEW shipment goes to the next broker currently In Office (Attendance) — sequential queue, not load balancing",
+                "Out of Office removes the broker from the queue immediately",
+                "Gmail is recommended for uShip status updates but does not block receiving the next shipment",
             ],
             heart: "Attendance → Assignment Queue → CRM Shipment",
             eligible: eligible.map((e) => ({
@@ -611,8 +612,9 @@ export class AssignmentEngine {
     }
 
     /**
-     * Eligible = Broker In Office (Attendance check-in).
-     * Out of Office → excluded. Queue order follows card swipe arrival.
+     * Eligible = Broker + active + available + In Office (Attendance check-in).
+     * Out of Office → excluded. Gmail is NOT required to receive the next shipment —
+     * sequential round-robin must stay fair for everyone currently In Office.
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
         const users = await prisma.user.findMany({
@@ -634,18 +636,6 @@ export class AssignmentEngine {
             // Only In Office participates; Out of Office / other statuses are excluded.
             if (!session || session.currentStatus !== "INSIDE_OFFICE") continue;
 
-            // After assignment, uShip updates go to the broker's personal Gmail —
-            // without CONNECTED Gmail, GreenOS loses the shipment lifecycle.
-            const gmail = user.brokerGmailAccount;
-            if (
-                !gmail ||
-                gmail.status !== "CONNECTED" ||
-                !gmail.isActive ||
-                !gmail.refreshToken
-            ) {
-                continue;
-            }
-
             if (!user.employeeId) {
                 try {
                     await prisma.user.update({
@@ -655,6 +645,19 @@ export class AssignmentEngine {
                 } catch {
                     /* unique conflict — ignore */
                 }
+            }
+
+            const gmail = user.brokerGmailAccount;
+            const gmailOk = Boolean(
+                gmail &&
+                    gmail.status === "CONNECTED" &&
+                    gmail.isActive &&
+                    gmail.refreshToken
+            );
+            if (!gmailOk) {
+                console.warn(
+                    `[assignment] ${displayName(user)} is In Office but Gmail is not connected — still eligible for round-robin (connect Gmail for uShip status updates)`
+                );
             }
 
             eligible.push({
@@ -710,14 +713,18 @@ export class AssignmentEngine {
             return null;
         }
 
+        // Stable order by name so the rotating pointer is predictable; newcomers append via syncQueueOrder.
         const eligibleIds = eligible.map((e) => e.userId);
         const state = await this.loadQueueState();
         const synced = this.syncQueueOrder(state.orderedUserIds, eligibleIds, state.nextIndex);
-        await this.saveQueueState(synced.orderedUserIds, synced.nextIndex);
 
-        if (!synced.orderedUserIds.length) return null;
+        if (!synced.orderedUserIds.length) {
+            await this.saveQueueState([], 0);
+            return null;
+        }
 
         const n = synced.orderedUserIds.length;
+        // Walk from nextIndex: first In-Office broker not excluded = this shipment's assignee.
         for (let i = 0; i < n; i++) {
             const idx = (synced.nextIndex + i) % n;
             const chosenId = synced.orderedUserIds[idx];
@@ -725,18 +732,29 @@ export class AssignmentEngine {
             const broker = eligible.find((e) => e.userId === chosenId);
             if (!broker) continue;
 
+            // Advance pointer to the person AFTER the one we just assigned (strict sequential).
             const nextIndex = (idx + 1) % n;
             await this.saveQueueState(synced.orderedUserIds, nextIndex);
 
             const queueSnapshot = JSON.stringify({
                 order: synced.orderedUserIds,
                 pickedIndex: idx,
+                pickedName: broker.displayName,
                 nextIndex,
+                nextName:
+                    eligible.find((e) => e.userId === synced.orderedUserIds[nextIndex])
+                        ?.displayName || null,
                 excluded: [...exclude],
                 names: synced.orderedUserIds.map(
                     (id) => eligible.find((e) => e.userId === id)?.displayName || id
                 ),
             });
+
+            console.log(
+                `[assignment] RR → ${broker.displayName} (idx ${idx}/${n}); next → ${
+                    synced.orderedUserIds[nextIndex]
+                }`
+            );
 
             return { broker, queueSnapshot };
         }

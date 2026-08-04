@@ -147,7 +147,7 @@ window.GreenOSModules['administration'] = {
       var missing = rows.length - connected;
       summary.textContent =
         connected + ' connected / ' + rows.length + ' broker(s)' +
-        (missing ? ' — ' + missing + ' not eligible for assignment until connected' : '');
+        (missing ? ' — ' + missing + ' without Gmail (still can receive loads if In Office; connect for uShip updates)' : '');
 
       tbody.innerHTML = rows.map(function (row) {
         var isConnected = row.status === 'CONNECTED' && row.isActive;
