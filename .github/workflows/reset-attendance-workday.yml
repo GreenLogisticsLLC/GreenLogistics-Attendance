@@ -1,0 +1,81 @@
+name: Reset Attendance + set 17:00 workday
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type RESET_ATTENDANCE_HISTORY
+        required: true
+        type: string
+
+jobs:
+  reset:
+    if: ${{ inputs.confirmation == 'RESET_ATTENDANCE_HISTORY' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Wipe history, Day Shift 17:00 / late after 17:15
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          npm run build
+          pm2 stop greenos || true
+          trap 'pm2 restart greenos --update-env >/dev/null 2>&1 || true' EXIT
+
+          node scripts/reset-attendance-data.mjs --confirm=RESET_ATTENDANCE_HISTORY
+
+          node --input-type=module << 'NODE'
+          import { assignAllEmployeesToWorkDayShift } from "./dist/services/shift-default.service.js";
+          import { prisma } from "./dist/config/database.js";
+
+          const result = await assignAllEmployeesToWorkDayShift();
+          console.log("WORKDAY_SHIFT", result);
+
+          const shifts = await prisma.shift.findMany({
+            select: {
+              shiftName: true,
+              startTime: true,
+              endTime: true,
+              gracePeriodMinutes: true,
+              crossMidnight: true,
+            },
+          });
+          console.log("SHIFTS", shifts);
+
+          const sample = await prisma.employee.findMany({
+            where: { status: "ACTIVE" },
+            take: 5,
+            include: { shift: true },
+          });
+          for (const e of sample) {
+            console.log(
+              e.employeeNumber,
+              e.firstName,
+              e.lastName,
+              "->",
+              e.shift?.shiftName,
+              e.shift?.startTime,
+              "grace",
+              e.shift?.gracePeriodMinutes
+            );
+          }
+          await prisma.$disconnect();
+          NODE
+
+          pm2 restart greenos --update-env
+          pm2 save
+          trap - EXIT
+          sleep 5
+          curl --fail http://localhost:3847/api/health || true
+          EOF

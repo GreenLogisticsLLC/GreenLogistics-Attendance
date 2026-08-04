@@ -2,6 +2,7 @@ import { prisma } from "../config/database.js";
 import { config } from "../config/env.js";
 import {
     addDaysToDateString,
+    ATTENDANCE_GRACE_MINUTES,
     diffMinutes,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
@@ -10,6 +11,7 @@ import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
 import { attendanceEventRepository } from "../repositories/attendance-event.repository.js";
 import { assignmentEngine } from "../modules/assignment/assignment.engine.js";
+import { businessRulesEngine } from "./business-rules.engine.js";
 import type { AttendanceEventType, EmployeeStatus } from "../types/attendance.types.js";
 
 interface ProcessEventInput {
@@ -138,9 +140,15 @@ export class AttendanceService {
 
             if (!activeSession.firstEntry) {
                 updates.firstEntry = input.eventTime;
-                const lateMinutes = diffMinutes(activeSession.scheduledStart, input.eventTime);
-                updates.late = lateMinutes > 0;
-                updates.lateMinutes = lateMinutes;
+                const grace =
+                    employee.shift?.gracePeriodMinutes ?? ATTENDANCE_GRACE_MINUTES;
+                const lateStatus = businessRulesEngine.calculateLateStatus(
+                    input.eventTime,
+                    activeSession.scheduledStart,
+                    grace
+                );
+                updates.late = lateStatus.late;
+                updates.lateMinutes = lateStatus.lateMinutes;
             }
 
             const openInterval = await prisma.absenceInterval.findFirst({

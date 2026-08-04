@@ -116,6 +116,8 @@ export function getWorkDateString(date: Date, timezone: string): string {
 
 export const ATTENDANCE_DAY_START = "17:00";
 export const ATTENDANCE_DAY_END = "02:00";
+/** Arrive by scheduledStart + this many minutes; after that = late. */
+export const ATTENDANCE_GRACE_MINUTES = 15;
 export const ATTENDANCE_BREAK_ALLOWANCE_MINUTES = 60;
 
 function zonedParts(date: Date, timezone: string) {

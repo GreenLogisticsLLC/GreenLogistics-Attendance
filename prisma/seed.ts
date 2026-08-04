@@ -60,11 +60,16 @@ async function main() {
 
     const dayShift = await prisma.shift.upsert({
         where: { shiftName: "Day Shift" },
-        update: {},
+        update: {
+            startTime: "17:00",
+            endTime: "02:00",
+            gracePeriodMinutes: 15,
+            crossMidnight: true,
+        },
         create: {
             shiftName: "Day Shift",
             startTime: "17:00",
-            endTime: "01:00",
+            endTime: "02:00",
             gracePeriodMinutes: 15,
             crossMidnight: true,
         },
@@ -84,13 +89,18 @@ async function main() {
 
     await prisma.shift.upsert({
         where: { shiftName: "Flexible" },
-        update: {},
+        update: {
+            startTime: "17:00",
+            endTime: "02:00",
+            gracePeriodMinutes: 15,
+            crossMidnight: true,
+        },
         create: {
             shiftName: "Flexible",
-            startTime: "00:00",
-            endTime: "23:59",
-            gracePeriodMinutes: 0,
-            crossMidnight: false,
+            startTime: "17:00",
+            endTime: "02:00",
+            gracePeriodMinutes: 15,
+            crossMidnight: true,
         },
     });
 
