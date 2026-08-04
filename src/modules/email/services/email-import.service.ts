@@ -215,8 +215,12 @@ export class EmailImportService {
             }
         }
 
-        // Advance acceptance timers even when inbox empty.
+        // Advance acceptance timers and drain parked UNASSIGNED leads whenever brokers are In Office.
         await shipmentLeadService.assignment.processDueAcceptances();
+        const drained = await shipmentLeadService.assignment.assignPendingNewLeads(30);
+        if (drained > 0) {
+            console.log(`[email] drained ${drained} pending shipment(s) to In Office brokers`);
+        }
 
         return {
             configured: true,
@@ -225,6 +229,7 @@ export class EmailImportService {
             ignored,
             duplicates,
             errors,
+            drained,
             message: `Processed ${ids.length} unread message(s)`,
         };
     }

@@ -1,0 +1,122 @@
+name: Drain pending shipments to In Office brokers
+
+on:
+  workflow_dispatch:
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Diagnose eligible brokers and drain UNASSIGNED
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          npx tsc
+          pm2 restart greenos --update-env || true
+          sleep 3
+
+          node --input-type=module << 'NODE'
+          import { prisma } from "./dist/config/database.js";
+          import { assignmentEngine } from "./dist/modules/assignment/assignment.engine.js";
+          import { backfillMissingAttendanceBadges } from "./dist/services/user-attendance-link.service.js";
+
+          // Ensure brokers can receive work
+          const unlocked = await prisma.user.updateMany({
+            where: { role: { roleName: "Broker" }, isActive: true },
+            data: { availableForAssignment: true },
+          });
+          console.log("UNLOCKED_BROKERS", unlocked.count);
+
+          const badges = await backfillMissingAttendanceBadges();
+          console.log("BADGES", badges);
+
+          const brokers = await prisma.user.findMany({
+            where: { role: { roleName: "Broker" }, isActive: true },
+            include: {
+              employee: true,
+              role: true,
+            },
+          });
+          console.log("=== BROKERS ===");
+          for (const b of brokers) {
+            console.log({
+              name: `${b.firstName} ${b.lastName}`,
+              userId: b.userId,
+              employeeId: b.employeeId,
+              available: b.availableForAssignment,
+              empStatus: b.employee?.status || null,
+            });
+          }
+
+          const eligible = await assignmentEngine.listEligibleBrokers();
+          console.log("=== ELIGIBLE IN OFFICE ===", eligible.length);
+          for (const e of eligible) {
+            console.log(e.displayName, e.userId, e.employeeId);
+          }
+
+          const before = await prisma.shipmentLead.findMany({
+            where: { status: { in: ["NEW", "UNASSIGNED", "AWAITING_ACCEPTANCE", "ASSIGNED", "AGENT_OPEN"] } },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+            select: {
+              shipmentLeadId: true,
+              shipmentTitle: true,
+              status: true,
+              assignedBrokerId: true,
+              createdAt: true,
+              acceptanceDeadline: true,
+            },
+          });
+          console.log("=== SHIPMENTS BEFORE DRAIN ===");
+          for (const s of before) {
+            console.log({
+              title: s.shipmentTitle,
+              status: s.status,
+              brokerId: s.assignedBrokerId,
+              created: s.createdAt,
+            });
+          }
+
+          // Reclaim offline assignees + timeout reassign + drain parked
+          await assignmentEngine.processDueAcceptances();
+          const drained = await assignmentEngine.assignPendingNewLeads(50);
+          console.log("DRAINED", drained);
+
+          const after = await prisma.shipmentLead.findMany({
+            where: { status: { in: ["NEW", "UNASSIGNED", "AWAITING_ACCEPTANCE", "ASSIGNED", "AGENT_OPEN", "WORKING"] } },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+          });
+          const ids = [...new Set(after.map((s) => s.assignedBrokerId).filter(Boolean))];
+          const users = ids.length
+            ? await prisma.user.findMany({
+                where: { userId: { in: ids } },
+                select: { userId: true, firstName: true, lastName: true },
+              })
+            : [];
+          const names = new Map(
+            users.map((u) => [u.userId, `${u.firstName} ${u.lastName}`.trim()])
+          );
+          console.log("=== SHIPMENTS AFTER ===");
+          for (const s of after) {
+            console.log({
+              title: s.shipmentTitle,
+              status: s.status,
+              broker: s.assignedBrokerId ? names.get(s.assignedBrokerId) || s.assignedBrokerId : "NONE",
+            });
+          }
+
+          await prisma.$disconnect();
+          NODE
+          EOF

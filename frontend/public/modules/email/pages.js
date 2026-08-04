@@ -72,11 +72,12 @@ window.GreenOSModules.email = {
 
     function statusLabel(status) {
       var labels = {
-        ASSIGNED: "Awaiting Agent",
-        AWAITING_ACCEPTANCE: "Awaiting Agent",
-        AGENT_OPEN: "Agent Open",
+        ASSIGNED: "Assigned — awaiting Accept",
+        AWAITING_ACCEPTANCE: "Assigned — awaiting Accept",
+        AGENT_OPEN: "Opened — awaiting Accept",
         WORKING: "Agent Working",
-        UNASSIGNED: "Unassigned",
+        UNASSIGNED: "Unassigned (waiting for check-in)",
+        NEW: "New",
       };
       return labels[status] || status || "NEW";
     }

@@ -214,7 +214,42 @@ export class AssignmentEngine {
 
     async processDueAcceptances() {
         const now = new Date();
-        // No accept within the window → pass to next In Office broker.
+        // 1) Reclaim loads whose assigned broker is no longer In Office (still awaiting accept).
+        const awaiting = await prisma.shipmentLead.findMany({
+            where: {
+                status: { in: ["AWAITING_ACCEPTANCE", "AGENT_OPEN", "ASSIGNED"] },
+                acceptedAt: null,
+                assignedBrokerId: { not: null },
+            },
+            take: 100,
+        });
+        for (const lead of awaiting) {
+            const brokerId = lead.assignedBrokerId!;
+            const stillEligible = (await this.listEligibleBrokers()).some(
+                (b) => b.userId === brokerId
+            );
+            if (stillEligible) continue;
+            // Broker checked out / not eligible — pass to someone In Office now.
+            await this.pipelineLog(
+                lead.shipmentLeadId,
+                "Assigned broker is not In Office — reclaiming for round-robin"
+            );
+            await shipmentLeadRepository.update(lead.shipmentLeadId, {
+                status: "UNASSIGNED",
+                assignedBrokerId: null,
+                acceptanceDeadline: null,
+            });
+            await domainEventEngine.emit({
+                shipmentLeadId: lead.shipmentLeadId,
+                eventType: "SHIPMENT_UNASSIGNED",
+                title: "Reclaimed — broker not In Office",
+                message: "Previous assignee left Office / not eligible; waiting for In Office broker",
+                timelineStage: "SHIPMENT_UNASSIGNED",
+                payload: { previousBrokerId: brokerId },
+            });
+        }
+
+        // 2) No accept within the window → pass to next In Office broker.
         // AGENT_OPEN alone (opened card) does not count as acceptance.
         const expired = await prisma.shipmentLead.findMany({
             where: {
