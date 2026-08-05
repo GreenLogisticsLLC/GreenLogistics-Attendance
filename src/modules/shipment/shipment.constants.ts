@@ -49,6 +49,32 @@ export const SHIPMENT_STATUSES = [
 
 export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number] | string;
 
+/**
+ * Pipeline stages driven by uShip / broker Gmail — not pickable in the CRM status dropdown.
+ * Manual CRM updates may still use FOLLOW_UP, DISPATCH, COMPLETED, CLOSED, LOST, etc.
+ */
+export const AUTO_PIPELINE_STATUSES = [
+    "AGENT_OPEN",
+    "WORKING",
+    "BID_SUBMITTED",
+    "CUSTOMER_REPLIED",
+    "ACCEPTED",
+    "LOAD_CREATED",
+    "BOOKED",
+    "WON",
+] as const;
+
+export const MANUAL_CRM_STATUSES = [
+    "FOLLOW_UP",
+    "DISPATCH",
+    "COMPLETED",
+    "CLOSED",
+    "LOST",
+    "DELETED_FROM_CUSTOMER",
+    "QUOTE_SENT",
+    "NEGOTIATION",
+] as const;
+
 export const STATUS_LABELS: Record<string, string> = {
     NEW: "New",
     UNASSIGNED: "Unassigned",

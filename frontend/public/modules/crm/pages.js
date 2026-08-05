@@ -794,15 +794,24 @@ window.GreenOSModules.crm = {
         NEGOTIATION: "NEGOTIATION",
         BOOKED: "BOOKED",
         WON: "WON",
+        AWAITING_ACCEPTANCE: "AWAITING AGENT",
+        ASSIGNED: "AWAITING AGENT",
+        NEW: "NEW",
+        UNASSIGNED: "UNASSIGNED",
       };
-      var statusActions = [
-        "AGENT_OPEN",
-        "WORKING",
+      // Pipeline stages from uShip / broker Gmail — not manually selectable.
+      var autoStatuses = {
+        AGENT_OPEN: true,
+        WORKING: true,
+        BID_SUBMITTED: true,
+        CUSTOMER_REPLIED: true,
+        ACCEPTED: true,
+        LOAD_CREATED: true,
+        BOOKED: true,
+        WON: true,
+      };
+      var manualStatuses = [
         "FOLLOW_UP",
-        "BID_SUBMITTED",
-        "CUSTOMER_REPLIED",
-        "ACCEPTED",
-        "LOAD_CREATED",
         "DISPATCH",
         "COMPLETED",
         "CLOSED",
@@ -810,9 +819,15 @@ window.GreenOSModules.crm = {
         "DELETED_FROM_CUSTOMER",
         "QUOTE_SENT",
         "NEGOTIATION",
-        "BOOKED",
-        "WON",
-      ]
+      ];
+      var statusActions = "";
+      if (autoStatuses[s.status] || !manualStatuses.includes(s.status)) {
+        statusActions +=
+          '<option value="" selected disabled>' +
+          esc(statusLabels[s.status] || s.status || "Current (auto)") +
+          " — auto</option>";
+      }
+      statusActions += manualStatuses
         .map(function (st) {
           return (
             '<option value="' +
@@ -1002,7 +1017,8 @@ window.GreenOSModules.crm = {
         '<button type="button" class="btn-secondary" id="crm-save-load">Apply Load #</button>' +
         '<label>Update status <select id="crm-status">' +
         statusActions +
-        "</select></label>" +
+        "</select>" +
+        '<small class="gos-muted" style="display:block;margin-top:0.25rem">Agent Open → Won update from uShip automatically</small></label>' +
         '<button type="button" class="btn-secondary" id="crm-save-status">Save</button>' +
         "</div>" +
         "<h3>Timeline / Lifecycle</h3>" +
@@ -1038,6 +1054,10 @@ window.GreenOSModules.crm = {
       });
       modal.querySelector("#crm-save-status")?.addEventListener("click", async function () {
         var st = modal.querySelector("#crm-status").value;
+        if (!st) {
+          alert("This status updates automatically from uShip. Choose a manual status to override.");
+          return;
+        }
         var notes = modal.querySelector("#crm-notes")?.value;
         await window.GreenOSModules.crm.api("/shipments/" + id, {
           method: "PATCH",

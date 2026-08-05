@@ -2,6 +2,7 @@ import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { attendanceSessionRepository } from "../../../repositories/attendance-session.repository.js";
 import { ACTIVE_STATUSES } from "../crm.constants.js";
+import { AUTO_PIPELINE_STATUSES } from "../../shipment/shipment.constants.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { ensureGreenOsShipmentId } from "../../shipment/shipment.id.js";
@@ -460,6 +461,26 @@ export class CrmService {
         actorUserId?: string,
         extras?: { notes?: string; price?: number; priority?: string; loadNumber?: string }
     ) {
+        const normalized = String(status || "").toUpperCase().trim();
+        const current = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+            select: { status: true },
+        });
+        if (!current) {
+            throw Object.assign(new Error("Shipment not found"), { status: 404 });
+        }
+        // Notes / extras with the same auto status are fine; changing INTO an auto status is not.
+        if (
+            (AUTO_PIPELINE_STATUSES as readonly string[]).includes(normalized) &&
+            String(current.status).toUpperCase() !== normalized
+        ) {
+            throw Object.assign(
+                new Error(
+                    `${normalized.replace(/_/g, " ")} updates automatically from uShip / broker Gmail — pick a manual status instead`
+                ),
+                { status: 422 }
+            );
+        }
         await shipmentService.transitionStatus({
             shipmentLeadId,
             status,

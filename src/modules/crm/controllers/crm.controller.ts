@@ -144,7 +144,11 @@ export async function crmUpdateShipmentController(req: AuthRequest, res: Respons
         return res.json(apiResponse(true, "Shipment updated", data));
     } catch (err) {
         const message = err instanceof Error ? err.message : "Update failed";
-        return res.status(500).json(apiResponse(false, message));
+        const code =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status: number }).status)
+                : 500;
+        return res.status(code || 500).json(apiResponse(false, message));
     }
 }
 
