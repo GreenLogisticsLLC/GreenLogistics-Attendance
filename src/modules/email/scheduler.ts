@@ -8,7 +8,7 @@ import { isAdminWriteActive } from "../../config/database.js";
 let timer: NodeJS.Timeout | null = null;
 let running = false;
 
-export function startEmailImportScheduler(intervalMs = 30_000) {
+export function startEmailImportScheduler(intervalMs = 15_000) {
     if (timer) return;
     console.log(`[email] scheduler started (every ${intervalMs / 1000}s)`);
 

@@ -79,7 +79,7 @@ export const config = {
             process.env.GMAIL_REDIRECT_URI ||
             `${(process.env.PUBLIC_APP_URL || "http://localhost:3847").replace(/\/$/, "")}/api/email/callback`,
     },
-    emailPollIntervalMs: parseInt(process.env.EMAIL_POLL_INTERVAL_MS || "30000", 10),
+    emailPollIntervalMs: parseInt(process.env.EMAIL_POLL_INTERVAL_MS || "15000", 10),
     /** GreenOS AI Assistant (OpenAI). */
     openai: {
         apiKey: (process.env.OPENAI_API_KEY || "").trim(),

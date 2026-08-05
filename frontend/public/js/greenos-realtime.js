@@ -25,6 +25,38 @@
     return host;
   }
 
+  var MAX_VISIBLE_TOASTS = 3;
+  var hiddenToasts = 0;
+
+  function updateMoreCounter(host) {
+    var pill = host.querySelector(".gos-toast-more");
+    if (!hiddenToasts) {
+      if (pill) pill.remove();
+      return;
+    }
+    if (!pill) {
+      pill = document.createElement("button");
+      pill.type = "button";
+      pill.className = "gos-toast-more";
+      pill.addEventListener("click", function () {
+        hiddenToasts = 0;
+        pill.remove();
+      });
+      host.appendChild(pill);
+    }
+    pill.textContent = "+" + hiddenToasts + " more in Notifications";
+  }
+
+  /** Keep the stack short: a burst of assignments must not cover the screen. */
+  function trimToasts(host) {
+    var items = host.querySelectorAll(".gos-toast");
+    for (var i = 0; i < items.length - MAX_VISIBLE_TOASTS; i++) {
+      items[i].remove();
+      hiddenToasts += 1;
+    }
+    updateMoreCounter(host);
+  }
+
   function updateBadge() {
     var btn = document.getElementById("gos-notifications-btn");
     if (!btn) return;
@@ -92,8 +124,8 @@
       (miles ? "<br/>" + miles : "") +
       "</div>" +
       '<div class="gos-toast-actions">' +
-      '<button type="button" class="btn-primary gos-toast-open" style="width:auto;padding:0.45rem 0.85rem">Open Shipment</button>' +
-      '<button type="button" class="btn-secondary gos-toast-dismiss" style="width:auto;padding:0.45rem 0.85rem">Dismiss</button>' +
+      '<button type="button" class="btn-primary gos-toast-open" style="width:auto;padding:0.3rem 0.6rem">Open</button>' +
+      '<button type="button" class="btn-secondary gos-toast-dismiss" style="width:auto;padding:0.3rem 0.6rem">Dismiss</button>' +
       "</div>";
 
     function close() {
@@ -140,7 +172,8 @@
     });
 
     host.appendChild(el);
-    setTimeout(close, 45000);
+    trimToasts(host);
+    setTimeout(close, 20000);
   }
 
   function showSimpleToast(title, body) {
@@ -155,6 +188,7 @@
       esc(body) +
       "</div>";
     host.appendChild(el);
+    trimToasts(host);
     setTimeout(function () {
       el.classList.add("is-leaving");
       setTimeout(function () {

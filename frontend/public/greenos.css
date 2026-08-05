@@ -868,8 +868,8 @@
   z-index: 9999;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  max-width: min(22rem, calc(100vw - 2rem));
+  gap: 0.4rem;
+  max-width: min(17rem, calc(100vw - 2rem));
   pointer-events: none;
 }
 
@@ -877,9 +877,9 @@
   pointer-events: auto;
   background: #15261c;
   border: 1px solid #2a4a38;
-  border-radius: 12px;
-  padding: 0.9rem 1rem;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  border-radius: 10px;
+  padding: 0.5rem 0.65rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   color: #e8f0ea;
   animation: gos-toast-in 0.28s ease;
 }
@@ -896,20 +896,36 @@
 
 .gos-toast-title {
   font-weight: 700;
-  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.15rem;
 }
 
 .gos-toast-body {
-  font-size: 0.9rem;
-  line-height: 1.4;
+  font-size: 0.72rem;
+  line-height: 1.3;
   color: #b7c9bc;
-  margin-bottom: 0.65rem;
+  margin-bottom: 0.4rem;
 }
 
 .gos-toast-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.35rem;
   flex-wrap: wrap;
+}
+
+.gos-toast-actions button {
+  font-size: 0.72rem;
+}
+
+.gos-toast-more {
+  pointer-events: auto;
+  align-self: flex-end;
+  font-size: 0.7rem;
+  color: #9fb3a5;
+  background: #12201a;
+  border: 1px solid #2a4a38;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
 }
 
 .gos-icon-btn {

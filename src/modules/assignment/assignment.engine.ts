@@ -492,7 +492,7 @@ export class AssignmentEngine {
         }
 
         // Spec: first broker back In Office → auto-assign pending Unassigned / NEW leads
-        const drained = await this.assignPendingNewLeads(20);
+        const drained = await this.assignPendingNewLeads(3);
         if (drained > 0) {
             console.log(
                 `[assignment] drained ${drained} pending shipment(s) after ${displayName(user)} In Office`
