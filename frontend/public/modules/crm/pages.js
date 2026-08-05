@@ -112,6 +112,20 @@ window.GreenOSModules.crm = {
     }
   },
 
+  fmtDateShort(v) {
+    if (!v) return "—";
+    try {
+      return new Date(v).toLocaleDateString("en-US", {
+        month: "numeric",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+    } catch {
+      return String(v);
+    }
+  },
+
   statusBadge(status) {
     var map = {
       NEW: { cls: "crm-st-new", label: "🟢 New" },
@@ -843,15 +857,44 @@ window.GreenOSModules.crm = {
         "</strong></div>" +
         "<div><span>Pickup</span><strong>" +
         esc(s.pickup) +
-        "</strong></div>" +
+        "</strong>" +
+        (s.pickupFrom || s.pickupTo
+          ? '<div class="gos-muted" style="font-size:0.78rem;margin-top:0.15rem">' +
+            esc(
+              [s.pickupFrom, s.pickupTo]
+                .filter(Boolean)
+                .map(function (d) {
+                  return window.GreenOSModules.crm.fmtDateShort(d);
+                })
+                .join(" – ")
+            ) +
+            "</div>"
+          : "") +
+        "</div>" +
         "<div><span>Delivery</span><strong>" +
         esc(s.delivery) +
-        "</strong></div>" +
+        "</strong>" +
+        (s.deliveryFrom || s.deliveryTo
+          ? '<div class="gos-muted" style="font-size:0.78rem;margin-top:0.15rem">' +
+            esc(
+              [s.deliveryFrom, s.deliveryTo]
+                .filter(Boolean)
+                .map(function (d) {
+                  return window.GreenOSModules.crm.fmtDateShort(d);
+                })
+                .join(" – ")
+            ) +
+            "</div>"
+          : "") +
+        "</div>" +
         "<div><span>Distance</span><strong>" +
         (s.miles != null ? s.miles + " mi" : "—") +
         "</strong></div>" +
         "<div><span>Vehicle</span><strong>" +
         esc(s.vehicle) +
+        "</strong></div>" +
+        "<div><span>Equipment</span><strong>" +
+        esc(s.equipment || "—") +
         "</strong></div>" +
         "<div><span>Weight</span><strong>" +
         esc(s.weight || "—") +
@@ -866,6 +909,11 @@ window.GreenOSModules.crm = {
             '" target="_blank" rel="noopener">Open in uShip</a>'
           : "—") +
         "</div>" +
+        (s.imageUrl
+          ? '<div class="crm-card-image" style="grid-column:1/-1"><span>Photo</span><img src="' +
+            esc(s.imageUrl) +
+            '" alt="Shipment" style="max-width:100%;max-height:160px;border-radius:8px;margin-top:0.35rem;object-fit:cover"></div>'
+          : "") +
         "</div>" +
         '<div class="crm-notes"><span>Internal Notes</span>' +
         '<textarea id="crm-notes" rows="3" style="width:100%;margin-top:0.35rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:0.6rem">' +

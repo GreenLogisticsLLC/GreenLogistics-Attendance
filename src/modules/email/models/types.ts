@@ -43,6 +43,7 @@ export interface ParsedShipmentDraft {
     source: ShipmentSource;
     externalShipmentId?: string;
     shipmentTitle: string;
+    customerName?: string;
     pickupCity?: string;
     pickupState?: string;
     pickupZip?: string;
@@ -55,6 +56,10 @@ export interface ParsedShipmentDraft {
     deliveryTo?: Date | null;
     miles?: number | null;
     category?: string;
+    equipment?: string;
+    vehicle?: string;
+    weight?: string;
+    price?: number | null;
     imageUrl?: string;
     viewUrl?: string;
     receivedAt?: Date;
