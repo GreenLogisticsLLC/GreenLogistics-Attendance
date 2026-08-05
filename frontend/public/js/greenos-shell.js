@@ -162,6 +162,8 @@
     /** Soft re-render current module (used by realtime / poll). */
     refreshModule() {
       if (!this.currentModule) return;
+      // Attendance panels live in index.html and refresh themselves.
+      if (this.currentModule === "attendance") return;
       if (
         this.currentModule === "broker" &&
         this.currentSub === "shipments" &&

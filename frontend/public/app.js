@@ -151,6 +151,12 @@ function switchView(view) {
     document.querySelectorAll(".nav-btn").forEach((b) => {
         b.classList.toggle("active", b.dataset.view === view);
     });
+
+    // Keep the shell in sync so a later refresh cannot bounce back to the Live Board.
+    if (window.GreenOS && window.GreenOS.currentModule === "attendance") {
+        window.GreenOS.currentSub =
+            view === "reports" ? "reports" : view === "admin" ? "setup" : "live";
+    }
     $("#dashboard-view").classList.toggle("hidden", view !== "dashboard");
     $("#reports-view").classList.toggle("hidden", view !== "reports");
     $("#admin-view").classList.toggle("hidden", view !== "admin");

@@ -171,11 +171,14 @@
     if (typeof window.GreenOSBrokerReloadShipments === "function") {
       window.GreenOSBrokerReloadShipments();
     }
+    // Attendance keeps its own timers in index.html; re-navigating it would drop
+    // the user from Administration back to the Live Board.
     if (
       window.GreenOS &&
       typeof window.GreenOS.refreshModule === "function" &&
       window.GreenOS.currentModule &&
-      window.GreenOS.currentModule !== "broker"
+      window.GreenOS.currentModule !== "broker" &&
+      window.GreenOS.currentModule !== "attendance"
     ) {
       window.GreenOS.refreshModule();
     }
