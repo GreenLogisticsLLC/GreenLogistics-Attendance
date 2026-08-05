@@ -210,6 +210,7 @@ const NOTIFY_KINDS = new Set<UshipLifecycleKind>([
     "NEW_MESSAGE",
     "BID_SUBMITTED",
     "BID_UPDATED",
+    "QUOTE_SUBMITTED",
 ]);
 
 /**

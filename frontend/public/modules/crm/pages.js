@@ -69,9 +69,17 @@ window.GreenOSModules.crm = {
 
     var body = root.querySelector("#crm-body");
     var page = active ? active.id : "dashboard";
-    if (page === "dashboard") self.renderDashboard(body, root);
-    else if (page === "brokers") self.renderBrokers(body, root);
-    else self.renderShipments(body, root);
+
+    function paint() {
+      var current = document.getElementById("crm-body") || body;
+      if (page === "dashboard") self.renderDashboard(current, root);
+      else if (page === "brokers") self.renderBrokers(current, root);
+      else self.renderShipments(current, root);
+    }
+
+    // Soft reload used by realtime/poll: keeps the subnav and the open card alive.
+    window.GreenOSCrmReloadBody = paint;
+    paint();
   },
 
   async api(path, options) {
@@ -135,7 +143,9 @@ window.GreenOSModules.crm = {
   },
 
   async renderDashboard(body, root) {
-    body.innerHTML = "<p>Loading CRM dashboard…</p>";
+    if (!body.querySelector(".crm-kpi-grid")) {
+      body.innerHTML = "<p>Loading CRM dashboard…</p>";
+    }
     try {
       var data = await this.api("/dashboard");
       if (!data.success) {
@@ -373,7 +383,10 @@ window.GreenOSModules.crm = {
   },
 
   async renderShipments(body, root, brokerId) {
-    body.innerHTML = "<p>Loading shipments…</p>";
+    // Keep the current table on background reloads so the page does not blink.
+    if (!body.querySelector("#crm-ship-body")) {
+      body.innerHTML = "<p>Loading shipments…</p>";
+    }
     try {
       var q = brokerId ? "?brokerId=" + encodeURIComponent(brokerId) : "";
       var data = await this.api("/shipments" + q);
@@ -482,7 +495,9 @@ window.GreenOSModules.crm = {
   },
 
   async renderBrokers(body, root) {
-    body.innerHTML = "<p>Loading brokers…</p>";
+    if (!body.querySelector("#crm-broker-body")) {
+      body.innerHTML = "<p>Loading brokers…</p>";
+    }
     try {
       var data = await this.api("/brokers");
       if (!data.success) {
@@ -656,6 +671,48 @@ window.GreenOSModules.crm = {
     }
   },
 
+  /**
+   * Re-render the open card when uShip mail moved the shipment forward.
+   * Re-renders only on a real status/timeline change so typing is not interrupted.
+   */
+  async refreshOpenShipmentCard() {
+    var modal = document.getElementById("crm-modal");
+    if (!modal || modal.classList.contains("hidden")) return;
+    var id = modal.getAttribute("data-shipment-id");
+    if (!id) return;
+    try {
+      var data = await this.api("/shipments/" + encodeURIComponent(id));
+      if (!data || !data.success || !data.data) return;
+      var fresh = data.data;
+      var shownStatus = modal.getAttribute("data-shipment-status") || "";
+      var shownSteps = modal.getAttribute("data-pipeline-steps") || "";
+      var freshSteps = String((fresh.pipeline || []).filter(function (p) {
+        return p.done;
+      }).length);
+      var shownLoad = modal.getAttribute("data-load-number") || "";
+      var shownMail = modal.getAttribute("data-mailbox-count") || "";
+      if (
+        String(fresh.status || "") === shownStatus &&
+        freshSteps === shownSteps &&
+        String(fresh.loadNumber || "") === shownLoad &&
+        String((fresh.mailboxEmails || []).length) === shownMail
+      ) {
+        return;
+      }
+      var notesEl = modal.querySelector("#crm-notes");
+      var draft = notesEl && notesEl.value !== (modal.getAttribute("data-notes") || "")
+        ? notesEl.value
+        : null;
+      await this.openShipmentCard(document, id);
+      if (draft != null) {
+        var restored = modal.querySelector("#crm-notes");
+        if (restored) restored.value = draft;
+      }
+    } catch (e) {
+      /* keep the card as-is on network errors */
+    }
+  },
+
   async openShipmentCard(root, id) {
     var modal = root.querySelector("#crm-modal");
     if (!modal) return;
@@ -676,6 +733,19 @@ window.GreenOSModules.crm = {
         return;
       }
       var s = data.data;
+      modal.setAttribute("data-shipment-status", String(s.status || ""));
+      modal.setAttribute("data-load-number", String(s.loadNumber || ""));
+      modal.setAttribute(
+        "data-pipeline-steps",
+        String((s.pipeline || []).filter(function (p) {
+          return p.done;
+        }).length)
+      );
+      modal.setAttribute("data-notes", String(s.notes || ""));
+      modal.setAttribute(
+        "data-mailbox-count",
+        String((s.mailboxEmails || []).length)
+      );
       var esc = this.esc.bind(this);
       var pipeline = (s.pipeline || [])
         .map(function (p) {

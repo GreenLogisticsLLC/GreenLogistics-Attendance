@@ -219,6 +219,14 @@
     if (typeof window.GreenOSEmailAccountsReload === "function") {
       window.GreenOSEmailAccountsReload();
     }
+    // An open shipment card must follow uShip status changes too.
+    if (
+      window.GreenOSModules &&
+      window.GreenOSModules.crm &&
+      typeof window.GreenOSModules.crm.refreshOpenShipmentCard === "function"
+    ) {
+      window.GreenOSModules.crm.refreshOpenShipmentCard();
+    }
   }
 
   function onAssigned(data) {

@@ -172,6 +172,16 @@
         window.GreenOSBrokerReloadShipments();
         return;
       }
+      if (
+        this.currentModule === "crm" &&
+        typeof window.GreenOSCrmReloadBody === "function"
+      ) {
+        window.GreenOSCrmReloadBody();
+        return;
+      }
+      // A full re-render would destroy an open shipment card mid-edit.
+      const modal = document.getElementById("crm-modal");
+      if (modal && !modal.classList.contains("hidden")) return;
       this.navigate(this.currentModule, this.currentSub || undefined);
     },
 
