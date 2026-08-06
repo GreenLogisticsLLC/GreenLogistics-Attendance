@@ -860,19 +860,34 @@ window.GreenOSModules.crm = {
       }
 
       var correspondence = Array.isArray(s.correspondence) ? s.correspondence : [];
+      // Only latest Broker Answer + latest Customer Respond (server already prunes).
+      var latestBroker = null;
+      var latestCustomer = null;
+      correspondence.forEach(function (c) {
+        var isBroker = c.kind === "BROKER_ANSWER" || c.kind === "BROKER_QUESTION";
+        if (isBroker) latestBroker = c;
+        else latestCustomer = c;
+      });
+      var corrShow = [];
+      if (latestBroker) corrShow.push(latestBroker);
+      if (latestCustomer) corrShow.push(latestCustomer);
+      corrShow.sort(function (a, b) {
+        return new Date(a.at || 0) - new Date(b.at || 0);
+      });
+
       var correspondenceHtml =
         '<h3>Q&amp;A traffic light</h3>' +
-        '<p class="gos-muted" style="font-size:0.8rem;margin:0 0 0.5rem">Broker Question lights when you tap it. Customer Respond lights from uShip email.</p>' +
+        '<p class="gos-muted" style="font-size:0.8rem;margin:0 0 0.5rem">Green click → <strong>Broker Answer</strong> (latest only). Customer Respond updates from uShip email (latest only).</p>' +
         '<ul class="crm-correspondence">' +
-        (correspondence.length
-          ? correspondence
+        (corrShow.length
+          ? corrShow
               .map(function (c) {
-                var isBroker = c.kind === "BROKER_QUESTION";
+                var isBroker = c.kind === "BROKER_ANSWER" || c.kind === "BROKER_QUESTION";
                 return (
                   '<li class="' +
                   (isBroker ? "is-broker" : "is-customer") +
                   '"><span class="crm-corr-dot"></span><div><strong>' +
-                  esc(c.title || (isBroker ? "Broker Question" : "Customer Respond")) +
+                  esc(c.title || (isBroker ? "Broker Answer" : "Customer Respond")) +
                   "</strong>" +
                   (c.message ? "<div>" + esc(c.message) + "</div>" : "") +
                   (c.at
@@ -882,7 +897,7 @@ window.GreenOSModules.crm = {
                 );
               })
               .join("")
-          : "<li class=\"gos-muted\">No questions yet — tap Broker Question after you write to the customer</li>") +
+          : "<li class=\"gos-muted\">No Q&amp;A yet — tap the green Broker Question lamp after you write to the customer</li>") +
         "</ul>";
 
       var statusLabels = {

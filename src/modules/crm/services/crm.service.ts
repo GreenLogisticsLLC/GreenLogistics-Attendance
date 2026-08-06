@@ -521,8 +521,8 @@ export class CrmService {
     }
 
     /**
-     * Broker marks that they sent a question to the customer (traffic-light step).
-     * Can be clicked multiple times for each new question in a long thread.
+     * Broker marks Answer/Question to the customer (green traffic-light click).
+     * Replaces any previous Broker Answer on this card — only the latest is kept.
      */
     async markBrokerQuestion(shipmentLeadId: string, actorUserId: string, note?: string) {
         const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
@@ -530,32 +530,34 @@ export class CrmService {
             throw Object.assign(new Error("Shipment not found"), { status: 404 });
         }
         if (lead.assignedBrokerId && lead.assignedBrokerId !== actorUserId) {
-            // Owner / Team Lead may still log on behalf of review, but brokers only for their own.
             const user = await prisma.user.findUnique({
                 where: { userId: actorUserId },
                 select: { role: { select: { roleName: true } } },
             });
             const role = user?.role?.roleName || "";
             if (!["Administrator", "Owner", "Manager", "Team Lead"].includes(role)) {
-                throw Object.assign(new Error("Only the assigned broker can mark Broker Question"), {
+                throw Object.assign(new Error("Only the assigned broker can mark Broker Answer"), {
                     status: 403,
                 });
             }
         }
 
-        await domainEventEngine.emit({
+        const event = await domainEventEngine.emit({
             shipmentLeadId,
             eventType: "BROKER_QUESTION",
-            title: "Broker Question",
+            title: "Broker Answer",
             message:
                 note?.trim() ||
-                "Broker sent a question to the customer (waiting for Customer Respond)",
+                "Broker answered / asked the customer (waiting for Customer Respond)",
             actorUserId,
-            payload: { source: "manual_traffic_light" },
+            payload: { source: "manual_traffic_light", label: "Broker Answer" },
             timelineStage: "BROKER_QUESTION",
         });
 
-        // Soft signal: follow-up / waiting on customer without forcing auto pipeline statuses.
+        await domainEventEngine.pruneOlderQa(shipmentLeadId, "broker", event.eventId);
+        // Clean correspondence + timeline duplicates for this card
+        await domainEventEngine.listCorrespondence(shipmentLeadId);
+
         if (
             ["WORKING", "BID_SUBMITTED", "AGENT_OPEN", "FOLLOW_UP"].includes(lead.status) ||
             lead.status === "CUSTOMER_REPLIED"
