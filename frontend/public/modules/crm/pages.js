@@ -1088,26 +1088,6 @@ window.GreenOSModules.crm = {
               .join("")
           : "<li>No files attached yet — upload a photo or document from your computer</li>") +
         "</ul>" +
-        "<h3>uShip email history</h3>" +
-        '<ul class="gos-muted" id="crm-mailbox">' +
-        (Array.isArray(s.mailboxEmails) && s.mailboxEmails.length
-          ? s.mailboxEmails
-              .map(function (m) {
-                return (
-                  "<li><strong>" +
-                  esc(m.subject) +
-                  "</strong><br><small>" +
-                  esc(m.fromAddress) +
-                  " · " +
-                  window.GreenOSModules.crm.fmtDate(m.receivedAt) +
-                  "</small>" +
-                  (m.snippet ? "<br>" + esc(m.snippet) : "") +
-                  "</li>"
-                );
-              })
-              .join("")
-          : "<li>No broker mailbox emails linked yet</li>") +
-        "</ul>" +
         "<h3>Operations</h3>" +
         '<div class="crm-card-grid" id="crm-ops">' +
         '<div><span>Carrier</span><input id="ops-carrier" value="' +
