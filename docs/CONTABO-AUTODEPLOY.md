@@ -24,10 +24,16 @@ bash tools/contabo-autodeploy/install-greenos-autodeploy.sh
 
 1. `git fetch origin`
 2. Compare `HEAD` vs `origin/main`
-3. Same → exit
+3. Same → **still** run health gate (below), then exit
 4. Different → save `last-working-commit.txt`, `reset --hard`, `npm ci`, `db:push`, `build`, `pm2 restart`, health check
 5. Success → log `deploy successful`
 6. Failure → rollback to `last-working-commit.txt` and log
+
+### Health gate (every tick)
+
+1. Check PM2 process `greenos` is online
+2. `GET http://localhost:3847/api/health`
+3. If health fails → `npm run build`, `pm2 restart greenos --update-env`, retry health
 
 Concurrency: `flock` on `/var/lock/greenos-autodeploy.lock`.
 
