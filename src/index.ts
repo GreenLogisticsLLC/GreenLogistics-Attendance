@@ -7,7 +7,7 @@ import { config } from "./config/env.js";
 import { configureSqlite } from "./config/database.js";
 import { attendanceService } from "./services/attendance.service.js";
 import { startEmailImportScheduler } from "./modules/email/scheduler.js";
-import { backfillMissingGreenOsShipmentIds } from "./modules/shipment/shipment.id.js";
+import { backfillMissingGreenOsShipmentIds, remigrateAllGreenOsShipmentIds } from "./modules/shipment/shipment.id.js";
 import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,10 +43,14 @@ startEmailImportScheduler(config.emailPollIntervalMs);
 app.listen(config.port, config.host, async () => {
     await configureSqlite();
     try {
+        const remapped = await remigrateAllGreenOsShipmentIds();
+        if (remapped > 0) {
+            console.log(`[shipment] Remigrated ${remapped} Green OS Shipment ID(s) → GOS1000001…`);
+        }
         const n = await backfillMissingGreenOsShipmentIds();
         if (n > 0) console.log(`[shipment] Backfilled ${n} Green OS Shipment ID(s)`);
     } catch (err) {
-        console.warn("[shipment] Green OS ID backfill skipped:", err);
+        console.warn("[shipment] Green OS ID backfill/remigrate skipped:", err);
     }
     const urls = getWebhookUrls(config.port);
     const ips = getAllNetworkIps();

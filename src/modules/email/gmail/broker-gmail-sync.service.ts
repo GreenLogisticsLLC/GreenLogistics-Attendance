@@ -150,10 +150,19 @@ async function matchShipment(input: {
         method = "externalShipmentId";
     }
 
-    const gosMatch = `${input.subject} ${input.body}`.match(/GOS-\d{8}-\d+/i);
-    if (!candidate && gosMatch) {
+    const gosSeq = `${input.subject} ${input.body}`.match(/\bGOS(\d{7,})\b/i);
+    if (!candidate && gosSeq) {
         candidate = await prisma.shipmentLead.findUnique({
-            where: { greenOsShipmentId: gosMatch[0].toUpperCase() },
+            where: { greenOsShipmentId: `GOS${gosSeq[1]}` },
+            select: { shipmentLeadId: true, assignedBrokerId: true },
+        });
+        method = "greenOsShipmentId";
+    }
+
+    const gosLegacy = `${input.subject} ${input.body}`.match(/GOS-\d{8}-\d+/i);
+    if (!candidate && gosLegacy) {
+        candidate = await prisma.shipmentLead.findUnique({
+            where: { greenOsShipmentId: gosLegacy[0].toUpperCase() },
             select: { shipmentLeadId: true, assignedBrokerId: true },
         });
         method = "greenOsShipmentId";

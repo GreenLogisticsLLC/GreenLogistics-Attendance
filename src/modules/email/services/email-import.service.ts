@@ -32,10 +32,16 @@ async function findShipmentForLifecycle(text: string) {
         const byExt = await shipmentLeadRepository.findByExternalId("USHIP", refs.externalId);
         if (byExt) return byExt;
     }
-    const gos = text.match(/GOS-\d{8}-\d+/i);
-    if (gos) {
+    const gosSeq = text.match(/\bGOS(\d{7,})\b/i);
+    if (gosSeq) {
         return prisma.shipmentLead.findUnique({
-            where: { greenOsShipmentId: gos[0].toUpperCase() },
+            where: { greenOsShipmentId: `GOS${gosSeq[1]}` },
+        });
+    }
+    const gosLegacy = text.match(/GOS-\d{8}-\d+/i);
+    if (gosLegacy) {
+        return prisma.shipmentLead.findUnique({
+            where: { greenOsShipmentId: gosLegacy[0].toUpperCase() },
         });
     }
     return null;
