@@ -6,6 +6,8 @@ import {
     crmBrokerWorkspaceController,
     crmCustomerDetailController,
     crmDashboardController,
+    crmDeleteShipmentFileController,
+    crmDownloadShipmentFileController,
     crmGetShipmentController,
     crmListBrokersController,
     crmListShipmentsController,
@@ -15,6 +17,8 @@ import {
     crmMyCustomersController,
     crmMyNotificationsController,
     crmUpdateShipmentController,
+    crmUploadMiddleware,
+    crmUploadShipmentFileController,
 } from "../controllers/crm.controller.js";
 import { crmEventsSseController } from "../controllers/crm-events.controller.js";
 
@@ -41,6 +45,14 @@ crmRouter.get("/shipments/:id", crmRoles, crmGetShipmentController);
 crmRouter.post("/shipments/:id/opened", crmRoles, crmMarkShipmentOpenedController);
 crmRouter.patch("/shipments/:id", crmRoles, crmUpdateShipmentController);
 crmRouter.post("/shipments/:id/accept", crmRoles, crmAcceptShipmentController);
+crmRouter.post(
+    "/shipments/:id/files",
+    crmRoles,
+    crmUploadMiddleware,
+    crmUploadShipmentFileController
+);
+crmRouter.get("/shipments/:id/files/:fileId", crmRoles, crmDownloadShipmentFileController);
+crmRouter.delete("/shipments/:id/files/:fileId", crmRoles, crmDeleteShipmentFileController);
 crmRouter.get("/brokers", crmRoles, crmListBrokersController);
 crmRouter.get("/brokers/:id", crmRoles, crmBrokerWorkspaceController);
 crmRouter.get("/customers", crmRoles, crmMyCustomersController);

@@ -930,22 +930,55 @@ window.GreenOSModules.crm = {
         '<button type="button" class="btn-secondary" id="crm-save-notes" style="width:auto;margin-top:0.5rem">Save Notes</button>' +
         "</div>" +
         "<h3>Files</h3>" +
+        '<div class="crm-files-upload" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin:0.35rem 0 0.75rem">' +
+        '<input type="file" id="crm-file-input" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp,.gif,.heic,.zip" style="max-width:100%">' +
+        '<button type="button" class="btn-secondary" id="crm-upload-file" style="width:auto">Upload from computer</button>' +
+        '<span class="gos-muted" id="crm-upload-status" style="font-size:0.8rem"></span>' +
+        "</div>" +
         '<ul class="gos-muted" id="crm-files">' +
         (Array.isArray(s.documents) && s.documents.length
           ? s.documents
               .map(function (d) {
                 var name = typeof d === "string" ? d : d.name || d.url || "file";
                 var url = typeof d === "object" && d.url ? d.url : null;
+                var fileId = typeof d === "object" && d.id ? d.id : null;
+                var size =
+                  typeof d === "object" && d.size
+                    ? " · " + Math.max(1, Math.round(d.size / 1024)) + " KB"
+                    : "";
+                var isImage =
+                  typeof d === "object" &&
+                  d.mimeType &&
+                  String(d.mimeType).indexOf("image/") === 0;
                 return (
-                  "<li>" +
+                  "<li style=\"margin-bottom:0.45rem\">" +
                   (url
-                    ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(name) + "</a>"
+                    ? '<a class="crm-file-open" href="' +
+                      esc(url) +
+                      '" data-url="' +
+                      esc(url) +
+                      '" target="_blank" rel="noopener">' +
+                      esc(name) +
+                      "</a>"
                     : esc(name)) +
+                  '<small>' +
+                  esc(size) +
+                  "</small>" +
+                  (isImage && url
+                    ? '<div style="margin-top:0.35rem"><img class="crm-file-thumb" data-url="' +
+                      esc(url) +
+                      '" alt="" style="max-width:160px;max-height:100px;border-radius:6px;display:none;object-fit:cover"></div>'
+                    : "") +
+                  (fileId
+                    ? ' <button type="button" class="btn-secondary crm-file-del" data-file-id="' +
+                      esc(fileId) +
+                      '" style="width:auto;padding:0.15rem 0.45rem;font-size:0.72rem;margin-left:0.35rem">Remove</button>'
+                    : "") +
                   "</li>"
                 );
               })
               .join("")
-          : "<li>No files attached yet</li>") +
+          : "<li>No files attached yet — upload a photo or document from your computer</li>") +
         "</ul>" +
         "<h3>uShip email history</h3>" +
         '<ul class="gos-muted" id="crm-mailbox">' +
@@ -1045,6 +1078,71 @@ window.GreenOSModules.crm = {
         await window.GreenOSModules.crm.api("/shipments/" + id + "/accept", { method: "POST" });
         window.GreenOSModules.crm.openShipmentCard(root, id);
       });
+
+      function authFileUrl(url) {
+        var token = localStorage.getItem("gl_token") || "";
+        if (!url) return url;
+        var sep = url.indexOf("?") >= 0 ? "&" : "?";
+        return url + sep + "token=" + encodeURIComponent(token);
+      }
+
+      modal.querySelectorAll(".crm-file-open").forEach(function (link) {
+        link.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          var u = link.getAttribute("data-url") || link.getAttribute("href");
+          if (u) window.open(authFileUrl(u), "_blank", "noopener");
+        });
+      });
+
+      modal.querySelectorAll(".crm-file-thumb").forEach(function (img) {
+        var u = img.getAttribute("data-url");
+        if (!u) return;
+        img.src = authFileUrl(u);
+        img.style.display = "block";
+      });
+
+      modal.querySelector("#crm-upload-file")?.addEventListener("click", async function () {
+        var input = modal.querySelector("#crm-file-input");
+        var statusEl = modal.querySelector("#crm-upload-status");
+        if (!input || !input.files || !input.files[0]) {
+          if (statusEl) statusEl.textContent = "Choose a file first";
+          return;
+        }
+        var file = input.files[0];
+        if (statusEl) statusEl.textContent = "Uploading…";
+        try {
+          var token = localStorage.getItem("gl_token") || "";
+          var fd = new FormData();
+          fd.append("file", file, file.name);
+          var res = await fetch("/api/crm/shipments/" + encodeURIComponent(id) + "/files", {
+            method: "POST",
+            headers: { Authorization: token ? "Bearer " + token : "" },
+            body: fd,
+          });
+          var data = await res.json();
+          if (!data.success) {
+            if (statusEl) statusEl.textContent = data.message || "Upload failed";
+            return;
+          }
+          window.GreenOSModules.crm.openShipmentCard(root, id);
+        } catch (e) {
+          if (statusEl) statusEl.textContent = "Upload failed";
+        }
+      });
+
+      modal.querySelectorAll(".crm-file-del").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var fileId = btn.getAttribute("data-file-id");
+          if (!fileId) return;
+          if (!confirm("Remove this file?")) return;
+          await window.GreenOSModules.crm.api(
+            "/shipments/" + encodeURIComponent(id) + "/files/" + encodeURIComponent(fileId),
+            { method: "DELETE" }
+          );
+          window.GreenOSModules.crm.openShipmentCard(root, id);
+        });
+      });
+
       modal.querySelector("#crm-save-status")?.addEventListener("click", async function () {
         var st = modal.querySelector("#crm-status").value;
         if (!st) {

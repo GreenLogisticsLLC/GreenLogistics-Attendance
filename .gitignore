@@ -8,6 +8,7 @@ prisma/data/*.db
 prisma/data/*.db-journal
 *.log
 tmp/
+uploads/
 .DS_Store
 Thumbs.db
 

@@ -2,6 +2,7 @@ import { Response } from "express";
 import { apiResponse } from "../../../utils/helpers.js";
 import type { AuthRequest } from "../../../middlewares/auth.middleware.js";
 import { crmService } from "../services/crm.service.js";
+import { shipmentFilesService } from "../services/shipment-files.service.js";
 import {
     assertBrokerWorkspaceAccess,
     assertShipmentAccess,
@@ -11,6 +12,20 @@ import {
 import { canManageBrokers, isDataScopedRole, isTeamScopedRole } from "../../../auth/roles.js";
 import { isBrokerOnTeam, listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { prisma } from "../../../config/database.js";
+import path from "path";
+import fs from "fs";
+import type { RequestHandler } from "express";
+import multer from "multer";
+import os from "os";
+
+const uploadTmp = multer({
+    dest: path.join(os.tmpdir(), "greenos-uploads"),
+    limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+});
+
+fs.mkdirSync(path.join(os.tmpdir(), "greenos-uploads"), { recursive: true });
+
+export const crmUploadMiddleware: RequestHandler = uploadTmp.single("file");
 
 export async function crmDashboardController(req: AuthRequest, res: Response) {
     if (isDataScopedRole(req.user?.role || "")) {
@@ -344,4 +359,85 @@ export async function crmCustomerDetailController(req: AuthRequest, res: Respons
             }),
         })
     );
+}
+
+export async function crmUploadShipmentFileController(req: AuthRequest, res: Response) {
+    const id = String(req.params.id);
+    const access = await assertShipmentAccess(req, res, id);
+    if (!access.ok) return;
+
+    const file = (req as AuthRequest & { file?: Express.Multer.File }).file;
+    if (!file) {
+        return res.status(422).json(apiResponse(false, "Choose a file to upload"));
+    }
+
+    try {
+        const doc = await shipmentFilesService.attachUploadedFile({
+            shipmentLeadId: id,
+            originalName: file.originalname,
+            mimeType: file.mimetype,
+            size: file.size,
+            tempPath: file.path,
+            uploadedBy: req.user?.userId,
+        });
+        const card = await crmService.getShipmentCard(id);
+        return res.json(apiResponse(true, "File uploaded", { document: doc, card }));
+    } catch (err) {
+        if (file.path && fs.existsSync(file.path)) {
+            try {
+                fs.unlinkSync(file.path);
+            } catch {
+                /* ignore */
+            }
+        }
+        const message = err instanceof Error ? err.message : "Upload failed";
+        const code =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status: number }).status)
+                : 500;
+        return res.status(code || 500).json(apiResponse(false, message));
+    }
+}
+
+export async function crmDownloadShipmentFileController(req: AuthRequest, res: Response) {
+    const id = String(req.params.id);
+    const fileId = String(req.params.fileId);
+    const access = await assertShipmentAccess(req, res, id);
+    if (!access.ok) return;
+
+    const resolved = await shipmentFilesService.resolveFilePath(id, fileId);
+    if (!resolved) {
+        return res.status(404).json(apiResponse(false, "File not found"));
+    }
+
+    res.setHeader(
+        "Content-Type",
+        resolved.doc.mimeType || "application/octet-stream"
+    );
+    res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${encodeURIComponent(resolved.doc.name)}"`
+    );
+    return res.sendFile(path.resolve(resolved.absolutePath));
+}
+
+export async function crmDeleteShipmentFileController(req: AuthRequest, res: Response) {
+    const id = String(req.params.id);
+    const fileId = String(req.params.fileId);
+    const access = await assertShipmentAccess(req, res, id);
+    if (!access.ok) return;
+
+    try {
+        const ok = await shipmentFilesService.removeFile(id, fileId);
+        if (!ok) return res.status(404).json(apiResponse(false, "File not found"));
+        const card = await crmService.getShipmentCard(id);
+        return res.json(apiResponse(true, "File removed", card));
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Delete failed";
+        const code =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status: number }).status)
+                : 500;
+        return res.status(code || 500).json(apiResponse(false, message));
+    }
 }
