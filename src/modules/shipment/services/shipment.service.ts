@@ -17,6 +17,7 @@ export class ShipmentService {
     /**
      * CRITICAL RULE: Load Number extends the existing Shipment Card.
      * Never creates a Load entity or second shipment record.
+     * Load Created is allowed only after Customer Accepted (unless already in load phase).
      */
     async applyLoadNumber(input: {
         shipmentLeadId: string;
@@ -38,27 +39,22 @@ export class ShipmentService {
 
         await ensureGreenOsShipmentId(shipment.shipmentLeadId);
 
-        const previousStatus = shipment.status;
-        let nextStatus = normalizeStatus(shipment.status);
+        const previousStatus = normalizeStatus(shipment.status);
+        let nextStatus = previousStatus;
 
-        // Move into LOAD_CREATED if not already in/after load phase
-        if (!isLoadPhase(nextStatus) || input.forceStatus) {
-            // Prefer ACCEPTED → LOAD_CREATED; allow from WORKING/BID/etc. when load appears
-            if (!isLoadPhase(nextStatus)) {
-                if (
-                    ["ACCEPTED", "WORKING", "BID_SUBMITTED", "CUSTOMER_REPLIED", "BOOKED"].includes(
-                        normalizeStatus(previousStatus)
-                    )
-                ) {
-                    assertTransition(previousStatus, "LOAD_CREATED");
-                    nextStatus = "LOAD_CREATED";
-                } else if (normalizeStatus(previousStatus) === "NEW") {
-                    // Rare: load without prior accept — still same card
-                    nextStatus = "LOAD_CREATED";
-                } else {
-                    assertTransition(previousStatus, "LOAD_CREATED");
-                    nextStatus = "LOAD_CREATED";
+        if (!isLoadPhase(previousStatus) || input.forceStatus) {
+            if (!isLoadPhase(previousStatus)) {
+                // Hard gate: Customer Accepted (or Booked alias) must happen first.
+                if (!["ACCEPTED"].includes(previousStatus) && !input.forceStatus) {
+                    throw Object.assign(
+                        new Error(
+                            "Load Number can be created only after Customer Accepted (uShip Accepted email)"
+                        ),
+                        { status: 422 }
+                    );
                 }
+                assertTransition(previousStatus, "LOAD_CREATED");
+                nextStatus = "LOAD_CREATED";
             }
         }
 
@@ -85,7 +81,6 @@ export class ShipmentService {
                 previousStatus,
                 status: nextStatus,
                 greenOsShipmentId: updated.greenOsShipmentId,
-                // Explicit architecture guard for future modules
                 createdNewRecord: false,
                 sameShipmentCard: true,
             },
@@ -93,6 +88,60 @@ export class ShipmentService {
         });
 
         return updated;
+    }
+
+    /**
+     * After Customer Accepted: allocate the next 75698… Load Number and move to Load Created.
+     * Idempotent if a load number already exists.
+     */
+    async createLoadAfterAccepted(input: {
+        shipmentLeadId: string;
+        actorUserId?: string;
+    }) {
+        const shipment = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId: input.shipmentLeadId },
+        });
+        if (!shipment) {
+            throw Object.assign(new Error("Shipment not found"), { status: 404 });
+        }
+
+        const status = normalizeStatus(shipment.status);
+        if (shipment.loadNumber && String(shipment.loadNumber).trim()) {
+            if (!isLoadPhase(status)) {
+                return this.applyLoadNumber({
+                    shipmentLeadId: input.shipmentLeadId,
+                    loadNumber: String(shipment.loadNumber).trim(),
+                    actorUserId: input.actorUserId,
+                    forceStatus: true,
+                });
+            }
+            return shipment;
+        }
+
+        if (!["ACCEPTED", "BOOKED", "LOAD_CREATED"].includes(status)) {
+            throw Object.assign(
+                new Error("Load Number is generated only after Customer Accepted"),
+                { status: 422 }
+            );
+        }
+
+        // Ensure status is ACCEPTED before applying load (BOOKED → treat as accepted).
+        if (status === "BOOKED") {
+            await this.transitionStatus({
+                shipmentLeadId: input.shipmentLeadId,
+                status: "ACCEPTED",
+                actorUserId: input.actorUserId,
+                skipLifecycleCheck: true,
+            });
+        }
+
+        const { allocateLoadNumber } = await import("../load-number.js");
+        const loadNumber = await allocateLoadNumber();
+        return this.applyLoadNumber({
+            shipmentLeadId: input.shipmentLeadId,
+            loadNumber,
+            actorUserId: input.actorUserId,
+        });
     }
 
     async transitionStatus(input: {

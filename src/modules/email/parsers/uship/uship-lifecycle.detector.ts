@@ -80,16 +80,8 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    if (loadNumber || /load\s*(number|#)\s*(assigned|issued|is|created)/.test(h)) {
-        return {
-            kind: "LOAD_NUMBER_ASSIGNED",
-            title: "Load Number Received",
-            loadNumber,
-            domainEventType: "LOAD_CREATED",
-            targetStatus: "LOAD_CREATED",
-        };
-    }
-
+    // Accepted MUST be detected before any load-number heuristics (false "Load #" matches
+    // used to light Load Created before Customer Accepted).
     if (
         /customer\s+accepted|accepted\s+your\s+bid|your\s+bid\s+was\s+accepted|bid\s+accepted|booking\s+confirmed|your\s+code\s+has\s+been\s+accepted|code\s+has\s+been\s+accepted\s+by\s+(?:the\s+)?customer|quote\s+has\s+been\s+accepted/.test(
             h
@@ -97,7 +89,7 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
     ) {
         return {
             kind: "CUSTOMER_ACCEPTED",
-            title: "Bid Accepted",
+            title: "Customer Accepted",
             domainEventType: "CUSTOMER_ACCEPTED",
             targetStatus: "ACCEPTED",
         };
@@ -109,6 +101,20 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
             title: "Shipment Booked",
             domainEventType: "CUSTOMER_ACCEPTED",
             targetStatus: "ACCEPTED",
+        };
+    }
+
+    // Explicit load-number emails only — never from a bare "Load #" substring in other mail.
+    if (
+        /load\s*(number|#)\s*(assigned|issued|is|created|received)|your\s+load\s*(number|#)/.test(h) &&
+        loadNumber
+    ) {
+        return {
+            kind: "LOAD_NUMBER_ASSIGNED",
+            title: "Load Number Received",
+            loadNumber,
+            domainEventType: "LOAD_CREATED",
+            targetStatus: "LOAD_CREATED",
         };
     }
 
@@ -258,33 +264,27 @@ export async function applyUshipLifecycleEvent(input: {
         };
     }
 
-    // Load number on SAME card
+    // Load number on SAME card — only after Customer Accepted.
     if (detected.kind === "LOAD_NUMBER_ASSIGNED") {
+        const current = normalizeStatus(shipment.status);
+        if (!["ACCEPTED", "LOAD_CREATED", "DISPATCH", "COMPLETED", "CLOSED"].includes(current)) {
+            return {
+                applied: false as const,
+                detected,
+                reason: "Load Number ignored until Customer Accepted arrives on Gmail",
+            };
+        }
         if (detected.loadNumber) {
             await shipmentService.applyLoadNumber({
                 shipmentLeadId: input.shipmentLeadId,
                 loadNumber: detected.loadNumber,
                 actorUserId: input.actorUserId,
             });
-        } else {
-            await shipmentService.transitionStatus({
+        } else if (!shipment.loadNumber) {
+            // Explicit load email without a parsed number — still generate our series after Accepted.
+            await shipmentService.createLoadAfterAccepted({
                 shipmentLeadId: input.shipmentLeadId,
-                status: "LOAD_CREATED",
                 actorUserId: input.actorUserId,
-                skipLifecycleCheck: true,
-            });
-            await domainEventEngine.emit({
-                shipmentLeadId: input.shipmentLeadId,
-                eventType: "LOAD_CREATED",
-                title: detected.title,
-                message: input.subject,
-                actorUserId: input.actorUserId,
-                payload: {
-                    source: input.source || "uship_email",
-                    gmailMessageId: input.gmailMessageId,
-                    kind: detected.kind,
-                },
-                timelineStage: "LOAD_CREATED",
             });
         }
     } else if (detected.targetStatus) {
@@ -299,6 +299,7 @@ export async function applyUshipLifecycleEvent(input: {
             WORKING: 2,
             BID_SUBMITTED: 3,
             CUSTOMER_REPLIED: 4,
+            FOLLOW_UP: 2,
             ACCEPTED: 5,
             LOAD_CREATED: 6,
             DISPATCH: 7,
@@ -306,7 +307,6 @@ export async function applyUshipLifecycleEvent(input: {
             CLOSED: 9,
             LOST: 9,
             DELETED_FROM_CUSTOMER: 9,
-            FOLLOW_UP: 2,
         };
         const shouldUpdateStatus =
             detected.targetStatus === "LOST" ||
@@ -336,6 +336,24 @@ export async function applyUshipLifecycleEvent(input: {
                 },
                 timelineStage: detected.domainEventType,
             });
+        }
+
+        // After Accepted email → auto-generate Load Number in the 75698… series.
+        if (
+            (detected.kind === "CUSTOMER_ACCEPTED" || detected.kind === "SHIPMENT_BOOKED") &&
+            target === "ACCEPTED"
+        ) {
+            await shipmentService
+                .createLoadAfterAccepted({
+                    shipmentLeadId: input.shipmentLeadId,
+                    actorUserId: input.actorUserId,
+                })
+                .catch((err) => {
+                    console.warn(
+                        "[lifecycle] auto load after Accepted failed:",
+                        err instanceof Error ? err.message : err
+                    );
+                });
         }
     } else {
         await domainEventEngine.emit({

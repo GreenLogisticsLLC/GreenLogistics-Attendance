@@ -128,6 +128,26 @@ export class DomainEventEngine {
             const done = Boolean(
                 match || legacy || keys.some((k) => occurred.has(k))
             );
+            // Load Created cannot light without Customer Accepted first.
+            if (step.stage === "LOAD_CREATED") {
+                const accepted =
+                    occurred.has("CUSTOMER_ACCEPTED") ||
+                    occurred.has("BOOKED") ||
+                    timeline.some(
+                        (t: { stage: string }) =>
+                            t.stage === "CUSTOMER_ACCEPTED" || t.stage === "ACCEPTED" || t.stage === "BOOKED"
+                    );
+                if (!accepted) {
+                    return {
+                        stage: step.stage,
+                        title: step.title,
+                        status: step.status,
+                        interactive: Boolean((step as { interactive?: boolean }).interactive),
+                        done: false,
+                        at: null,
+                    };
+                }
+            }
             return {
                 stage: step.stage,
                 title: step.title,
