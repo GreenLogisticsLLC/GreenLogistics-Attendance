@@ -185,6 +185,25 @@ export async function crmAcceptShipmentController(req: AuthRequest, res: Respons
     }
 }
 
+export async function crmBrokerQuestionController(req: AuthRequest, res: Response) {
+    const id = String(req.params.id);
+    if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const access = await assertShipmentAccess(req, res, id);
+    if (!access.ok) return;
+    try {
+        const note = typeof req.body?.note === "string" ? req.body.note : undefined;
+        const data = await crmService.markBrokerQuestion(id, req.user.userId, note);
+        return res.json(apiResponse(true, "Broker Question marked", data));
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed";
+        const status =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status: number }).status)
+                : 500;
+        return res.status(status || 500).json(apiResponse(false, message));
+    }
+}
+
 /** Unique customers from broker's own shipments. */
 export async function crmMyCustomersController(req: AuthRequest, res: Response) {
     const brokerId = scopedBrokerId(req);

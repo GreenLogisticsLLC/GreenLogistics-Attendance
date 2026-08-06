@@ -96,25 +96,76 @@ export class DomainEventEngine {
         });
         for (const t of timeline) occurred.add(t.stage);
 
+        const aliases: Record<string, string[]> = {
+            CUSTOMER_RESPOND: ["CUSTOMER_RESPOND", "CUSTOMER_REPLIED", "CUSTOMER_QUESTION", "NEW_MESSAGE"],
+            BROKER_QUESTION: ["BROKER_QUESTION"],
+            BID_SUBMITTED: ["BID_SUBMITTED", "QUOTE_SENT"],
+            CUSTOMER_ACCEPTED: ["CUSTOMER_ACCEPTED", "BOOKED"],
+            BROKER_ACCEPTED_WORK: ["BROKER_ACCEPTED_WORK", "BROKER_ACCEPTED", "AGENT_STARTED_WORK"],
+            SHIPMENT_IMPORTED: ["SHIPMENT_IMPORTED", "IMPORTED"],
+            BROKER_ASSIGNED: ["BROKER_ASSIGNED", "ASSIGNED"],
+        };
+
         return LIFECYCLE_PIPELINE.map((step) => {
-            const match = events.find((e: { eventType: string; createdAt: Date }) => e.eventType === step.stage);
-            const legacy = timeline.find(
-                (t: { stage: string; createdAt: Date }) =>
-                    t.stage === step.stage ||
-                    (step.stage === "SHIPMENT_IMPORTED" && t.stage === "IMPORTED") ||
-                    (step.stage === "BROKER_ASSIGNED" && t.stage === "ASSIGNED") ||
-                    (step.stage === "BROKER_ACCEPTED_WORK" && t.stage === "BROKER_ACCEPTED") ||
-                    (step.stage === "CUSTOMER_ACCEPTED" && t.stage === "BOOKED") ||
-                    (step.stage === "BID_SUBMITTED" && t.stage === "QUOTE_SENT")
+            const keys = aliases[step.stage] || [step.stage];
+            const match = [...events]
+                .reverse()
+                .find((e: { eventType: string; createdAt: Date }) => keys.includes(e.eventType));
+            const legacy = timeline
+                .slice()
+                .reverse()
+                .find(
+                    (t: { stage: string; createdAt: Date }) =>
+                        keys.includes(t.stage) ||
+                        (step.stage === "SHIPMENT_IMPORTED" && t.stage === "IMPORTED") ||
+                        (step.stage === "BROKER_ASSIGNED" && t.stage === "ASSIGNED") ||
+                        (step.stage === "BROKER_ACCEPTED_WORK" && t.stage === "BROKER_ACCEPTED") ||
+                        (step.stage === "CUSTOMER_ACCEPTED" && t.stage === "BOOKED") ||
+                        (step.stage === "BID_SUBMITTED" && t.stage === "QUOTE_SENT") ||
+                        (step.stage === "CUSTOMER_RESPOND" &&
+                            (t.stage === "CUSTOMER_REPLIED" || t.stage === "CUSTOMER_RESPOND"))
+                );
+            const done = Boolean(
+                match || legacy || keys.some((k) => occurred.has(k))
             );
             return {
                 stage: step.stage,
                 title: step.title,
                 status: step.status,
-                done: Boolean(match || legacy || occurred.has(step.stage)),
+                interactive: Boolean((step as { interactive?: boolean }).interactive),
+                done,
                 at: match?.createdAt || legacy?.createdAt || null,
             };
         });
+    }
+
+    /** Q&A traffic-light history (every broker question / customer respond). */
+    async listCorrespondence(shipmentLeadId: string) {
+        const events = await this.listForShipment(shipmentLeadId);
+        return events
+            .filter((e: { eventType: string }) =>
+                [
+                    "BROKER_QUESTION",
+                    "CUSTOMER_RESPOND",
+                    "CUSTOMER_REPLIED",
+                    "CUSTOMER_QUESTION",
+                    "NEW_MESSAGE",
+                ].includes(e.eventType)
+            )
+            .map((e: { eventId: string; eventType: string; title: string | null; message: string | null; createdAt: Date; actorUserId: string | null }) => ({
+                id: e.eventId,
+                kind:
+                    e.eventType === "BROKER_QUESTION"
+                        ? "BROKER_QUESTION"
+                        : "CUSTOMER_RESPOND",
+                title:
+                    e.eventType === "BROKER_QUESTION"
+                        ? "Broker Question"
+                        : "Customer Respond",
+                message: e.message || e.title,
+                at: e.createdAt,
+                actorUserId: e.actorUserId,
+            }));
     }
 }
 

@@ -763,19 +763,66 @@ window.GreenOSModules.crm = {
       var esc = this.esc.bind(this);
       var pipeline = (s.pipeline || [])
         .map(function (p) {
+          var interactive = p.interactive || p.stage === "BROKER_QUESTION";
           return (
             '<li class="' +
             (p.done ? "is-done" : "") +
-            '"><span class="crm-pipe-dot"></span><div><strong>' +
+            (interactive ? " is-interactive" : "") +
+            '" data-stage="' +
+            esc(p.stage) +
+            '">' +
+            '<button type="button" class="crm-pipe-dot' +
+            (interactive ? " crm-pipe-click" : "") +
+            '" title="' +
+            (interactive
+              ? p.done
+                ? "Mark another Broker Question"
+                : "Click after you send a question to the customer"
+              : "") +
+            '"' +
+            (interactive ? "" : " tabindex=\"-1\"") +
+            "></button>" +
+            "<div><strong>" +
             esc(p.title) +
             "</strong>" +
+            (interactive
+              ? '<small class="crm-pipe-hint">' +
+                (p.done ? "Tap again after each new question" : "Tap the circle after you ask") +
+                "</small>"
+              : "") +
             (p.at
-              ? '<small>' + window.GreenOSModules.crm.fmtDate(p.at) + "</small>"
+              ? "<small>" + window.GreenOSModules.crm.fmtDate(p.at) + "</small>"
               : "") +
             "</div></li>"
           );
         })
         .join("");
+
+      var correspondence = Array.isArray(s.correspondence) ? s.correspondence : [];
+      var correspondenceHtml =
+        '<h3>Q&amp;A traffic light</h3>' +
+        '<p class="gos-muted" style="font-size:0.8rem;margin:0 0 0.5rem">Broker Question lights when you tap it. Customer Respond lights from uShip email.</p>' +
+        '<ul class="crm-correspondence">' +
+        (correspondence.length
+          ? correspondence
+              .map(function (c) {
+                var isBroker = c.kind === "BROKER_QUESTION";
+                return (
+                  '<li class="' +
+                  (isBroker ? "is-broker" : "is-customer") +
+                  '"><span class="crm-corr-dot"></span><div><strong>' +
+                  esc(c.title || (isBroker ? "Broker Question" : "Customer Respond")) +
+                  "</strong>" +
+                  (c.message ? "<div>" + esc(c.message) + "</div>" : "") +
+                  (c.at
+                    ? "<small>" + window.GreenOSModules.crm.fmtDate(c.at) + "</small>"
+                    : "") +
+                  "</div></li>"
+                );
+              })
+              .join("")
+          : "<li class=\"gos-muted\">No questions yet — tap Broker Question after you write to the customer</li>") +
+        "</ul>";
 
       var statusLabels = {
         AGENT_OPEN: "AGENT OPEN",
@@ -1051,6 +1098,7 @@ window.GreenOSModules.crm = {
         '<ol class="crm-pipeline">' +
         pipeline +
         "</ol>" +
+        correspondenceHtml +
         "</div>";
 
       modal.querySelector("#crm-close")?.addEventListener("click", function () {
@@ -1071,6 +1119,25 @@ window.GreenOSModules.crm = {
             method: "POST",
             keepalive: true,
           });
+        });
+      });
+
+      modal.querySelectorAll(".crm-pipe-click").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var li = btn.closest("li");
+          var stage = li && li.getAttribute("data-stage");
+          if (stage !== "BROKER_QUESTION") return;
+          btn.disabled = true;
+          try {
+            await window.GreenOSModules.crm.api(
+              "/shipments/" + encodeURIComponent(id) + "/broker-question",
+              { method: "POST", body: JSON.stringify({}) }
+            );
+            window.GreenOSModules.crm.openShipmentCard(root, id);
+          } catch (e) {
+            btn.disabled = false;
+            alert("Could not mark Broker Question");
+          }
         });
       });
 

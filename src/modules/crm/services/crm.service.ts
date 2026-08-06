@@ -272,6 +272,7 @@ export class CrmService {
         );
 
         const pipeline = await domainEventEngine.buildLifecyclePipeline(lead.shipmentLeadId);
+        const correspondence = await domainEventEngine.listCorrespondence(lead.shipmentLeadId);
 
         let documents: unknown[] = [];
         try {
@@ -298,6 +299,7 @@ export class CrmService {
         return {
             ...enriched,
             documents,
+            correspondence,
             timeline: lead.timelineEvents,
             domainEvents: lead.domainEvents,
             pipeline,
@@ -513,6 +515,55 @@ export class CrmService {
                 timelineStage: "AGENT_OPENED",
                 payload: { status: "AGENT_OPEN" },
             });
+        }
+
+        return this.getShipmentCard(shipmentLeadId);
+    }
+
+    /**
+     * Broker marks that they sent a question to the customer (traffic-light step).
+     * Can be clicked multiple times for each new question in a long thread.
+     */
+    async markBrokerQuestion(shipmentLeadId: string, actorUserId: string, note?: string) {
+        const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!lead) {
+            throw Object.assign(new Error("Shipment not found"), { status: 404 });
+        }
+        if (lead.assignedBrokerId && lead.assignedBrokerId !== actorUserId) {
+            // Owner / Team Lead may still log on behalf of review, but brokers only for their own.
+            const user = await prisma.user.findUnique({
+                where: { userId: actorUserId },
+                select: { role: { select: { roleName: true } } },
+            });
+            const role = user?.role?.roleName || "";
+            if (!["Administrator", "Owner", "Manager", "Team Lead"].includes(role)) {
+                throw Object.assign(new Error("Only the assigned broker can mark Broker Question"), {
+                    status: 403,
+                });
+            }
+        }
+
+        await domainEventEngine.emit({
+            shipmentLeadId,
+            eventType: "BROKER_QUESTION",
+            title: "Broker Question",
+            message:
+                note?.trim() ||
+                "Broker sent a question to the customer (waiting for Customer Respond)",
+            actorUserId,
+            payload: { source: "manual_traffic_light" },
+            timelineStage: "BROKER_QUESTION",
+        });
+
+        // Soft signal: follow-up / waiting on customer without forcing auto pipeline statuses.
+        if (
+            ["WORKING", "BID_SUBMITTED", "AGENT_OPEN", "FOLLOW_UP"].includes(lead.status) ||
+            lead.status === "CUSTOMER_REPLIED"
+        ) {
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId },
+                data: { status: "FOLLOW_UP" },
+            }).catch(() => null);
         }
 
         return this.getShipmentCard(shipmentLeadId);

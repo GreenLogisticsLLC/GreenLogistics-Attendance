@@ -13,6 +13,7 @@ export type UshipLifecycleKind =
     | "BID_SUBMITTED"
     | "QUOTE_SUBMITTED"
     | "CUSTOMER_REPLIED"
+    | "CUSTOMER_RESPOND"
     | "CUSTOMER_QUESTION"
     | "AGENT_WORKING"
     | "BID_UPDATED"
@@ -164,25 +165,30 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         return {
             kind: "CUSTOMER_QUESTION",
             title: "Customer Question",
-            domainEventType: "CUSTOMER_REPLIED",
+            domainEventType: "CUSTOMER_RESPOND",
             targetStatus: "CUSTOMER_REPLIED",
         };
     }
 
-    if (/customer\s+replied|new\s+reply|replied\s+to\s+your|customer\s+responded|new\s+message\s+from/.test(h)) {
+    // Customer answered the broker's question / quote follow-up (uShip "Customer Respond").
+    if (
+        /customer\s+respond|customer\s+responded|response\s+from\s+(?:the\s+)?customer|customer\s+has\s+responded|answered\s+your\s+question|reply\s+to\s+your\s+(?:question|code|quote)|customer\s+replied|new\s+reply|replied\s+to\s+your|new\s+message\s+from\s+(?:the\s+)?customer/.test(
+            h
+        )
+    ) {
         return {
-            kind: "CUSTOMER_REPLIED",
-            title: "Customer Replied",
-            domainEventType: "CUSTOMER_REPLIED",
+            kind: "CUSTOMER_RESPOND",
+            title: "Customer Respond",
+            domainEventType: "CUSTOMER_RESPOND",
             targetStatus: "CUSTOMER_REPLIED",
         };
     }
 
     if (/new\s+message|message\s+from\s+customer/.test(h)) {
         return {
-            kind: "NEW_MESSAGE",
-            title: "New Message",
-            domainEventType: "CUSTOMER_REPLIED",
+            kind: "CUSTOMER_RESPOND",
+            title: "Customer Respond",
+            domainEventType: "CUSTOMER_RESPOND",
             targetStatus: "CUSTOMER_REPLIED",
         };
     }
@@ -200,6 +206,7 @@ function kindFromQuote(h: string): UshipLifecycleKind {
 
 const NOTIFY_KINDS = new Set<UshipLifecycleKind>([
     "CUSTOMER_REPLIED",
+    "CUSTOMER_RESPOND",
     "CUSTOMER_QUESTION",
     "AGENT_WORKING",
     "CUSTOMER_ACCEPTED",
@@ -364,9 +371,10 @@ export async function applyUshipLifecycleEvent(input: {
 
         const typeMap: Record<string, string> = {
             CUSTOMER_REPLIED: "CUSTOMER_REPLIED",
+            CUSTOMER_RESPOND: "CUSTOMER_RESPOND",
             CUSTOMER_QUESTION: "CUSTOMER_QUESTION",
             AGENT_WORKING: "AGENT_WORKING",
-            NEW_MESSAGE: "CUSTOMER_REPLIED",
+            NEW_MESSAGE: "CUSTOMER_RESPOND",
             CUSTOMER_ACCEPTED: "BID_ACCEPTED",
             SHIPMENT_BOOKED: "SHIPMENT_BOOKED",
             LOAD_NUMBER_ASSIGNED: "LOAD_NUMBER_RECEIVED",

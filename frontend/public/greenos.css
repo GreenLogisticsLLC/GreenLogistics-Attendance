@@ -787,14 +787,63 @@
   height: 0.65rem;
   border-radius: 50%;
   background: var(--gos-border);
+  border: none;
+  padding: 0;
+  display: block;
 }
 .crm-pipeline li.is-done .crm-pipe-dot {
   background: var(--gos-accent);
+}
+.crm-pipeline li.is-interactive .crm-pipe-dot {
+  cursor: pointer;
+  width: 0.85rem;
+  height: 0.85rem;
+  left: -0.5rem;
+  top: 0.6rem;
+  border: 2px solid var(--gos-accent);
+  background: transparent;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
+}
+.crm-pipeline li.is-interactive.is-done .crm-pipe-dot {
+  background: var(--gos-accent);
+}
+.crm-pipeline li.is-interactive .crm-pipe-dot:hover {
+  background: rgba(16, 185, 129, 0.45);
+}
+.crm-pipeline li.is-interactive .crm-pipe-hint {
+  color: #7dcea0;
 }
 .crm-pipeline small {
   display: block;
   font-size: 0.72rem;
   color: var(--gos-muted);
+}
+.crm-correspondence {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  border-left: 2px solid var(--gos-border);
+  margin-left: 0.55rem;
+}
+.crm-correspondence li {
+  position: relative;
+  padding: 0.4rem 0 0.4rem 1.1rem;
+  color: var(--gos-text);
+}
+.crm-corr-dot {
+  position: absolute;
+  left: -0.4rem;
+  top: 0.65rem;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: var(--gos-border);
+}
+.crm-correspondence li.is-broker .crm-corr-dot {
+  background: #34d399;
+}
+.crm-correspondence li.is-customer .crm-corr-dot {
+  background: #60a5fa;
 }
 .gos-muted {
   color: var(--gos-muted);
