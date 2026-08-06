@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+  # Manual trigger when push events fail to schedule (GitHub Actions outages).
+  workflow_dispatch:
 
 jobs:
   deploy:
