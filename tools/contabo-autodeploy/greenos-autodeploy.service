@@ -1,0 +1,25 @@
+[Unit]
+Description=GreenOS Contabo auto-deploy (fallback when GitHub Actions is down)
+Documentation=file:///usr/local/bin/greenos-autodeploy.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Exclusive lock is also enforced inside the script via flock.
+ExecStart=/usr/local/bin/greenos-autodeploy.sh
+Nice=10
+# Do not start another instance while one is still running (timer + manual).
+# systemd 240+: if a oneshot is still active, skip new starts from the timer.
+RemainAfterExit=no
+
+# Environment overrides (optional)
+# Environment=GREENOS_APP_DIR=/root/GreenLogistics-Attendance
+# Environment=GREENOS_AUTODEPLOY_LOG=/var/log/greenos-autodeploy.log
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=greenos-autodeploy
+
+[Install]
+WantedBy=multi-user.target

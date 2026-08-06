@@ -1,0 +1,16 @@
+[Unit]
+Description=Run GreenOS Contabo auto-deploy every 2 minutes (fallback)
+Documentation=file:///usr/local/bin/greenos-autodeploy.sh
+Requires=greenos-autodeploy.service
+
+[Timer]
+# Survive reboot: enabled timer starts after boot, then every 2 minutes.
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+# If a previous run is still going, do not stack another start.
+Persistent=true
+Unit=greenos-autodeploy.service
+
+[Install]
+WantedBy=timers.target
