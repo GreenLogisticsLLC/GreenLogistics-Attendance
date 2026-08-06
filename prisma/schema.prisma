@@ -305,10 +305,19 @@ model ShipmentLead {
   imageUrl              String?                 @map("image_url")
   viewUrl               String?                 @unique @map("view_url")
   status                String                  @default("NEW")
-  /// Load Number extends THIS card — never a separate Load entity.
+  /// Load Number extends THIS card — never a separate Load entity. Format: GL100001…
   loadNumber            String?                 @map("load_number")
+  /// Customer / broker reference (PRO, PO, etc.) — not the Load Number.
+  referenceNumber       String?                 @map("reference_number")
+  commodity             String?
+  pieces                Int?
   /// Sprint G — Operations fields (same card, no new entity).
   carrierName           String?                 @map("carrier_name")
+  carrierMc             String?                 @map("carrier_mc")
+  carrierDot            String?                 @map("carrier_dot")
+  carrierInsurance      String?                 @map("carrier_insurance")
+  carrierStatus         String?                 @map("carrier_status")
+  assignedDispatcherId  String?                 @map("assigned_dispatcher_id")
   driverName            String?                 @map("driver_name")
   truckNumber           String?                 @map("truck_number")
   trailerNumber         String?                 @map("trailer_number")
@@ -316,6 +325,22 @@ model ShipmentLead {
   podUrl                String?                 @map("pod_url")
   invoiceNumber         String?                 @map("invoice_number")
   paymentStatus         String?                 @map("payment_status")
+  /// Pricing (broker never hand-calculates profit — derived in API).
+  customerRate          Float?                  @map("customer_rate")
+  carrierRate           Float?                  @map("carrier_rate")
+  fuelSurcharge         Float?                  @map("fuel_surcharge")
+  accessorialCharges    Float?                  @map("accessorial_charges")
+  factoringFee          Float?                  @map("factoring_fee")
+  trackingStatus        String?                 @map("tracking_status")
+  invoiceDate           DateTime?               @map("invoice_date")
+  invoiceDueDate        DateTime?               @map("invoice_due_date")
+  paymentDate           DateTime?               @map("payment_date")
+  customerNotes         String?                 @map("customer_notes")
+  carrierNotes          String?                 @map("carrier_notes")
+  aiNotes               String?                 @map("ai_notes")
+  pinnedNotesJson       String?                 @map("pinned_notes_json")
+  specialInstructions   String?                 @map("special_instructions")
+  documentEditorJson    String?                 @map("document_editor_json")
   opsPickupAt           DateTime?               @map("ops_pickup_at")
   opsDeliveryAt         DateTime?               @map("ops_delivery_at")
   assignedBrokerId      String?                 @map("assigned_broker_id")
@@ -334,6 +359,7 @@ model ShipmentLead {
   domainEvents          DomainEvent[]
   platformNotifications PlatformNotification[]
   brokerMailboxMessages BrokerMailboxMessage[]
+  loadDocuments         LoadDocument[]
 
   @@index([source])
   @@index([status])
@@ -343,6 +369,37 @@ model ShipmentLead {
   @@index([createdAt])
   @@index([loadNumber])
   @@map("shipment_leads")
+}
+
+/// Versioned documents that belong ONLY to a Load (ShipmentLead with loadNumber).
+/// Never overwrite: each edit creates a new version row.
+model LoadDocument {
+  documentId     String       @id @default(uuid()) @map("document_id")
+  shipmentLeadId String       @map("shipment_lead_id")
+  /// RATE_CONFIRMATION | BOL | POD | CARRIER_PACKET | INSURANCE | W9 | NOA | CUSTOMER_INVOICE | CARRIER_INVOICE | DISPATCH_SHEET | LOAD_SUMMARY | ATTACHMENT
+  docType        String       @map("doc_type")
+  version        Int          @default(1)
+  /// GENERATED | BROKER_EDITED | CUSTOMER_REQUESTED | FINAL_SIGNED | UPLOADED | REPLACED | ARCHIVED
+  changeReason   String       @default("GENERATED") @map("change_reason")
+  title          String
+  status         String       @default("DRAFT") // DRAFT | READY | SENT | SIGNED | ARCHIVED
+  isCurrent      Boolean      @default(true) @map("is_current")
+  /// Editable field snapshot used to regenerate PDF (never lose prior versions).
+  contentJson    String?      @map("content_json")
+  fileName       String?      @map("file_name")
+  mimeType       String?      @map("mime_type")
+  storedName     String?      @map("stored_name")
+  fileUrl        String?      @map("file_url")
+  fileSize       Int?         @map("file_size")
+  createdById    String?      @map("created_by_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  shipmentLead   ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+
+  @@unique([shipmentLeadId, docType, version])
+  @@index([shipmentLeadId])
+  @@index([docType])
+  @@index([isCurrent])
+  @@map("load_documents")
 }
 
 /// Append-only Domain Events — source of truth for Timeline, Notifications, CRM, Analytics.

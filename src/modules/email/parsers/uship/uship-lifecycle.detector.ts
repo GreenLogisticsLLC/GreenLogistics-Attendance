@@ -265,23 +265,33 @@ export async function applyUshipLifecycleEvent(input: {
     }
 
     // Load number on SAME card — only after Customer Accepted.
+    // GreenOS always allocates GL100001… — never accept external/manual load numbers.
     if (detected.kind === "LOAD_NUMBER_ASSIGNED") {
         const current = normalizeStatus(shipment.status);
-        if (!["ACCEPTED", "LOAD_CREATED", "DISPATCH", "COMPLETED", "CLOSED"].includes(current)) {
+        const loadReady = [
+            "ACCEPTED",
+            "LOAD_CREATED",
+            "CARRIER_ASSIGNED",
+            "RATE_CON_GENERATED",
+            "CARRIER_ACCEPTED",
+            "PICKUP",
+            "IN_TRANSIT",
+            "DELIVERED",
+            "POD_UPLOADED",
+            "CUSTOMER_INVOICE",
+            "CARRIER_PAYMENT",
+            "DISPATCH",
+            "COMPLETED",
+            "CLOSED",
+        ].includes(current);
+        if (!loadReady) {
             return {
                 applied: false as const,
                 detected,
                 reason: "Load Number ignored until Customer Accepted arrives on Gmail",
             };
         }
-        if (detected.loadNumber) {
-            await shipmentService.applyLoadNumber({
-                shipmentLeadId: input.shipmentLeadId,
-                loadNumber: detected.loadNumber,
-                actorUserId: input.actorUserId,
-            });
-        } else if (!shipment.loadNumber) {
-            // Explicit load email without a parsed number — still generate our series after Accepted.
+        if (!shipment.loadNumber) {
             await shipmentService.createLoadAfterAccepted({
                 shipmentLeadId: input.shipmentLeadId,
                 actorUserId: input.actorUserId,
@@ -302,6 +312,15 @@ export async function applyUshipLifecycleEvent(input: {
             FOLLOW_UP: 2,
             ACCEPTED: 5,
             LOAD_CREATED: 6,
+            CARRIER_ASSIGNED: 6.2,
+            RATE_CON_GENERATED: 6.4,
+            CARRIER_ACCEPTED: 6.6,
+            PICKUP: 6.8,
+            IN_TRANSIT: 7,
+            DELIVERED: 7.2,
+            POD_UPLOADED: 7.4,
+            CUSTOMER_INVOICE: 7.6,
+            CARRIER_PAYMENT: 7.8,
             DISPATCH: 7,
             COMPLETED: 8,
             CLOSED: 9,
@@ -338,7 +357,7 @@ export async function applyUshipLifecycleEvent(input: {
             });
         }
 
-        // After Accepted email → auto-generate Load Number in the 75698… series.
+        // After Accepted email → auto-generate Load Number (GL100001…).
         if (
             (detected.kind === "CUSTOMER_ACCEPTED" || detected.kind === "SHIPMENT_BOOKED") &&
             target === "ACCEPTED"

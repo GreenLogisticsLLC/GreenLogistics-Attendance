@@ -7,6 +7,7 @@ window.GreenOSModules.broker = {
   children: [
     { id: "dashboard", title: "Personal Dashboard" },
     { id: "shipments", title: "My Shipments" },
+    { id: "loads", title: "My Loads" },
     { id: "customers", title: "My Customers" },
     { id: "carriers", title: "MY Carrier" },
     { id: "on-road", title: "ON Road" },
@@ -67,11 +68,21 @@ window.GreenOSModules.broker = {
 
     var body = root.querySelector("#broker-body");
     if (active.id === "shipments") self.renderShipments(body, root);
+    else if (active.id === "loads") self.renderLoads(body, root);
     else if (active.id === "customers") self.renderCustomers(body, root);
     else if (active.id === "carriers") self.renderCarriers(body, root);
     else if (active.id === "on-road") self.renderOnRoad(body, root);
     else if (active.id === "notifications") self.renderNotifications(body);
     else self.renderDashboard(body, root);
+  },
+
+  renderLoads(body) {
+    if (window.GreenOSModules.loads && typeof window.GreenOSModules.loads.render === "function") {
+      window.GreenOSModules.loads.render(body, "active-loads");
+      return;
+    }
+    body.innerHTML =
+      "<h2>My Loads</h2><p class=\"gos-muted\">Loads module not loaded. Hard-refresh the page.</p>";
   },
 
   async api(path, options) {

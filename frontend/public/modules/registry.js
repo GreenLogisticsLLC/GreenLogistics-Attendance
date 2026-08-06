@@ -13,6 +13,7 @@ window.GreenOSRegistry = [
     children: [
       { id: "dashboard", title: "Personal Dashboard" },
       { id: "shipments", title: "My Shipments" },
+      { id: "loads", title: "My Loads" },
       { id: "customers", title: "My Customers" },
       { id: "carriers", title: "MY Carrier" },
       { id: "on-road", title: "ON Road" },
@@ -46,11 +47,22 @@ window.GreenOSRegistry = [
     roles: ["Administrator", "Owner", "Manager", "Team Lead"],
   },
   {
+    id: "loads",
+    title: "Loads",
+    icon: "📦",
+    subtitle: "Load Details — central TMS object after Accept",
+    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead"],
+    children: [
+      { id: "active-loads", title: "Active Loads" },
+      { id: "completed-loads", title: "Completed Loads" },
+    ],
+  },
+  {
     id: "dispatch",
     title: "Dispatch",
     icon: "🚛",
-    subtitle: "Loads, carriers, and tracking",
-    roles: ["Administrator", "Owner", "Manager", "Dispatcher"],
+    subtitle: "Carriers, trucks, and tracking",
+    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead"],
     children: [
       { id: "active-loads", title: "Active Loads" },
       { id: "completed-loads", title: "Completed Loads" },
@@ -59,13 +71,6 @@ window.GreenOSRegistry = [
       { id: "tracking", title: "Tracking" },
       { id: "documents", title: "Documents" },
     ],
-  },
-  {
-    id: "loads",
-    title: "Loads",
-    icon: "📦",
-    subtitle: "Load management — coming soon",
-    roles: ["Administrator", "Owner", "Manager", "Dispatcher"],
   },
   {
     id: "car-transport",

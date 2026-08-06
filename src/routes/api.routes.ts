@@ -61,6 +61,7 @@ import {
 import { emailRouter } from "../modules/email/routes/email.routes.js";
 import { crmRouter } from "../modules/crm/routes/crm.routes.js";
 import { shipmentRouter } from "../modules/shipment/routes/shipment.routes.js";
+import { loadRouter } from "../modules/shipment/routes/load.routes.js";
 import { assignmentRouter } from "../modules/assignment/routes/assignment.routes.js";
 import { aiRouter } from "../modules/ai/routes/ai.routes.js";
 
@@ -72,6 +73,7 @@ apiRouter.get("/v1/network-info", networkInfoController);
 apiRouter.use("/email", emailRouter);
 apiRouter.use("/crm", crmRouter);
 apiRouter.use("/shipments", shipmentRouter);
+apiRouter.use("/loads", loadRouter);
 apiRouter.use("/assignment", assignmentRouter);
 apiRouter.use("/ai", aiRouter);
 

@@ -1,13 +1,12 @@
 import { STATUS_LABELS, type ShipmentStatus } from "./shipment.constants.js";
 
-/** Map legacy CRM statuses onto Sprint A lifecycle. */
+/** Map legacy CRM statuses onto current lifecycle. */
 const ALIASES: Record<string, string> = {
     QUOTE_SENT: "BID_SUBMITTED",
     NEGOTIATION: "CUSTOMER_REPLIED",
     BOOKED: "ACCEPTED",
     WON: "COMPLETED",
-    PICKED_UP: "DISPATCH",
-    DELIVERED: "COMPLETED",
+    PICKED_UP: "PICKUP",
     ASSIGNED: "AWAITING_ACCEPTANCE",
     DELETED: "DELETED_FROM_CUSTOMER",
 };
@@ -22,8 +21,24 @@ export function statusLabel(status: string): string {
     return STATUS_LABELS[n] || STATUS_LABELS[status] || status;
 }
 
+const LOAD_FLOW = [
+    "LOAD_CREATED",
+    "CARRIER_ASSIGNED",
+    "RATE_CON_GENERATED",
+    "CARRIER_ACCEPTED",
+    "PICKUP",
+    "IN_TRANSIT",
+    "DELIVERED",
+    "POD_UPLOADED",
+    "CUSTOMER_INVOICE",
+    "CARRIER_PAYMENT",
+    "DISPATCH",
+    "COMPLETED",
+    "CLOSED",
+];
+
 /**
- * Allowed transitions. Assignment path + marketplace lifecycle + load on same card.
+ * Allowed transitions. Assignment path + marketplace + load ops on same card.
  * CLOSED / LOST / DELETED_FROM_CUSTOMER are terminal (customer deleted listing on uShip).
  */
 const ALLOWED: Record<string, string[]> = {
@@ -90,9 +105,52 @@ const ALLOWED: Record<string, string[]> = {
         "DELETED_FROM_CUSTOMER",
     ],
     ACCEPTED: ["LOAD_CREATED", "DISPATCH", "COMPLETED", "LOST", "DELETED_FROM_CUSTOMER"],
-    LOAD_CREATED: ["DISPATCH", "COMPLETED", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
-    DISPATCH: ["COMPLETED", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
-    COMPLETED: ["CLOSED", "DELETED_FROM_CUSTOMER"],
+    LOAD_CREATED: [
+        "CARRIER_ASSIGNED",
+        "RATE_CON_GENERATED",
+        "DISPATCH",
+        "COMPLETED",
+        "CLOSED",
+        "LOST",
+        "DELETED_FROM_CUSTOMER",
+    ],
+    CARRIER_ASSIGNED: [
+        "RATE_CON_GENERATED",
+        "CARRIER_ACCEPTED",
+        "DISPATCH",
+        "CLOSED",
+        "LOST",
+        "DELETED_FROM_CUSTOMER",
+    ],
+    RATE_CON_GENERATED: [
+        "CARRIER_ACCEPTED",
+        "PICKUP",
+        "DISPATCH",
+        "CLOSED",
+        "LOST",
+        "DELETED_FROM_CUSTOMER",
+    ],
+    CARRIER_ACCEPTED: ["PICKUP", "IN_TRANSIT", "DISPATCH", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
+    PICKUP: ["IN_TRANSIT", "DELIVERED", "DISPATCH", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
+    IN_TRANSIT: ["DELIVERED", "POD_UPLOADED", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
+    DELIVERED: ["POD_UPLOADED", "CUSTOMER_INVOICE", "COMPLETED", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
+    POD_UPLOADED: ["CUSTOMER_INVOICE", "CARRIER_PAYMENT", "COMPLETED", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
+    CUSTOMER_INVOICE: ["CARRIER_PAYMENT", "COMPLETED", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
+    CARRIER_PAYMENT: ["COMPLETED", "CLOSED", "LOST", "DELETED_FROM_CUSTOMER"],
+    DISPATCH: [
+        "CARRIER_ASSIGNED",
+        "RATE_CON_GENERATED",
+        "CARRIER_ACCEPTED",
+        "PICKUP",
+        "IN_TRANSIT",
+        "DELIVERED",
+        "POD_UPLOADED",
+        "COMPLETED",
+        "CLOSED",
+        "LOST",
+        "DELETED_FROM_CUSTOMER",
+    ],
+    COMPLETED: ["CLOSED", "CUSTOMER_INVOICE", "CARRIER_PAYMENT", "DELETED_FROM_CUSTOMER"],
     CLOSED: [],
     LOST: ["CLOSED"],
     DELETED_FROM_CUSTOMER: [],
@@ -102,10 +160,9 @@ export function canTransition(from: string, to: string): boolean {
     const a = normalizeStatus(from);
     const b = normalizeStatus(to);
     if (a === b) return true;
-    // Customer removed the listing — allowed from any non-terminal active state.
     if (b === "DELETED_FROM_CUSTOMER" && a !== "CLOSED") return true;
     const next = ALLOWED[a];
-    if (!next) return true; // unknown → allow (forward-compat)
+    if (!next) return true;
     return next.includes(b);
 }
 
@@ -123,7 +180,7 @@ export function assertTransition(from: string, to: string) {
 /** Statuses at or after LOAD_CREATED — load number is allowed / expected. */
 export function isLoadPhase(status: string): boolean {
     const n = normalizeStatus(status);
-    return ["LOAD_CREATED", "DISPATCH", "COMPLETED", "CLOSED"].includes(n);
+    return LOAD_FLOW.includes(n);
 }
 
 export function eventTypeForStatus(status: string): string {
@@ -138,6 +195,15 @@ export function eventTypeForStatus(status: string): string {
         CUSTOMER_REPLIED: "CUSTOMER_RESPOND",
         ACCEPTED: "CUSTOMER_ACCEPTED",
         LOAD_CREATED: "LOAD_CREATED",
+        CARRIER_ASSIGNED: "CARRIER_ASSIGNED",
+        RATE_CON_GENERATED: "RATE_CONFIRMATION_GENERATED",
+        CARRIER_ACCEPTED: "CARRIER_ACCEPTED",
+        PICKUP: "PICKUP_MARKED",
+        IN_TRANSIT: "IN_TRANSIT_MARKED",
+        DELIVERED: "DELIVERED_MARKED",
+        POD_UPLOADED: "POD_UPLOADED",
+        CUSTOMER_INVOICE: "CUSTOMER_INVOICE_GENERATED",
+        CARRIER_PAYMENT: "CARRIER_PAID",
         DISPATCH: "DISPATCH_STARTED",
         COMPLETED: "SHIPMENT_COMPLETED",
         CLOSED: "SHIPMENT_CLOSED",

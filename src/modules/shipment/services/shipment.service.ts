@@ -91,8 +91,8 @@ export class ShipmentService {
     }
 
     /**
-     * After Customer Accepted: allocate the next 75698… Load Number and move to Load Created.
-     * Idempotent if a load number already exists.
+     * After Customer Accepted: allocate the next GL100001… Load Number and move to Load Created.
+     * Idempotent if a load number already exists. Brokers never type the number.
      */
     async createLoadAfterAccepted(input: {
         shipmentLeadId: string;
@@ -163,13 +163,11 @@ export class ShipmentService {
             assertTransition(shipment.status, to);
         }
 
-        // If caller sets LOAD_CREATED with a load number — use applyLoadNumber path
-        if (to === "LOAD_CREATED" && input.extras?.loadNumber) {
-            return this.applyLoadNumber({
+        // If caller sets LOAD_CREATED — always auto-allocate GL# (never accept manual number).
+        if (to === "LOAD_CREATED") {
+            return this.createLoadAfterAccepted({
                 shipmentLeadId: input.shipmentLeadId,
-                loadNumber: input.extras.loadNumber,
                 actorUserId: input.actorUserId,
-                forceStatus: true,
             });
         }
 
@@ -196,6 +194,21 @@ export class ShipmentService {
             message: `Status → ${statusLabel(to)}`,
             payload: { extras: input.extras || {} },
         });
+
+        // Customer Accepted → Create Load automatically (GL100001…).
+        if (to === "ACCEPTED" && !updated.loadNumber) {
+            try {
+                return await this.createLoadAfterAccepted({
+                    shipmentLeadId: input.shipmentLeadId,
+                    actorUserId: input.actorUserId,
+                });
+            } catch (err) {
+                console.warn(
+                    "[shipment] auto Create Load after Accepted failed:",
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
 
         return updated;
     }
@@ -242,11 +255,10 @@ export class ShipmentService {
         }
 
         if (ops.loadNumber && String(ops.loadNumber).trim()) {
-            await this.applyLoadNumber({
-                shipmentLeadId,
-                loadNumber: String(ops.loadNumber).trim(),
-                actorUserId,
-            });
+            throw Object.assign(
+                new Error("Load Number is system-generated only — use Create Load / auto-allocate"),
+                { status: 422 }
+            );
         }
 
         const data: Record<string, unknown> = {};

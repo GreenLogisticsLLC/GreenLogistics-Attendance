@@ -36,16 +36,20 @@ export const shipmentController = {
             const id = String(req.params.id || "");
             const access = await assertShipmentAccess(req, res, id);
             if (!access.ok) return;
-            const loadNumber = String(req.body?.loadNumber || req.body?.load_number || "");
-            await shipmentService.applyLoadNumber({
-                shipmentLeadId: id,
-                loadNumber,
-                actorUserId: req.user?.userId,
-            });
+            // Brokers never supply a Load Number — system allocates GL100001…
+            if (req.body?.loadNumber || req.body?.load_number) {
+                res.status(422).json({
+                    success: false,
+                    message: "Load Number is system-generated only — do not send loadNumber in the body",
+                });
+                return;
+            }
+            const { loadService } = await import("../services/load.service.js");
+            await loadService.createLoad(id, req.user?.userId);
             const card = await crmService.getShipmentCard(id);
             res.json({
                 success: true,
-                message: "Load Number applied to existing Shipment Card (no new record)",
+                message: "Load Number allocated automatically on existing Shipment Card",
                 data: card,
             });
         } catch (err) {
