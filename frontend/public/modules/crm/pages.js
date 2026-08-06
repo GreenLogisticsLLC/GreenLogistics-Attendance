@@ -761,42 +761,103 @@ window.GreenOSModules.crm = {
         String((s.mailboxEmails || []).length)
       );
       var esc = this.esc.bind(this);
-      var pipeline = (s.pipeline || [])
-        .map(function (p) {
-          var interactive = p.interactive || p.stage === "BROKER_QUESTION";
-          return (
-            '<li class="' +
-            (p.done ? "is-done" : "") +
-            (interactive ? " is-interactive" : "") +
-            '" data-stage="' +
-            esc(p.stage) +
-            '">' +
-            '<button type="button" class="crm-pipe-dot' +
-            (interactive ? " crm-pipe-click" : "") +
-            '" title="' +
-            (interactive
-              ? p.done
-                ? "Mark another Broker Question"
-                : "Click after you send a question to the customer"
-              : "") +
-            '"' +
-            (interactive ? "" : " tabindex=\"-1\"") +
-            "></button>" +
-            "<div><strong>" +
-            esc(p.title) +
-            "</strong>" +
-            (interactive
-              ? '<small class="crm-pipe-hint">' +
-                (p.done ? "Tap again after each new question" : "Tap the circle after you ask") +
-                "</small>"
-              : "") +
-            (p.at
-              ? "<small>" + window.GreenOSModules.crm.fmtDate(p.at) + "</small>"
-              : "") +
-            "</div></li>"
-          );
-        })
-        .join("");
+      var pipeSteps = s.pipeline || [];
+      var brokerQ = null;
+      var customerR = null;
+      for (var pi = 0; pi < pipeSteps.length; pi++) {
+        if (pipeSteps[pi].stage === "BROKER_QUESTION") brokerQ = pipeSteps[pi];
+        if (pipeSteps[pi].stage === "CUSTOMER_RESPOND") customerR = pipeSteps[pi];
+      }
+
+      function pipeNodeHtml(p, opts) {
+        opts = opts || {};
+        var interactive = opts.interactive || p.interactive || p.stage === "BROKER_QUESTION";
+        var side = opts.side || "";
+        return (
+          '<div class="crm-qa-node ' +
+          side +
+          (p.done ? " is-done" : " is-pending") +
+          (interactive ? " is-interactive" : "") +
+          '" data-stage="' +
+          esc(p.stage) +
+          '">' +
+          '<button type="button" class="crm-qa-lamp' +
+          (interactive ? " crm-pipe-click" : "") +
+          '" title="' +
+          (interactive
+            ? p.done
+              ? "Mark another Broker Question"
+              : "Click after you send a question to the customer"
+            : esc(p.title)) +
+          '"' +
+          (interactive ? "" : " tabindex=\"-1\"") +
+          "></button>" +
+          '<div class="crm-qa-label"><strong>' +
+          esc(p.title) +
+          "</strong>" +
+          (interactive
+            ? '<small class="crm-pipe-hint">' +
+              (p.done ? "Tap again after each new question" : "Tap the circle after you ask") +
+              "</small>"
+            : '<small class="crm-pipe-hint">Lights from uShip email</small>') +
+          (p.at ? "<small>" + window.GreenOSModules.crm.fmtDate(p.at) + "</small>" : "") +
+          "</div></div>"
+        );
+      }
+
+      var pipeline = "";
+      var qaInserted = false;
+      pipeSteps.forEach(function (p) {
+        if (p.stage === "BROKER_QUESTION" || p.stage === "CUSTOMER_RESPOND") {
+          if (qaInserted) return;
+          qaInserted = true;
+          pipeline +=
+            '<li class="crm-pipe-qa-row">' +
+            '<div class="crm-qa-pair">' +
+            pipeNodeHtml(customerR || { stage: "CUSTOMER_RESPOND", title: "Customer Respond", done: false }, {
+              side: "is-customer",
+            }) +
+            '<div class="crm-qa-arrow" aria-hidden="true">' +
+            '<span class="crm-qa-arrow-line"></span>' +
+            '<span class="crm-qa-arrow-head">◀</span>' +
+            "</div>" +
+            pipeNodeHtml(brokerQ || { stage: "BROKER_QUESTION", title: "Broker Question", done: false, interactive: true }, {
+              side: "is-broker",
+              interactive: true,
+            }) +
+            "</div></li>";
+          return;
+        }
+        pipeline +=
+          '<li class="' +
+          (p.done ? "is-done" : "") +
+          '" data-stage="' +
+          esc(p.stage) +
+          '">' +
+          '<span class="crm-pipe-dot"></span>' +
+          "<div><strong>" +
+          esc(p.title) +
+          "</strong>" +
+          (p.at ? "<small>" + window.GreenOSModules.crm.fmtDate(p.at) + "</small>" : "") +
+          "</div></li>";
+      });
+      if (!qaInserted && (brokerQ || customerR)) {
+        pipeline +=
+          '<li class="crm-pipe-qa-row">' +
+          '<div class="crm-qa-pair">' +
+          pipeNodeHtml(customerR || { stage: "CUSTOMER_RESPOND", title: "Customer Respond", done: false }, {
+            side: "is-customer",
+          }) +
+          '<div class="crm-qa-arrow" aria-hidden="true">' +
+          '<span class="crm-qa-arrow-line"></span>' +
+          '<span class="crm-qa-arrow-head">◀</span>' +
+          "</div>" +
+          pipeNodeHtml(brokerQ || { stage: "BROKER_QUESTION", title: "Broker Question", done: false, interactive: true }, {
+            side: "is-broker",
+            interactive: true,
+          }) +
+          "</div></li>";
+      }
 
       var correspondence = Array.isArray(s.correspondence) ? s.correspondence : [];
       var correspondenceHtml =
@@ -1124,8 +1185,8 @@ window.GreenOSModules.crm = {
 
       modal.querySelectorAll(".crm-pipe-click").forEach(function (btn) {
         btn.addEventListener("click", async function () {
-          var li = btn.closest("li");
-          var stage = li && li.getAttribute("data-stage");
+          var host = btn.closest("[data-stage]");
+          var stage = host && host.getAttribute("data-stage");
           if (stage !== "BROKER_QUESTION") return;
           btn.disabled = true;
           try {
