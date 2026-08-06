@@ -917,13 +917,6 @@ window.GreenOSModules.crm = {
         "<div><span>Rate</span><strong>" +
         (s.price != null ? "$" + s.price : "—") +
         "</strong></div>" +
-        "<div><span>uShip</span>" +
-        (s.ushipUrl
-          ? '<a class="crm-open-uship" href="' +
-            esc(s.ushipUrl) +
-            '" target="_blank" rel="noopener">Open in uShip</a>'
-          : "—") +
-        "</div>" +
         (s.imageUrl
           ? '<div class="crm-card-image" style="grid-column:1/-1"><span>Photo</span><img src="' +
             esc(s.imageUrl) +
