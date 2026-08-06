@@ -253,6 +253,162 @@ export async function crmMyCustomersController(req: AuthRequest, res: Response) 
     return res.json(apiResponse(true, "Customers", [...map.values()]));
 }
 
+/** Carriers that worked with this broker (from Operations on shipment cards). */
+export async function crmMyCarriersController(req: AuthRequest, res: Response) {
+    if (isDataScopedRole(req.user?.role || "") && !scopedBrokerId(req)) {
+        return res.status(401).json(apiResponse(false, "Unauthorized"));
+    }
+    const brokerId = scopedBrokerId(req);
+    const teamLeadId = teamScopeUserId(req);
+    let where: Record<string, unknown> = {
+        carrierName: { not: null },
+        NOT: { carrierName: "" },
+    };
+    if (brokerId) {
+        where.assignedBrokerId = brokerId;
+    } else if (teamLeadId) {
+        const ids = await listTeamBrokerIds(teamLeadId);
+        where.assignedBrokerId = { in: ids.length ? ids : ["__none__"] };
+    }
+
+    const rows = await prisma.shipmentLead.findMany({
+        where,
+        select: {
+            carrierName: true,
+            driverName: true,
+            truckNumber: true,
+            trailerNumber: true,
+            shipmentLeadId: true,
+            greenOsShipmentId: true,
+            loadNumber: true,
+            status: true,
+            pickupCity: true,
+            pickupState: true,
+            deliveryCity: true,
+            deliveryState: true,
+            updatedAt: true,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 800,
+    });
+
+    type CarrierAgg = {
+        carrier: string;
+        shipmentCount: number;
+        activeCount: number;
+        lastStatus: string;
+        lastUpdated: Date;
+        lastShipmentId: string;
+        drivers: string[];
+    };
+    const map = new Map<string, CarrierAgg>();
+    const activeStatuses = new Set([
+        "LOAD_CREATED",
+        "DISPATCH",
+        "PICKED_UP",
+        "ACCEPTED",
+        "BOOKED",
+    ]);
+
+    for (const r of rows) {
+        const name = String(r.carrierName || "").trim();
+        if (!name) continue;
+        const key = name.toLowerCase();
+        const prev = map.get(key);
+        const isActive = activeStatuses.has(String(r.status || "").toUpperCase());
+        if (!prev) {
+            map.set(key, {
+                carrier: name,
+                shipmentCount: 1,
+                activeCount: isActive ? 1 : 0,
+                lastStatus: r.status,
+                lastUpdated: r.updatedAt,
+                lastShipmentId: r.shipmentLeadId,
+                drivers: r.driverName ? [String(r.driverName).trim()] : [],
+            });
+        } else {
+            prev.shipmentCount += 1;
+            if (isActive) prev.activeCount += 1;
+            if (r.driverName) {
+                const d = String(r.driverName).trim();
+                if (d && !prev.drivers.includes(d)) prev.drivers.push(d);
+            }
+        }
+    }
+
+    const list = [...map.values()].sort((a, b) => b.shipmentCount - a.shipmentCount);
+    return res.json(apiResponse(true, "My Carriers", list));
+}
+
+/**
+ * Drivers currently hauling loads (On Road) — DISPATCH / in-transit shipments.
+ */
+export async function crmOnRoadController(req: AuthRequest, res: Response) {
+    if (isDataScopedRole(req.user?.role || "") && !scopedBrokerId(req)) {
+        return res.status(401).json(apiResponse(false, "Unauthorized"));
+    }
+    const brokerId = scopedBrokerId(req);
+    const teamLeadId = teamScopeUserId(req);
+    let where: Record<string, unknown> = {
+        status: { in: ["DISPATCH", "PICKED_UP"] },
+    };
+    if (brokerId) {
+        where.assignedBrokerId = brokerId;
+    } else if (teamLeadId) {
+        const ids = await listTeamBrokerIds(teamLeadId);
+        where.assignedBrokerId = { in: ids.length ? ids : ["__none__"] };
+    }
+
+    const rows = await prisma.shipmentLead.findMany({
+        where,
+        select: {
+            shipmentLeadId: true,
+            greenOsShipmentId: true,
+            loadNumber: true,
+            shipmentTitle: true,
+            status: true,
+            carrierName: true,
+            driverName: true,
+            truckNumber: true,
+            trailerNumber: true,
+            pickupCity: true,
+            pickupState: true,
+            deliveryCity: true,
+            deliveryState: true,
+            opsPickupAt: true,
+            opsDeliveryAt: true,
+            updatedAt: true,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 300,
+    });
+
+    const items = rows.map((r) => ({
+        shipmentLeadId: r.shipmentLeadId,
+        greenOsShipmentId: r.greenOsShipmentId,
+        loadNumber: r.loadNumber,
+        shipmentTitle: r.shipmentTitle,
+        status: r.status,
+        carrier: r.carrierName || "—",
+        driver: r.driverName || "—",
+        truck: r.truckNumber || "—",
+        trailer: r.trailerNumber || "—",
+        pickup: [r.pickupCity, r.pickupState].filter(Boolean).join(", ") || "—",
+        delivery: [r.deliveryCity, r.deliveryState].filter(Boolean).join(", ") || "—",
+        opsPickupAt: r.opsPickupAt,
+        opsDeliveryAt: r.opsDeliveryAt,
+        updatedAt: r.updatedAt,
+        onRoad: true,
+    }));
+
+    return res.json(
+        apiResponse(true, "On Road", {
+            count: items.length,
+            items,
+        })
+    );
+}
+
 export async function crmMyNotificationsController(req: AuthRequest, res: Response) {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json(apiResponse(false, "Unauthorized"));

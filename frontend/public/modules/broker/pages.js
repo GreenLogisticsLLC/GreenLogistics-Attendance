@@ -1,6 +1,6 @@
 /**
  * Broker-only GreenOS workspace.
- * Personal Dashboard · My Shipments · My Customers · Notifications
+ * Personal Dashboard · My Shipments · My Customers · MY Carrier · ON Road · Notifications
  */
 window.GreenOSModules = window.GreenOSModules || {};
 window.GreenOSModules.broker = {
@@ -8,6 +8,8 @@ window.GreenOSModules.broker = {
     { id: "dashboard", title: "Personal Dashboard" },
     { id: "shipments", title: "My Shipments" },
     { id: "customers", title: "My Customers" },
+    { id: "carriers", title: "MY Carrier" },
+    { id: "on-road", title: "ON Road" },
     { id: "notifications", title: "Notifications" },
   ],
   _shipmentsTimer: null,
@@ -66,6 +68,8 @@ window.GreenOSModules.broker = {
     var body = root.querySelector("#broker-body");
     if (active.id === "shipments") self.renderShipments(body, root);
     else if (active.id === "customers") self.renderCustomers(body, root);
+    else if (active.id === "carriers") self.renderCarriers(body, root);
+    else if (active.id === "on-road") self.renderOnRoad(body, root);
     else if (active.id === "notifications") self.renderNotifications(body);
     else self.renderDashboard(body, root);
   },
@@ -386,6 +390,122 @@ window.GreenOSModules.broker = {
       });
     } catch {
       body.innerHTML = "<p>Failed to load customers</p>";
+    }
+  },
+
+  async renderCarriers(body, root) {
+    body.innerHTML = "<p>Loading carriers…</p>";
+    try {
+      var data = await this.api("/carriers");
+      if (!data.success) {
+        body.innerHTML = "<p>" + this.esc(data.message) + "</p>";
+        return;
+      }
+      var rows = data.data || [];
+      body.innerHTML =
+        '<section class="gos-dash-hero">' +
+        "<h1>MY Carrier</h1>" +
+        "<p>Carriers that worked with you — filled from Operations on the shipment card</p>" +
+        "</section>" +
+        '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+        "<th>Carrier</th><th>Shipments</th><th>Active</th><th>Drivers used</th><th>Last status</th><th>Updated</th>" +
+        '</tr></thead><tbody id="broker-carrier-body"></tbody></table></div>';
+      var tbody = body.querySelector("#broker-carrier-body");
+      if (!rows.length) {
+        tbody.innerHTML =
+          '<tr><td colspan="6">No carriers yet — add Carrier in Operations on a shipment card</td></tr>';
+        return;
+      }
+      var esc = this.esc.bind(this);
+      var fmt = this.fmtDate.bind(this);
+      tbody.innerHTML = rows
+        .map(function (c) {
+          return (
+            "<tr><td><strong>" +
+            esc(c.carrier) +
+            "</strong></td><td>" +
+            c.shipmentCount +
+            "</td><td>" +
+            c.activeCount +
+            "</td><td>" +
+            esc((c.drivers || []).join(", ") || "—") +
+            "</td><td>" +
+            esc(c.lastStatus || "—") +
+            "</td><td>" +
+            fmt(c.lastUpdated) +
+            "</td></tr>"
+          );
+        })
+        .join("");
+    } catch {
+      body.innerHTML = "<p>Failed to load carriers</p>";
+    }
+  },
+
+  async renderOnRoad(body, root) {
+    body.innerHTML = "<p>Loading On Road…</p>";
+    try {
+      var data = await this.api("/on-road");
+      if (!data.success) {
+        body.innerHTML = "<p>" + this.esc(data.message) + "</p>";
+        return;
+      }
+      var payload = data.data || {};
+      var rows = payload.items || [];
+      body.innerHTML =
+        '<section class="gos-dash-hero">' +
+        "<h1>ON Road</h1>" +
+        "<p>Drivers currently hauling your loads (Dispatch / in transit) — " +
+        (payload.count || 0) +
+        " active</p>" +
+        "</section>" +
+        '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+        "<th>Driver</th><th>Carrier</th><th>Truck</th><th>Trailer</th><th>Load #</th><th>Route</th><th>Shipment</th><th>Updated</th>" +
+        '</tr></thead><tbody id="broker-onroad-body"></tbody></table></div>';
+      var tbody = body.querySelector("#broker-onroad-body");
+      if (!rows.length) {
+        tbody.innerHTML =
+          '<tr><td colspan="8">Nobody on the road right now — set status to Dispatch and fill Driver in Operations</td></tr>';
+        return;
+      }
+      var esc = this.esc.bind(this);
+      var fmt = this.fmtDate.bind(this);
+      tbody.innerHTML = rows
+        .map(function (r) {
+          return (
+            '<tr class="crm-row" data-id="' +
+            esc(r.shipmentLeadId) +
+            '"><td><strong>' +
+            esc(r.driver) +
+            "</strong></td><td>" +
+            esc(r.carrier) +
+            "</td><td>" +
+            esc(r.truck) +
+            "</td><td>" +
+            esc(r.trailer) +
+            "</td><td>" +
+            esc(r.loadNumber || "—") +
+            "</td><td>" +
+            esc(r.pickup) +
+            " → " +
+            esc(r.delivery) +
+            "</td><td>" +
+            esc(r.greenOsShipmentId || r.shipmentLeadId.slice(0, 8)) +
+            "</td><td>" +
+            fmt(r.updatedAt) +
+            "</td></tr>"
+          );
+        })
+        .join("");
+      tbody.querySelectorAll("[data-id]").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          if (window.GreenOSModules.crm && window.GreenOSModules.crm.openShipmentCard) {
+            window.GreenOSModules.crm.openShipmentCard(root, tr.getAttribute("data-id"));
+          }
+        });
+      });
+    } catch {
+      body.innerHTML = "<p>Failed to load On Road</p>";
     }
   },
 

@@ -16,6 +16,8 @@ import {
     crmMarkAllNotificationsReadController,
     crmMarkNotificationReadController,
     crmMyCustomersController,
+    crmMyCarriersController,
+    crmOnRoadController,
     crmMyNotificationsController,
     crmUpdateShipmentController,
     crmUploadMiddleware,
@@ -59,6 +61,8 @@ crmRouter.get("/brokers", crmRoles, crmListBrokersController);
 crmRouter.get("/brokers/:id", crmRoles, crmBrokerWorkspaceController);
 crmRouter.get("/customers", crmRoles, crmMyCustomersController);
 crmRouter.get("/customers/:name", crmRoles, crmCustomerDetailController);
+crmRouter.get("/carriers", crmRoles, crmMyCarriersController);
+crmRouter.get("/on-road", crmRoles, crmOnRoadController);
 crmRouter.get("/notifications", crmRoles, crmMyNotificationsController);
 crmRouter.post("/notifications/read-all", crmRoles, crmMarkAllNotificationsReadController);
 crmRouter.post("/notifications/:id/read", crmRoles, crmMarkNotificationReadController);

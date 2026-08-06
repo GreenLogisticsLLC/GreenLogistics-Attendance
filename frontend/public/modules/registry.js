@@ -14,6 +14,8 @@ window.GreenOSRegistry = [
       { id: "dashboard", title: "Personal Dashboard" },
       { id: "shipments", title: "My Shipments" },
       { id: "customers", title: "My Customers" },
+      { id: "carriers", title: "MY Carrier" },
+      { id: "on-road", title: "ON Road" },
       { id: "notifications", title: "Notifications" },
     ],
   },
