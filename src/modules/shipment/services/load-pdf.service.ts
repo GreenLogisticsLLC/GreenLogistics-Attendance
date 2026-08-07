@@ -32,8 +32,12 @@ export type LoadDocumentContent = {
     shipmentNumber?: string | null;
     referenceNumber?: string | null;
     customerName?: string | null;
+    customerEmail?: string | null;
     brokerName?: string | null;
+    /** Broker connected Gmail (or GreenOS login email). */
+    brokerEmail?: string | null;
     carrierName?: string | null;
+    carrierEmail?: string | null;
     carrierMc?: string | null;
     carrierDot?: string | null;
     carrierPhone?: string | null;
@@ -157,19 +161,35 @@ function renderRateConfirmationPdf(
     });
     y += 22;
 
+    // Email contacts — Broker Gmail / Customer / Carrier
+    drawBox(doc, left, y, usable, 42);
+    fieldRow(doc, "BROKER GMAIL:", txt(c.brokerEmail), left + 8, y + 6, 170);
+    fieldRow(doc, "CUSTOMER EMAIL:", txt(c.customerEmail), left + 190, y + 6, 170);
+    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 370, y + 6, 160);
+    if (c.customerName) {
+        doc.font("Helvetica").fontSize(7).fillColor("#555555").text(
+            `Customer: ${txt(c.customerName)}`,
+            left + 190,
+            y + 30,
+            { width: 170 }
+        );
+    }
+    y += 52;
+
     // Carrier / equipment / rate block
-    drawBox(doc, left, y, usable, 78);
+    drawBox(doc, left, y, usable, 90);
     fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 6, 220);
     fieldRow(doc, "MC#", txt(c.carrierMc), left + 240, y + 6, 90);
     fieldRow(doc, "DOT#", txt(c.carrierDot), left + 340, y + 6, 90);
     fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 440, y + 6, 90);
+    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 8, y + 40, 220);
 
-    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 8, y + 40, 150);
-    fieldRow(doc, "Weight:", txt(c.weight), left + 170, y + 40, 90);
-    fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 270, y + 40, 160);
+    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 240, y + 40, 120);
+    fieldRow(doc, "Weight:", txt(c.weight), left + 370, y + 40, 70);
+    fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 64, 220);
     const rateVal = money(c.flatRate ?? c.carrierRate);
-    fieldRow(doc, "Flat Rate: $USD", rateVal || "—", left + 440, y + 40, 90);
-    y += 90;
+    fieldRow(doc, "Flat Rate: $USD", rateVal || "—", left + 240, y + 64, 120);
+    y += 102;
 
     // Origin
     drawBox(doc, left, y, usable / 2 - 4, 92);
@@ -266,6 +286,106 @@ function renderRateConfirmationPdf(
     });
 }
 
+/** Bill of Lading — includes Broker Gmail / Customer / Carrier emails. */
+function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, version: number) {
+    const c = content;
+    const left = 40;
+    const usable = 532;
+    let y = 36;
+
+    doc.font("Helvetica-Bold").fontSize(14).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, left, y);
+    y += 16;
+    doc.font("Helvetica").fontSize(9).fillColor("#222222");
+    doc.text(`${GREEN_LOGISTICS_RC.addressLine1}, ${GREEN_LOGISTICS_RC.addressLine2}`, left, y);
+    y += 12;
+    doc.text(`MC # ${GREEN_LOGISTICS_RC.mc}`, left, y);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f3d1f");
+    doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 180, 36, {
+        width: 180,
+        align: "right",
+    });
+    doc.font("Helvetica").fontSize(9).fillColor("#222222");
+    doc.text(txt(c.shipmentNumber) || "", left + usable - 180, 50, { width: 180, align: "right" });
+    doc.text(`BOL v${version}`, left + usable - 180, 62, { width: 180, align: "right" });
+
+    y = 78;
+    doc.font("Helvetica-Bold").fontSize(14).fillColor("#111111").text("BILL OF LADING", left, y, {
+        width: usable,
+        align: "center",
+    });
+    y += 22;
+
+    drawBox(doc, left, y, usable, 48);
+    fieldRow(doc, "BROKER GMAIL:", txt(c.brokerEmail), left + 8, y + 6, 170);
+    fieldRow(doc, "CUSTOMER EMAIL:", txt(c.customerEmail), left + 190, y + 6, 170);
+    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 370, y + 6, 150);
+    fieldRow(doc, "CUSTOMER:", txt(c.customerName), left + 8, y + 30, 250);
+    fieldRow(doc, "BROKER:", txt(c.brokerName), left + 270, y + 30, 240);
+    y += 58;
+
+    drawBox(doc, left, y, usable, 56);
+    fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 6, 200);
+    fieldRow(doc, "MC#", txt(c.carrierMc), left + 220, y + 6, 90);
+    fieldRow(doc, "DOT#", txt(c.carrierDot), left + 320, y + 6, 90);
+    fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 420, y + 6, 90);
+    fieldRow(doc, "DRIVER:", txt(c.driverName), left + 8, y + 32, 160);
+    fieldRow(doc, "TRUCK:", txt(c.truckNumber), left + 180, y + 32, 100);
+    fieldRow(doc, "TRAILER:", txt(c.trailerNumber), left + 300, y + 32, 100);
+    y += 68;
+
+    drawBox(doc, left, y, usable / 2 - 4, 80);
+    doc.font("Helvetica-Bold").fontSize(9).text("SHIPPER / ORIGIN", left + 8, y + 6);
+    doc.font("Helvetica").fontSize(10).text(txt(c.pickupAddress) || "—", left + 8, y + 20, {
+        width: usable / 2 - 20,
+    });
+    fieldRow(doc, "DATE/TIME:", [txt(c.pickupDate), txt(c.pickupTime)].filter(Boolean).join(" ") || txt(c.pickupWindow), left + 8, y + 52, usable / 2 - 24);
+
+    const dx = left + usable / 2 + 4;
+    drawBox(doc, dx, y, usable / 2 - 4, 80);
+    doc.font("Helvetica-Bold").fontSize(9).text("CONSIGNEE / DESTINATION", dx + 8, y + 6);
+    doc.font("Helvetica").fontSize(10).text(txt(c.deliveryAddress) || "—", dx + 8, y + 20, {
+        width: usable / 2 - 20,
+    });
+    fieldRow(doc, "DATE/TIME:", [txt(c.deliveryDate), txt(c.deliveryTime)].filter(Boolean).join(" ") || txt(c.deliveryWindow), dx + 8, y + 52, usable / 2 - 24);
+    y += 92;
+
+    drawBox(doc, left, y, usable, 56);
+    fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 6, 220);
+    fieldRow(doc, "WEIGHT:", txt(c.weight), left + 240, y + 6, 100);
+    fieldRow(doc, "PIECES:", c.pieces != null ? String(c.pieces) : "", left + 360, y + 6, 80);
+    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 8, y + 32, 220);
+    fieldRow(doc, "REF:", txt(c.referenceNumber), left + 240, y + 32, 250);
+    y += 68;
+
+    if (txt(c.specialInstructions) || txt(c.specialNotes)) {
+        drawBox(doc, left, y, usable, 50);
+        doc.font("Helvetica-Bold").fontSize(8).text("SPECIAL INSTRUCTIONS:", left + 8, y + 6);
+        doc.font("Helvetica").fontSize(9).text(
+            txt(c.specialNotes) || txt(c.specialInstructions),
+            left + 8,
+            y + 18,
+            { width: usable - 16, height: 28 }
+        );
+        y += 62;
+    }
+
+    drawBox(doc, left, y, usable / 2 - 4, 70);
+    doc.font("Helvetica-Bold").fontSize(8).text("SHIPPER SIGNATURE:", left + 8, y + 8);
+    doc.moveTo(left + 8, y + 48).lineTo(left + usable / 2 - 16, y + 48).stroke("#666666");
+    doc.font("Helvetica").fontSize(7).text("DATE:", left + 8, y + 54);
+
+    drawBox(doc, left + usable / 2 + 4, y, usable / 2 - 4, 70);
+    doc.font("Helvetica-Bold").fontSize(8).text("CARRIER / DRIVER SIGNATURE:", left + usable / 2 + 12, y + 8);
+    doc.moveTo(left + usable / 2 + 12, y + 48).lineTo(left + usable - 8, y + 48).stroke("#666666");
+    doc.font("Helvetica").fontSize(7).text("DATE:", left + usable / 2 + 12, y + 54);
+
+    doc.font("Helvetica").fontSize(7).fillColor("#666666");
+    doc.text(`${GREEN_LOGISTICS_RC.legalName}  ·  BOL belongs to Load ${txt(c.loadNumber) || ""}  ·  GreenOS`, left, 760, {
+        width: usable,
+        align: "center",
+    });
+}
+
 /**
  * Generate a load document PDF from template + editable content snapshot.
  * Files live under uploads/loads/{shipmentLeadId}/ — always attached to the Load.
@@ -292,6 +412,8 @@ export async function generateLoadDocumentPdf(input: {
 
         if (input.docType === "RATE_CONFIRMATION") {
             renderRateConfirmationPdf(doc, c, input.version);
+        } else if (input.docType === "BOL") {
+            renderBolPdf(doc, c, input.version);
         } else {
             doc.fontSize(18).font("Helvetica-Bold").text("Green Logistics", { align: "left" });
             doc.fontSize(11).font("Helvetica").fillColor("#166534").text("GreenOS TMS", { align: "left" });
@@ -306,8 +428,11 @@ export async function generateLoadDocumentPdf(input: {
             line(doc, "Reference", c.referenceNumber);
             doc.moveDown(0.4);
             line(doc, "Customer", c.customerName);
+            line(doc, "Customer Email", c.customerEmail);
             line(doc, "Broker", c.brokerName);
+            line(doc, "Broker Gmail", c.brokerEmail);
             line(doc, "Carrier", c.carrierName);
+            line(doc, "Carrier Email", c.carrierEmail);
             if (c.carrierMc) line(doc, "MC", c.carrierMc);
             if (c.carrierDot) line(doc, "DOT", c.carrierDot);
             if (c.driverName) line(doc, "Driver", c.driverName);

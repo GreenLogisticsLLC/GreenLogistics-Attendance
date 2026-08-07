@@ -59,6 +59,7 @@ export class LoadDocumentsService {
         }
 
         let brokerName: string | null = null;
+        let brokerEmail: string | null = null;
         if (s.assignedBrokerId) {
             const u = await prisma.user.findUnique({
                 where: { userId: s.assignedBrokerId },
@@ -66,6 +67,12 @@ export class LoadDocumentsService {
             });
             brokerName =
                 [u?.firstName, u?.lastName].filter(Boolean).join(" ").trim() || u?.email || null;
+            const gmail = await prisma.brokerGmailAccount.findUnique({
+                where: { userId: s.assignedBrokerId },
+                select: { gmailAddress: true, isActive: true },
+            });
+            brokerEmail =
+                (gmail?.isActive !== false && gmail?.gmailAddress) || u?.email || null;
         }
 
         const pickupAt = s.opsPickupAt || s.pickupFrom;
@@ -76,8 +83,11 @@ export class LoadDocumentsService {
             shipmentNumber: s.greenOsShipmentId,
             referenceNumber: s.referenceNumber || s.externalShipmentId,
             customerName: s.customerName,
+            customerEmail: s.customerEmail,
             brokerName,
+            brokerEmail,
             carrierName: s.carrierName,
+            carrierEmail: s.carrierEmail,
             carrierMc: s.carrierMc,
             carrierDot: s.carrierDot,
             carrierPhone: null,

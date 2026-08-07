@@ -354,6 +354,15 @@ window.GreenOSModules["dispatch"] = {
           }, 40);
           return;
         }
+        if (action === "generate_bol") {
+          self._tab = "documents";
+          self.renderDetails(body, data);
+          setTimeout(function () {
+            var mainEl = body.querySelector("#load-main");
+            if (mainEl) self.showBolWizard(mainEl, id, data, "GENERATED");
+          }, 40);
+          return;
+        }
         try {
           btn.disabled = true;
           await self.api("/" + encodeURIComponent(id) + "/actions/" + encodeURIComponent(action), {
@@ -395,6 +404,7 @@ window.GreenOSModules["dispatch"] = {
     }
 
     if (tab === "general") {
+      var contacts = data.contacts || {};
       main.innerHTML =
         "<h2>General</h2>" +
         '<div class="load-grid">' +
@@ -416,8 +426,24 @@ window.GreenOSModules["dispatch"] = {
         field("Last Updated", g.updatedAt ? new Date(g.updatedAt).toLocaleString() : "—") +
         "</div>" +
         '<div class="load-edit-panel">' +
-        "<h3>Edit Load Details</h3>" +
+        "<h3>Emails — Broker Gmail / Customer / Carrier</h3>" +
+        '<p class="gos-muted">These emails go on Rate Con and BOL. Fill them as soon as the Load is created.</p>' +
+        '<div class="load-grid" style="margin-bottom:0.75rem">' +
+        field("Broker Gmail", contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email)) +
+        field("Customer Email", contacts.customerEmail || g.customerEmail) +
+        field("Carrier Email", contacts.carrierEmail || (data.carrier && data.carrier.carrierEmail)) +
+        "</div>" +
         '<div class="load-form-grid">' +
+        '<label>Customer name <input id="ld-customer" value="' + self.esc(g.customer || "") + '"></label>' +
+        '<label>Customer email (Gmail) <input id="ld-customer-email" type="email" value="' +
+        self.esc(contacts.customerEmail || g.customerEmail || "") +
+        '" placeholder="customer@gmail.com"></label>' +
+        '<label>Carrier email <input id="ld-carrier-email-g" type="email" value="' +
+        self.esc(contacts.carrierEmail || (data.carrier && data.carrier.carrierEmail) || "") +
+        '" placeholder="dispatch@carrier.com"></label>' +
+        '<label class="full gos-muted">Broker Gmail (from connected account): <strong>' +
+        self.esc(contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "— not connected —") +
+        "</strong></label>" +
         '<label>Reference <input id="ld-ref" value="' + self.esc(g.referenceNumber || "") + '"></label>' +
         '<label>Commodity <input id="ld-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
         '<label>Equipment <input id="ld-equipment" value="' + self.esc(g.equipment || "") + '"></label>' +
@@ -433,6 +459,9 @@ window.GreenOSModules["dispatch"] = {
           await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
             body: JSON.stringify({
+              customerName: main.querySelector("#ld-customer").value || null,
+              customerEmail: main.querySelector("#ld-customer-email").value || null,
+              carrierEmail: main.querySelector("#ld-carrier-email-g").value || null,
               referenceNumber: main.querySelector("#ld-ref").value || null,
               commodity: main.querySelector("#ld-commodity").value || null,
               equipment: main.querySelector("#ld-equipment").value || null,
@@ -456,6 +485,7 @@ window.GreenOSModules["dispatch"] = {
         '<p class="gos-muted">Phase 2 — fill carrier details, then Save &amp; Assign to move the Load forward.</p>' +
         '<div class="load-grid">' +
         field("Carrier", c.carrierName) +
+        field("Carrier Email", c.carrierEmail) +
         field("MC", c.mc) +
         field("DOT", c.dot) +
         field("Insurance", c.insurance) +
@@ -470,6 +500,9 @@ window.GreenOSModules["dispatch"] = {
         "<h3>Register carrier on this Load</h3>" +
         '<div class="load-form-grid">' +
         '<label>Carrier name * <input id="ld-carrier" value="' + self.esc(c.carrierName || "") + '" placeholder="e.g. Swift Transport LLC"></label>' +
+        '<label>Carrier email * <input id="ld-carrier-email" type="email" value="' +
+        self.esc(c.carrierEmail || "") +
+        '" placeholder="dispatch@carrier.com"></label>' +
         '<label>MC <input id="ld-mc" value="' + self.esc(c.mc || "") + '" placeholder="MC123456"></label>' +
         '<label>DOT <input id="ld-dot" value="' + self.esc(c.dot || "") + '"></label>' +
         '<label>Insurance <input id="ld-ins" value="' + self.esc(c.insurance || "") + '"></label>' +
@@ -493,6 +526,7 @@ window.GreenOSModules["dispatch"] = {
             method: "PATCH",
             body: JSON.stringify({
               carrierName: name,
+              carrierEmail: main.querySelector("#ld-carrier-email").value || null,
               carrierMc: main.querySelector("#ld-mc").value || null,
               carrierDot: main.querySelector("#ld-dot").value || null,
               carrierInsurance: main.querySelector("#ld-ins").value || null,
@@ -802,6 +836,10 @@ window.GreenOSModules["dispatch"] = {
           self.showRateConWizard(main, id, data, "GENERATED");
           return;
         }
+        if (docType === "BOL") {
+          self.showBolWizard(main, id, data, "GENERATED");
+          return;
+        }
         try {
           btn.disabled = true;
           var row = await self.api(
@@ -952,6 +990,10 @@ window.GreenOSModules["dispatch"] = {
       this.showRateConWizard(main, id, data, "BROKER_EDITED");
       return;
     }
+    if (docType === "BOL") {
+      this.showBolWizard(main, id, data, "BROKER_EDITED");
+      return;
+    }
     var self = this;
     var g = data.general || {};
     var c = data.carrier || {};
@@ -1076,7 +1118,16 @@ window.GreenOSModules["dispatch"] = {
       '<label>Shipment <input id="rc-ship" value="' + self.esc(g.shipmentNumber || "") + '" readonly></label>' +
       '<label>Confirmation date <input id="rc-date" value="' + self.esc(new Date().toLocaleDateString()) + '"></label>' +
       '<label>Broker <input id="rc-broker" value="' + self.esc((g.broker && g.broker.name) || "") + '"></label>' +
+      '<label>Broker Gmail <input id="rc-broker-email" value="' +
+      self.esc((data.contacts && data.contacts.brokerGmail) || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "") +
+      '" readonly></label>' +
+      '<label>Customer email <input id="rc-customer-email" type="email" value="' +
+      self.esc((data.contacts && data.contacts.customerEmail) || g.customerEmail || "") +
+      '" placeholder="customer@gmail.com"></label>' +
       '<label>Carrier * <input id="rc-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
+      '<label>Carrier email * <input id="rc-carrier-email" type="email" value="' +
+      self.esc(c.carrierEmail || (data.contacts && data.contacts.carrierEmail) || "") +
+      '" placeholder="dispatch@carrier.com"></label>' +
       '<label>MC# <input id="rc-mc" value="' + self.esc(c.mc || "") + '"></label>' +
       '<label>DOT# <input id="rc-dot" value="' + self.esc(c.dot || "") + '"></label>' +
       '<label>Carrier phone <input id="rc-cphone" value="" placeholder="(xxx) xxx-xxxx"></label>' +
@@ -1121,9 +1172,15 @@ window.GreenOSModules["dispatch"] = {
     box.querySelector("#rc-generate")?.addEventListener("click", async function () {
       var carrier = (box.querySelector("#rc-carrier").value || "").trim();
       var rate = (box.querySelector("#rc-rate").value || "").trim();
+      var carrierEmail = (box.querySelector("#rc-carrier-email").value || "").trim();
       if (!carrier) {
         alert("Carrier name is required for Rate Confirmation.");
         box.querySelector("#rc-carrier").focus();
+        return;
+      }
+      if (!carrierEmail) {
+        alert("Carrier email is required for Rate Confirmation.");
+        box.querySelector("#rc-carrier-email").focus();
         return;
       }
       if (!rate) {
@@ -1141,6 +1198,8 @@ window.GreenOSModules["dispatch"] = {
           method: "PATCH",
           body: JSON.stringify({
             carrierName: carrier,
+            carrierEmail: carrierEmail,
+            customerEmail: box.querySelector("#rc-customer-email").value || null,
             carrierMc: box.querySelector("#rc-mc").value || null,
             carrierDot: box.querySelector("#rc-dot").value || null,
             driverName: box.querySelector("#rc-driver").value || null,
@@ -1161,7 +1220,10 @@ window.GreenOSModules["dispatch"] = {
           shipmentNumber: box.querySelector("#rc-ship").value,
           confirmationDate: box.querySelector("#rc-date").value,
           brokerName: box.querySelector("#rc-broker").value,
+          brokerEmail: box.querySelector("#rc-broker-email").value,
+          customerEmail: box.querySelector("#rc-customer-email").value,
           carrierName: carrier,
+          carrierEmail: carrierEmail,
           carrierMc: box.querySelector("#rc-mc").value,
           carrierDot: box.querySelector("#rc-dot").value,
           carrierPhone: box.querySelector("#rc-cphone").value,
@@ -1217,6 +1279,153 @@ window.GreenOSModules["dispatch"] = {
           } catch (e) {}
         } else {
           alert("Rate Confirmation created. Open it from Documents → Preview.");
+        }
+      } catch (err) {
+        alert(err.message || err);
+        if (btnGen) btnGen.disabled = false;
+        if (statusEl) statusEl.textContent = "";
+      }
+    });
+  },
+
+  /** BOL wizard — same email contacts as Rate Con, auto-filled from Load. */
+  showBolWizard(main, id, data, changeReason) {
+    var self = this;
+    var g = data.general || {};
+    var c = data.carrier || {};
+    var contacts = data.contacts || {};
+    var box = main.querySelector("#load-doc-editor");
+    if (!box) {
+      main.insertAdjacentHTML("beforeend", '<div id="load-doc-editor" class="load-edit-panel"></div>');
+      box = main.querySelector("#load-doc-editor");
+    }
+    box.classList.remove("hidden");
+
+    function place(obj) {
+      if (!obj) return "";
+      return [obj.city, obj.state, obj.zip].filter(Boolean).join(", ");
+    }
+
+    box.innerHTML =
+      "<h3>Generate Bill of Lading</h3>" +
+      '<p class="gos-muted">Emails (Broker Gmail / Customer / Carrier) are required on BOL. Edit if needed, then generate.</p>' +
+      '<div class="load-form-grid">' +
+      '<label>Load No <input id="bol-load" value="' + self.esc(g.loadNumber || "") + '" readonly></label>' +
+      '<label>Shipment <input id="bol-ship" value="' + self.esc(g.shipmentNumber || "") + '" readonly></label>' +
+      '<label>Broker Gmail <input id="bol-broker-email" value="' +
+      self.esc(contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "") +
+      '" readonly></label>' +
+      '<label>Customer name <input id="bol-customer" value="' + self.esc(g.customer || "") + '"></label>' +
+      '<label>Customer email <input id="bol-customer-email" type="email" value="' +
+      self.esc(contacts.customerEmail || g.customerEmail || "") +
+      '"></label>' +
+      '<label>Carrier <input id="bol-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
+      '<label>Carrier email * <input id="bol-carrier-email" type="email" value="' +
+      self.esc(c.carrierEmail || contacts.carrierEmail || "") +
+      '"></label>' +
+      '<label>MC# <input id="bol-mc" value="' + self.esc(c.mc || "") + '"></label>' +
+      '<label>DOT# <input id="bol-dot" value="' + self.esc(c.dot || "") + '"></label>' +
+      '<label>Driver <input id="bol-driver" value="' + self.esc(c.driverName || "") + '"></label>' +
+      '<label>Truck <input id="bol-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
+      '<label>Trailer <input id="bol-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
+      '<label class="full">Origin <input id="bol-origin" value="' + self.esc(place(g.pickup)) + '"></label>' +
+      '<label class="full">Destination <input id="bol-dest" value="' + self.esc(place(g.delivery)) + '"></label>' +
+      '<label>Commodity <input id="bol-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
+      '<label>Weight <input id="bol-weight" value="' + self.esc(g.weight || "") + '"></label>' +
+      '<label>Equipment <input id="bol-equip" value="' + self.esc(g.equipment || "") + '"></label>' +
+      '<label>Reference <input id="bol-ref" value="' + self.esc(g.referenceNumber || "") + '"></label>' +
+      '<label class="full">Special instructions <textarea id="bol-notes" rows="3">' +
+      self.esc(g.specialInstructions || "") +
+      "</textarea></label>" +
+      "</div>" +
+      '<div class="load-actions" style="margin-top:0.75rem">' +
+      '<button type="button" class="btn-primary" id="bol-generate">Save &amp; Generate BOL PDF</button>' +
+      '<button type="button" class="btn-secondary" id="bol-cancel">Cancel</button>' +
+      "</div>" +
+      '<p id="bol-status" class="gos-muted" style="margin-top:0.5rem"></p>';
+
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+    box.querySelector("#bol-cancel")?.addEventListener("click", function () {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+    });
+
+    box.querySelector("#bol-generate")?.addEventListener("click", async function () {
+      var carrierEmail = (box.querySelector("#bol-carrier-email").value || "").trim();
+      if (!carrierEmail) {
+        alert("Carrier email is required on BOL.");
+        box.querySelector("#bol-carrier-email").focus();
+        return;
+      }
+      var statusEl = box.querySelector("#bol-status");
+      var btnGen = box.querySelector("#bol-generate");
+      try {
+        if (btnGen) btnGen.disabled = true;
+        if (statusEl) statusEl.textContent = "Saving emails & load…";
+        await self.api("/" + encodeURIComponent(id), {
+          method: "PATCH",
+          body: JSON.stringify({
+            customerName: box.querySelector("#bol-customer").value || null,
+            customerEmail: box.querySelector("#bol-customer-email").value || null,
+            carrierName: box.querySelector("#bol-carrier").value || null,
+            carrierEmail: carrierEmail,
+            carrierMc: box.querySelector("#bol-mc").value || null,
+            carrierDot: box.querySelector("#bol-dot").value || null,
+            driverName: box.querySelector("#bol-driver").value || null,
+            truckNumber: box.querySelector("#bol-truck").value || null,
+            trailerNumber: box.querySelector("#bol-trailer").value || null,
+            commodity: box.querySelector("#bol-commodity").value || null,
+            weight: box.querySelector("#bol-weight").value || null,
+            equipment: box.querySelector("#bol-equip").value || null,
+            referenceNumber: box.querySelector("#bol-ref").value || null,
+            specialInstructions: box.querySelector("#bol-notes").value || null,
+          }),
+        });
+        if (statusEl) statusEl.textContent = "Generating BOL PDF…";
+        var content = {
+          loadNumber: box.querySelector("#bol-load").value,
+          shipmentNumber: box.querySelector("#bol-ship").value,
+          brokerEmail: box.querySelector("#bol-broker-email").value,
+          brokerName: (g.broker && g.broker.name) || "",
+          customerName: box.querySelector("#bol-customer").value,
+          customerEmail: box.querySelector("#bol-customer-email").value,
+          carrierName: box.querySelector("#bol-carrier").value,
+          carrierEmail: carrierEmail,
+          carrierMc: box.querySelector("#bol-mc").value,
+          carrierDot: box.querySelector("#bol-dot").value,
+          driverName: box.querySelector("#bol-driver").value,
+          truckNumber: box.querySelector("#bol-truck").value,
+          trailerNumber: box.querySelector("#bol-trailer").value,
+          pickupAddress: box.querySelector("#bol-origin").value,
+          deliveryAddress: box.querySelector("#bol-dest").value,
+          commodity: box.querySelector("#bol-commodity").value,
+          weight: box.querySelector("#bol-weight").value,
+          equipment: box.querySelector("#bol-equip").value,
+          referenceNumber: box.querySelector("#bol-ref").value,
+          specialInstructions: box.querySelector("#bol-notes").value,
+          specialNotes: box.querySelector("#bol-notes").value,
+        };
+        var endpoint =
+          (changeReason || "GENERATED") === "GENERATED"
+            ? "/" + encodeURIComponent(id) + "/documents/BOL/generate"
+            : "/" + encodeURIComponent(id) + "/documents/BOL/edit";
+        var row = await self.api(endpoint, {
+          method: "POST",
+          body: JSON.stringify({ changeReason: changeReason || "GENERATED", content: content }),
+        });
+        if (statusEl) statusEl.textContent = "Done — opening PDF…";
+        await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
+        if (row && row.documentId) {
+          try {
+            await self.openPdf(
+              "/api/loads/" +
+                encodeURIComponent(id) +
+                "/documents/" +
+                encodeURIComponent(row.documentId) +
+                "/download",
+              true
+            );
+          } catch (e) {}
         }
       } catch (err) {
         alert(err.message || err);

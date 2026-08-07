@@ -135,17 +135,23 @@ export class LoadService {
         const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!s) throw Object.assign(new Error("Load not found"), { status: 404 });
 
-        let broker: { userId: string; name: string; email: string | null } | null = null;
+        let broker: { userId: string; name: string; email: string | null; gmail: string | null } | null =
+            null;
         if (s.assignedBrokerId) {
             const u = await prisma.user.findUnique({
                 where: { userId: s.assignedBrokerId },
                 select: { userId: true, firstName: true, lastName: true, email: true },
             });
             if (u) {
+                const gmail = await prisma.brokerGmailAccount.findUnique({
+                    where: { userId: s.assignedBrokerId },
+                    select: { gmailAddress: true, isActive: true },
+                });
                 broker = {
                     userId: u.userId,
                     name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim(),
                     email: u.email,
+                    gmail: (gmail?.isActive !== false && gmail?.gmailAddress) || u.email || null,
                 };
             }
         }
@@ -200,7 +206,9 @@ export class LoadService {
                 loadNumber: s.loadNumber,
                 shipmentNumber: s.greenOsShipmentId,
                 customer: s.customerName,
+                customerEmail: s.customerEmail,
                 broker,
+                brokerGmail: broker?.gmail || null,
                 dispatcher,
                 status: s.status,
                 statusLabel: statusLabel(s.status),
@@ -230,8 +238,15 @@ export class LoadService {
                 createdAt: s.createdAt,
                 updatedAt: s.updatedAt,
             },
+            contacts: {
+                brokerGmail: broker?.gmail || null,
+                brokerEmail: broker?.email || null,
+                customerEmail: s.customerEmail,
+                carrierEmail: s.carrierEmail,
+            },
             carrier: {
                 carrierName: s.carrierName,
+                carrierEmail: s.carrierEmail,
                 mc: s.carrierMc,
                 dot: s.carrierDot,
                 insurance: s.carrierInsurance,
@@ -372,6 +387,8 @@ export class LoadService {
         str("customerNotes");
         str("carrierNotes");
         str("aiNotes");
+        str("customerEmail");
+        str("carrierEmail");
         str("carrierName");
         str("carrierMc");
         str("carrierDot");
@@ -384,7 +401,7 @@ export class LoadService {
         str("invoiceNumber");
         str("trackingStatus");
         str("assignedDispatcherId");
-        num("pieces");
+        str("customerName");        num("pieces");
         num("miles");
         num("customerRate");
         num("carrierRate");

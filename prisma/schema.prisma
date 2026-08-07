@@ -283,6 +283,8 @@ model ShipmentLead {
   externalShipmentId    String?                 @map("external_shipment_id")
   shipmentTitle         String                  @map("shipment_title")
   customerName          String?                 @map("customer_name")
+  /// Customer contact email (for Rate Con / BOL / send).
+  customerEmail         String?                 @map("customer_email")
   pickupCity            String?                 @map("pickup_city")
   pickupState           String?                 @map("pickup_state")
   pickupZip             String?                 @map("pickup_zip")
@@ -313,6 +315,8 @@ model ShipmentLead {
   pieces                Int?
   /// Sprint G — Operations fields (same card, no new entity).
   carrierName           String?                 @map("carrier_name")
+  /// Carrier dispatch / ops email (for Rate Con / BOL / send).
+  carrierEmail          String?                 @map("carrier_email")
   carrierMc             String?                 @map("carrier_mc")
   carrierDot            String?                 @map("carrier_dot")
   carrierInsurance      String?                 @map("carrier_insurance")
