@@ -145,9 +145,13 @@
       const mod = window.GreenOSModules && window.GreenOSModules[moduleId];
       if (mod && typeof mod.render === "function") {
         mod.render(host, subPageId);
-        host.querySelectorAll("[data-subpage]").forEach((btn) => {
-          btn.addEventListener("click", () => this.navigate(moduleId, btn.dataset.subpage));
-        });
+        // Modules that manage their own sub-nav (Loads/Dispatch) call stopPropagation.
+        // For others, shell wires sub-page navigation.
+        if (moduleId !== "loads" && moduleId !== "dispatch") {
+          host.querySelectorAll("[data-subpage]").forEach((btn) => {
+            btn.addEventListener("click", () => this.navigate(moduleId, btn.dataset.subpage));
+          });
+        }
         return;
       }
 
@@ -178,6 +182,25 @@
       ) {
         window.GreenOSCrmReloadBody();
         return;
+      }
+      // Keep open Load Details on screen (realtime must not bounce back to the list).
+      if (
+        this.currentModule === "loads" ||
+        this.currentModule === "dispatch" ||
+        (this.currentModule === "broker" && this.currentSub === "loads")
+      ) {
+        var loadsMod = window.GreenOSModules && window.GreenOSModules.loads;
+        var dispatchMod = window.GreenOSModules && window.GreenOSModules.dispatch;
+        if (loadsMod && typeof loadsMod.refreshOpenLoadIfAny === "function" && loadsMod.refreshOpenLoadIfAny()) {
+          return;
+        }
+        if (
+          dispatchMod &&
+          typeof dispatchMod.refreshOpenLoadIfAny === "function" &&
+          dispatchMod.refreshOpenLoadIfAny()
+        ) {
+          return;
+        }
       }
       // A full re-render would destroy an open shipment card mid-edit.
       const modal = document.getElementById("crm-modal");

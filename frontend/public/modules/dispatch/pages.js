@@ -51,9 +51,11 @@ window.GreenOSModules["dispatch"] = {
     var children = this.children || [];
     var active = children.find(function (c) { return c.id === subPageId; }) || children[0];
     var openId = null;
+    var viewingId = self._loadId || null;
     try {
       openId = sessionStorage.getItem("gos_open_load_id");
       if (openId) sessionStorage.removeItem("gos_open_load_id");
+      if (!viewingId) viewingId = sessionStorage.getItem("gos_viewing_load_id");
     } catch (e) {}
 
     var navHtml = children.map(function (c) {
@@ -72,7 +74,10 @@ window.GreenOSModules["dispatch"] = {
       "</div>";
 
     root.querySelectorAll("[data-subpage]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        self.clearOpenLoad();
         self.render(root, btn.getAttribute("data-subpage"));
       });
     });
@@ -82,6 +87,15 @@ window.GreenOSModules["dispatch"] = {
 
     if (openId) {
       self.openLoad(body, openId);
+      return;
+    }
+
+    // Keep Load Details open across soft module refreshes.
+    if (
+      viewingId &&
+      (active.id === "active-loads" || active.id === "completed-loads")
+    ) {
+      self.openLoad(body, viewingId, self._tab || "general");
       return;
     }
 
@@ -142,13 +156,45 @@ window.GreenOSModules["dispatch"] = {
     var self = this;
     self._loadId = id;
     self._tab = tab || self._tab || "general";
+    try {
+      sessionStorage.setItem("gos_viewing_load_id", id);
+      if (self._tab) sessionStorage.setItem("gos_open_load_tab", self._tab);
+    } catch (e) {}
+    if (!body) {
+      body = document.getElementById("load-tms-body");
+    }
+    if (!body) return;
     body.innerHTML = "<p class=\"gos-muted\">Loading Load Details…</p>";
     try {
       var data = await self.api("/" + encodeURIComponent(id));
+      // Stale response if user navigated away / opened another load.
+      if (self._loadId && self._loadId !== id) return;
       self.renderDetails(body, data);
     } catch (err) {
       body.innerHTML = '<p class="gos-error">' + self.esc(err.message || err) + "</p>";
     }
+  },
+
+  clearOpenLoad() {
+    this._loadId = null;
+    try {
+      sessionStorage.removeItem("gos_viewing_load_id");
+      sessionStorage.removeItem("gos_open_load_id");
+      sessionStorage.removeItem("gos_open_load_tab");
+    } catch (e) {}
+  },
+
+  /** Soft refresh while Load Details are open (do not bounce back to the list). */
+  refreshOpenLoadIfAny() {
+    var id = this._loadId;
+    try {
+      if (!id) id = sessionStorage.getItem("gos_viewing_load_id");
+    } catch (e) {}
+    if (!id) return false;
+    var body = document.getElementById("load-tms-body");
+    if (!body) return false;
+    this.openLoad(body, id, this._tab || "general");
+    return true;
   },
 
   renderDetails(body, data) {
@@ -273,7 +319,7 @@ window.GreenOSModules["dispatch"] = {
       "</div>";
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
-      self._loadId = null;
+      self.clearOpenLoad();
       self.renderList(body, "active");
     });
 
