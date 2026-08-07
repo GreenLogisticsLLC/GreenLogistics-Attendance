@@ -183,22 +183,25 @@
         window.GreenOSCrmReloadBody();
         return;
       }
-      // Keep open Load Details on screen (realtime must not bounce back to the list).
+      // Freeze Load Details while editing — no realtime remount/soft-reload.
       if (
         this.currentModule === "loads" ||
         this.currentModule === "dispatch" ||
         (this.currentModule === "broker" && this.currentSub === "loads")
       ) {
-        var loadsMod = window.GreenOSModules && window.GreenOSModules.loads;
-        var dispatchMod = window.GreenOSModules && window.GreenOSModules.dispatch;
-        if (loadsMod && typeof loadsMod.refreshOpenLoadIfAny === "function" && loadsMod.refreshOpenLoadIfAny()) {
-          return;
-        }
-        if (
-          dispatchMod &&
-          typeof dispatchMod.refreshOpenLoadIfAny === "function" &&
-          dispatchMod.refreshOpenLoadIfAny()
-        ) {
+        var viewing = false;
+        try {
+          viewing = Boolean(
+            sessionStorage.getItem("gos_viewing_load_id") ||
+              (window.GreenOSModules &&
+                window.GreenOSModules.loads &&
+                window.GreenOSModules.loads._loadId) ||
+              (window.GreenOSModules &&
+                window.GreenOSModules.dispatch &&
+                window.GreenOSModules.dispatch._loadId)
+          );
+        } catch (e) {}
+        if (viewing || document.querySelector(".load-layout")) {
           return;
         }
       }

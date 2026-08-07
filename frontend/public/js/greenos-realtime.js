@@ -205,21 +205,32 @@
     if (typeof window.GreenOSBrokerReloadShipments === "function") {
       window.GreenOSBrokerReloadShipments();
     }
-    // Attendance keeps its own timers in index.html; re-navigating it would drop
-    // the user from Administration back to the Live Board.
-    if (
+
+    // Never auto-refresh while Load Details are open — it interrupts editing.
+    var loadOpen = false;
+    try {
+      loadOpen = Boolean(
+        sessionStorage.getItem("gos_viewing_load_id") ||
+          document.querySelector(".load-layout")
+      );
+    } catch (e) {}
+    if (loadOpen) {
+      // Still refresh CRM shipment card if somehow open, but skip module remount.
+    } else if (
       window.GreenOS &&
       typeof window.GreenOS.refreshModule === "function" &&
       window.GreenOS.currentModule &&
       window.GreenOS.currentModule !== "broker" &&
-      window.GreenOS.currentModule !== "attendance"
+      window.GreenOS.currentModule !== "attendance" &&
+      window.GreenOS.currentModule !== "loads" &&
+      window.GreenOS.currentModule !== "dispatch"
     ) {
       window.GreenOS.refreshModule();
     }
+
     if (typeof window.GreenOSEmailAccountsReload === "function") {
       window.GreenOSEmailAccountsReload();
     }
-    // An open shipment card must follow uShip status changes too.
     if (
       window.GreenOSModules &&
       window.GreenOSModules.crm &&

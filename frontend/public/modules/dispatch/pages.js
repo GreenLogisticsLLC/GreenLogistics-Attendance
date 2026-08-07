@@ -184,16 +184,14 @@ window.GreenOSModules["dispatch"] = {
     } catch (e) {}
   },
 
-  /** Soft refresh while Load Details are open (do not bounce back to the list). */
+  /** While Load Details are open, block auto-refresh (return true = skip remount). */
   refreshOpenLoadIfAny() {
     var id = this._loadId;
     try {
       if (!id) id = sessionStorage.getItem("gos_viewing_load_id");
     } catch (e) {}
-    if (!id) return false;
-    var body = document.getElementById("load-tms-body");
-    if (!body) return false;
-    this.openLoad(body, id, this._tab || "general");
+    if (!id && !document.querySelector(".load-layout")) return false;
+    // Intentionally do not reload — editing must stay stable.
     return true;
   },
 
@@ -332,9 +330,23 @@ window.GreenOSModules["dispatch"] = {
 
     body.querySelectorAll(".load-action-btn").forEach(function (btn) {
       btn.addEventListener("click", async function () {
+        var action = btn.getAttribute("data-action");
+        // Assign Carrier = go fill Carrier tab (do not jump status without data).
+        if (action === "assign_carrier") {
+          self._tab = "carrier";
+          self.renderDetails(body, data);
+          setTimeout(function () {
+            var input = document.getElementById("ld-carrier");
+            if (input) {
+              input.focus();
+              input.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          }, 50);
+          return;
+        }
         try {
           btn.disabled = true;
-          await self.api("/" + encodeURIComponent(id) + "/actions/" + encodeURIComponent(btn.getAttribute("data-action")), {
+          await self.api("/" + encodeURIComponent(id) + "/actions/" + encodeURIComponent(action), {
             method: "POST",
             body: JSON.stringify({}),
           });
@@ -430,7 +442,8 @@ window.GreenOSModules["dispatch"] = {
 
     if (tab === "carrier") {
       main.innerHTML =
-        "<h2>Carrier</h2>" +
+        "<h2>Assign Carrier</h2>" +
+        '<p class="gos-muted">Phase 2 — fill carrier details, then Save &amp; Assign to move the Load forward.</p>' +
         '<div class="load-grid">' +
         field("Carrier", c.carrierName) +
         field("MC", c.mc) +
@@ -443,32 +456,41 @@ window.GreenOSModules["dispatch"] = {
         field("Trailer", c.trailerNumber) +
         "</div>" +
         '<p class="gos-muted">Future: ' + self.esc((c.futureIntegrations || []).join(", ")) + "</p>" +
-        '<div class="load-edit-panel">' +
+        '<div class="load-edit-panel" id="ld-carrier-form">' +
+        "<h3>Register carrier on this Load</h3>" +
         '<div class="load-form-grid">' +
-        '<label>Carrier <input id="ld-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
-        '<label>MC <input id="ld-mc" value="' + self.esc(c.mc || "") + '"></label>' +
+        '<label>Carrier name * <input id="ld-carrier" value="' + self.esc(c.carrierName || "") + '" placeholder="e.g. Swift Transport LLC"></label>' +
+        '<label>MC <input id="ld-mc" value="' + self.esc(c.mc || "") + '" placeholder="MC123456"></label>' +
         '<label>DOT <input id="ld-dot" value="' + self.esc(c.dot || "") + '"></label>' +
         '<label>Insurance <input id="ld-ins" value="' + self.esc(c.insurance || "") + '"></label>' +
         '<label>Driver <input id="ld-driver" value="' + self.esc(c.driverName || "") + '"></label>' +
         '<label>Truck <input id="ld-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
         '<label>Trailer <input id="ld-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
-        '<label>Carrier Status <input id="ld-cstatus" value="' + self.esc(c.carrierStatus || "") + '"></label>' +
+        '<label>Carrier Status <input id="ld-cstatus" value="' + self.esc(c.carrierStatus || "Assigned") + '"></label>' +
         "</div>" +
-        '<button type="button" class="btn-primary" id="ld-save-carrier">Save Carrier</button>' +
+        '<button type="button" class="btn-primary" id="ld-save-carrier">Save &amp; Assign Carrier</button>' +
+        '<p class="gos-muted" style="margin-top:0.5rem">After save → status <strong>Carrier Assigned</strong>. Next: Generate Rate Confirmation.</p>' +
         "</div>";
       main.querySelector("#ld-save-carrier")?.addEventListener("click", async function () {
+        var name = (main.querySelector("#ld-carrier").value || "").trim();
+        if (!name) {
+          alert("Enter Carrier name to assign.");
+          main.querySelector("#ld-carrier")?.focus();
+          return;
+        }
         try {
           await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
             body: JSON.stringify({
-              carrierName: main.querySelector("#ld-carrier").value || null,
+              carrierName: name,
               carrierMc: main.querySelector("#ld-mc").value || null,
               carrierDot: main.querySelector("#ld-dot").value || null,
               carrierInsurance: main.querySelector("#ld-ins").value || null,
               driverName: main.querySelector("#ld-driver").value || null,
               truckNumber: main.querySelector("#ld-truck").value || null,
               trailerNumber: main.querySelector("#ld-trailer").value || null,
-              carrierStatus: main.querySelector("#ld-cstatus").value || null,
+              carrierStatus: main.querySelector("#ld-cstatus").value || "Assigned",
+              status: "CARRIER_ASSIGNED",
             }),
           });
           var host = document.querySelector("#load-tms-body");
