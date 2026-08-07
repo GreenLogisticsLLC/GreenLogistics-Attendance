@@ -1152,6 +1152,16 @@ window.GreenOSModules.crm = {
                 s.status === "DISPATCH"
               ? '<button type="button" class="btn-secondary" id="crm-save-load">Create Load (auto GL#)</button>'
               : "") +
+        (!s.loadNumber &&
+        s.status !== "CLOSED" &&
+        s.status !== "LOST" &&
+        s.status !== "DELETED_FROM_CUSTOMER" &&
+        s.status !== "ACCEPTED" &&
+        s.status !== "BOOKED" &&
+        s.status !== "LOAD_CREATED"
+          ? '<button type="button" class="btn-secondary" id="crm-test-accept" style="border-color:#f59e0b;color:#f59e0b">TEST: Customer Accepted → Create Load</button>' +
+            '<small class="gos-muted" style="display:block;width:100%">Skips uShip email — for Load / Rate Con / BOL / POD testing only</small>'
+          : "") +
         '<label>Update status <select id="crm-status">' +
         statusActions +
         "</select>" +
@@ -1319,6 +1329,39 @@ window.GreenOSModules.crm = {
           if (typeof window.GreenOSOpenLoad === "function") {
             window.GreenOSOpenLoad(id, "general");
           } else {
+            window.GreenOSModules.crm.openShipmentCard(root, id);
+          }
+        } catch (err) {
+          alert(err.message || err);
+          if (btn) btn.disabled = false;
+        }
+      });
+      modal.querySelector("#crm-test-accept")?.addEventListener("click", async function () {
+        if (
+          !confirm(
+            "TEST only: simulate Customer Accepted (as if uShip email arrived) and auto-create Load Number?\n\nReal production Accepted still comes from Gmail."
+          )
+        ) {
+          return;
+        }
+        var btn = modal.querySelector("#crm-test-accept");
+        if (btn) btn.disabled = true;
+        try {
+          var json = await window.GreenOSModules.crm.api(
+            "/shipments/" + encodeURIComponent(id) + "/test-customer-accept",
+            { method: "POST", body: "{}" }
+          );
+          if (!json || json.success === false) {
+            throw new Error((json && json.message) || "Test accept failed");
+          }
+          var card = json.data || {};
+          var loadNo = card.loadNumber || "";
+          modal.classList.add("hidden");
+          modal.innerHTML = "";
+          if (typeof window.GreenOSOpenLoad === "function") {
+            window.GreenOSOpenLoad(id, "general");
+          } else {
+            alert("TEST OK" + (loadNo ? " — Load " + loadNo : "") + ". Open Loads module.");
             window.GreenOSModules.crm.openShipmentCard(root, id);
           }
         } catch (err) {

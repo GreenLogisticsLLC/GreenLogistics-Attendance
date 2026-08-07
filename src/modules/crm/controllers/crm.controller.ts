@@ -185,6 +185,31 @@ export async function crmAcceptShipmentController(req: AuthRequest, res: Respons
     }
 }
 
+/** TEST: simulate Customer Accepted email → ACCEPTED + auto Create Load (GL…). */
+export async function crmTestCustomerAcceptController(req: AuthRequest, res: Response) {
+    const id = String(req.params.id);
+    if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const access = await assertShipmentAccess(req, res, id);
+    if (!access.ok) return;
+    try {
+        const data = await crmService.simulateCustomerAccepted(id, req.user.userId);
+        return res.json(
+            apiResponse(
+                true,
+                "TEST: Customer Accepted simulated — Load Number created if missing",
+                data
+            )
+        );
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Test accept failed";
+        const status =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status: number }).status)
+                : 500;
+        return res.status(status || 500).json(apiResponse(false, message));
+    }
+}
+
 export async function crmBrokerQuestionController(req: AuthRequest, res: Response) {
     const id = String(req.params.id);
     if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));

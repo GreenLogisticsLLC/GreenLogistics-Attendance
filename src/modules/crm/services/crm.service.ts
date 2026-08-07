@@ -6,7 +6,7 @@ import { AUTO_PIPELINE_STATUSES } from "../../shipment/shipment.constants.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { ensureGreenOsShipmentId } from "../../shipment/shipment.id.js";
-import { statusLabel } from "../../shipment/shipment.lifecycle.js";
+import { isLoadPhase, normalizeStatus, statusLabel } from "../../shipment/shipment.lifecycle.js";
 import { listTeamBrokerIds } from "../../../auth/team-scope.js";
 
 function startOfToday(timezone: string): Date {
@@ -566,6 +566,71 @@ export class CrmService {
                 where: { shipmentLeadId },
                 data: { status: "FOLLOW_UP" },
             }).catch(() => null);
+        }
+
+        return this.getShipmentCard(shipmentLeadId);
+    }
+
+    /**
+     * TEST ONLY — simulate uShip "Customer Accepted" email without Gmail.
+     * Sets ACCEPTED, emits CUSTOMER_ACCEPTED, auto-creates Load (GL…).
+     * Allowed for Owner/Admin/Manager always; Broker only on own assigned card
+     * when ALLOW_TEST_CUSTOMER_ACCEPT is not "0"/"false".
+     */
+    async simulateCustomerAccepted(shipmentLeadId: string, actorUserId: string) {
+        const allowEnv = String(process.env.ALLOW_TEST_CUSTOMER_ACCEPT || "1").toLowerCase();
+        const testEnabled = !["0", "false", "no", "off"].includes(allowEnv);
+
+        const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!lead) {
+            throw Object.assign(new Error("Shipment not found"), { status: 404 });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { userId: actorUserId },
+            select: { role: { select: { roleName: true } } },
+        });
+        const role = user?.role?.roleName || "";
+        const isOps = ["Administrator", "Owner", "Manager", "Team Lead"].includes(role);
+        const isAssignedBroker = lead.assignedBrokerId === actorUserId;
+
+        if (!isOps) {
+            if (!testEnabled) {
+                throw Object.assign(
+                    new Error("Test Customer Accept is disabled (ALLOW_TEST_CUSTOMER_ACCEPT=0)"),
+                    { status: 403 }
+                );
+            }
+            if (!isAssignedBroker) {
+                throw Object.assign(
+                    new Error("Only the assigned broker (or Owner) can run Test Customer Accept"),
+                    { status: 403 }
+                );
+            }
+        }
+
+        if (["CLOSED", "LOST", "DELETED_FROM_CUSTOMER"].includes(normalizeStatus(lead.status))) {
+            throw Object.assign(
+                new Error(`Cannot simulate Customer Accepted from status ${lead.status}`),
+                { status: 422 }
+            );
+        }
+
+        await ensureGreenOsShipmentId(shipmentLeadId).catch(() => null);
+
+        // Mirror uShip Accepted email: ACCEPTED auto-creates Load (GL…) inside transitionStatus.
+        if (normalizeStatus(lead.status) !== "ACCEPTED" && !isLoadPhase(lead.status)) {
+            await shipmentService.transitionStatus({
+                shipmentLeadId,
+                status: "ACCEPTED",
+                actorUserId,
+                skipLifecycleCheck: true,
+            });
+        } else {
+            await shipmentService.createLoadAfterAccepted({
+                shipmentLeadId,
+                actorUserId,
+            });
         }
 
         return this.getShipmentCard(shipmentLeadId);

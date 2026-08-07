@@ -19,6 +19,7 @@ import {
     crmMyCarriersController,
     crmOnRoadController,
     crmMyNotificationsController,
+    crmTestCustomerAcceptController,
     crmUpdateShipmentController,
     crmUploadMiddleware,
     crmUploadShipmentFileController,
@@ -48,6 +49,7 @@ crmRouter.get("/shipments/:id", crmRoles, crmGetShipmentController);
 crmRouter.post("/shipments/:id/opened", crmRoles, crmMarkShipmentOpenedController);
 crmRouter.patch("/shipments/:id", crmRoles, crmUpdateShipmentController);
 crmRouter.post("/shipments/:id/accept", crmRoles, crmAcceptShipmentController);
+crmRouter.post("/shipments/:id/test-customer-accept", crmRoles, crmTestCustomerAcceptController);
 crmRouter.post("/shipments/:id/broker-question", crmRoles, crmBrokerQuestionController);
 crmRouter.post(
     "/shipments/:id/files",
