@@ -6,7 +6,29 @@ import {
     LOAD_DOC_TYPES,
     type LoadDocType,
 } from "../load.constants.js";
-import { generateLoadDocumentPdf, type LoadDocumentContent } from "./load-pdf.service.js";
+import {
+    DEFAULT_RATE_CON_TERMS,
+    generateLoadDocumentPdf,
+    type LoadDocumentContent,
+} from "./load-pdf.service.js";
+
+function fmtDate(d?: Date | null) {
+    if (!d) return null;
+    try {
+        return new Date(d).toLocaleDateString();
+    } catch {
+        return null;
+    }
+}
+
+function fmtTime(d?: Date | null) {
+    if (!d) return null;
+    try {
+        return new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch {
+        return null;
+    }
+}
 
 function assertDocType(docType: string): LoadDocType {
     const t = String(docType || "").toUpperCase();
@@ -46,6 +68,9 @@ export class LoadDocumentsService {
                 [u?.firstName, u?.lastName].filter(Boolean).join(" ").trim() || u?.email || null;
         }
 
+        const pickupAt = s.opsPickupAt || s.pickupFrom;
+        const deliveryAt = s.opsDeliveryAt || s.deliveryFrom;
+
         return {
             loadNumber: s.loadNumber,
             shipmentNumber: s.greenOsShipmentId,
@@ -55,13 +80,21 @@ export class LoadDocumentsService {
             carrierName: s.carrierName,
             carrierMc: s.carrierMc,
             carrierDot: s.carrierDot,
+            carrierPhone: null,
             driverName: s.driverName,
+            driverPhone: null,
             truckNumber: s.truckNumber,
             trailerNumber: s.trailerNumber,
             pickupAddress: place(s.pickupCity, s.pickupState, s.pickupZip),
             deliveryAddress: place(s.deliveryCity, s.deliveryState, s.deliveryZip),
             pickupWindow: fmtWindow(s.pickupFrom, s.pickupTo),
             deliveryWindow: fmtWindow(s.deliveryFrom, s.deliveryTo),
+            pickupDate: fmtDate(pickupAt),
+            pickupTime: fmtTime(pickupAt),
+            pickupContact: null,
+            deliveryDate: fmtDate(deliveryAt),
+            deliveryTime: fmtTime(deliveryAt),
+            deliveryContact: null,
             equipment: s.equipment,
             commodity: s.commodity || s.vehicle || s.category,
             weight: s.weight,
@@ -69,7 +102,12 @@ export class LoadDocumentsService {
             miles: s.miles,
             customerRate: s.customerRate ?? s.price,
             carrierRate: s.carrierRate,
-            terms: "Payment per Green Logistics carrier agreement. Detention and layover billed separately.",
+            flatRate: s.carrierRate,
+            paymentOption: s.paymentStatus || null,
+            deliveryNote: s.carrierNotes || null,
+            specialNotes: s.specialInstructions || s.notes,
+            confirmationDate: new Date().toLocaleDateString(),
+            terms: DEFAULT_RATE_CON_TERMS,
             specialInstructions: s.specialInstructions || s.notes,
         };
     }

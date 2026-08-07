@@ -344,6 +344,16 @@ window.GreenOSModules["dispatch"] = {
           }, 50);
           return;
         }
+        // Rate Con = open fillable form (auto + extras), then generate PDF.
+        if (action === "generate_rate_con") {
+          self._tab = "documents";
+          self.renderDetails(body, data);
+          setTimeout(function () {
+            var mainEl = body.querySelector("#load-main");
+            if (mainEl) self.showRateConWizard(mainEl, id, data, "GENERATED");
+          }, 40);
+          return;
+        }
         try {
           btn.disabled = true;
           await self.api("/" + encodeURIComponent(id) + "/actions/" + encodeURIComponent(action), {
@@ -787,14 +797,29 @@ window.GreenOSModules["dispatch"] = {
 
     main.querySelectorAll(".load-gen-doc").forEach(function (btn) {
       btn.addEventListener("click", async function () {
+        var docType = btn.getAttribute("data-type");
+        if (docType === "RATE_CONFIRMATION") {
+          self.showRateConWizard(main, id, data, "GENERATED");
+          return;
+        }
         try {
-          await self.api(
-            "/" + encodeURIComponent(id) + "/documents/" + encodeURIComponent(btn.getAttribute("data-type")) + "/generate",
+          btn.disabled = true;
+          var row = await self.api(
+            "/" + encodeURIComponent(id) + "/documents/" + encodeURIComponent(docType) + "/generate",
             { method: "POST", body: JSON.stringify({ changeReason: "GENERATED" }) }
           );
-          self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
+          await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
+          if (row && row.documentId) {
+            try {
+              await self.openPdf(
+                "/api/loads/" + encodeURIComponent(id) + "/documents/" + encodeURIComponent(row.documentId) + "/download",
+                true
+              );
+            } catch (e) {}
+          }
         } catch (err) {
           alert(err.message || err);
+          btn.disabled = false;
         }
       });
     });
@@ -923,11 +948,16 @@ window.GreenOSModules["dispatch"] = {
   },
 
   showDocEditor(main, id, docType, data) {
+    if (docType === "RATE_CONFIRMATION") {
+      this.showRateConWizard(main, id, data, "BROKER_EDITED");
+      return;
+    }
     var self = this;
     var g = data.general || {};
     var c = data.carrier || {};
     var p = data.pricing || {};
     var box = main.querySelector("#load-doc-editor");
+    if (!box) return;
     box.classList.remove("hidden");
     box.innerHTML =
       "<h3>Edit " +
@@ -983,6 +1013,215 @@ window.GreenOSModules["dispatch"] = {
         self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
       } catch (err) {
         alert(err.message || err);
+      }
+    });
+  },
+
+  /**
+   * Rate Confirmation wizard — auto-filled from Load, broker can add detail, then PDF.
+   * Layout/fields mirror the current Green Logistics RC form.
+   */
+  showRateConWizard(main, id, data, changeReason) {
+    var self = this;
+    var g = data.general || {};
+    var c = data.carrier || {};
+    var p = data.pricing || {};
+    var box = main.querySelector("#load-doc-editor");
+    if (!box) {
+      // Documents tab not mounted yet — ensure editor host exists.
+      main.insertAdjacentHTML(
+        "beforeend",
+        '<div id="load-doc-editor" class="load-edit-panel"></div>'
+      );
+      box = main.querySelector("#load-doc-editor");
+    }
+    box.classList.remove("hidden");
+
+    function place(obj) {
+      if (!obj) return "";
+      return [obj.city, obj.state, obj.zip].filter(Boolean).join(", ");
+    }
+    function dt(d) {
+      if (!d) return "";
+      try {
+        return new Date(d).toLocaleDateString();
+      } catch (e) {
+        return "";
+      }
+    }
+    function tm(d) {
+      if (!d) return "";
+      try {
+        return new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      } catch (e) {
+        return "";
+      }
+    }
+
+    var pickupSrc = (g.pickup && (g.pickup.opsAt || g.pickup.from)) || null;
+    var deliverySrc = (g.delivery && (g.delivery.opsAt || g.delivery.from)) || null;
+    var defaultTerms =
+      "Payment of detention is determined on a load-by-load basis. Unauthorized charges will not be paid. Detention payment does not begin for at least 2 hours unless otherwise agreed to in writing. Each hour pays $25 after checking in, max is $250.\n\n" +
+      "Layover starts to count if the total waiting time exceeds 12 hours after checking in. The standard rate applies for a total of $250.\n\n" +
+      "Late delivery fee is $500 per each day. Deductions for missed appointments and non macropoint acceptance will apply. Fee is $200.\n\n" +
+      "Truck Ordered Not Used pays $150. If the carrier picked up a partial load instead of the full load the deduction may apply. For the shipments with the rate less than $1000 TONU pays $100.\n\n" +
+      "If the shipment got damaged/scratched or the carrier picked up the shipment in damaged condition without confirming, the customer have the right to apply charges even if the damage was not mentioned on the BOL.\n\n" +
+      "This is a rate confirmation not a BOL. If you use this as BOL you may not be paid. Send the clear picture of POD after delivery within 24 hours. No pictures or dark images accepted.";
+
+    box.innerHTML =
+      "<h3>Generate Rate Confirmation</h3>" +
+      '<p class="gos-muted">Fields auto-fill from this Load. Add contacts, times, rate and notes — then create the PDF (new version, never overwrite).</p>' +
+      '<div class="load-form-grid">' +
+      '<label>Load No <input id="rc-load" value="' + self.esc(g.loadNumber || "") + '" readonly></label>' +
+      '<label>Shipment <input id="rc-ship" value="' + self.esc(g.shipmentNumber || "") + '" readonly></label>' +
+      '<label>Confirmation date <input id="rc-date" value="' + self.esc(new Date().toLocaleDateString()) + '"></label>' +
+      '<label>Broker <input id="rc-broker" value="' + self.esc((g.broker && g.broker.name) || "") + '"></label>' +
+      '<label>Carrier * <input id="rc-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
+      '<label>MC# <input id="rc-mc" value="' + self.esc(c.mc || "") + '"></label>' +
+      '<label>DOT# <input id="rc-dot" value="' + self.esc(c.dot || "") + '"></label>' +
+      '<label>Carrier phone <input id="rc-cphone" value="" placeholder="(xxx) xxx-xxxx"></label>' +
+      '<label>Equipment <input id="rc-equip" value="' + self.esc(g.equipment || "") + '"></label>' +
+      '<label>Weight <input id="rc-weight" value="' + self.esc(g.weight || "") + '"></label>' +
+      '<label>Commodity <input id="rc-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
+      '<label>Flat Rate $USD * <input id="rc-rate" type="number" step="0.01" value="' + self.esc(p.carrierRate || "") + '"></label>' +
+      '<label class="full">Origin (pickup address) <input id="rc-origin" value="' + self.esc(place(g.pickup)) + '"></label>' +
+      '<label>Pickup date <input id="rc-pdate" value="' + self.esc(dt(pickupSrc)) + '"></label>' +
+      '<label>Pickup time <input id="rc-ptime" value="' + self.esc(tm(pickupSrc)) + '"></label>' +
+      '<label class="full">Pickup contact <input id="rc-pcontact" placeholder="Name / phone at shipper"></label>' +
+      '<label class="full">Final destination <input id="rc-dest" value="' + self.esc(place(g.delivery)) + '"></label>' +
+      '<label>Delivery date <input id="rc-ddate" value="' + self.esc(dt(deliverySrc)) + '"></label>' +
+      '<label>Delivery time <input id="rc-dtime" value="' + self.esc(tm(deliverySrc)) + '"></label>' +
+      '<label class="full">Delivery contact <input id="rc-dcontact" placeholder="Name / phone at consignee"></label>' +
+      '<label>Driver name <input id="rc-driver" value="' + self.esc(c.driverName || "") + '"></label>' +
+      '<label>Driver phone <input id="rc-dphone" value=""></label>' +
+      '<label>Truck # <input id="rc-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
+      '<label>Trailer # <input id="rc-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
+      '<label class="full">Payment option <input id="rc-pay" value="" placeholder="QuickPay / Factoring / Net 30…"></label>' +
+      '<label class="full">Delivery note <textarea id="rc-delnote" rows="2"></textarea></label>' +
+      '<label class="full">Special notes <textarea id="rc-notes" rows="3">' +
+      self.esc(g.specialInstructions || "") +
+      "</textarea></label>" +
+      '<label class="full">Terms (RC standard) <textarea id="rc-terms" rows="8">' +
+      self.esc(defaultTerms) +
+      "</textarea></label>" +
+      "</div>" +
+      '<div class="load-actions" style="margin-top:0.75rem">' +
+      '<button type="button" class="btn-primary" id="rc-generate">Save Load &amp; Generate Rate Con PDF</button>' +
+      '<button type="button" class="btn-secondary" id="rc-cancel">Cancel</button>' +
+      "</div>" +
+      '<p id="rc-status" class="gos-muted" style="margin-top:0.5rem"></p>';
+
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    box.querySelector("#rc-cancel")?.addEventListener("click", function () {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+    });
+
+    box.querySelector("#rc-generate")?.addEventListener("click", async function () {
+      var carrier = (box.querySelector("#rc-carrier").value || "").trim();
+      var rate = (box.querySelector("#rc-rate").value || "").trim();
+      if (!carrier) {
+        alert("Carrier name is required for Rate Confirmation.");
+        box.querySelector("#rc-carrier").focus();
+        return;
+      }
+      if (!rate) {
+        alert("Flat Rate ($USD) is required.");
+        box.querySelector("#rc-rate").focus();
+        return;
+      }
+      var statusEl = box.querySelector("#rc-status");
+      var btnGen = box.querySelector("#rc-generate");
+      try {
+        if (btnGen) btnGen.disabled = true;
+        if (statusEl) statusEl.textContent = "Saving load details…";
+
+        await self.api("/" + encodeURIComponent(id), {
+          method: "PATCH",
+          body: JSON.stringify({
+            carrierName: carrier,
+            carrierMc: box.querySelector("#rc-mc").value || null,
+            carrierDot: box.querySelector("#rc-dot").value || null,
+            driverName: box.querySelector("#rc-driver").value || null,
+            truckNumber: box.querySelector("#rc-truck").value || null,
+            trailerNumber: box.querySelector("#rc-trailer").value || null,
+            equipment: box.querySelector("#rc-equip").value || null,
+            weight: box.querySelector("#rc-weight").value || null,
+            commodity: box.querySelector("#rc-commodity").value || null,
+            carrierRate: rate,
+            specialInstructions: box.querySelector("#rc-notes").value || null,
+            carrierNotes: box.querySelector("#rc-delnote").value || null,
+          }),
+        });
+
+        if (statusEl) statusEl.textContent = "Generating Rate Confirmation PDF…";
+        var content = {
+          loadNumber: box.querySelector("#rc-load").value,
+          shipmentNumber: box.querySelector("#rc-ship").value,
+          confirmationDate: box.querySelector("#rc-date").value,
+          brokerName: box.querySelector("#rc-broker").value,
+          carrierName: carrier,
+          carrierMc: box.querySelector("#rc-mc").value,
+          carrierDot: box.querySelector("#rc-dot").value,
+          carrierPhone: box.querySelector("#rc-cphone").value,
+          equipment: box.querySelector("#rc-equip").value,
+          weight: box.querySelector("#rc-weight").value,
+          commodity: box.querySelector("#rc-commodity").value,
+          flatRate: rate,
+          carrierRate: rate,
+          pickupAddress: box.querySelector("#rc-origin").value,
+          pickupDate: box.querySelector("#rc-pdate").value,
+          pickupTime: box.querySelector("#rc-ptime").value,
+          pickupContact: box.querySelector("#rc-pcontact").value,
+          deliveryAddress: box.querySelector("#rc-dest").value,
+          deliveryDate: box.querySelector("#rc-ddate").value,
+          deliveryTime: box.querySelector("#rc-dtime").value,
+          deliveryContact: box.querySelector("#rc-dcontact").value,
+          driverName: box.querySelector("#rc-driver").value,
+          driverPhone: box.querySelector("#rc-dphone").value,
+          truckNumber: box.querySelector("#rc-truck").value,
+          trailerNumber: box.querySelector("#rc-trailer").value,
+          paymentOption: box.querySelector("#rc-pay").value,
+          deliveryNote: box.querySelector("#rc-delnote").value,
+          specialNotes: box.querySelector("#rc-notes").value,
+          specialInstructions: box.querySelector("#rc-notes").value,
+          terms: box.querySelector("#rc-terms").value,
+        };
+
+        var endpoint =
+          (changeReason || "GENERATED") === "GENERATED"
+            ? "/" + encodeURIComponent(id) + "/documents/RATE_CONFIRMATION/generate"
+            : "/" + encodeURIComponent(id) + "/documents/RATE_CONFIRMATION/edit";
+
+        var row = await self.api(endpoint, {
+          method: "POST",
+          body: JSON.stringify({
+            changeReason: changeReason || "GENERATED",
+            content: content,
+          }),
+        });
+
+        if (statusEl) statusEl.textContent = "Done — opening PDF…";
+        await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
+        if (row && row.documentId) {
+          try {
+            await self.openPdf(
+              "/api/loads/" +
+                encodeURIComponent(id) +
+                "/documents/" +
+                encodeURIComponent(row.documentId) +
+                "/download",
+              true
+            );
+          } catch (e) {}
+        } else {
+          alert("Rate Confirmation created. Open it from Documents → Preview.");
+        }
+      } catch (err) {
+        alert(err.message || err);
+        if (btnGen) btnGen.disabled = false;
+        if (statusEl) statusEl.textContent = "";
       }
     });
   },
