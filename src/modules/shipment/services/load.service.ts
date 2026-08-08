@@ -156,20 +156,6 @@ export class LoadService {
             }
         }
 
-        let dispatcher: { userId: string; name: string } | null = null;
-        if (s.assignedDispatcherId) {
-            const u = await prisma.user.findUnique({
-                where: { userId: s.assignedDispatcherId },
-                select: { userId: true, firstName: true, lastName: true },
-            });
-            if (u) {
-                dispatcher = {
-                    userId: u.userId,
-                    name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim(),
-                };
-            }
-        }
-
         const documents = await loadDocumentsService.listCurrent(shipmentLeadId);
         const timeline = await domainEventEngine.listForShipment(shipmentLeadId);
         const pricing = computePricing(s);
@@ -194,7 +180,6 @@ export class LoadService {
                 loadNumber: s.loadNumber,
                 shipmentNumber: s.greenOsShipmentId,
                 externalShipmentId: s.externalShipmentId,
-                referenceNumber: s.referenceNumber,
                 isLoad: Boolean(s.loadNumber) || isLoadPhase(s.status),
                 status: s.status,
                 statusLabel: statusLabel(s.status),
@@ -209,10 +194,8 @@ export class LoadService {
                 customerEmail: s.customerEmail,
                 broker,
                 brokerGmail: broker?.gmail || null,
-                dispatcher,
                 status: s.status,
                 statusLabel: statusLabel(s.status),
-                referenceNumber: s.referenceNumber || s.externalShipmentId,
                 pickup: {
                     city: s.pickupCity,
                     state: s.pickupState,
@@ -251,7 +234,6 @@ export class LoadService {
                 dot: s.carrierDot,
                 insurance: s.carrierInsurance,
                 carrierStatus: s.carrierStatus,
-                assignedDispatcher: dispatcher,
                 driverName: s.driverName,
                 truckNumber: s.truckNumber,
                 trailerNumber: s.trailerNumber,
@@ -378,7 +360,6 @@ export class LoadService {
             data[col || k] = Number.isFinite(n) ? n : null;
         };
 
-        str("referenceNumber");
         str("commodity");
         str("equipment");
         str("weight");
@@ -400,8 +381,8 @@ export class LoadService {
         str("paymentStatus");
         str("invoiceNumber");
         str("trackingStatus");
-        str("assignedDispatcherId");
-        str("customerName");        num("pieces");
+        str("customerName");
+        num("pieces");
         num("miles");
         num("customerRate");
         num("carrierRate");

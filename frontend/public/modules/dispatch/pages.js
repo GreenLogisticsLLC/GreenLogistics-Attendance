@@ -421,9 +421,7 @@ window.GreenOSModules["dispatch"] = {
         field("Shipment Number", g.shipmentNumber) +
         field("Customer", g.customer) +
         field("Broker", g.broker && g.broker.name) +
-        field("Dispatcher", g.dispatcher && g.dispatcher.name) +
         field("Status", g.statusLabel || g.status) +
-        field("Reference Number", g.referenceNumber) +
         field("Pickup", place(g.pickup)) +
         field("Delivery", place(g.delivery)) +
         field("Equipment", g.equipment) +
@@ -453,7 +451,6 @@ window.GreenOSModules["dispatch"] = {
         '<label class="full gos-muted">Broker Gmail (from connected account): <strong>' +
         self.esc(contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "— not connected —") +
         "</strong></label>" +
-        '<label>Reference <input id="ld-ref" value="' + self.esc(g.referenceNumber || "") + '"></label>' +
         '<label>Commodity <input id="ld-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
         '<label>Equipment <input id="ld-equipment" value="' + self.esc(g.equipment || "") + '"></label>' +
         '<label>Weight <input id="ld-weight" value="' + self.esc(g.weight || "") + '"></label>' +
@@ -471,7 +468,6 @@ window.GreenOSModules["dispatch"] = {
               customerName: main.querySelector("#ld-customer").value || null,
               customerEmail: main.querySelector("#ld-customer-email").value || null,
               carrierEmail: main.querySelector("#ld-carrier-email-g").value || null,
-              referenceNumber: main.querySelector("#ld-ref").value || null,
               commodity: main.querySelector("#ld-commodity").value || null,
               equipment: main.querySelector("#ld-equipment").value || null,
               weight: main.querySelector("#ld-weight").value || null,
@@ -499,7 +495,6 @@ window.GreenOSModules["dispatch"] = {
         field("DOT", c.dot) +
         field("Insurance", c.insurance) +
         field("Carrier Status", c.carrierStatus) +
-        field("Assigned Dispatcher", c.assignedDispatcher && c.assignedDispatcher.name) +
         field("Driver", c.driverName) +
         field("Truck", c.truckNumber) +
         field("Trailer", c.trailerNumber) +
@@ -1030,7 +1025,6 @@ window.GreenOSModules["dispatch"] = {
       '<label>Commodity <input id="de-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
       '<label>Weight <input id="de-weight" value="' + self.esc(g.weight || "") + '"></label>' +
       '<label>Equipment <input id="de-equipment" value="' + self.esc(g.equipment || "") + '"></label>' +
-      '<label>Reference <input id="de-ref" value="' + self.esc(g.referenceNumber || "") + '"></label>' +
       '<label>Customer Rate <input id="de-cr" type="number" step="0.01" value="' + self.esc(p.customerRate || "") + '"></label>' +
       '<label>Carrier Rate <input id="de-crr" type="number" step="0.01" value="' + self.esc(p.carrierRate || "") + '"></label>' +
       '<label class="full">Terms <textarea id="de-terms">Payment per Green Logistics carrier agreement.</textarea></label>' +
@@ -1060,7 +1054,6 @@ window.GreenOSModules["dispatch"] = {
                 commodity: box.querySelector("#de-commodity").value,
                 weight: box.querySelector("#de-weight").value,
                 equipment: box.querySelector("#de-equipment").value,
-                referenceNumber: box.querySelector("#de-ref").value,
                 customerRate: box.querySelector("#de-cr").value,
                 carrierRate: box.querySelector("#de-crr").value,
                 terms: box.querySelector("#de-terms").value,
@@ -1368,7 +1361,7 @@ window.GreenOSModules["dispatch"] = {
       '<label>VIN# <input id="bol-vin" value=""></label>' +
       '<label>Carrier / driver contact <input id="bol-cphone" value="' + self.esc(c.driverName || "") + '"></label>' +
       '<label class="full">Third party freight bills to <input id="bol-third" value="' + self.esc(g.customer || "") + '"></label>' +
-      '<label>Customer order no. <input id="bol-order" value="' + self.esc(g.referenceNumber || "") + '"></label>' +
+      '<label>Customer order no. <input id="bol-order" value=""></label>' +
       '<label># Pkgs <input id="bol-pkgs" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
       '<label>Weight <input id="bol-weight" value="' + self.esc(g.weight || "") + '"></label>' +
       '<label>Pallet/Slip <select id="bol-pallet"><option value="N">N</option><option value="Y">Y</option></select></label>' +
@@ -1421,7 +1414,6 @@ window.GreenOSModules["dispatch"] = {
             commodity: box.querySelector("#bol-commodity").value || null,
             weight: box.querySelector("#bol-weight").value || null,
             pieces: box.querySelector("#bol-pkgs").value || null,
-            referenceNumber: box.querySelector("#bol-order").value || null,
             specialInstructions: box.querySelector("#bol-notes").value || null,
           }),
         });
@@ -1453,7 +1445,6 @@ window.GreenOSModules["dispatch"] = {
           thirdPartyBillTo: box.querySelector("#bol-third").value,
           deliveryContact: box.querySelector("#bol-dcontact").value,
           customerOrderNo: box.querySelector("#bol-order").value,
-          referenceNumber: box.querySelector("#bol-order").value,
           pieces: box.querySelector("#bol-pkgs").value,
           packageQty: box.querySelector("#bol-pkgs").value,
           handlingQty: box.querySelector("#bol-pkgs").value,
@@ -1555,7 +1546,6 @@ window.GreenOSModules["dispatch"] = {
       '<label>Commodity <input id="pod-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
       '<label># Pkgs <input id="pod-pkgs" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
       '<label>Weight <input id="pod-weight" value="' + self.esc(g.weight || "") + '"></label>' +
-      '<label>Reference <input id="pod-ref" value="' + self.esc(g.referenceNumber || "") + '"></label>' +
       '<label>Receiver print name <input id="pod-receiver" value=""></label>' +
       '<label>Condition <select id="pod-good"><option value="yes">Good order</option><option value="no">Exceptions noted</option></select></label>' +
       '<label class="full">Exceptions / delivery notes <textarea id="pod-exceptions" rows="2"></textarea></label>' +
@@ -1601,7 +1591,6 @@ window.GreenOSModules["dispatch"] = {
             commodity: box.querySelector("#pod-commodity").value || null,
             weight: box.querySelector("#pod-weight").value || null,
             pieces: box.querySelector("#pod-pkgs").value || null,
-            referenceNumber: box.querySelector("#pod-ref").value || null,
             specialInstructions: box.querySelector("#pod-notes").value || null,
             carrierNotes: box.querySelector("#pod-exceptions").value || null,
           }),
@@ -1627,7 +1616,6 @@ window.GreenOSModules["dispatch"] = {
           commodity: box.querySelector("#pod-commodity").value,
           pieces: box.querySelector("#pod-pkgs").value,
           weight: box.querySelector("#pod-weight").value,
-          referenceNumber: box.querySelector("#pod-ref").value,
           receiverName: box.querySelector("#pod-receiver").value,
           deliveredInGoodOrder: box.querySelector("#pod-good").value === "yes",
           exceptionsNotes: box.querySelector("#pod-exceptions").value,

@@ -616,7 +616,7 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.font("Helvetica-Bold").fontSize(8).text("COMMODITY / PIECES / WEIGHT", left + 4, y + 4);
     doc.font("Helvetica").fontSize(9);
     doc.text(`Commodity: ${txt(c.commodity) || "—"}`, left + 4, y + 18, { width: usable - 8 });
-    doc.text(`# Pkgs: ${String(c.pieces ?? "—")}    Weight: ${txt(c.weight) || "—"}    Ref: ${txt(c.referenceNumber) || "—"}`, left + 4, y + 36);
+    doc.text(`# Pkgs: ${String(c.pieces ?? "—")}    Weight: ${txt(c.weight) || "—"}    Shipment: ${txt(c.shipmentNumber) || "—"}`, left + 4, y + 36);
     doc.text(`Customer: ${txt(c.customerName) || "—"}`, left + 4, y + 52);
     y += 78;
 
@@ -706,7 +706,6 @@ export async function generateLoadDocumentPdf(input: {
 
             line(doc, "Load Number", c.loadNumber);
             line(doc, "Shipment Number", c.shipmentNumber);
-            line(doc, "Reference", c.referenceNumber);
             doc.moveDown(0.4);
             line(doc, "Customer", c.customerName);
             line(doc, "Customer Email", c.customerEmail);

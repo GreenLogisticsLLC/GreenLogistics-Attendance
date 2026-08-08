@@ -81,7 +81,7 @@ export class LoadDocumentsService {
         return {
             loadNumber: s.loadNumber,
             shipmentNumber: s.greenOsShipmentId,
-            referenceNumber: s.referenceNumber || s.externalShipmentId,
+            referenceNumber: s.externalShipmentId,
             customerName: s.customerName,
             customerEmail: s.customerEmail,
             brokerName,
@@ -121,7 +121,7 @@ export class LoadDocumentsService {
             specialInstructions: s.specialInstructions || s.notes,
             bolNumber: s.loadNumber,
             freightTerms: "PREPAID",
-            customerOrderNo: s.referenceNumber || s.externalShipmentId,
+            customerOrderNo: s.externalShipmentId,
             packageQty: s.pieces,
             handlingQty: s.pieces,
             deliveredInGoodOrder: true,
