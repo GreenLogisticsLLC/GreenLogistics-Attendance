@@ -678,15 +678,24 @@ window.GreenOSModules.broker = {
         })
         .join("");
       list.querySelectorAll("[data-id]").forEach(function (li) {
+        li.style.cursor = "pointer";
+        li.title = "Click to open shipment";
         li.addEventListener("click", async function () {
           var nid = li.getAttribute("data-id");
           var sid = li.getAttribute("data-shipment");
-          await window.GreenOSModules.broker.api("/notifications/" + nid + "/read", {
-            method: "POST",
-          });
-          if (sid && window.GreenOSModules.crm) {
-            var host = document.getElementById("gos-module-host");
-            if (host) window.GreenOSModules.crm.openShipmentCard(host, sid);
+          try {
+            await window.GreenOSModules.broker.api("/notifications/" + nid + "/read", {
+              method: "POST",
+            });
+          } catch (e) {}
+          li.classList.remove("is-unread");
+          if (sid) {
+            if (window.GreenOSRealtime && typeof window.GreenOSRealtime.openShipment === "function") {
+              window.GreenOSRealtime.openShipment(sid);
+            } else if (window.GreenOSModules.crm) {
+              var host = document.getElementById("gos-module-host");
+              if (host) window.GreenOSModules.crm.openShipmentCard(host, sid);
+            }
           }
         });
       });

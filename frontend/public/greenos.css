@@ -1077,6 +1077,21 @@
   border-color: #10b981;
 }
 
+.gos-toast-clickable {
+  cursor: pointer;
+}
+
+.gos-toast-clickable:hover {
+  border-color: #3d7a55;
+  background: #1a3024;
+}
+
+.gos-toast-hint {
+  margin-top: 0.35rem;
+  font-size: 0.7rem;
+  color: #8fafa0;
+}
+
 .gos-toast-title {
   font-weight: 700;
   font-size: 0.8rem;

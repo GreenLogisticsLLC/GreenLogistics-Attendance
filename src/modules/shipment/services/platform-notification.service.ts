@@ -28,6 +28,22 @@ export class PlatformNotificationService {
         shipmentLeadId?: string;
         meta?: Record<string, unknown>;
     }) {
+        // One logical alert per shipment+type+title — do not flood Notification Center.
+        if (input.shipmentLeadId) {
+            const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
+            const existing = await prisma.platformNotification.findFirst({
+                where: {
+                    userId: input.userId,
+                    shipmentLeadId: input.shipmentLeadId,
+                    notificationType: input.notificationType,
+                    title: input.title,
+                    createdAt: { gte: since },
+                },
+                orderBy: { createdAt: "desc" },
+            });
+            if (existing) return existing;
+        }
+
         return prisma.platformNotification.create({
             data: {
                 userId: input.userId,

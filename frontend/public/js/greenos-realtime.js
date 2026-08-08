@@ -1,11 +1,17 @@
 /**
  * GreenOS realtime — SSE client for live shipment assignment notifications.
  * Popup toast + optional sound + nav badge. No page refresh required.
+ *
+ * Rules:
+ * - Same toast (shipment + title + kind) is shown only once (persisted).
+ * - Click on a toast opens the shipment card.
  */
 (function () {
   var es = null;
   var unread = 0;
   var soundEnabled = localStorage.getItem("gos_notify_sound") !== "0";
+  var TOAST_SEEN_KEY = "gos_toast_seen_v1";
+  var TOAST_SEEN_MAX = 400;
 
   function esc(s) {
     return String(s == null ? "" : s)
@@ -13,6 +19,57 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  function loadSeenMap() {
+    try {
+      var raw = localStorage.getItem(TOAST_SEEN_KEY);
+      var obj = raw ? JSON.parse(raw) : {};
+      return obj && typeof obj === "object" ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveSeenMap(map) {
+    try {
+      var keys = Object.keys(map);
+      if (keys.length > TOAST_SEEN_MAX) {
+        keys
+          .sort(function (a, b) {
+            return (map[a] || 0) - (map[b] || 0);
+          })
+          .slice(0, keys.length - TOAST_SEEN_MAX)
+          .forEach(function (k) {
+            delete map[k];
+          });
+      }
+      localStorage.setItem(TOAST_SEEN_KEY, JSON.stringify(map));
+    } catch (e) {
+      /* ignore quota */
+    }
+  }
+
+  function toastFingerprint(parts) {
+    return parts
+      .map(function (p) {
+        return String(p == null ? "" : p)
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, " ");
+      })
+      .filter(Boolean)
+      .join("|");
+  }
+
+  /** Returns false if this toast was already shown (and marks it seen). */
+  function claimToastOnce(key) {
+    if (!key) return true;
+    var map = loadSeenMap();
+    if (map[key]) return false;
+    map[key] = Date.now();
+    saveSeenMap(map);
+    return true;
   }
 
   function ensureToastHost() {
@@ -41,13 +98,20 @@
       pill.addEventListener("click", function () {
         hiddenToasts = 0;
         pill.remove();
+        if (window.GreenOS) {
+          var role =
+            (window.GreenOS.user && window.GreenOS.user.role) ||
+            (window.GreenOSUser && window.GreenOSUser.role) ||
+            "";
+          if (role === "Broker") window.GreenOS.navigate("broker", "notifications");
+          else window.GreenOS.navigate("crm", "shipments");
+        }
       });
       host.appendChild(pill);
     }
     pill.textContent = "+" + hiddenToasts + " more in Notifications";
   }
 
-  /** Keep the stack short: a burst of assignments must not cover the screen. */
   function trimToasts(host) {
     var items = host.querySelectorAll(".gos-toast");
     for (var i = 0; i < items.length - MAX_VISIBLE_TOASTS; i++) {
@@ -99,14 +163,54 @@
     }
   }
 
+  /** Open shipment card from toast / notification click. */
+  function openShipmentById(shipmentLeadId) {
+    if (!shipmentLeadId) return;
+    var role =
+      (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
+      (window.GreenOSUser && window.GreenOSUser.role) ||
+      "";
+    var nav = window.GreenOSShell || window.GreenOS;
+    if (nav && typeof nav.navigate === "function") {
+      if (role === "Broker") nav.navigate("broker", "shipments");
+      else nav.navigate("crm", "shipments");
+    }
+    setTimeout(function () {
+      var hostEl = document.getElementById("gos-module-host");
+      if (
+        hostEl &&
+        window.GreenOSModules &&
+        window.GreenOSModules.crm &&
+        typeof window.GreenOSModules.crm.openShipmentCard === "function"
+      ) {
+        window.GreenOSModules.crm.openShipmentCard(hostEl, shipmentLeadId);
+      }
+    }, 350);
+  }
+
+  function dismissToast(el) {
+    el.classList.add("is-leaving");
+    setTimeout(function () {
+      el.remove();
+    }, 280);
+  }
+
   function showAssignedToast(data) {
+    var key = toastFingerprint([
+      "assign",
+      data.shipmentLeadId,
+      data.greenOsShipmentId || data.shipmentNumber,
+      "SHIPMENT_ASSIGNED",
+    ]);
+    if (!claimToastOnce(key)) return;
+
     var host = ensureToastHost();
     var el = document.createElement("div");
-    el.className = "gos-toast gos-toast-assign";
+    el.className = "gos-toast gos-toast-assign gos-toast-clickable";
+    el.setAttribute("role", "button");
+    el.tabIndex = 0;
     var miles =
-      data.miles != null && data.miles !== ""
-        ? esc(data.miles) + " miles"
-        : "";
+      data.miles != null && data.miles !== "" ? esc(data.miles) + " miles" : "";
     el.innerHTML =
       '<div class="gos-toast-title">New Shipment Assigned</div>' +
       '<div class="gos-toast-body">' +
@@ -128,85 +232,93 @@
       '<button type="button" class="btn-secondary gos-toast-dismiss" style="width:auto;padding:0.3rem 0.6rem">Dismiss</button>' +
       "</div>";
 
-    function close() {
-      el.classList.add("is-leaving");
-      setTimeout(function () {
-        el.remove();
-      }, 280);
-    }
-
-    el.querySelector(".gos-toast-dismiss").addEventListener("click", close);
-    el.querySelector(".gos-toast-open").addEventListener("click", function () {
-      close();
+    function open() {
+      dismissToast(el);
       unread = Math.max(0, unread - 1);
       updateBadge();
-      var id = data.shipmentLeadId;
-      if (!id) return;
-      if (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role === "Broker") {
-        window.GreenOS.navigate("broker", "shipments");
-        setTimeout(function () {
-          var hostEl = document.getElementById("gos-module-host");
-          if (
-            hostEl &&
-            window.GreenOSModules &&
-            window.GreenOSModules.crm &&
-            window.GreenOSModules.crm.openShipmentCard
-          ) {
-            window.GreenOSModules.crm.openShipmentCard(hostEl, id);
-          }
-        }, 400);
-      } else if (window.GreenOS) {
-        window.GreenOS.navigate("crm", "shipments");
-        setTimeout(function () {
-          var hostEl = document.getElementById("gos-module-host");
-          if (
-            hostEl &&
-            window.GreenOSModules &&
-            window.GreenOSModules.crm &&
-            window.GreenOSModules.crm.openShipmentCard
-          ) {
-            window.GreenOSModules.crm.openShipmentCard(hostEl, id);
-          }
-        }, 400);
-      }
+      openShipmentById(data.shipmentLeadId);
+    }
+
+    el.querySelector(".gos-toast-dismiss").addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      dismissToast(el);
     });
+    el.querySelector(".gos-toast-open").addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      open();
+    });
+    el.addEventListener("click", open);
 
     host.appendChild(el);
     trimToasts(host);
-    setTimeout(close, 20000);
+    setTimeout(function () {
+      dismissToast(el);
+    }, 20000);
   }
 
-  function showSimpleToast(title, body) {
+  /**
+   * @param {string} title
+   * @param {string} body
+   * @param {{ shipmentLeadId?: string, greenOsShipmentId?: string, kind?: string, dedupeKey?: string }} [opts]
+   */
+  function showSimpleToast(title, body, opts) {
+    opts = opts || {};
+    var key =
+      opts.dedupeKey ||
+      toastFingerprint([
+        opts.shipmentLeadId,
+        opts.greenOsShipmentId,
+        title,
+        opts.kind,
+        body,
+      ]);
+    if (!claimToastOnce(key)) return false;
+
     var host = ensureToastHost();
     var el = document.createElement("div");
-    el.className = "gos-toast";
+    el.className =
+      "gos-toast" + (opts.shipmentLeadId ? " gos-toast-clickable" : "");
+    if (opts.shipmentLeadId) {
+      el.setAttribute("role", "button");
+      el.tabIndex = 0;
+      el.title = "Click to open shipment";
+    }
     el.innerHTML =
       '<div class="gos-toast-title">' +
       esc(title) +
       "</div>" +
       '<div class="gos-toast-body">' +
       esc(body) +
+      (opts.shipmentLeadId
+        ? '<div class="gos-toast-hint">Click to open shipment</div>'
+        : "") +
       "</div>";
+
+    if (opts.shipmentLeadId) {
+      el.addEventListener("click", function () {
+        dismissToast(el);
+        unread = Math.max(0, unread - 1);
+        updateBadge();
+        openShipmentById(opts.shipmentLeadId);
+      });
+    }
+
     host.appendChild(el);
     trimToasts(host);
     setTimeout(function () {
-      el.classList.add("is-leaving");
-      setTimeout(function () {
-        el.remove();
-      }, 280);
-    }, 8000);
+      dismissToast(el);
+    }, 10000);
+    return true;
   }
 
   function refreshOpenViews() {
     if (typeof window.GreenOSEmailReload === "function") {
       window.GreenOSEmailReload();
     }
-    // Prefer soft My Shipments reload for brokers (avoid full remount).
     if (typeof window.GreenOSBrokerReloadShipments === "function") {
       window.GreenOSBrokerReloadShipments();
     }
 
-    // Never auto-refresh while Load Details are open — it interrupts editing.
     var loadOpen = false;
     try {
       loadOpen = Boolean(
@@ -214,9 +326,8 @@
           document.querySelector(".load-layout")
       );
     } catch (e) {}
-    if (loadOpen) {
-      // Still refresh CRM shipment card if somehow open, but skip module remount.
-    } else if (
+    if (
+      !loadOpen &&
       window.GreenOS &&
       typeof window.GreenOS.refreshModule === "function" &&
       window.GreenOS.currentModule &&
@@ -240,7 +351,18 @@
     }
   }
 
-  function onAssigned(data) {
+  function onAssignedFixed(data) {
+    var before = loadSeenMap();
+    var key = toastFingerprint([
+      "assign",
+      data && data.shipmentLeadId,
+      data && (data.greenOsShipmentId || data.shipmentNumber),
+      "SHIPMENT_ASSIGNED",
+    ]);
+    if (before[key]) {
+      refreshOpenViews();
+      return;
+    }
     unread += 1;
     updateBadge();
     playNotifySound();
@@ -249,15 +371,22 @@
   }
 
   function removeFromMyQueue(d) {
-    unread += 1;
-    updateBadge();
-    playNotifySound();
-    var num = d.greenOsShipmentId || d.shipmentNumber || "";
-    showSimpleToast(
+    var shown = showSimpleToast(
       d.title || "Removed from your queue",
-      (num ? "Shipment # " + num + " — " : "") +
-        (d.message || d.reason || "Passed to another broker")
+      ((d.greenOsShipmentId || d.shipmentNumber)
+        ? "Shipment # " + (d.greenOsShipmentId || d.shipmentNumber) + " — "
+        : "") + (d.message || d.reason || "Passed to another broker"),
+      {
+        shipmentLeadId: d.shipmentLeadId,
+        greenOsShipmentId: d.greenOsShipmentId || d.shipmentNumber,
+        kind: "REMOVED",
+      }
     );
+    if (shown) {
+      unread += 1;
+      updateBadge();
+      playNotifySound();
+    }
     var modal = document.getElementById("crm-modal");
     if (modal && !modal.classList.contains("hidden") && d.shipmentLeadId) {
       var openId = modal.getAttribute("data-shipment-id");
@@ -289,7 +418,6 @@
       es = null;
     }
 
-    // Always keep My Shipments / boards refreshing — even if SSE is unavailable.
     if (!window.__gosShipmentPoll) {
       window.__gosShipmentPoll = setInterval(function () {
         if (document.hidden) return;
@@ -305,7 +433,7 @@
 
     es.addEventListener("SHIPMENT_ASSIGNED", function (ev) {
       try {
-        onAssigned(JSON.parse(ev.data));
+        onAssignedFixed(JSON.parse(ev.data));
       } catch (e) {
         console.warn("[realtime] bad SHIPMENT_ASSIGNED", e);
       }
@@ -314,19 +442,25 @@
     es.addEventListener("SHIPMENT_ASSIGNED_BROADCAST", function (ev) {
       try {
         var d = JSON.parse(ev.data);
-        // Brokers already get SHIPMENT_ASSIGNED; Owner / Team Lead see who got it
         if (window.GreenOSUser && window.GreenOSUser.role === "Broker") return;
-        unread += 1;
-        updateBadge();
-        showSimpleToast(
+        var shown = showSimpleToast(
           "New shipment → " + (d.brokerName || "broker"),
           (d.greenOsShipmentId || d.shipmentNumber
             ? "Shipment # " + (d.greenOsShipmentId || d.shipmentNumber) + " — "
             : "") +
             (d.shipmentTitle || "Shipment") +
             " assigned to " +
-            (d.brokerName || "broker")
+            (d.brokerName || "broker"),
+          {
+            shipmentLeadId: d.shipmentLeadId,
+            greenOsShipmentId: d.greenOsShipmentId || d.shipmentNumber,
+            kind: "ASSIGNED_BROADCAST",
+          }
         );
+        if (shown) {
+          unread += 1;
+          updateBadge();
+        }
         refreshOpenViews();
       } catch (e) {
         /* ignore */
@@ -337,7 +471,6 @@
       try {
         var d = JSON.parse(ev.data);
         if (window.GreenOSUser && window.GreenOSUser.role === "Broker") {
-          // Previous assignee: drop row from My Shipments immediately.
           removeFromMyQueue(
             Object.assign({}, d, {
               title: "Removed from your queue",
@@ -346,19 +479,25 @@
           );
           return;
         }
-        unread += 1;
-        updateBadge();
-        showSimpleToast(
+        var shown = showSimpleToast(
           "Unassigned shipment",
-          (d.shipmentTitle || "Shipment") + " — waiting for broker In Office"
+          (d.shipmentTitle || "Shipment") + " — waiting for broker In Office",
+          {
+            shipmentLeadId: d.shipmentLeadId,
+            greenOsShipmentId: d.greenOsShipmentId || d.shipmentNumber,
+            kind: "UNASSIGNED",
+          }
         );
+        if (shown) {
+          unread += 1;
+          updateBadge();
+        }
         refreshOpenViews();
       } catch (e) {
         /* ignore */
       }
     });
 
-    // Fired to the broker who missed the 20-minute accept window (shipment leaves their account).
     es.addEventListener("ACCEPTANCE_MISSED", function (ev) {
       try {
         var d = JSON.parse(ev.data);
@@ -379,12 +518,19 @@
       try {
         var d = JSON.parse(ev.data);
         if (window.GreenOSUser && window.GreenOSUser.role === "Broker") return;
-        unread += 1;
-        updateBadge();
-        showSimpleToast(
+        var shown = showSimpleToast(
           d.title || "Acceptance missed",
-          d.message || "Reassigning shipment"
+          d.message || "Reassigning shipment",
+          {
+            shipmentLeadId: d.shipmentLeadId,
+            greenOsShipmentId: d.greenOsShipmentId || d.shipmentNumber,
+            kind: "ACCEPTANCE_MISSED",
+          }
         );
+        if (shown) {
+          unread += 1;
+          updateBadge();
+        }
         refreshOpenViews();
       } catch (e) {
         /* ignore */
@@ -392,14 +538,28 @@
     });
 
     function onLifecycle(d) {
-      unread += 1;
-      updateBadge();
-      playNotifySound();
       var num = d.greenOsShipmentId || d.shipmentNumber || "";
-      showSimpleToast(
+      var shown = showSimpleToast(
         d.title || "Shipment update",
-        (num ? "Shipment # " + num + " — " : "") + (d.subject || d.kind || "")
+        (num ? "Shipment # " + num + " — " : "") + (d.subject || d.kind || ""),
+        {
+          shipmentLeadId: d.shipmentLeadId,
+          greenOsShipmentId: num,
+          kind: d.kind || d.title || "LIFECYCLE",
+          // Same shipment + same event title = once only (ignore subject churn).
+          dedupeKey: toastFingerprint([
+            d.shipmentLeadId,
+            num,
+            d.title,
+            d.kind,
+          ]),
+        }
       );
+      if (shown) {
+        unread += 1;
+        updateBadge();
+        playNotifySound();
+      }
       refreshOpenViews();
     }
 
@@ -439,6 +599,7 @@
   window.GreenOSRealtime = {
     connect: connect,
     disconnect: disconnect,
+    openShipment: openShipmentById,
     setSoundEnabled: function (on) {
       soundEnabled = !!on;
       localStorage.setItem("gos_notify_sound", on ? "1" : "0");
@@ -449,12 +610,10 @@
     },
   };
 
-  // Auto-connect when shell is ready / token present
   document.addEventListener("DOMContentLoaded", function () {
     if (localStorage.getItem("gl_token")) connect();
   });
 
-  // Reconnect after login (app.js sets token then showApp)
   var _setItem = localStorage.setItem.bind(localStorage);
   localStorage.setItem = function (k, v) {
     _setItem(k, v);
