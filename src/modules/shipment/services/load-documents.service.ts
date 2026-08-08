@@ -119,6 +119,12 @@ export class LoadDocumentsService {
             confirmationDate: new Date().toLocaleDateString(),
             terms: DEFAULT_RATE_CON_TERMS,
             specialInstructions: s.specialInstructions || s.notes,
+            bolNumber: s.loadNumber,
+            freightTerms: "PREPAID",
+            customerOrderNo: s.referenceNumber || s.externalShipmentId,
+            packageQty: s.pieces,
+            handlingQty: s.pieces,
+            deliveredInGoodOrder: true,
         };
     }
 

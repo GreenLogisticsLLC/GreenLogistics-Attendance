@@ -45,6 +45,7 @@ export type LoadDocumentContent = {
     driverPhone?: string | null;
     truckNumber?: string | null;
     trailerNumber?: string | null;
+    vinNumber?: string | null;
     pickupAddress?: string | null;
     deliveryAddress?: string | null;
     pickupWindow?: string | null;
@@ -70,6 +71,29 @@ export type LoadDocumentContent = {
     terms?: string | null;
     specialInstructions?: string | null;
     extraLines?: string[];
+    /** Master BOL fields (matches Green Logistics BOL.pdf). */
+    bolNumber?: string | null;
+    shipperIdNo?: string | null;
+    consigneeIdNo?: string | null;
+    sealNo?: string | null;
+    /** PREPAID | COLLECT | 3RD_PARTY */
+    freightTerms?: string | null;
+    thirdPartyBillTo?: string | null;
+    customerOrderNo?: string | null;
+    packageType?: string | null;
+    handlingQty?: string | number | null;
+    handlingType?: string | null;
+    packageQty?: string | number | null;
+    hazmat?: boolean | string | null;
+    palletSlip?: boolean | string | null;
+    codAmount?: string | number | null;
+    remittanceCodTo?: string | null;
+    fob?: string | null;
+    trailerLoadedBy?: string | null;
+    freightCountedBy?: string | null;
+    deliveredInGoodOrder?: boolean | string | null;
+    exceptionsNotes?: string | null;
+    receiverName?: string | null;
 };
 
 function money(v: string | number | null | undefined): string {
@@ -286,104 +310,359 @@ function renderRateConfirmationPdf(
     });
 }
 
-/** Bill of Lading — includes Broker Gmail / Customer / Carrier emails. */
+function truthyMark(v: unknown) {
+    if (v === true) return "X";
+    const s = String(v || "")
+        .trim()
+        .toUpperCase();
+    return s === "TRUE" || s === "YES" || s === "1" || s === "Y" || s === "X" ? "X" : "";
+}
+
+/**
+ * Master Bill of Lading — layout aligned with Green Logistics BOL.pdf
+ * (ORIGINAL NOT NEGOTIABLE / SHIPS FROM / SHIPS TO / Carrier / Order / Signatures).
+ */
 function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, version: number) {
     const c = content;
-    const left = 40;
-    const usable = 532;
-    let y = 36;
+    const left = 28;
+    const usable = 556;
+    let y = 28;
+    const bolNo = txt(c.bolNumber) || txt(c.loadNumber) || "—";
+    const terms = String(c.freightTerms || "PREPAID")
+        .toUpperCase()
+        .replace(/\s+/g, "_");
 
-    doc.font("Helvetica-Bold").fontSize(14).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, left, y);
-    y += 16;
-    doc.font("Helvetica").fontSize(9).fillColor("#222222");
-    doc.text(`${GREEN_LOGISTICS_RC.addressLine1}, ${GREEN_LOGISTICS_RC.addressLine2}`, left, y);
-    y += 12;
-    doc.text(`MC # ${GREEN_LOGISTICS_RC.mc}`, left, y);
-    doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f3d1f");
-    doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 180, 36, {
-        width: 180,
+    // Header
+    doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111").text("Bill of Lading", left, y);
+    doc.font("Helvetica").fontSize(7).text("ORIGINAL — NOT NEGOTIABLE", left + 90, y + 3);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, left + 280, y, {
+        width: 160,
         align: "right",
     });
-    doc.font("Helvetica").fontSize(9).fillColor("#222222");
-    doc.text(txt(c.shipmentNumber) || "", left + usable - 180, 50, { width: 180, align: "right" });
-    doc.text(`BOL v${version}`, left + usable - 180, 62, { width: 180, align: "right" });
-
-    y = 78;
-    doc.font("Helvetica-Bold").fontSize(14).fillColor("#111111").text("BILL OF LADING", left, y, {
-        width: usable,
-        align: "center",
+    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(`Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`, left + 280, y + 12, {
+        width: 160,
+        align: "right",
     });
-    y += 22;
+    y += 28;
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#111111");
+    doc.text(`BILL OF LADING: ${bolNo}`, left, y);
+    doc.text(`PICKUP DATE: ${txt(c.pickupDate) || txt(c.confirmationDate) || new Date().toLocaleDateString()}`, left + 200, y);
+    doc.font("Helvetica").fontSize(8).text(`Load ${txt(c.loadNumber) || ""}  ·  ${txt(c.shipmentNumber) || ""}  ·  v${version}`, left + 400, y, {
+        width: usable - 400,
+        align: "right",
+    });
+    y += 16;
+
+    // Email strip (GreenOS extension kept on company BOL)
+    drawBox(doc, left, y, usable, 28);
+    doc.font("Helvetica-Bold").fontSize(7).text("BROKER GMAIL", left + 4, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 175 });
+    doc.font("Helvetica-Bold").fontSize(7).text("CUSTOMER EMAIL", left + 190, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.customerEmail) || "—", left + 190, y + 13, { width: 175 });
+    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER EMAIL", left + 380, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 380, y + 13, { width: 170 });
+    y += 34;
+
+    // SHIPS FROM | Freight terms
+    const rowH = 78;
+    drawBox(doc, left, y, 300, rowH);
+    doc.font("Helvetica-Bold").fontSize(8).text("SHIPS FROM", left + 4, y + 3);
+    doc.font("Helvetica").fontSize(9).text(txt(c.pickupAddress) || "—", left + 4, y + 14, { width: 200, height: 36 });
+    doc.font("Helvetica-Bold").fontSize(7).text("SHIPPER ID NO.", left + 4, y + 52);
+    doc.font("Helvetica").fontSize(8).text(txt(c.shipperIdNo) || "—", left + 4, y + 62);
+    doc.font("Helvetica-Bold").fontSize(7).text("SEAL NO.", left + 150, y + 52);
+    doc.font("Helvetica").fontSize(8).text(txt(c.sealNo) || "—", left + 150, y + 62);
+    doc.font("Helvetica-Bold").fontSize(7).text("FOB", left + 250, y + 52);
+    doc.font("Helvetica").fontSize(8).text(txt(c.fob) || "", left + 250, y + 62);
+
+    drawBox(doc, left + 300, y, usable - 300, rowH);
+    doc.font("Helvetica-Bold").fontSize(8).text("FREIGHT CHARGE TERMS", left + 306, y + 3);
+    const prepaid = terms.includes("PREPAID") ? "X" : "";
+    const collect = terms.includes("COLLECT") && !terms.includes("3RD") ? "X" : "";
+    const third = terms.includes("3RD") || terms.includes("THIRD") ? "X" : "";
+    doc.font("Helvetica").fontSize(9);
+    doc.text(`[${prepaid || " "}] PREPAID`, left + 310, y + 20);
+    doc.text(`[${collect || " "}] COLLECT`, left + 310, y + 36);
+    doc.text(`[${third || " "}] 3RD PARTY`, left + 310, y + 52);
+    doc.font("Helvetica").fontSize(7).text("MASTER BILL OF LADING", left + 420, y + 20, { width: 150 });
+    doc.text("(UNDERLYING BOL ATTACHED)", left + 420, y + 32, { width: 150 });
+    y += rowH;
+
+    // SHIPS TO | Carrier
+    drawBox(doc, left, y, 300, 88);
+    doc.font("Helvetica-Bold").fontSize(8).text("SHIPS TO", left + 4, y + 3);
+    doc.font("Helvetica").fontSize(9).text(txt(c.deliveryAddress) || "—", left + 4, y + 14, { width: 200, height: 36 });
+    doc.font("Helvetica-Bold").fontSize(7).text("CONSIGNEE ID NO.", left + 4, y + 52);
+    doc.font("Helvetica").fontSize(8).text(txt(c.consigneeIdNo) || "—", left + 4, y + 62);
+    doc.font("Helvetica-Bold").fontSize(7).text("CONTACT", left + 150, y + 52);
+    doc.font("Helvetica").fontSize(8).text(txt(c.deliveryContact) || txt(c.pickupContact) || "—", left + 150, y + 62);
+
+    drawBox(doc, left + 300, y, usable - 300, 88);
+    doc.font("Helvetica-Bold").fontSize(8).text("CARRIER", left + 306, y + 3);
+    doc.font("Helvetica").fontSize(9).text(txt(c.carrierName) || "—", left + 306, y + 14, { width: 240 });
+    doc.font("Helvetica").fontSize(8);
+    doc.text(`MC: ${txt(c.carrierMc) || "—"}`, left + 306, y + 36);
+    doc.text(`Truck: ${txt(c.truckNumber) || "—"}`, left + 400, y + 36);
+    doc.text(`Trailer#: ${txt(c.trailerNumber) || "—"}`, left + 306, y + 50);
+    doc.text(`VIN#: ${txt(c.vinNumber) || "—"}`, left + 400, y + 50);
+    doc.text(`CONTACT: ${txt(c.carrierPhone) || txt(c.driverPhone) || txt(c.driverName) || "—"}`, left + 306, y + 64, {
+        width: 240,
+    });
+    y += 88;
+
+    // Third party
+    drawBox(doc, left, y, usable, 32);
+    doc.font("Helvetica-Bold").fontSize(7).text("THIRD PARTY FREIGHT BILLS TO", left + 4, y + 3);
+    doc.font("Helvetica").fontSize(9).text(txt(c.thirdPartyBillTo) || txt(c.customerName) || "—", left + 4, y + 14, {
+        width: usable - 8,
+    });
+    y += 36;
+
+    // Customer order info
+    drawBox(doc, left, y, usable, 52);
+    doc.font("Helvetica-Bold").fontSize(8).text("CUSTOMER ORDER INFORMATION", left + 4, y + 3);
+    doc.font("Helvetica-Bold").fontSize(6.5);
+    doc.text("CUSTOMER ORDER NO.", left + 4, y + 16);
+    doc.text("# PKGS", left + 160, y + 16);
+    doc.text("WEIGHT", left + 220, y + 16);
+    doc.text("PALLET/SLIP", left + 290, y + 16);
+    doc.text("ADDL. SHIPPER INFORMATION", left + 380, y + 16);
+    doc.font("Helvetica").fontSize(9);
+    doc.text(txt(c.customerOrderNo) || txt(c.referenceNumber) || "—", left + 4, y + 28, { width: 150 });
+    doc.text(String(c.pieces ?? c.packageQty ?? "—"), left + 160, y + 28);
+    doc.text(txt(c.weight) || "—", left + 220, y + 28);
+    const pal = truthyMark(c.palletSlip);
+    doc.text(`Y [${pal === "X" ? "X" : " "}]   N [${pal === "X" ? " " : "X"}]`, left + 290, y + 28);
+    doc.text(txt(c.specialNotes) || "", left + 380, y + 28, { width: 168, height: 18 });
+    y += 56;
+
+    // Carrier information / commodity grid
+    drawBox(doc, left, y, usable, 78);
+    doc.font("Helvetica-Bold").fontSize(8).text("CARRIER INFORMATION", left + 4, y + 3);
+    doc.font("Helvetica-Bold").fontSize(6.5);
+    doc.text("HANDLING UNIT", left + 4, y + 16);
+    doc.text("QTY", left + 4, y + 26);
+    doc.text("TYPE", left + 40, y + 26);
+    doc.text("PACKAGE", left + 100, y + 16);
+    doc.text("QTY", left + 100, y + 26);
+    doc.text("TYPE", left + 140, y + 26);
+    doc.text("WEIGHT", left + 200, y + 16);
+    doc.text("H.M.(X)", left + 260, y + 16);
+    doc.text("COMMODITY DESCRIPTION", left + 310, y + 16);
+    doc.font("Helvetica").fontSize(9);
+    doc.text(String(c.handlingQty ?? c.pieces ?? ""), left + 4, y + 40);
+    doc.text(txt(c.handlingType) || "PLT", left + 40, y + 40);
+    doc.text(String(c.packageQty ?? c.pieces ?? ""), left + 100, y + 40);
+    doc.text(txt(c.packageType) || "PCS", left + 140, y + 40);
+    doc.text(txt(c.weight) || "", left + 200, y + 40);
+    doc.text(truthyMark(c.hazmat) || "", left + 270, y + 40);
+    doc.text(txt(c.commodity) || "—", left + 310, y + 40, { width: 240, height: 28 });
+    doc.font("Helvetica-Bold").fontSize(7).text("GRAND TOTAL", left + 4, y + 62);
+    doc.font("Helvetica").fontSize(8).text(
+        `TOTAL # PKGS: ${String(c.pieces ?? c.packageQty ?? "—")}    TOTAL WEIGHT: ${txt(c.weight) || "—"}`,
+        left + 80,
+        y + 62
+    );
+    y += 84;
+
+    // Special instructions + COD
+    drawBox(doc, left, y, usable * 0.65, 48);
+    doc.font("Helvetica-Bold").fontSize(7).text("ADDITIONAL SERVICES / SPECIAL INSTRUCTIONS", left + 4, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.specialInstructions) || txt(c.specialNotes) || "—", left + 4, y + 14, {
+        width: usable * 0.65 - 8,
+        height: 30,
+    });
+    drawBox(doc, left + usable * 0.65, y, usable * 0.35, 48);
+    doc.font("Helvetica-Bold").fontSize(7).text("COD AMOUNT $", left + usable * 0.65 + 4, y + 3);
+    doc.font("Helvetica").fontSize(10).text(money(c.codAmount) || txt(c.codAmount as string) || "", left + usable * 0.65 + 4, y + 16);
+    doc.font("Helvetica-Bold").fontSize(7).text("REMIT COD TO", left + usable * 0.65 + 4, y + 30);
+    doc.font("Helvetica").fontSize(7).text(txt(c.remittanceCodTo) || "", left + usable * 0.65 + 4, y + 38, {
+        width: usable * 0.35 - 8,
+    });
+    y += 54;
+
+    // Legal / certifications
+    doc.font("Helvetica").fontSize(6.5).fillColor("#222222");
+    doc.text(
+        "This is to certify that the above named materials are properly classified, described, packaged, marked and labeled, and are in proper condition for transportation according to the applicable regulations of the U.S. DOT.",
+        left,
+        y,
+        { width: usable / 2 - 6 }
+    );
+    doc.text(
+        "Carrier acknowledges receipt of packages and required placards. Carrier certifies emergency response information was made available and/or carrier has the U.S. DOT emergency response guidebook or equivalent documentation in the vehicle. Property described above is received in good order, except as noted.",
+        left + usable / 2,
+        y,
+        { width: usable / 2 - 2 }
+    );
+    y += 42;
+
+    // Trailer loaded / freight counted
+    drawBox(doc, left, y, usable, 36);
+    doc.font("Helvetica-Bold").fontSize(7).text("TRAILER LOADED", left + 4, y + 3);
+    doc.font("Helvetica").fontSize(8);
+    const loaded = String(c.trailerLoadedBy || "").toUpperCase();
+    doc.text(`[${loaded.includes("SHIPPER") ? "X" : " "}] BY SHIPPER    [${loaded.includes("DRIVER") ? "X" : " "}] BY DRIVER`, left + 4, y + 16);
+    doc.font("Helvetica-Bold").fontSize(7).text("FREIGHT COUNTED", left + 280, y + 3);
+    doc.font("Helvetica").fontSize(8);
+    const counted = String(c.freightCountedBy || "").toUpperCase();
+    doc.text(
+        `[${counted.includes("SHIPPER") ? "X" : " "}] BY SHIPPER  [${counted.includes("DRIVER") && counted.includes("PALLET") ? "X" : " "}] BY DRIVER/PALLETS  [${counted.includes("PIECE") ? "X" : " "}] BY DRIVER/PIECES`,
+        left + 280,
+        y + 16,
+        { width: 270 }
+    );
+    y += 42;
+
+    // Signatures
+    const sigH = 70;
+    drawBox(doc, left, y, usable / 3 - 2, sigH);
+    doc.font("Helvetica-Bold").fontSize(7).text("SHIPPER SIGNATURE / DATE", left + 4, y + 4);
+    doc.moveTo(left + 8, y + 40).lineTo(left + usable / 3 - 12, y + 40).stroke("#666");
+    doc.font("Helvetica").fontSize(7).text("DATE ______________", left + 8, y + 52);
+
+    drawBox(doc, left + usable / 3, y, usable / 3 - 2, sigH);
+    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER SIGNATURE / PICKUP DATE", left + usable / 3 + 4, y + 4);
+    doc.font("Helvetica").fontSize(8).text(txt(c.carrierName) || "", left + usable / 3 + 4, y + 16, { width: usable / 3 - 12 });
+    doc.moveTo(left + usable / 3 + 8, y + 40).lineTo(left + (usable * 2) / 3 - 12, y + 40).stroke("#666");
+    doc.font("Helvetica").fontSize(7).text("DATE ______________", left + usable / 3 + 8, y + 52);
+
+    drawBox(doc, left + (usable * 2) / 3, y, usable / 3, sigH);
+    doc.font("Helvetica-Bold").fontSize(7).text("RECEIVER (CONSIGNEE) SIGNATURE", left + (usable * 2) / 3 + 4, y + 4);
+    doc.font("Helvetica").fontSize(6).text(
+        "IMPORTANT: Property received in apparent good order, count and condition verified except as noted.",
+        left + (usable * 2) / 3 + 4,
+        y + 14,
+        { width: usable / 3 - 8 }
+    );
+    doc.moveTo(left + (usable * 2) / 3 + 8, y + 42).lineTo(left + usable - 8, y + 42).stroke("#666");
+    doc.font("Helvetica").fontSize(6).text("PRINT NAME / SIGNATURE / DATE", left + (usable * 2) / 3 + 8, y + 52);
+    y += sigH + 8;
+
+    drawBox(doc, left, y, usable, 36);
+    doc.font("Helvetica-Bold").fontSize(7).text("RECEIVING STAMP SPACE", left + 4, y + 4);
+    doc.font("Helvetica").fontSize(8).fillColor("#888888").text("(stamp here)", left + 4, y + 16);
+
+    doc.font("Helvetica").fontSize(6.5).fillColor("#666666");
+    doc.text(
+        `${GREEN_LOGISTICS_RC.legalName}  ·  MC# ${GREEN_LOGISTICS_RC.mc}  ·  ${GREEN_LOGISTICS_RC.addressLine1}, ${GREEN_LOGISTICS_RC.addressLine2}  ·  GreenOS Load Document`,
+        left,
+        772,
+        { width: usable, align: "center" }
+    );
+}
+
+/**
+ * Proof of Delivery — same Green Logistics header/contacts as BOL, delivery-focused.
+ */
+function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, version: number) {
+    const c = content;
+    const left = 28;
+    const usable = 556;
+    let y = 28;
+    const bolNo = txt(c.bolNumber) || txt(c.loadNumber) || "—";
+
+    doc.font("Helvetica-Bold").fontSize(12).fillColor("#111111").text("Proof of Delivery (POD)", left, y);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, left + 280, y, {
+        width: 160,
+        align: "right",
+    });
+    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(`Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`, left + 280, y + 12, {
+        width: 160,
+        align: "right",
+    });
+    y += 28;
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#111111");
+    doc.text(`BILL OF LADING / LOAD: ${bolNo}`, left, y);
+    doc.text(`DELIVERY DATE: ${txt(c.deliveryDate) || "______________"}`, left + 260, y);
+    doc.font("Helvetica").fontSize(8).text(`v${version}`, left + 500, y);
+    y += 16;
+
+    drawBox(doc, left, y, usable, 28);
+    doc.font("Helvetica-Bold").fontSize(7).text("BROKER GMAIL", left + 4, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 175 });
+    doc.font("Helvetica-Bold").fontSize(7).text("CUSTOMER EMAIL", left + 190, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.customerEmail) || "—", left + 190, y + 13, { width: 175 });
+    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER EMAIL", left + 380, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 380, y + 13, { width: 170 });
+    y += 34;
+
+    drawBox(doc, left, y, usable / 2 - 2, 90);
+    doc.font("Helvetica-Bold").fontSize(8).text("SHIPPED FROM", left + 4, y + 4);
+    doc.font("Helvetica").fontSize(9).text(txt(c.pickupAddress) || "—", left + 4, y + 18, { width: usable / 2 - 12, height: 40 });
+    doc.font("Helvetica").fontSize(8).text(`Pickup: ${txt(c.pickupDate) || "—"} ${txt(c.pickupTime) || ""}`, left + 4, y + 64);
+
+    drawBox(doc, left + usable / 2, y, usable / 2, 90);
+    doc.font("Helvetica-Bold").fontSize(8).text("DELIVERED TO", left + usable / 2 + 4, y + 4);
+    doc.font("Helvetica").fontSize(9).text(txt(c.deliveryAddress) || "—", left + usable / 2 + 4, y + 18, {
+        width: usable / 2 - 12,
+        height: 40,
+    });
+    doc.font("Helvetica").fontSize(8).text(
+        `Delivery: ${txt(c.deliveryDate) || "—"} ${txt(c.deliveryTime) || ""}`,
+        left + usable / 2 + 4,
+        y + 64
+    );
+    y += 96;
+
+    drawBox(doc, left, y, usable, 70);
+    doc.font("Helvetica-Bold").fontSize(8).text("CARRIER", left + 4, y + 4);
+    doc.font("Helvetica").fontSize(9).text(txt(c.carrierName) || "—", left + 4, y + 16);
+    doc.text(`MC: ${txt(c.carrierMc) || "—"}   Truck: ${txt(c.truckNumber) || "—"}   Trailer#: ${txt(c.trailerNumber) || "—"}`, left + 4, y + 32);
+    doc.text(`Driver: ${txt(c.driverName) || "—"}   Phone: ${txt(c.driverPhone) || txt(c.carrierPhone) || "—"}`, left + 4, y + 48);
+    y += 78;
+
+    drawBox(doc, left, y, usable, 70);
+    doc.font("Helvetica-Bold").fontSize(8).text("COMMODITY / PIECES / WEIGHT", left + 4, y + 4);
+    doc.font("Helvetica").fontSize(9);
+    doc.text(`Commodity: ${txt(c.commodity) || "—"}`, left + 4, y + 18, { width: usable - 8 });
+    doc.text(`# Pkgs: ${String(c.pieces ?? "—")}    Weight: ${txt(c.weight) || "—"}    Ref: ${txt(c.referenceNumber) || "—"}`, left + 4, y + 36);
+    doc.text(`Customer: ${txt(c.customerName) || "—"}`, left + 4, y + 52);
+    y += 78;
+
+    drawBox(doc, left, y, usable, 56);
+    doc.font("Helvetica-Bold").fontSize(8).text("DELIVERY CONDITION / EXCEPTIONS", left + 4, y + 4);
+    const good = c.deliveredInGoodOrder == null || truthyMark(c.deliveredInGoodOrder) === "X";
+    doc.font("Helvetica").fontSize(9);
+    doc.text(`[${good ? "X" : " "}] Received in apparent good order, count and condition`, left + 4, y + 18);
+    doc.text(`[${!good ? "X" : " "}] Exceptions noted below`, left + 4, y + 32);
+    doc.text(txt(c.exceptionsNotes) || txt(c.deliveryNote) || "", left + 250, y + 18, { width: 290, height: 32 });
+    y += 64;
 
     drawBox(doc, left, y, usable, 48);
-    fieldRow(doc, "BROKER GMAIL:", txt(c.brokerEmail), left + 8, y + 6, 170);
-    fieldRow(doc, "CUSTOMER EMAIL:", txt(c.customerEmail), left + 190, y + 6, 170);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 370, y + 6, 150);
-    fieldRow(doc, "CUSTOMER:", txt(c.customerName), left + 8, y + 30, 250);
-    fieldRow(doc, "BROKER:", txt(c.brokerName), left + 270, y + 30, 240);
-    y += 58;
-
-    drawBox(doc, left, y, usable, 56);
-    fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 6, 200);
-    fieldRow(doc, "MC#", txt(c.carrierMc), left + 220, y + 6, 90);
-    fieldRow(doc, "DOT#", txt(c.carrierDot), left + 320, y + 6, 90);
-    fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 420, y + 6, 90);
-    fieldRow(doc, "DRIVER:", txt(c.driverName), left + 8, y + 32, 160);
-    fieldRow(doc, "TRUCK:", txt(c.truckNumber), left + 180, y + 32, 100);
-    fieldRow(doc, "TRAILER:", txt(c.trailerNumber), left + 300, y + 32, 100);
-    y += 68;
-
-    drawBox(doc, left, y, usable / 2 - 4, 80);
-    doc.font("Helvetica-Bold").fontSize(9).text("SHIPPER / ORIGIN", left + 8, y + 6);
-    doc.font("Helvetica").fontSize(10).text(txt(c.pickupAddress) || "—", left + 8, y + 20, {
-        width: usable / 2 - 20,
+    doc.font("Helvetica-Bold").fontSize(8).text("SPECIAL NOTES / INSTRUCTIONS", left + 4, y + 4);
+    doc.font("Helvetica").fontSize(8).text(txt(c.specialInstructions) || txt(c.specialNotes) || "—", left + 4, y + 16, {
+        width: usable - 8,
+        height: 28,
     });
-    fieldRow(doc, "DATE/TIME:", [txt(c.pickupDate), txt(c.pickupTime)].filter(Boolean).join(" ") || txt(c.pickupWindow), left + 8, y + 52, usable / 2 - 24);
+    y += 56;
 
-    const dx = left + usable / 2 + 4;
-    drawBox(doc, dx, y, usable / 2 - 4, 80);
-    doc.font("Helvetica-Bold").fontSize(9).text("CONSIGNEE / DESTINATION", dx + 8, y + 6);
-    doc.font("Helvetica").fontSize(10).text(txt(c.deliveryAddress) || "—", dx + 8, y + 20, {
-        width: usable / 2 - 20,
-    });
-    fieldRow(doc, "DATE/TIME:", [txt(c.deliveryDate), txt(c.deliveryTime)].filter(Boolean).join(" ") || txt(c.deliveryWindow), dx + 8, y + 52, usable / 2 - 24);
-    y += 92;
+    drawBox(doc, left, y, usable / 2 - 2, 90);
+    doc.font("Helvetica-Bold").fontSize(8).text("RECEIVER (CONSIGNEE) SIGNATURE", left + 4, y + 4);
+    doc.font("Helvetica").fontSize(8).text(`Print name: ${txt(c.receiverName) || "________________"}`, left + 4, y + 22);
+    doc.moveTo(left + 8, y + 55).lineTo(left + usable / 2 - 16, y + 55).stroke("#666");
+    doc.font("Helvetica").fontSize(7).text("SIGNATURE", left + 8, y + 60);
+    doc.text("DATE ______________", left + 160, y + 60);
 
-    drawBox(doc, left, y, usable, 56);
-    fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 6, 220);
-    fieldRow(doc, "WEIGHT:", txt(c.weight), left + 240, y + 6, 100);
-    fieldRow(doc, "PIECES:", c.pieces != null ? String(c.pieces) : "", left + 360, y + 6, 80);
-    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 8, y + 32, 220);
-    fieldRow(doc, "REF:", txt(c.referenceNumber), left + 240, y + 32, 250);
-    y += 68;
+    drawBox(doc, left + usable / 2, y, usable / 2, 90);
+    doc.font("Helvetica-Bold").fontSize(8).text("DRIVER / CARRIER SIGNATURE", left + usable / 2 + 4, y + 4);
+    doc.font("Helvetica").fontSize(8).text(txt(c.driverName) || txt(c.carrierName) || "", left + usable / 2 + 4, y + 22);
+    doc.moveTo(left + usable / 2 + 8, y + 55).lineTo(left + usable - 8, y + 55).stroke("#666");
+    doc.font("Helvetica").fontSize(7).text("SIGNATURE", left + usable / 2 + 8, y + 60);
+    doc.text("DATE ______________", left + usable / 2 + 160, y + 60);
+    y += 100;
 
-    if (txt(c.specialInstructions) || txt(c.specialNotes)) {
-        drawBox(doc, left, y, usable, 50);
-        doc.font("Helvetica-Bold").fontSize(8).text("SPECIAL INSTRUCTIONS:", left + 8, y + 6);
-        doc.font("Helvetica").fontSize(9).text(
-            txt(c.specialNotes) || txt(c.specialInstructions),
-            left + 8,
-            y + 18,
-            { width: usable - 16, height: 28 }
-        );
-        y += 62;
-    }
+    drawBox(doc, left, y, usable, 50);
+    doc.font("Helvetica-Bold").fontSize(7).text("RECEIVING STAMP SPACE", left + 4, y + 4);
+    doc.font("Helvetica").fontSize(8).fillColor("#888888").text("(stamp / photo POD reference)", left + 4, y + 18);
 
-    drawBox(doc, left, y, usable / 2 - 4, 70);
-    doc.font("Helvetica-Bold").fontSize(8).text("SHIPPER SIGNATURE:", left + 8, y + 8);
-    doc.moveTo(left + 8, y + 48).lineTo(left + usable / 2 - 16, y + 48).stroke("#666666");
-    doc.font("Helvetica").fontSize(7).text("DATE:", left + 8, y + 54);
-
-    drawBox(doc, left + usable / 2 + 4, y, usable / 2 - 4, 70);
-    doc.font("Helvetica-Bold").fontSize(8).text("CARRIER / DRIVER SIGNATURE:", left + usable / 2 + 12, y + 8);
-    doc.moveTo(left + usable / 2 + 12, y + 48).lineTo(left + usable - 8, y + 48).stroke("#666666");
-    doc.font("Helvetica").fontSize(7).text("DATE:", left + usable / 2 + 12, y + 54);
-
-    doc.font("Helvetica").fontSize(7).fillColor("#666666");
-    doc.text(`${GREEN_LOGISTICS_RC.legalName}  ·  BOL belongs to Load ${txt(c.loadNumber) || ""}  ·  GreenOS`, left, 760, {
-        width: usable,
-        align: "center",
-    });
+    doc.font("Helvetica").fontSize(6.5).fillColor("#666666");
+    doc.text(
+        `${GREEN_LOGISTICS_RC.legalName}  ·  Clear POD photo required within 24 hours  ·  GreenOS Load Document`,
+        left,
+        772,
+        { width: usable, align: "center" }
+    );
 }
 
 /**
@@ -406,7 +685,7 @@ export async function generateLoadDocumentPdf(input: {
     const c = input.content || {};
 
     await new Promise<void>((resolve, reject) => {
-        const doc = new PDFDocument({ margin: 40, size: "LETTER" });
+        const doc = new PDFDocument({ margin: 28, size: "LETTER" });
         const stream = fs.createWriteStream(dest);
         doc.pipe(stream);
 
@@ -414,6 +693,8 @@ export async function generateLoadDocumentPdf(input: {
             renderRateConfirmationPdf(doc, c, input.version);
         } else if (input.docType === "BOL") {
             renderBolPdf(doc, c, input.version);
+        } else if (input.docType === "POD") {
+            renderPodPdf(doc, c, input.version);
         } else {
             doc.fontSize(18).font("Helvetica-Bold").text("Green Logistics", { align: "left" });
             doc.fontSize(11).font("Helvetica").fillColor("#166534").text("GreenOS TMS", { align: "left" });

@@ -363,6 +363,15 @@ window.GreenOSModules["dispatch"] = {
           }, 40);
           return;
         }
+        if (action === "upload_pod" || action === "generate_pod") {
+          self._tab = "documents";
+          self.renderDetails(body, data);
+          setTimeout(function () {
+            var mainEl = body.querySelector("#load-main");
+            if (mainEl) self.showPodWizard(mainEl, id, data, "GENERATED");
+          }, 40);
+          return;
+        }
         try {
           btn.disabled = true;
           await self.api("/" + encodeURIComponent(id) + "/actions/" + encodeURIComponent(action), {
@@ -840,6 +849,10 @@ window.GreenOSModules["dispatch"] = {
           self.showBolWizard(main, id, data, "GENERATED");
           return;
         }
+        if (docType === "POD") {
+          self.showPodWizard(main, id, data, "GENERATED");
+          return;
+        }
         try {
           btn.disabled = true;
           var row = await self.api(
@@ -992,6 +1005,10 @@ window.GreenOSModules["dispatch"] = {
     }
     if (docType === "BOL") {
       this.showBolWizard(main, id, data, "BROKER_EDITED");
+      return;
+    }
+    if (docType === "POD") {
+      this.showPodWizard(main, id, data, "BROKER_EDITED");
       return;
     }
     var self = this;
@@ -1288,7 +1305,7 @@ window.GreenOSModules["dispatch"] = {
     });
   },
 
-  /** BOL wizard — same email contacts as Rate Con, auto-filled from Load. */
+  /** BOL wizard — Master Bill of Lading fields matching company BOL.pdf. */
   showBolWizard(main, id, data, changeReason) {
     var self = this;
     var g = data.general || {};
@@ -1305,35 +1322,64 @@ window.GreenOSModules["dispatch"] = {
       if (!obj) return "";
       return [obj.city, obj.state, obj.zip].filter(Boolean).join(", ");
     }
+    function dt(d) {
+      if (!d) return "";
+      try {
+        return new Date(d).toLocaleDateString();
+      } catch (e) {
+        return "";
+      }
+    }
+    var pickupSrc = (g.pickup && (g.pickup.opsAt || g.pickup.from)) || null;
+    var deliverySrc = (g.delivery && (g.delivery.opsAt || g.delivery.from)) || null;
 
     box.innerHTML =
       "<h3>Generate Bill of Lading</h3>" +
-      '<p class="gos-muted">Emails (Broker Gmail / Customer / Carrier) are required on BOL. Edit if needed, then generate.</p>' +
+      '<p class="gos-muted">Layout matches Green Logistics Master BOL (SHIPS FROM / SHIPS TO / Carrier / Order / Signatures). Emails included.</p>' +
       '<div class="load-form-grid">' +
-      '<label>Load No <input id="bol-load" value="' + self.esc(g.loadNumber || "") + '" readonly></label>' +
-      '<label>Shipment <input id="bol-ship" value="' + self.esc(g.shipmentNumber || "") + '" readonly></label>' +
+      '<label>BOL / Load No <input id="bol-no" value="' + self.esc(g.loadNumber || "") + '"></label>' +
+      '<label>Pickup date <input id="bol-pdate" value="' + self.esc(dt(pickupSrc)) + '"></label>' +
       '<label>Broker Gmail <input id="bol-broker-email" value="' +
       self.esc(contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "") +
       '" readonly></label>' +
-      '<label>Customer name <input id="bol-customer" value="' + self.esc(g.customer || "") + '"></label>' +
       '<label>Customer email <input id="bol-customer-email" type="email" value="' +
       self.esc(contacts.customerEmail || g.customerEmail || "") +
       '"></label>' +
-      '<label>Carrier <input id="bol-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
       '<label>Carrier email * <input id="bol-carrier-email" type="email" value="' +
       self.esc(c.carrierEmail || contacts.carrierEmail || "") +
       '"></label>' +
+      '<label>Customer <input id="bol-customer" value="' + self.esc(g.customer || "") + '"></label>' +
+      '<label class="full">SHIPS FROM (origin) <input id="bol-origin" value="' + self.esc(place(g.pickup)) + '"></label>' +
+      '<label>Shipper ID No. <input id="bol-shipper-id" value=""></label>' +
+      '<label>Seal No. <input id="bol-seal" value=""></label>' +
+      '<label>FOB <input id="bol-fob" value=""></label>' +
+      '<label>Freight terms <select id="bol-terms">' +
+      '<option value="PREPAID">PREPAID</option>' +
+      '<option value="COLLECT">COLLECT</option>' +
+      '<option value="3RD_PARTY">3RD PARTY</option>' +
+      "</select></label>" +
+      '<label class="full">SHIPS TO (destination) <input id="bol-dest" value="' + self.esc(place(g.delivery)) + '"></label>' +
+      '<label>Consignee ID No. <input id="bol-consignee-id" value=""></label>' +
+      '<label>Delivery contact <input id="bol-dcontact" value=""></label>' +
+      '<label>Carrier <input id="bol-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
       '<label>MC# <input id="bol-mc" value="' + self.esc(c.mc || "") + '"></label>' +
-      '<label>DOT# <input id="bol-dot" value="' + self.esc(c.dot || "") + '"></label>' +
-      '<label>Driver <input id="bol-driver" value="' + self.esc(c.driverName || "") + '"></label>' +
       '<label>Truck <input id="bol-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
-      '<label>Trailer <input id="bol-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
-      '<label class="full">Origin <input id="bol-origin" value="' + self.esc(place(g.pickup)) + '"></label>' +
-      '<label class="full">Destination <input id="bol-dest" value="' + self.esc(place(g.delivery)) + '"></label>' +
-      '<label>Commodity <input id="bol-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
+      '<label>Trailer# <input id="bol-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
+      '<label>VIN# <input id="bol-vin" value=""></label>' +
+      '<label>Carrier / driver contact <input id="bol-cphone" value="' + self.esc(c.driverName || "") + '"></label>' +
+      '<label class="full">Third party freight bills to <input id="bol-third" value="' + self.esc(g.customer || "") + '"></label>' +
+      '<label>Customer order no. <input id="bol-order" value="' + self.esc(g.referenceNumber || "") + '"></label>' +
+      '<label># Pkgs <input id="bol-pkgs" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
       '<label>Weight <input id="bol-weight" value="' + self.esc(g.weight || "") + '"></label>' +
-      '<label>Equipment <input id="bol-equip" value="' + self.esc(g.equipment || "") + '"></label>' +
-      '<label>Reference <input id="bol-ref" value="' + self.esc(g.referenceNumber || "") + '"></label>' +
+      '<label>Pallet/Slip <select id="bol-pallet"><option value="N">N</option><option value="Y">Y</option></select></label>' +
+      '<label>Handling type <input id="bol-htype" value="PLT"></label>' +
+      '<label>Package type <input id="bol-ptype" value="PCS"></label>' +
+      '<label>Hazmat <select id="bol-hm"><option value="">No</option><option value="X">Yes (X)</option></select></label>' +
+      '<label class="full">Commodity description <input id="bol-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
+      '<label>COD amount $ <input id="bol-cod" value=""></label>' +
+      '<label>Remit COD to <input id="bol-cod-to" value=""></label>' +
+      '<label>Trailer loaded by <select id="bol-loaded"><option value="">—</option><option value="SHIPPER">BY SHIPPER</option><option value="DRIVER">BY DRIVER</option></select></label>' +
+      '<label>Freight counted by <select id="bol-counted"><option value="">—</option><option value="SHIPPER">BY SHIPPER</option><option value="DRIVER_PALLETS">BY DRIVER/PALLETS</option><option value="DRIVER_PIECES">BY DRIVER/PIECES</option></select></label>' +
       '<label class="full">Special instructions <textarea id="bol-notes" rows="3">' +
       self.esc(g.specialInstructions || "") +
       "</textarea></label>" +
@@ -1361,7 +1407,7 @@ window.GreenOSModules["dispatch"] = {
       var btnGen = box.querySelector("#bol-generate");
       try {
         if (btnGen) btnGen.disabled = true;
-        if (statusEl) statusEl.textContent = "Saving emails & load…";
+        if (statusEl) statusEl.textContent = "Saving load…";
         await self.api("/" + encodeURIComponent(id), {
           method: "PATCH",
           body: JSON.stringify({
@@ -1370,21 +1416,22 @@ window.GreenOSModules["dispatch"] = {
             carrierName: box.querySelector("#bol-carrier").value || null,
             carrierEmail: carrierEmail,
             carrierMc: box.querySelector("#bol-mc").value || null,
-            carrierDot: box.querySelector("#bol-dot").value || null,
-            driverName: box.querySelector("#bol-driver").value || null,
             truckNumber: box.querySelector("#bol-truck").value || null,
             trailerNumber: box.querySelector("#bol-trailer").value || null,
             commodity: box.querySelector("#bol-commodity").value || null,
             weight: box.querySelector("#bol-weight").value || null,
-            equipment: box.querySelector("#bol-equip").value || null,
-            referenceNumber: box.querySelector("#bol-ref").value || null,
+            pieces: box.querySelector("#bol-pkgs").value || null,
+            referenceNumber: box.querySelector("#bol-order").value || null,
             specialInstructions: box.querySelector("#bol-notes").value || null,
           }),
         });
-        if (statusEl) statusEl.textContent = "Generating BOL PDF…";
+        if (statusEl) statusEl.textContent = "Generating Master BOL PDF…";
         var content = {
-          loadNumber: box.querySelector("#bol-load").value,
-          shipmentNumber: box.querySelector("#bol-ship").value,
+          loadNumber: g.loadNumber,
+          shipmentNumber: g.shipmentNumber,
+          bolNumber: box.querySelector("#bol-no").value,
+          pickupDate: box.querySelector("#bol-pdate").value,
+          deliveryDate: dt(deliverySrc),
           brokerEmail: box.querySelector("#bol-broker-email").value,
           brokerName: (g.broker && g.broker.name) || "",
           customerName: box.querySelector("#bol-customer").value,
@@ -1392,16 +1439,34 @@ window.GreenOSModules["dispatch"] = {
           carrierName: box.querySelector("#bol-carrier").value,
           carrierEmail: carrierEmail,
           carrierMc: box.querySelector("#bol-mc").value,
-          carrierDot: box.querySelector("#bol-dot").value,
-          driverName: box.querySelector("#bol-driver").value,
+          carrierPhone: box.querySelector("#bol-cphone").value,
           truckNumber: box.querySelector("#bol-truck").value,
           trailerNumber: box.querySelector("#bol-trailer").value,
+          vinNumber: box.querySelector("#bol-vin").value,
           pickupAddress: box.querySelector("#bol-origin").value,
           deliveryAddress: box.querySelector("#bol-dest").value,
-          commodity: box.querySelector("#bol-commodity").value,
+          shipperIdNo: box.querySelector("#bol-shipper-id").value,
+          consigneeIdNo: box.querySelector("#bol-consignee-id").value,
+          sealNo: box.querySelector("#bol-seal").value,
+          fob: box.querySelector("#bol-fob").value,
+          freightTerms: box.querySelector("#bol-terms").value,
+          thirdPartyBillTo: box.querySelector("#bol-third").value,
+          deliveryContact: box.querySelector("#bol-dcontact").value,
+          customerOrderNo: box.querySelector("#bol-order").value,
+          referenceNumber: box.querySelector("#bol-order").value,
+          pieces: box.querySelector("#bol-pkgs").value,
+          packageQty: box.querySelector("#bol-pkgs").value,
+          handlingQty: box.querySelector("#bol-pkgs").value,
           weight: box.querySelector("#bol-weight").value,
-          equipment: box.querySelector("#bol-equip").value,
-          referenceNumber: box.querySelector("#bol-ref").value,
+          palletSlip: box.querySelector("#bol-pallet").value === "Y",
+          handlingType: box.querySelector("#bol-htype").value,
+          packageType: box.querySelector("#bol-ptype").value,
+          hazmat: box.querySelector("#bol-hm").value === "X",
+          commodity: box.querySelector("#bol-commodity").value,
+          codAmount: box.querySelector("#bol-cod").value,
+          remittanceCodTo: box.querySelector("#bol-cod-to").value,
+          trailerLoadedBy: box.querySelector("#bol-loaded").value,
+          freightCountedBy: box.querySelector("#bol-counted").value,
           specialInstructions: box.querySelector("#bol-notes").value,
           specialNotes: box.querySelector("#bol-notes").value,
         };
@@ -1409,6 +1474,171 @@ window.GreenOSModules["dispatch"] = {
           (changeReason || "GENERATED") === "GENERATED"
             ? "/" + encodeURIComponent(id) + "/documents/BOL/generate"
             : "/" + encodeURIComponent(id) + "/documents/BOL/edit";
+        var row = await self.api(endpoint, {
+          method: "POST",
+          body: JSON.stringify({ changeReason: changeReason || "GENERATED", content: content }),
+        });
+        if (statusEl) statusEl.textContent = "Done — opening PDF…";
+        await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
+        if (row && row.documentId) {
+          try {
+            await self.openPdf(
+              "/api/loads/" +
+                encodeURIComponent(id) +
+                "/documents/" +
+                encodeURIComponent(row.documentId) +
+                "/download",
+              true
+            );
+          } catch (e) {}
+        }
+      } catch (err) {
+        alert(err.message || err);
+        if (btnGen) btnGen.disabled = false;
+        if (statusEl) statusEl.textContent = "";
+      }
+    });
+  },
+
+  /** POD wizard — Proof of Delivery matching Green Logistics BOL style. */
+  showPodWizard(main, id, data, changeReason) {
+    var self = this;
+    var g = data.general || {};
+    var c = data.carrier || {};
+    var contacts = data.contacts || {};
+    var box = main.querySelector("#load-doc-editor");
+    if (!box) {
+      main.insertAdjacentHTML("beforeend", '<div id="load-doc-editor" class="load-edit-panel"></div>');
+      box = main.querySelector("#load-doc-editor");
+    }
+    box.classList.remove("hidden");
+
+    function place(obj) {
+      if (!obj) return "";
+      return [obj.city, obj.state, obj.zip].filter(Boolean).join(", ");
+    }
+    function dt(d) {
+      if (!d) return "";
+      try {
+        return new Date(d).toLocaleDateString();
+      } catch (e) {
+        return "";
+      }
+    }
+    var pickupSrc = (g.pickup && (g.pickup.opsAt || g.pickup.from)) || null;
+    var deliverySrc = (g.delivery && (g.delivery.opsAt || g.delivery.from)) || null;
+
+    box.innerHTML =
+      "<h3>Generate Proof of Delivery (POD)</h3>" +
+      '<p class="gos-muted">Same company header / emails / carrier blocks as BOL — delivery receipt for receiver signature.</p>' +
+      '<div class="load-form-grid">' +
+      '<label>Load / BOL No <input id="pod-no" value="' + self.esc(g.loadNumber || "") + '"></label>' +
+      '<label>Delivery date <input id="pod-ddate" value="' + self.esc(dt(deliverySrc) || new Date().toLocaleDateString()) + '"></label>' +
+      '<label>Broker Gmail <input id="pod-broker-email" value="' +
+      self.esc(contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "") +
+      '" readonly></label>' +
+      '<label>Customer email <input id="pod-customer-email" type="email" value="' +
+      self.esc(contacts.customerEmail || g.customerEmail || "") +
+      '"></label>' +
+      '<label>Carrier email * <input id="pod-carrier-email" type="email" value="' +
+      self.esc(c.carrierEmail || contacts.carrierEmail || "") +
+      '"></label>' +
+      '<label>Customer <input id="pod-customer" value="' + self.esc(g.customer || "") + '"></label>' +
+      '<label class="full">Shipped from <input id="pod-origin" value="' + self.esc(place(g.pickup)) + '"></label>' +
+      '<label>Pickup date <input id="pod-pdate" value="' + self.esc(dt(pickupSrc)) + '"></label>' +
+      '<label class="full">Delivered to <input id="pod-dest" value="' + self.esc(place(g.delivery)) + '"></label>' +
+      '<label>Carrier <input id="pod-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
+      '<label>MC# <input id="pod-mc" value="' + self.esc(c.mc || "") + '"></label>' +
+      '<label>Driver <input id="pod-driver" value="' + self.esc(c.driverName || "") + '"></label>' +
+      '<label>Truck <input id="pod-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
+      '<label>Trailer# <input id="pod-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
+      '<label>Commodity <input id="pod-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
+      '<label># Pkgs <input id="pod-pkgs" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
+      '<label>Weight <input id="pod-weight" value="' + self.esc(g.weight || "") + '"></label>' +
+      '<label>Reference <input id="pod-ref" value="' + self.esc(g.referenceNumber || "") + '"></label>' +
+      '<label>Receiver print name <input id="pod-receiver" value=""></label>' +
+      '<label>Condition <select id="pod-good"><option value="yes">Good order</option><option value="no">Exceptions noted</option></select></label>' +
+      '<label class="full">Exceptions / delivery notes <textarea id="pod-exceptions" rows="2"></textarea></label>' +
+      '<label class="full">Special notes <textarea id="pod-notes" rows="2">' +
+      self.esc(g.specialInstructions || "") +
+      "</textarea></label>" +
+      "</div>" +
+      '<div class="load-actions" style="margin-top:0.75rem">' +
+      '<button type="button" class="btn-primary" id="pod-generate">Save &amp; Generate POD PDF</button>' +
+      '<button type="button" class="btn-secondary" id="pod-cancel">Cancel</button>' +
+      "</div>" +
+      '<p id="pod-status" class="gos-muted" style="margin-top:0.5rem"></p>';
+
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+    box.querySelector("#pod-cancel")?.addEventListener("click", function () {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+    });
+
+    box.querySelector("#pod-generate")?.addEventListener("click", async function () {
+      var carrierEmail = (box.querySelector("#pod-carrier-email").value || "").trim();
+      if (!carrierEmail) {
+        alert("Carrier email is required on POD.");
+        box.querySelector("#pod-carrier-email").focus();
+        return;
+      }
+      var statusEl = box.querySelector("#pod-status");
+      var btnGen = box.querySelector("#pod-generate");
+      try {
+        if (btnGen) btnGen.disabled = true;
+        if (statusEl) statusEl.textContent = "Saving load…";
+        await self.api("/" + encodeURIComponent(id), {
+          method: "PATCH",
+          body: JSON.stringify({
+            customerName: box.querySelector("#pod-customer").value || null,
+            customerEmail: box.querySelector("#pod-customer-email").value || null,
+            carrierName: box.querySelector("#pod-carrier").value || null,
+            carrierEmail: carrierEmail,
+            carrierMc: box.querySelector("#pod-mc").value || null,
+            driverName: box.querySelector("#pod-driver").value || null,
+            truckNumber: box.querySelector("#pod-truck").value || null,
+            trailerNumber: box.querySelector("#pod-trailer").value || null,
+            commodity: box.querySelector("#pod-commodity").value || null,
+            weight: box.querySelector("#pod-weight").value || null,
+            pieces: box.querySelector("#pod-pkgs").value || null,
+            referenceNumber: box.querySelector("#pod-ref").value || null,
+            specialInstructions: box.querySelector("#pod-notes").value || null,
+            carrierNotes: box.querySelector("#pod-exceptions").value || null,
+          }),
+        });
+        if (statusEl) statusEl.textContent = "Generating POD PDF…";
+        var content = {
+          loadNumber: g.loadNumber,
+          shipmentNumber: g.shipmentNumber,
+          bolNumber: box.querySelector("#pod-no").value,
+          brokerEmail: box.querySelector("#pod-broker-email").value,
+          customerName: box.querySelector("#pod-customer").value,
+          customerEmail: box.querySelector("#pod-customer-email").value,
+          carrierName: box.querySelector("#pod-carrier").value,
+          carrierEmail: carrierEmail,
+          carrierMc: box.querySelector("#pod-mc").value,
+          driverName: box.querySelector("#pod-driver").value,
+          truckNumber: box.querySelector("#pod-truck").value,
+          trailerNumber: box.querySelector("#pod-trailer").value,
+          pickupAddress: box.querySelector("#pod-origin").value,
+          pickupDate: box.querySelector("#pod-pdate").value,
+          deliveryAddress: box.querySelector("#pod-dest").value,
+          deliveryDate: box.querySelector("#pod-ddate").value,
+          commodity: box.querySelector("#pod-commodity").value,
+          pieces: box.querySelector("#pod-pkgs").value,
+          weight: box.querySelector("#pod-weight").value,
+          referenceNumber: box.querySelector("#pod-ref").value,
+          receiverName: box.querySelector("#pod-receiver").value,
+          deliveredInGoodOrder: box.querySelector("#pod-good").value === "yes",
+          exceptionsNotes: box.querySelector("#pod-exceptions").value,
+          deliveryNote: box.querySelector("#pod-exceptions").value,
+          specialInstructions: box.querySelector("#pod-notes").value,
+          specialNotes: box.querySelector("#pod-notes").value,
+        };
+        var endpoint =
+          (changeReason || "GENERATED") === "GENERATED"
+            ? "/" + encodeURIComponent(id) + "/documents/POD/generate"
+            : "/" + encodeURIComponent(id) + "/documents/POD/edit";
         var row = await self.api(endpoint, {
           method: "POST",
           body: JSON.stringify({ changeReason: changeReason || "GENERATED", content: content }),
