@@ -246,12 +246,25 @@ window.GreenOSModules["dispatch"] = {
       "CARRIER_PAYMENT",
       "CLOSED",
     ];
+    var lifeLabels = {
+      LOAD_CREATED: "LOAD CREATED",
+      CARRIER_ASSIGNED: "CARRIER ASSIGNED",
+      RATE_CON_GENERATED: "RATE CON GENERATED",
+      CARRIER_ACCEPTED: "CARRIER ACCEPTED",
+      PICKUP: "PICKUP",
+      IN_TRANSIT: "IN ROAD",
+      DELIVERED: "DELIVERED",
+      POD_UPLOADED: "POD UPLOADED",
+      CUSTOMER_INVOICE: "CUSTOMER INVOICE",
+      CARRIER_PAYMENT: "CARRIER PAYMENT",
+      CLOSED: "CLOSED",
+    };
     var cur = String((data.identity && data.identity.status) || "").toUpperCase();
     var curIdx = lifecycle.indexOf(cur);
     var lifeHtml = lifecycle
       .map(function (st, i) {
         var cls = i < curIdx ? "is-done" : i === curIdx ? "is-active" : "";
-        return '<li class="' + cls + '">' + self.esc(st.replace(/_/g, " ")) + "</li>";
+        return '<li class="' + cls + '">' + self.esc(lifeLabels[st] || st.replace(/_/g, " ")) + "</li>";
       })
       .join("");
 

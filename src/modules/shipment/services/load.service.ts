@@ -306,7 +306,7 @@ export class LoadService {
                 { id: "generate_rate_con", label: "Generate Rate Confirmation", docType: "RATE_CONFIRMATION" },
                 { id: "generate_bol", label: "Generate BOL", docType: "BOL" },
                 { id: "mark_pickup", label: "Mark Loaded / Pickup", status: "PICKUP" },
-                { id: "mark_transit", label: "Mark In Transit", status: "IN_TRANSIT" },
+                { id: "mark_transit", label: "Mark In Road", status: "IN_TRANSIT" },
                 { id: "mark_delivered", label: "Mark Delivered", status: "DELIVERED" },
                 { id: "upload_pod", label: "Generate POD", docType: "POD" },
                 { id: "create_invoice", label: "Create Invoice", docType: "CUSTOMER_INVOICE" },
