@@ -94,7 +94,35 @@ export type LoadDocumentContent = {
     deliveredInGoodOrder?: boolean | string | null;
     exceptionsNotes?: string | null;
     receiverName?: string | null;
+    /** Customer Invoice (matches Green Logistics INVOICE template). */
+    invoiceNumber?: string | null;
+    invoiceDate?: string | null;
+    billToName?: string | null;
+    billToEmail?: string | null;
+    billToPhone?: string | null;
+    billToAddress?: string | null;
+    invoiceDescription?: string | null;
+    invoiceHours?: string | number | null;
+    invoiceRatePerHour?: string | number | null;
+    invoiceLineTotal?: string | number | null;
+    invoiceSubtotal?: string | number | null;
+    taxRate?: string | number | null;
+    taxAmount?: string | number | null;
+    totalAmountDue?: string | number | null;
+    paymentTerms?: string | null;
+    invoiceTerms?: string | null;
+    sendPaymentTo?: string | null;
 };
+
+/** Remittance block from company invoice template. */
+export const GREEN_LOGISTICS_INVOICE_PAY = {
+    bankName: "BANK OF AMERICA",
+    addressLine1: "121 FROG HOLLOW RD",
+    addressLine2: "SOUTHAMPTON PA 18966",
+};
+
+export const DEFAULT_INVOICE_TERMS =
+    "Payment is due per the terms stated on this invoice. Please reference Load # on all remittances. Questions: info@greengrouplogistics.com or greenlogisticsllc20@gmail.com.";
 
 function money(v: string | number | null | undefined): string {
     if (v == null || v === "") return "";
@@ -666,6 +694,145 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
 }
 
 /**
+ * Customer Invoice — layout aligned with Green Logistics INVOICE# template
+ * (Invoice Date / Load# / From / Bill To / line table / totals / Send Payment To).
+ */
+function renderCustomerInvoicePdf(
+    doc: PDFKit.PDFDocument,
+    content: LoadDocumentContent,
+    version: number
+) {
+    const c = content;
+    const left = 40;
+    const usable = 532;
+    let y = 36;
+
+    const invNo = txt(c.invoiceNumber) || txt(c.loadNumber) || "—";
+    const hours = parseFloat(String(c.invoiceHours ?? "1")) || 1;
+    const rate =
+        parseFloat(String(c.invoiceRatePerHour ?? c.customerRate ?? "").replace(/[^0-9.-]/g, "")) || 0;
+    const lineTotal =
+        parseFloat(String(c.invoiceLineTotal ?? "").replace(/[^0-9.-]/g, "")) || hours * rate;
+    const subtotal =
+        parseFloat(String(c.invoiceSubtotal ?? "").replace(/[^0-9.-]/g, "")) || lineTotal;
+    const taxRatePct =
+        parseFloat(String(c.taxRate ?? "0").replace(/[^0-9.-]/g, "")) || 0;
+    const taxAmt =
+        parseFloat(String(c.taxAmount ?? "").replace(/[^0-9.-]/g, "")) ||
+        (subtotal * taxRatePct) / 100;
+    const due =
+        parseFloat(String(c.totalAmountDue ?? "").replace(/[^0-9.-]/g, "")) || subtotal + taxAmt;
+
+    doc.font("Helvetica-Bold").fontSize(18).fillColor("#0f3d1f").text("INVOICE", left, y);
+    doc.font("Helvetica-Bold").fontSize(12).fillColor("#111111").text(`# ${invNo}`, left + 360, y, {
+        width: 170,
+        align: "right",
+    });
+    y += 22;
+    doc.font("Helvetica").fontSize(9).fillColor("#222222");
+    doc.text(GREEN_LOGISTICS_RC.legalName, left, y);
+    doc.text(`Invoice Date: ${txt(c.invoiceDate) || new Date().toLocaleDateString()}`, left + 320, y, {
+        width: 210,
+        align: "right",
+    });
+    y += 12;
+    doc.text(`${GREEN_LOGISTICS_RC.addressLine1}, ${GREEN_LOGISTICS_RC.addressLine2}`, left, y);
+    doc.text(`Load#: ${txt(c.loadNumber) || "—"}`, left + 320, y, { width: 210, align: "right" });
+    y += 12;
+    doc.text(`MC # ${GREEN_LOGISTICS_RC.mc}  ·  Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`, left, y);
+    doc.font("Helvetica").fontSize(8).text(`v${version}`, left + 320, y, { width: 210, align: "right" });
+    y += 18;
+
+    // From | Bill To
+    drawBox(doc, left, y, usable / 2 - 4, 88);
+    doc.font("Helvetica-Bold").fontSize(8).text("From:", left + 6, y + 6);
+    doc.font("Helvetica").fontSize(9);
+    doc.text(GREEN_LOGISTICS_RC.legalName, left + 6, y + 20);
+    doc.text(GREEN_LOGISTICS_RC.addressLine1, left + 6, y + 34);
+    doc.text(GREEN_LOGISTICS_RC.addressLine2, left + 6, y + 48);
+    doc.text(GREEN_LOGISTICS_RC.billingEmails.join(" · "), left + 6, y + 62, { width: usable / 2 - 16 });
+
+    const bx = left + usable / 2 + 4;
+    drawBox(doc, bx, y, usable / 2 - 4, 88);
+    doc.font("Helvetica-Bold").fontSize(8).text("Bill To:", bx + 6, y + 6);
+    doc.font("Helvetica").fontSize(9);
+    doc.text(txt(c.billToName) || txt(c.customerName) || "—", bx + 6, y + 20, { width: usable / 2 - 16 });
+    doc.text(txt(c.billToAddress) || "", bx + 6, y + 34, { width: usable / 2 - 16 });
+    doc.text(txt(c.billToEmail) || txt(c.customerEmail) || "", bx + 6, y + 52, { width: usable / 2 - 16 });
+    doc.text(txt(c.billToPhone) || "", bx + 6, y + 66, { width: usable / 2 - 16 });
+    y += 100;
+
+    // Line items header
+    drawBox(doc, left, y, usable, 22);
+    doc.font("Helvetica-Bold").fontSize(8);
+    doc.text("Description", left + 6, y + 7, { width: 250 });
+    doc.text("Hours", left + 270, y + 7, { width: 50 });
+    doc.text("Rate/Hour", left + 330, y + 7, { width: 80 });
+    doc.text("Total", left + 430, y + 7, { width: 90, align: "right" });
+    y += 22;
+
+    const desc =
+        txt(c.invoiceDescription) ||
+        [
+            "Freight transportation",
+            txt(c.pickupAddress) && txt(c.deliveryAddress)
+                ? `${txt(c.pickupAddress)} → ${txt(c.deliveryAddress)}`
+                : "",
+            txt(c.commodity),
+            txt(c.equipment),
+        ]
+            .filter(Boolean)
+            .join(" · ");
+
+    drawBox(doc, left, y, usable, 56);
+    doc.font("Helvetica").fontSize(9);
+    doc.text(desc || "—", left + 6, y + 8, { width: 250, height: 40 });
+    doc.text(String(hours), left + 270, y + 8, { width: 50 });
+    doc.text(rate ? `$${rate.toFixed(2)}` : "—", left + 330, y + 8, { width: 80 });
+    doc.text(`$${lineTotal.toFixed(2)}`, left + 430, y + 8, { width: 90, align: "right" });
+    y += 68;
+
+    // Totals
+    drawBox(doc, left + usable * 0.45, y, usable * 0.55, 78);
+    const tx = left + usable * 0.45 + 8;
+    doc.font("Helvetica").fontSize(9);
+    doc.text("Subtotal:", tx, y + 8);
+    doc.text(`$${subtotal.toFixed(2)}`, tx + 140, y + 8, { width: 120, align: "right" });
+    doc.text(`Tax Rate: ${taxRatePct}%`, tx, y + 24);
+    doc.text(`Tax: $${taxAmt.toFixed(2)}`, tx + 140, y + 24, { width: 120, align: "right" });
+    doc.text(`Payment Terms: ${txt(c.paymentTerms) || "Net 30"}`, tx, y + 40);
+    doc.font("Helvetica-Bold").fontSize(11);
+    doc.text("Total Amount Due:", tx, y + 56);
+    doc.text(`$${due.toFixed(2)}`, tx + 140, y + 56, { width: 120, align: "right" });
+    y += 90;
+
+    // Terms | Send Payment To
+    drawBox(doc, left, y, usable / 2 - 4, 110);
+    doc.font("Helvetica-Bold").fontSize(8).text("Terms and Conditions", left + 6, y + 6);
+    doc.font("Helvetica").fontSize(7.5).text(txt(c.invoiceTerms) || DEFAULT_INVOICE_TERMS, left + 6, y + 20, {
+        width: usable / 2 - 16,
+        height: 82,
+    });
+
+    drawBox(doc, left + usable / 2 + 4, y, usable / 2 - 4, 110);
+    doc.font("Helvetica-Bold").fontSize(8).text("Send Payment To:", left + usable / 2 + 10, y + 6);
+    const pay = txt(c.sendPaymentTo) ||
+        `${GREEN_LOGISTICS_INVOICE_PAY.bankName}\n${GREEN_LOGISTICS_INVOICE_PAY.addressLine1}\n${GREEN_LOGISTICS_INVOICE_PAY.addressLine2}\n${GREEN_LOGISTICS_RC.legalName}`;
+    doc.font("Helvetica").fontSize(9).text(pay, left + usable / 2 + 10, y + 22, {
+        width: usable / 2 - 20,
+        height: 80,
+    });
+
+    doc.font("Helvetica").fontSize(7).fillColor("#666666");
+    doc.text(
+        `${GREEN_LOGISTICS_RC.legalName}  ·  Invoice for Load ${txt(c.loadNumber) || ""}  ·  GreenOS`,
+        left,
+        772,
+        { width: usable, align: "center" }
+    );
+}
+
+/**
  * Generate a load document PDF from template + editable content snapshot.
  * Files live under uploads/loads/{shipmentLeadId}/ — always attached to the Load.
  */
@@ -695,6 +862,8 @@ export async function generateLoadDocumentPdf(input: {
             renderBolPdf(doc, c, input.version);
         } else if (input.docType === "POD") {
             renderPodPdf(doc, c, input.version);
+        } else if (input.docType === "CUSTOMER_INVOICE") {
+            renderCustomerInvoicePdf(doc, c, input.version);
         } else {
             doc.fontSize(18).font("Helvetica-Bold").text("Green Logistics", { align: "left" });
             doc.fontSize(11).font("Helvetica").fillColor("#166534").text("GreenOS TMS", { align: "left" });
@@ -734,7 +903,7 @@ export async function generateLoadDocumentPdf(input: {
             if (input.docType === "CARRIER_INVOICE") {
                 line(doc, "Carrier Rate", money(c.carrierRate) || "—");
             }
-            if (input.docType === "CUSTOMER_INVOICE" || input.docType === "LOAD_SUMMARY") {
+            if (input.docType === "LOAD_SUMMARY") {
                 line(doc, "Customer Rate", money(c.customerRate) || "—");
             }
 

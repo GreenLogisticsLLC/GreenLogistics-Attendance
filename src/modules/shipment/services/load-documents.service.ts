@@ -125,6 +125,36 @@ export class LoadDocumentsService {
             packageQty: s.pieces,
             handlingQty: s.pieces,
             deliveredInGoodOrder: true,
+            invoiceNumber: s.invoiceNumber || (s.loadNumber ? String(s.loadNumber).replace(/^GL/i, "") : null),
+            invoiceDate: s.invoiceDate
+                ? new Date(s.invoiceDate).toLocaleDateString()
+                : new Date().toLocaleDateString(),
+            billToName: s.customerName,
+            billToEmail: s.customerEmail,
+            billToPhone: s.customerPhone,
+            billToAddress: null,
+            invoiceDescription: [
+                "Freight transportation",
+                place(s.pickupCity, s.pickupState, s.pickupZip) &&
+                place(s.deliveryCity, s.deliveryState, s.deliveryZip)
+                    ? `${place(s.pickupCity, s.pickupState, s.pickupZip)} → ${place(s.deliveryCity, s.deliveryState, s.deliveryZip)}`
+                    : "",
+                s.commodity || s.vehicle || s.category || "",
+            ]
+                .filter(Boolean)
+                .join(" · "),
+            invoiceHours: 1,
+            invoiceRatePerHour: s.customerRate ?? s.price,
+            invoiceLineTotal: s.customerRate ?? s.price,
+            invoiceSubtotal: s.customerRate ?? s.price,
+            taxRate: 0,
+            taxAmount: 0,
+            totalAmountDue: s.customerRate ?? s.price,
+            paymentTerms: "Net 30",
+            invoiceTerms:
+                "Payment is due per the terms stated on this invoice. Please reference Load # on all remittances. Questions: info@greengrouplogistics.com or greenlogisticsllc20@gmail.com.",
+            sendPaymentTo:
+                "BANK OF AMERICA\n121 FROG HOLLOW RD\nSOUTHAMPTON PA 18966\nGreen Logistics LLC",
         };
     }
 
@@ -277,6 +307,28 @@ export class LoadDocumentsService {
                 });
             } catch {
                 /* allow generate without forcing status if transition blocked */
+            }
+        } else if (docType === "CUSTOMER_INVOICE" && version === 1) {
+            const { shipmentService } = await import("./shipment.service.js");
+            try {
+                await shipmentService.transitionStatus({
+                    shipmentLeadId: input.shipmentLeadId,
+                    status: "CUSTOMER_INVOICE",
+                    actorUserId: input.actorUserId,
+                });
+            } catch {
+                /* allow generate without forcing status if transition blocked */
+            }
+            if (content.invoiceNumber) {
+                await prisma.shipmentLead.update({
+                    where: { shipmentLeadId: input.shipmentLeadId },
+                    data: {
+                        invoiceNumber: String(content.invoiceNumber),
+                        invoiceDate: content.invoiceDate
+                            ? new Date(String(content.invoiceDate))
+                            : new Date(),
+                    },
+                }).catch(() => null);
             }
         }
 

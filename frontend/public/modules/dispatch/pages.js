@@ -385,6 +385,15 @@ window.GreenOSModules["dispatch"] = {
           }, 40);
           return;
         }
+        if (action === "create_invoice" || action === "generate_invoice") {
+          self._tab = "documents";
+          self.renderDetails(body, data);
+          setTimeout(function () {
+            var mainEl = body.querySelector("#load-main");
+            if (mainEl) self.showInvoiceWizard(mainEl, id, data, "GENERATED");
+          }, 40);
+          return;
+        }
         try {
           btn.disabled = true;
           await self.api("/" + encodeURIComponent(id) + "/actions/" + encodeURIComponent(action), {
@@ -866,6 +875,10 @@ window.GreenOSModules["dispatch"] = {
           self.showPodWizard(main, id, data, "GENERATED");
           return;
         }
+        if (docType === "CUSTOMER_INVOICE") {
+          self.showInvoiceWizard(main, id, data, "GENERATED");
+          return;
+        }
         try {
           btn.disabled = true;
           var row = await self.api(
@@ -1022,6 +1035,10 @@ window.GreenOSModules["dispatch"] = {
     }
     if (docType === "POD") {
       this.showPodWizard(main, id, data, "BROKER_EDITED");
+      return;
+    }
+    if (docType === "CUSTOMER_INVOICE") {
+      this.showInvoiceWizard(main, id, data, "BROKER_EDITED");
       return;
     }
     var self = this;
@@ -1645,6 +1662,180 @@ window.GreenOSModules["dispatch"] = {
           (changeReason || "GENERATED") === "GENERATED"
             ? "/" + encodeURIComponent(id) + "/documents/POD/generate"
             : "/" + encodeURIComponent(id) + "/documents/POD/edit";
+        var row = await self.api(endpoint, {
+          method: "POST",
+          body: JSON.stringify({ changeReason: changeReason || "GENERATED", content: content }),
+        });
+        if (statusEl) statusEl.textContent = "Done — opening PDF…";
+        await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
+        if (row && row.documentId) {
+          try {
+            await self.openPdf(
+              "/api/loads/" +
+                encodeURIComponent(id) +
+                "/documents/" +
+                encodeURIComponent(row.documentId) +
+                "/download",
+              true
+            );
+          } catch (e) {}
+        }
+      } catch (err) {
+        alert(err.message || err);
+        if (btnGen) btnGen.disabled = false;
+        if (statusEl) statusEl.textContent = "";
+      }
+    });
+  },
+
+  /** Customer Invoice wizard — Green Logistics invoice template, autofill + editable. */
+  showInvoiceWizard(main, id, data, changeReason) {
+    var self = this;
+    var g = data.general || {};
+    var p = data.pricing || {};
+    var contacts = data.contacts || {};
+    var a = data.accounting || {};
+    var box = main.querySelector("#load-doc-editor");
+    if (!box) {
+      main.insertAdjacentHTML("beforeend", '<div id="load-doc-editor" class="load-edit-panel"></div>');
+      box = main.querySelector("#load-doc-editor");
+    }
+    box.classList.remove("hidden");
+
+    function place(obj) {
+      if (!obj) return "";
+      return [obj.city, obj.state, obj.zip].filter(Boolean).join(", ");
+    }
+
+    var rate = p.customerRate != null && p.customerRate !== "" ? p.customerRate : "";
+    var invNo =
+      a.customerInvoice ||
+      (g.loadNumber ? String(g.loadNumber).replace(/^GL/i, "") : "") ||
+      "";
+    var desc =
+      "Freight transportation" +
+      (place(g.pickup) && place(g.delivery) ? " · " + place(g.pickup) + " → " + place(g.delivery) : "") +
+      (g.commodity ? " · " + g.commodity : "");
+    var defaultTerms =
+      "Payment is due per the terms stated on this invoice. Please reference Load # on all remittances. Questions: info@greengrouplogistics.com or greenlogisticsllc20@gmail.com.";
+    var defaultPay =
+      "BANK OF AMERICA\n121 FROG HOLLOW RD\nSOUTHAMPTON PA 18966\nGreen Logistics LLC";
+
+    box.innerHTML =
+      "<h3>Create Customer Invoice</h3>" +
+      '<p class="gos-muted">Template matches Green Logistics invoice. Fields auto-fill from this Load — edit before generating PDF for the customer.</p>' +
+      '<div class="load-form-grid">' +
+      '<label>Invoice # <input id="inv-no" value="' + self.esc(invNo) + '"></label>' +
+      '<label>Invoice date <input id="inv-date" value="' + self.esc(new Date().toLocaleDateString()) + '"></label>' +
+      '<label>Load # <input id="inv-load" value="' + self.esc(g.loadNumber || "") + '" readonly></label>' +
+      '<label>Shipment <input id="inv-ship" value="' + self.esc(g.shipmentNumber || "") + '" readonly></label>' +
+      '<label>Bill To name <input id="inv-bill-name" value="' + self.esc(g.customer || "") + '"></label>' +
+      '<label>Bill To Gmail <input id="inv-bill-email" type="email" value="' +
+      self.esc(contacts.customerEmail || g.customerEmail || "") +
+      '"></label>' +
+      '<label>Bill To phone <input id="inv-bill-phone" value="' +
+      self.esc(contacts.customerPhone || g.customerPhone || "") +
+      '"></label>' +
+      '<label class="full">Bill To address <input id="inv-bill-addr" value="" placeholder="Street, city, state, ZIP"></label>' +
+      '<label class="full">Description <textarea id="inv-desc" rows="2">' + self.esc(desc) + "</textarea></label>" +
+      '<label>Hours <input id="inv-hours" type="number" step="0.01" value="1"></label>' +
+      '<label>Rate / Hour $ <input id="inv-rate" type="number" step="0.01" value="' + self.esc(rate) + '"></label>' +
+      '<label>Line total $ <input id="inv-line" type="number" step="0.01" value="' + self.esc(rate) + '"></label>' +
+      '<label>Subtotal $ <input id="inv-sub" type="number" step="0.01" value="' + self.esc(rate) + '"></label>' +
+      '<label>Tax rate % <input id="inv-taxrate" type="number" step="0.01" value="0"></label>' +
+      '<label>Tax $ <input id="inv-tax" type="number" step="0.01" value="0"></label>' +
+      '<label>Total Amount Due $ <input id="inv-due" type="number" step="0.01" value="' + self.esc(rate) + '"></label>' +
+      '<label>Payment terms <input id="inv-payterms" value="Net 30"></label>' +
+      '<label class="full">Terms and Conditions <textarea id="inv-terms" rows="4">' +
+      self.esc(defaultTerms) +
+      "</textarea></label>" +
+      '<label class="full">Send Payment To <textarea id="inv-payto" rows="4">' +
+      self.esc(defaultPay) +
+      "</textarea></label>" +
+      "</div>" +
+      '<div class="load-actions" style="margin-top:0.75rem">' +
+      '<button type="button" class="btn-primary" id="inv-generate">Save &amp; Generate Invoice PDF</button>' +
+      '<button type="button" class="btn-secondary" id="inv-cancel">Cancel</button>' +
+      "</div>" +
+      '<p id="inv-status" class="gos-muted" style="margin-top:0.5rem"></p>';
+
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    function recalc() {
+      var h = parseFloat(box.querySelector("#inv-hours").value) || 0;
+      var r = parseFloat(box.querySelector("#inv-rate").value) || 0;
+      var line = Math.round(h * r * 100) / 100;
+      box.querySelector("#inv-line").value = line;
+      box.querySelector("#inv-sub").value = line;
+      var tr = parseFloat(box.querySelector("#inv-taxrate").value) || 0;
+      var tax = Math.round(((line * tr) / 100) * 100) / 100;
+      box.querySelector("#inv-tax").value = tax;
+      box.querySelector("#inv-due").value = Math.round((line + tax) * 100) / 100;
+    }
+    box.querySelector("#inv-hours")?.addEventListener("input", recalc);
+    box.querySelector("#inv-rate")?.addEventListener("input", recalc);
+    box.querySelector("#inv-taxrate")?.addEventListener("input", recalc);
+
+    box.querySelector("#inv-cancel")?.addEventListener("click", function () {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+    });
+
+    box.querySelector("#inv-generate")?.addEventListener("click", async function () {
+      var due = (box.querySelector("#inv-due").value || "").trim();
+      if (!due) {
+        alert("Total Amount Due is required.");
+        return;
+      }
+      var statusEl = box.querySelector("#inv-status");
+      var btnGen = box.querySelector("#inv-generate");
+      try {
+        if (btnGen) btnGen.disabled = true;
+        if (statusEl) statusEl.textContent = "Saving invoice fields…";
+        await self.api("/" + encodeURIComponent(id), {
+          method: "PATCH",
+          body: JSON.stringify({
+            customerName: box.querySelector("#inv-bill-name").value || null,
+            customerEmail: box.querySelector("#inv-bill-email").value || null,
+            customerPhone: box.querySelector("#inv-bill-phone").value || null,
+            customerRate: box.querySelector("#inv-rate").value || null,
+            invoiceNumber: box.querySelector("#inv-no").value || null,
+            invoiceDate: box.querySelector("#inv-date").value || null,
+          }),
+        });
+        if (statusEl) statusEl.textContent = "Generating Invoice PDF…";
+        var content = {
+          loadNumber: box.querySelector("#inv-load").value,
+          shipmentNumber: box.querySelector("#inv-ship").value,
+          invoiceNumber: box.querySelector("#inv-no").value,
+          invoiceDate: box.querySelector("#inv-date").value,
+          billToName: box.querySelector("#inv-bill-name").value,
+          customerName: box.querySelector("#inv-bill-name").value,
+          billToEmail: box.querySelector("#inv-bill-email").value,
+          customerEmail: box.querySelector("#inv-bill-email").value,
+          billToPhone: box.querySelector("#inv-bill-phone").value,
+          billToAddress: box.querySelector("#inv-bill-addr").value,
+          invoiceDescription: box.querySelector("#inv-desc").value,
+          invoiceHours: box.querySelector("#inv-hours").value,
+          invoiceRatePerHour: box.querySelector("#inv-rate").value,
+          customerRate: box.querySelector("#inv-rate").value,
+          invoiceLineTotal: box.querySelector("#inv-line").value,
+          invoiceSubtotal: box.querySelector("#inv-sub").value,
+          taxRate: box.querySelector("#inv-taxrate").value,
+          taxAmount: box.querySelector("#inv-tax").value,
+          totalAmountDue: box.querySelector("#inv-due").value,
+          paymentTerms: box.querySelector("#inv-payterms").value,
+          invoiceTerms: box.querySelector("#inv-terms").value,
+          sendPaymentTo: box.querySelector("#inv-payto").value,
+          pickupAddress: place(g.pickup),
+          deliveryAddress: place(g.delivery),
+          commodity: g.commodity,
+          equipment: g.equipment,
+        };
+        var endpoint =
+          (changeReason || "GENERATED") === "GENERATED"
+            ? "/" + encodeURIComponent(id) + "/documents/CUSTOMER_INVOICE/generate"
+            : "/" + encodeURIComponent(id) + "/documents/CUSTOMER_INVOICE/edit";
         var row = await self.api(endpoint, {
           method: "POST",
           body: JSON.stringify({ changeReason: changeReason || "GENERATED", content: content }),
