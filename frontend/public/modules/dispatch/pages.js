@@ -767,12 +767,139 @@ window.GreenOSModules["dispatch"] = {
           );
         })
         .join("");
+      var gps = data.gps || {};
+      var active = gps.active || null;
+      var ready = gps.providerReady && gps.providerReady.carrier_view;
+      var gpsHtml = "";
+      if (active) {
+        gpsHtml =
+          '<div class="load-grid" style="margin-top:1rem">' +
+          field("Provider", active.provider) +
+          field("Provider Load ID", active.providerLoadId) +
+          field("Status", active.status) +
+          field("Driver phone", active.driverPhone) +
+          field("Movement", active.movementType) +
+          field("Address", active.lastAddress) +
+          field("Lat / Lng", active.lastLatitude != null ? active.lastLatitude + ", " + active.lastLongitude : "—") +
+          field("Last GPS update", active.lastPositionAt ? new Date(active.lastPositionAt).toLocaleString() : "—") +
+          field("Route started", active.routeStarted ? "Yes" : "No") +
+          field("Driver late", active.driverIsLate ? "Yes" : "No") +
+          field("ETA (sec left)", active.timeLeftSec != null ? active.timeLeftSec : "—") +
+          field("Distance left (m)", active.distanceLeftMeters != null ? active.distanceLeftMeters : "—") +
+          field("Pickup arrived", active.pickupArrivedAt ? new Date(active.pickupArrivedAt).toLocaleString() : "—") +
+          field("Pickup departed", active.pickupDepartedAt ? new Date(active.pickupDepartedAt).toLocaleString() : "—") +
+          field("Delivery arrived", active.destinationArrivedAt ? new Date(active.destinationArrivedAt).toLocaleString() : "—") +
+          field("Delivery departed", active.destinationDepartedAt ? new Date(active.destinationDepartedAt).toLocaleString() : "—") +
+          field("Tracking URL", active.trackingUrl || "—") +
+          field("Client URL", active.clientTrackingUrl || "—") +
+          "</div>";
+        if (active.lastLatitude != null && active.lastLongitude != null) {
+          var mapUrl =
+            "https://www.openstreetmap.org/?mlat=" +
+            encodeURIComponent(active.lastLatitude) +
+            "&mlon=" +
+            encodeURIComponent(active.lastLongitude) +
+            "#map=12/" +
+            encodeURIComponent(active.lastLatitude) +
+            "/" +
+            encodeURIComponent(active.lastLongitude);
+          gpsHtml +=
+            '<p style="margin-top:0.75rem"><a class="btn-secondary" href="' +
+            self.esc(mapUrl) +
+            '" target="_blank" rel="noopener">Open map</a></p>';
+        }
+      } else {
+        gpsHtml =
+          '<p class="gos-muted" style="margin-top:0.75rem">No active CarrierView session. Enter driver phone and start tracking.</p>';
+      }
       main.innerHTML =
         "<h2>Tracking</h2>" +
         '<ol class="load-tracking">' +
         steps +
         "</ol>" +
-        '<p class="gos-muted">GPS integrations (future) will update these steps on the Load.</p>';
+        "<h3>GPS — CarrierView</h3>" +
+        (ready && ready.configured
+          ? ready.enabled
+            ? '<p class="gos-muted">Provider connected. Webhooks update live position.</p>'
+            : '<p class="gos-muted">CarrierView token configured but <code>CARRIER_VIEW_ENABLED=false</code>.</p>'
+          : '<p class="gos-muted">Set <code>CARRIER_VIEW_API_BASE_URL</code> + <code>CARRIER_VIEW_API_TOKEN</code> on the server.</p>') +
+        gpsHtml +
+        '<div class="load-edit-panel" style="margin-top:1rem">' +
+        '<div class="load-form-grid">' +
+        '<label>Driver phone <input id="ld-gps-phone" type="tel" value="' +
+        self.esc((active && active.driverPhone) || (data.carrier && data.carrier.driverPhone) || "") +
+        '" placeholder="+1XXXXXXXXXX"></label>' +
+        '<label class="full">Message to driver <input id="ld-gps-chat" maxlength="500" placeholder="Chat via CarrierView"></label>' +
+        "</div>" +
+        '<div class="load-actions" style="margin-top:0.5rem">' +
+        '<button type="button" class="btn-primary" id="ld-gps-start">Start CarrierView tracking</button>' +
+        '<button type="button" class="btn-secondary" id="ld-gps-refresh">Refresh</button>' +
+        '<button type="button" class="btn-secondary" id="ld-gps-disable">Disable tracking</button>' +
+        '<button type="button" class="btn-secondary" id="ld-gps-chat-send">Send chat</button>' +
+        '<button type="button" class="btn-secondary" id="ld-gps-sms">Send welcome SMS</button>' +
+        "</div>" +
+        '<p id="ld-gps-status" class="gos-muted" style="margin-top:0.5rem"></p>' +
+        "</div>";
+
+      async function gpsApi(path, opts) {
+        return self.api("/" + encodeURIComponent(id) + "/tracking" + path, opts);
+      }
+      function setGpsStatus(t) {
+        var el = main.querySelector("#ld-gps-status");
+        if (el) el.textContent = t || "";
+      }
+      main.querySelector("#ld-gps-start")?.addEventListener("click", async function () {
+        try {
+          setGpsStatus("Starting…");
+          await gpsApi("/start", {
+            method: "POST",
+            body: JSON.stringify({ driverPhone: main.querySelector("#ld-gps-phone").value || null }),
+          });
+          self.openLoad(document.querySelector("#load-tms-body"), id, "tracking");
+        } catch (err) {
+          alert(err.message || err);
+          setGpsStatus("");
+        }
+      });
+      main.querySelector("#ld-gps-refresh")?.addEventListener("click", async function () {
+        try {
+          setGpsStatus("Refreshing…");
+          await gpsApi("/refresh", { method: "POST", body: "{}" });
+          self.openLoad(document.querySelector("#load-tms-body"), id, "tracking");
+        } catch (err) {
+          alert(err.message || err);
+          setGpsStatus("");
+        }
+      });
+      main.querySelector("#ld-gps-disable")?.addEventListener("click", async function () {
+        if (!confirm("Disable CarrierView tracking for this Load? History is kept.")) return;
+        try {
+          await gpsApi("/disable", { method: "POST", body: "{}" });
+          self.openLoad(document.querySelector("#load-tms-body"), id, "tracking");
+        } catch (err) {
+          alert(err.message || err);
+        }
+      });
+      main.querySelector("#ld-gps-chat-send")?.addEventListener("click", async function () {
+        var msg = (main.querySelector("#ld-gps-chat").value || "").trim();
+        if (!msg) return alert("Enter a message");
+        try {
+          await gpsApi("/chat", { method: "POST", body: JSON.stringify({ message: msg }) });
+          setGpsStatus("Chat sent");
+          main.querySelector("#ld-gps-chat").value = "";
+        } catch (err) {
+          alert(err.message || err);
+        }
+      });
+      main.querySelector("#ld-gps-sms")?.addEventListener("click", async function () {
+        if (!confirm("Send welcome SMS via CarrierView? This is NOT idempotent — do not spam.")) return;
+        try {
+          await gpsApi("/sms", { method: "POST", body: JSON.stringify({ type: "welcome" }) });
+          setGpsStatus("SMS sent");
+        } catch (err) {
+          alert(err.message || err);
+        }
+      });
       return;
     }
 

@@ -64,6 +64,7 @@ import { shipmentRouter } from "../modules/shipment/routes/shipment.routes.js";
 import { loadRouter } from "../modules/shipment/routes/load.routes.js";
 import { assignmentRouter } from "../modules/assignment/routes/assignment.routes.js";
 import { aiRouter } from "../modules/ai/routes/ai.routes.js";
+import { trackingRouter } from "../modules/tracking/routes/tracking.routes.js";
 
 export const apiRouter = Router();
 
@@ -76,6 +77,7 @@ apiRouter.use("/shipments", shipmentRouter);
 apiRouter.use("/loads", loadRouter);
 apiRouter.use("/assignment", assignmentRouter);
 apiRouter.use("/ai", aiRouter);
+apiRouter.use("/integrations/carrier-view", trackingRouter);
 
 apiRouter.post("/v1/auth/login", loginController);
 apiRouter.post("/v1/auth/register", registerController);

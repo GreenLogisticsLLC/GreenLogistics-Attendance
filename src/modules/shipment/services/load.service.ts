@@ -327,6 +327,13 @@ export class LoadService {
         const timeline = await domainEventEngine.listForShipment(shipmentLeadId);
         const pricing = computePricing(s);
         const tracking = trackingFromStatus(s.status, s.trackingStatus);
+        let gps = null;
+        try {
+            const { trackingService } = await import("../../tracking/services/tracking.service.js");
+            gps = await trackingService.buildTrackingPayload(shipmentLeadId);
+        } catch {
+            gps = null;
+        }
 
         const mailbox = await prisma.brokerMailboxMessage.findMany({
             where: { shipmentLeadId },
@@ -404,6 +411,7 @@ export class LoadService {
                 insurance: s.carrierInsurance,
                 carrierStatus: s.carrierStatus,
                 driverName: s.driverName,
+                driverPhone: s.driverPhone,
                 truckNumber: s.truckNumber,
                 trailerNumber: s.trailerNumber,
                 futureIntegrations: [
@@ -416,6 +424,7 @@ export class LoadService {
             },
             pricing,
             tracking,
+            gps,
             documents: documents.map((d) => ({
                 documentId: d.documentId,
                 docType: d.docType,
@@ -546,6 +555,7 @@ export class LoadService {
         str("carrierInsurance");
         str("carrierStatus");
         str("driverName");
+        str("driverPhone");
         str("truckNumber");
         str("trailerNumber");
         str("paymentStatus");

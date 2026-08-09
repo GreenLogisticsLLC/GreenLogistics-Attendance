@@ -325,6 +325,8 @@ model ShipmentLead {
   carrierStatus         String?                 @map("carrier_status")
   assignedDispatcherId  String?                 @map("assigned_dispatcher_id")
   driverName            String?                 @map("driver_name")
+  /// Driver mobile for GPS tracking (CarrierView carrier_view integration).
+  driverPhone           String?                 @map("driver_phone")
   truckNumber           String?                 @map("truck_number")
   trailerNumber         String?                 @map("trailer_number")
   rateConfirmation      String?                 @map("rate_confirmation")
@@ -366,6 +368,7 @@ model ShipmentLead {
   platformNotifications PlatformNotification[]
   brokerMailboxMessages BrokerMailboxMessage[]
   loadDocuments         LoadDocument[]
+  shipmentTrackings     ShipmentTracking[]
 
   @@index([source])
   @@index([status])
@@ -375,6 +378,111 @@ model ShipmentLead {
   @@index([createdAt])
   @@index([loadNumber])
   @@map("shipment_leads")
+}
+
+/// GPS / ELD tracking session for a Load (provider-agnostic).
+/// CarrierView load.id → providerLoadId (required for all CarrierView load APIs).
+model ShipmentTracking {
+  trackingId              String             @id @default(uuid()) @map("tracking_id")
+  shipmentLeadId          String             @map("shipment_lead_id")
+  /// carrier_view | motive | samsara | verizon
+  provider                String             @map("provider")
+  /// Provider's load id (CarrierView: data.id). Never lose this.
+  providerLoadId          String             @map("provider_load_id")
+  /// Our reference sent as CarrierView load_id (usually GL#).
+  externalLoadRef         String?            @map("external_load_ref")
+  /// ACTIVE | DISABLED | DELETED | ERROR
+  status                  String             @default("ACTIVE")
+  driverPhone             String?            @map("driver_phone")
+  trackingUrl             String?            @map("tracking_url")
+  clientTrackingUrl       String?            @map("client_tracking_url")
+  lastLatitude            Float?             @map("last_latitude")
+  lastLongitude           Float?             @map("last_longitude")
+  lastAddress             String?            @map("last_address")
+  lastPositionAt          DateTime?          @map("last_position_at")
+  movementType            String?            @map("movement_type")
+  rotation                Float?
+  driverAppStatus         String?            @map("driver_app_status")
+  routeStarted            Boolean            @default(false) @map("route_started")
+  driverIsLate            Boolean            @default(false) @map("driver_is_late")
+  timeLeftSec             Int?               @map("time_left_sec")
+  distanceLeftMeters      Float?             @map("distance_left_meters")
+  pickupArrivedAt         DateTime?          @map("pickup_arrived_at")
+  pickupDepartedAt        DateTime?          @map("pickup_departed_at")
+  destinationArrivedAt    DateTime?          @map("destination_arrived_at")
+  destinationDepartedAt   DateTime?          @map("destination_departed_at")
+  providerLocationsJson   String?            @map("provider_locations_json")
+  providerStatusesJson     String?            @map("provider_statuses_json")
+  providerMetaJson        String?            @map("provider_meta_json")
+  lastError               String?            @map("last_error")
+  lastSyncedAt            DateTime?          @map("last_synced_at")
+  disabledAt              DateTime?          @map("disabled_at")
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+  shipmentLead            ShipmentLead       @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+  positions               TrackingPosition[]
+  integrationEvents       TrackingIntegrationEvent[]
+
+  @@unique([provider, providerLoadId])
+  @@index([shipmentLeadId])
+  @@index([provider])
+  @@index([status])
+  @@index([driverPhone])
+  @@map("shipment_trackings")
+}
+
+/// Append-only GPS breadcrumbs (never overwrite).
+model TrackingPosition {
+  positionId         String           @id @default(uuid()) @map("position_id")
+  trackingId         String           @map("tracking_id")
+  shipmentLeadId     String           @map("shipment_lead_id")
+  provider           String
+  providerLoadId     String           @map("provider_load_id")
+  driverPhone        String?          @map("driver_phone")
+  latitude           Float
+  longitude          Float
+  address            String?
+  movementType       String?          @map("movement_type")
+  rotation           Float?
+  lateSeconds        Int?             @map("late_seconds")
+  stoppedDuration    Int?             @map("stopped_duration")
+  driveDuration      Int?             @map("drive_duration")
+  pausedDuration     Int?             @map("paused_duration")
+  providerTimestamp  DateTime?        @map("provider_timestamp")
+  receivedAt         DateTime         @default(now()) @map("received_at")
+  /// Deterministic fingerprint to prevent duplicate inserts.
+  fingerprint        String           @map("fingerprint")
+  tracking           ShipmentTracking @relation(fields: [trackingId], references: [trackingId], onDelete: Cascade)
+
+  @@unique([trackingId, fingerprint])
+  @@index([shipmentLeadId])
+  @@index([providerLoadId])
+  @@index([receivedAt])
+  @@map("tracking_positions")
+}
+
+/// Idempotent audit of tracking API calls + webhooks.
+model TrackingIntegrationEvent {
+  eventId            String            @id @default(uuid()) @map("event_id")
+  trackingId         String?           @map("tracking_id")
+  shipmentLeadId     String?           @map("shipment_lead_id")
+  provider           String
+  eventType          String            @map("event_type")
+  providerLoadId     String?           @map("provider_load_id")
+  payloadHash        String            @map("payload_hash")
+  processingStatus   String            @default("RECEIVED") @map("processing_status")
+  errorMessage       String?           @map("error_message")
+  /// Redacted JSON — never store API tokens.
+  rawPayloadJson     String?           @map("raw_payload_json")
+  receivedAt         DateTime          @default(now()) @map("received_at")
+  processedAt        DateTime?         @map("processed_at")
+  tracking           ShipmentTracking? @relation(fields: [trackingId], references: [trackingId], onDelete: SetNull)
+
+  @@unique([provider, eventType, payloadHash])
+  @@index([shipmentLeadId])
+  @@index([providerLoadId])
+  @@index([receivedAt])
+  @@map("tracking_integration_events")
 }
 
 /// Versioned documents that belong ONLY to a Load (ShipmentLead with loadNumber).

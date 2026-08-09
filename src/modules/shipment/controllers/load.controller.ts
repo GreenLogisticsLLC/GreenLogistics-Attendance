@@ -38,7 +38,10 @@ function redactLoadListRow(row: Record<string, unknown>) {
 }
 
 function redactLoadDetails(data: Record<string, unknown>) {
-    const out = { ...data, pricing: stripMoneyFromPricing(data.pricing as Record<string, unknown>) };
+    const out: Record<string, unknown> = {
+        ...data,
+        pricing: stripMoneyFromPricing(data.pricing as Record<string, unknown>),
+    };
     if (out.accounting && typeof out.accounting === "object") {
         const a = { ...(out.accounting as Record<string, unknown>) };
         delete a.brokerProfit;

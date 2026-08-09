@@ -46,9 +46,105 @@ window.GreenOSModules['administration'] = {
       this.renderEmailAccounts(body);
       return;
     }
+    if (active && active.id === 'api-integrations') {
+      this.renderApiIntegrations(body);
+      return;
+    }
     body.innerHTML =
       '<h2>Administration — ' + label + '</h2>' +
       '<p>Coming soon</p>';
+  },
+
+  async renderApiIntegrations(body) {
+    if (!body) return;
+    body.innerHTML =
+      '<h2>API Integrations</h2>' +
+      '<p class="gos-muted">CarrierView token stays on the server only — never shown here.</p>' +
+      '<div class="gos-card" id="cv-status-card" style="padding:1rem 1.25rem;margin-bottom:1rem">Loading CarrierView…</div>' +
+      '<div style="display:flex;gap:0.5rem;flex-wrap:wrap">' +
+      '<button type="button" class="btn-primary" id="cv-test" style="width:auto">Test connection (GET /api/profile)</button>' +
+      '<button type="button" class="btn-secondary" id="cv-register" style="width:auto">Register webhooks</button>' +
+      '<button type="button" class="btn-secondary" id="cv-reconcile" style="width:auto">Reconcile now</button>' +
+      '</div>' +
+      '<p id="cv-msg" class="gos-muted" style="margin-top:0.75rem"></p>';
+
+    var token = localStorage.getItem('gl_token') || '';
+    async function api(path, opts) {
+      var res = await fetch('/api/integrations/carrier-view' + path, Object.assign({
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token,
+        },
+      }, opts || {}));
+      var json = await res.json().catch(function () { return {}; });
+      if (!res.ok || json.success === false) throw new Error(json.message || ('HTTP ' + res.status));
+      return json.data;
+    }
+    async function paint() {
+      try {
+        var d = await api('/admin/status');
+        var card = body.querySelector('#cv-status-card');
+        var conn =
+          !d.tokenConfigured || !d.baseUrlConfigured
+            ? 'NOT CONNECTED'
+            : d.healthy === true
+              ? 'CONNECTED'
+              : d.healthy === false
+                ? 'FAILED'
+                : 'CONFIGURED';
+        card.innerHTML =
+          '<h3 style="margin:0 0 0.5rem">CarrierView — <strong>' + conn + '</strong></h3>' +
+          '<p>Enabled: <strong>' + (d.enabled ? 'yes' : 'no') + '</strong></p>' +
+          '<p>API token: <strong>' + (d.tokenConfigured ? 'configured' : 'missing') + '</strong></p>' +
+          '<p>API base URL: <strong>' + (d.baseUrlConfigured ? (d.baseUrlHost || 'set') : 'missing') + '</strong></p>' +
+          '<p>Connection: <strong>' +
+          (d.healthy === true ? 'healthy' : d.healthy === false ? 'failed' : 'not tested') +
+          '</strong>' +
+          (d.error ? ' — ' + d.error : '') +
+          '</p>' +
+          '<p>Webhooks (register these in CarrierView or use Register):</p>' +
+          '<ul style="margin:0.35rem 0;padding-left:1.25rem;font-size:0.9rem;word-break:break-all">' +
+          '<li>Position: ' + (d.webhooks && d.webhooks.position) + '</li>' +
+          '<li>Load status: ' + (d.webhooks && d.webhooks.loadStatus) + '</li>' +
+          '<li>Chat: ' + (d.webhooks && d.webhooks.chat) + '</li>' +
+          '</ul>';
+      } catch (err) {
+        body.querySelector('#cv-status-card').textContent = err.message || err;
+      }
+    }
+    body.querySelector('#cv-test')?.addEventListener('click', async function () {
+      var msg = body.querySelector('#cv-msg');
+      try {
+        msg.textContent = 'Testing…';
+        await paint();
+        msg.textContent = 'Status refreshed.';
+      } catch (err) {
+        msg.textContent = err.message || err;
+      }
+    });
+    body.querySelector('#cv-register')?.addEventListener('click', async function () {
+      var msg = body.querySelector('#cv-msg');
+      try {
+        msg.textContent = 'Registering webhooks with CarrierView…';
+        var urls = await api('/admin/register-webhooks', { method: 'POST', body: '{}' });
+        msg.textContent = 'Webhooks registered.';
+        console.log(urls);
+        await paint();
+      } catch (err) {
+        msg.textContent = err.message || err;
+      }
+    });
+    body.querySelector('#cv-reconcile')?.addEventListener('click', async function () {
+      var msg = body.querySelector('#cv-msg');
+      try {
+        msg.textContent = 'Reconciling…';
+        var r = await api('/admin/reconcile', { method: 'POST', body: '{}' });
+        msg.textContent = 'Checked ' + (r.checked || 0) + ', updated ' + (r.updated || 0);
+      } catch (err) {
+        msg.textContent = err.message || err;
+      }
+    });
+    await paint();
   },
 
   async renderEmailAccounts(body) {

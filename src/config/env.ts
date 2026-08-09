@@ -85,4 +85,16 @@ export const config = {
         apiKey: (process.env.OPENAI_API_KEY || "").trim(),
         model: (process.env.OPENAI_MODEL || "gpt-5.5").trim(),
     },
+    /** CarrierView GPS tracking — token never exposed to frontend. */
+    carrierView: {
+        enabled: String(process.env.CARRIER_VIEW_ENABLED || "false").toLowerCase() === "true",
+        apiBaseUrl: (process.env.CARRIER_VIEW_API_BASE_URL || "").replace(/\/$/, ""),
+        apiToken: (process.env.CARRIER_VIEW_API_TOKEN || "").trim(),
+        /** Green OS-side webhook protection only (CarrierView docs do not define HMAC). */
+        webhookSecret: (process.env.CARRIER_VIEW_WEBHOOK_SECRET || "").trim(),
+        reconciliationIntervalSeconds: parseInt(
+            process.env.CARRIER_VIEW_RECONCILIATION_INTERVAL_SECONDS || "300",
+            10
+        ),
+    },
 };
