@@ -261,6 +261,20 @@ window.GreenOSModules["dispatch"] = {
     };
     var cur = String((data.identity && data.identity.status) || "").toUpperCase();
     var curIdx = lifecycle.indexOf(cur);
+    // Also advance the rail from existing documents (covers loads stuck before status sync).
+    var docs = data.documents || [];
+    var hasDocType = function (t) {
+      return docs.some(function (d) {
+        return String(d.docType || "").toUpperCase() === t;
+      });
+    };
+    function bumpLife(st) {
+      var i = lifecycle.indexOf(st);
+      if (i > curIdx) curIdx = i;
+    }
+    if (hasDocType("RATE_CONFIRMATION")) bumpLife("RATE_CON_GENERATED");
+    if (hasDocType("POD")) bumpLife("POD_UPLOADED");
+    if (hasDocType("CUSTOMER_INVOICE")) bumpLife("CUSTOMER_INVOICE");
     var lifeHtml = lifecycle
       .map(function (st, i) {
         var cls = i < curIdx ? "is-done" : i === curIdx ? "is-active" : "";

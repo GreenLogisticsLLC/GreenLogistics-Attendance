@@ -164,6 +164,45 @@ export class LoadService {
         }
 
         const documents = await loadDocumentsService.listCurrent(shipmentLeadId);
+
+        // Catch up lifecycle when docs already exist but status was stuck (e.g. at DELIVERED).
+        // POD → POD_UPLOADED, Customer Invoice → CUSTOMER_INVOICE.
+        {
+            const { shipmentService } = await import("./shipment.service.js");
+            const hasDoc = (t: string) => documents.some((d) => d.docType === t);
+            const tryAdvance = async (status: string) => {
+                try {
+                    await shipmentService.transitionStatus({
+                        shipmentLeadId,
+                        status,
+                        skipLifecycleCheck: false,
+                    });
+                    return true;
+                } catch {
+                    return false;
+                }
+            };
+            let st = normalizeStatus(s.status);
+            if (hasDoc("POD") && ["IN_TRANSIT", "DELIVERED"].includes(st)) {
+                if (await tryAdvance("POD_UPLOADED")) st = "POD_UPLOADED";
+            }
+            if (
+                hasDoc("CUSTOMER_INVOICE") &&
+                ["IN_TRANSIT", "DELIVERED", "POD_UPLOADED"].includes(st)
+            ) {
+                if (hasDoc("POD") && st === "DELIVERED") {
+                    if (await tryAdvance("POD_UPLOADED")) st = "POD_UPLOADED";
+                }
+                if (await tryAdvance("CUSTOMER_INVOICE")) st = "CUSTOMER_INVOICE";
+            }
+            if (st !== normalizeStatus(s.status)) {
+                const refreshed = await prisma.shipmentLead.findUnique({
+                    where: { shipmentLeadId },
+                });
+                if (refreshed) Object.assign(s, refreshed);
+            }
+        }
+
         const timeline = await domainEventEngine.listForShipment(shipmentLeadId);
         const pricing = computePricing(s);
         const tracking = trackingFromStatus(s.status, s.trackingStatus);

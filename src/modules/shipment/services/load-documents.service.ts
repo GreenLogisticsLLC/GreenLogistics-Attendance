@@ -297,38 +297,50 @@ export class LoadDocumentsService {
                 actorUserId: input.actorUserId,
                 skipLifecycleCheck: false,
             });
-        } else if (docType === "RATE_CONFIRMATION" && version === 1) {
+        } else {
             const { shipmentService } = await import("./shipment.service.js");
-            try {
-                await shipmentService.transitionStatus({
-                    shipmentLeadId: input.shipmentLeadId,
-                    status: "RATE_CON_GENERATED",
-                    actorUserId: input.actorUserId,
-                });
-            } catch {
-                /* allow generate without forcing status if transition blocked */
-            }
-        } else if (docType === "CUSTOMER_INVOICE" && version === 1) {
-            const { shipmentService } = await import("./shipment.service.js");
-            try {
-                await shipmentService.transitionStatus({
-                    shipmentLeadId: input.shipmentLeadId,
-                    status: "CUSTOMER_INVOICE",
-                    actorUserId: input.actorUserId,
-                });
-            } catch {
-                /* allow generate without forcing status if transition blocked */
-            }
-            if (content.invoiceNumber) {
-                await prisma.shipmentLead.update({
-                    where: { shipmentLeadId: input.shipmentLeadId },
-                    data: {
-                        invoiceNumber: String(content.invoiceNumber),
-                        invoiceDate: content.invoiceDate
-                            ? new Date(String(content.invoiceDate))
-                            : new Date(),
+            const tryAdvance = async (status: string) => {
+                try {
+                    await shipmentService.transitionStatus({
+                        shipmentLeadId: input.shipmentLeadId,
+                        status,
+                        actorUserId: input.actorUserId,
+                    });
+                } catch {
+                    /* allow generate without forcing status if transition blocked */
+                }
+            };
+
+            // Keep the left rail in sync with real docs (Rate Con / POD / Invoice).
+            if (docType === "RATE_CONFIRMATION" && version === 1) {
+                await tryAdvance("RATE_CON_GENERATED");
+            } else if (docType === "POD") {
+                await tryAdvance("POD_UPLOADED");
+            } else if (docType === "CUSTOMER_INVOICE") {
+                // If still at Delivered, move through POD first when a POD already exists.
+                const pod = await prisma.loadDocument.findFirst({
+                    where: {
+                        shipmentLeadId: input.shipmentLeadId,
+                        docType: "POD",
+                        isCurrent: true,
                     },
-                }).catch(() => null);
+                    select: { documentId: true },
+                });
+                if (pod) await tryAdvance("POD_UPLOADED");
+                await tryAdvance("CUSTOMER_INVOICE");
+                if (content.invoiceNumber) {
+                    await prisma.shipmentLead
+                        .update({
+                            where: { shipmentLeadId: input.shipmentLeadId },
+                            data: {
+                                invoiceNumber: String(content.invoiceNumber),
+                                invoiceDate: content.invoiceDate
+                                    ? new Date(String(content.invoiceDate))
+                                    : new Date(),
+                            },
+                        })
+                        .catch(() => null);
+                }
             }
         }
 
