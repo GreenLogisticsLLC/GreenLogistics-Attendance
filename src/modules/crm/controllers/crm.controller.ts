@@ -247,6 +247,8 @@ export async function crmMyCustomersController(req: AuthRequest, res: Response) 
         where,
         select: {
             customerName: true,
+            customerEmail: true,
+            customerPhone: true,
             shipmentLeadId: true,
             shipmentTitle: true,
             status: true,
@@ -258,14 +260,26 @@ export async function crmMyCustomersController(req: AuthRequest, res: Response) 
 
     const map = new Map<
         string,
-        { customer: string; shipmentCount: number; lastShipmentId: string; lastStatus: string; lastUpdated: Date }
+        {
+            customer: string;
+            gmail: string | null;
+            phone: string | null;
+            shipmentCount: number;
+            lastShipmentId: string;
+            lastStatus: string;
+            lastUpdated: Date;
+        }
     >();
     for (const r of rows) {
         const name = (r.customerName || "Unknown").trim() || "Unknown";
+        const email = (r.customerEmail || "").trim() || null;
+        const phone = (r.customerPhone || "").trim() || null;
         const prev = map.get(name);
         if (!prev) {
             map.set(name, {
                 customer: name,
+                gmail: email,
+                phone,
                 shipmentCount: 1,
                 lastShipmentId: r.shipmentLeadId,
                 lastStatus: r.status,
@@ -273,6 +287,9 @@ export async function crmMyCustomersController(req: AuthRequest, res: Response) 
             });
         } else {
             prev.shipmentCount += 1;
+            // Keep newest contacts if later rows lack them (rows are newest-first).
+            if (!prev.gmail && email) prev.gmail = email;
+            if (!prev.phone && phone) prev.phone = phone;
         }
     }
     return res.json(apiResponse(true, "Customers", [...map.values()]));
@@ -505,6 +522,14 @@ export async function crmCustomerDetailController(req: AuthRequest, res: Respons
         take: 200,
     });
 
+    let gmail: string | null = null;
+    let phone: string | null = null;
+    for (const s of shipments) {
+        if (!gmail && s.customerEmail) gmail = s.customerEmail;
+        if (!phone && s.customerPhone) phone = s.customerPhone;
+        if (gmail && phone) break;
+    }
+
     const ids = shipments.map((s) => s.shipmentLeadId);
     const [timeline, mailbox, events] = await Promise.all([
         ids.length
@@ -545,6 +570,7 @@ export async function crmCustomerDetailController(req: AuthRequest, res: Respons
     return res.json(
         apiResponse(true, "Customer", {
             customer: name,
+            contact: { gmail, phone },
             shipments,
             timeline,
             domainEvents: events,

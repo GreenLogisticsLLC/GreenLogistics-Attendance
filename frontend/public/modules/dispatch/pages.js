@@ -451,6 +451,7 @@ window.GreenOSModules["dispatch"] = {
         '<div class="load-grid" style="margin-bottom:0.75rem">' +
         field("Broker Gmail", contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email)) +
         field("Customer Email", contacts.customerEmail || g.customerEmail) +
+        field("Customer Phone", contacts.customerPhone || g.customerPhone) +
         field("Carrier Email", contacts.carrierEmail || (data.carrier && data.carrier.carrierEmail)) +
         "</div>" +
         '<div class="load-form-grid">' +
@@ -458,6 +459,9 @@ window.GreenOSModules["dispatch"] = {
         '<label>Customer email (Gmail) <input id="ld-customer-email" type="email" value="' +
         self.esc(contacts.customerEmail || g.customerEmail || "") +
         '" placeholder="customer@gmail.com"></label>' +
+        '<label>Customer phone <input id="ld-customer-phone" type="tel" value="' +
+        self.esc(contacts.customerPhone || g.customerPhone || "") +
+        '" placeholder="+1 (xxx) xxx-xxxx"></label>' +
         '<label>Carrier email <input id="ld-carrier-email-g" type="email" value="' +
         self.esc(contacts.carrierEmail || (data.carrier && data.carrier.carrierEmail) || "") +
         '" placeholder="dispatch@carrier.com"></label>' +
@@ -480,6 +484,7 @@ window.GreenOSModules["dispatch"] = {
             body: JSON.stringify({
               customerName: main.querySelector("#ld-customer").value || null,
               customerEmail: main.querySelector("#ld-customer-email").value || null,
+              customerPhone: main.querySelector("#ld-customer-phone").value || null,
               carrierEmail: main.querySelector("#ld-carrier-email-g").value || null,
               commodity: main.querySelector("#ld-commodity").value || null,
               equipment: main.querySelector("#ld-equipment").value || null,

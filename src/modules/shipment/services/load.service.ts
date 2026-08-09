@@ -192,6 +192,7 @@ export class LoadService {
                 shipmentNumber: s.greenOsShipmentId,
                 customer: s.customerName,
                 customerEmail: s.customerEmail,
+                customerPhone: s.customerPhone,
                 broker,
                 brokerGmail: broker?.gmail || null,
                 status: s.status,
@@ -225,6 +226,7 @@ export class LoadService {
                 brokerGmail: broker?.gmail || null,
                 brokerEmail: broker?.email || null,
                 customerEmail: s.customerEmail,
+                customerPhone: s.customerPhone,
                 carrierEmail: s.carrierEmail,
             },
             carrier: {
@@ -369,6 +371,7 @@ export class LoadService {
         str("carrierNotes");
         str("aiNotes");
         str("customerEmail");
+        str("customerPhone");
         str("carrierEmail");
         str("carrierName");
         str("carrierMc");

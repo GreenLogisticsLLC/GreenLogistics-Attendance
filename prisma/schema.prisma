@@ -285,6 +285,8 @@ model ShipmentLead {
   customerName          String?                 @map("customer_name")
   /// Customer contact email (for Rate Con / BOL / send).
   customerEmail         String?                 @map("customer_email")
+  /// Customer phone (My Customers + docs).
+  customerPhone         String?                 @map("customer_phone")
   pickupCity            String?                 @map("pickup_city")
   pickupState           String?                 @map("pickup_state")
   pickupZip             String?                 @map("pickup_zip")

@@ -363,12 +363,12 @@ window.GreenOSModules.broker = {
       body.innerHTML =
         '<section class="gos-dash-hero"><h1>My Customers</h1><p>Same Shipment Cards — no duplicate records</p></section>' +
         '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-        "<th>Customer</th><th>Shipments</th><th>Last Status</th><th>Updated</th>" +
+        "<th>Customer</th><th>Gmail</th><th>Phone</th><th>Shipments</th><th>Last Status</th><th>Updated</th>" +
         '</tr></thead><tbody id="broker-cust-body"></tbody></table></div>' +
         '<div id="broker-customer-detail"></div>';
       var tbody = body.querySelector("#broker-cust-body");
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="4">No customers yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6">No customers yet</td></tr>';
         return;
       }
       var esc = this.esc.bind(this);
@@ -381,6 +381,10 @@ window.GreenOSModules.broker = {
             '"><td><strong>' +
             esc(c.customer) +
             "</strong></td><td>" +
+            esc(c.gmail || "—") +
+            "</td><td>" +
+            esc(c.phone || "—") +
+            "</td><td>" +
             c.shipmentCount +
             "</td><td>" +
             esc(c.lastStatus) +
@@ -539,6 +543,11 @@ window.GreenOSModules.broker = {
         "<h2>" +
         esc(d.customer) +
         "</h2>" +
+        '<p class="gos-muted">Gmail: <strong>' +
+        esc((d.contact && d.contact.gmail) || "—") +
+        "</strong> · Phone: <strong>" +
+        esc((d.contact && d.contact.phone) || "—") +
+        "</strong></p>" +
         '<div class="gos-card-grid">' +
         this.card("Shipments", (d.shipments || []).length, "accent-blue") +
         this.card("Active", fin.active || 0, "accent-green") +
