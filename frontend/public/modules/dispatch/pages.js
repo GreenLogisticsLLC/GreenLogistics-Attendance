@@ -580,21 +580,23 @@ window.GreenOSModules["dispatch"] = {
     if (tab === "pricing") {
       main.innerHTML =
         "<h2>Pricing</h2>" +
-        '<p class="gos-muted">Profit and margin are calculated automatically — brokers never hand-calc.</p>' +
+        '<p class="gos-muted">Profit = From customer (взяли) − To carrier (отдали). Example: $1500 − $1000 = <strong>$500</strong>.</p>' +
         '<div class="load-grid">' +
-        field("Customer Rate", self.money(p.customerRate)) +
-        field("Carrier Rate", self.money(p.carrierRate)) +
-        field("Fuel", self.money(p.fuelSurcharge)) +
-        field("Accessorials", self.money(p.accessorialCharges)) +
-        field("Total Revenue", self.money(p.totalRevenue)) +
-        field("Total Cost", self.money(p.totalCost)) +
-        field("Gross Profit", self.money(p.grossProfit)) +
-        field("Margin %", (p.marginPct != null ? p.marginPct + "%" : "—")) +
+        field("From customer (Customer Invoice)", self.money(p.customerRate)) +
+        field("To carrier (Rate Con / Carrier Invoice)", self.money(p.carrierRate)) +
+        field("Fuel (info only)", self.money(p.fuelSurcharge)) +
+        field("Accessorials (info only)", self.money(p.accessorialCharges)) +
+        field("Profit", self.money(p.profit != null ? p.profit : p.grossProfit)) +
+        field("Margin %", p.marginPct != null ? p.marginPct + "%" : "—") +
         "</div>" +
         '<div class="load-edit-panel">' +
         '<div class="load-form-grid">' +
-        '<label>Customer Rate <input id="ld-cr" type="number" step="0.01" value="' + self.esc(p.customerRate || "") + '"></label>' +
-        '<label>Carrier Rate <input id="ld-crr" type="number" step="0.01" value="' + self.esc(p.carrierRate || "") + '"></label>' +
+        '<label>From customer $ <input id="ld-cr" type="number" step="0.01" value="' +
+        self.esc(p.customerRate || "") +
+        '" placeholder="1500"></label>' +
+        '<label>To carrier $ <input id="ld-crr" type="number" step="0.01" value="' +
+        self.esc(p.carrierRate || "") +
+        '" placeholder="1000"></label>' +
         '<label>Fuel <input id="ld-fuel" type="number" step="0.01" value="' + self.esc(p.fuelSurcharge || "") + '"></label>' +
         '<label>Accessorials <input id="ld-acc" type="number" step="0.01" value="' + self.esc(p.accessorialCharges || "") + '"></label>' +
         "</div>" +

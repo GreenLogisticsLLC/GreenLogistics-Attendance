@@ -10,6 +10,11 @@ function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
 }
 
+/**
+ * Company profit on a Load:
+ *   From customer (взяли) − To carrier (отдали по carrier invoice / Rate Con)
+ * Extra fees are tracked separately and do NOT change this profit formula.
+ */
 export function computePricing(row: {
     price?: number | null;
     customerRate?: number | null;
@@ -18,28 +23,30 @@ export function computePricing(row: {
     accessorialCharges?: number | null;
     factoringFee?: number | null;
 }) {
-    const customerRate = money(row.customerRate ?? row.price);
-    const carrierRate = money(row.carrierRate);
+    // What we bill / take from the customer (Customer Invoice amount).
+    const fromCustomer = money(row.customerRate ?? row.price);
+    // What we pay the carrier (Rate Con flat rate / Carrier Invoice).
+    const toCarrier = money(row.carrierRate);
     const fuel = money(row.fuelSurcharge);
     const accessorials = money(row.accessorialCharges);
     const factoring = money(row.factoringFee);
-    const totalRevenue = customerRate + fuel + accessorials;
-    const totalCost = carrierRate + factoring;
-    const grossProfit = totalRevenue - totalCost;
-    const marginPct = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
+    const profit = fromCustomer - toCarrier;
+    const marginPct = fromCustomer > 0 ? (profit / fromCustomer) * 100 : 0;
     return {
-        customerRate,
-        carrierRate,
+        customerRate: fromCustomer,
+        carrierRate: toCarrier,
+        fromCustomer,
+        toCarrier,
         fuelSurcharge: fuel,
         accessorialCharges: accessorials,
         factoringFee: factoring,
-        totalRevenue,
-        totalCost,
-        grossProfit,
-        profit: grossProfit,
+        totalRevenue: fromCustomer,
+        totalCost: toCarrier,
+        grossProfit: profit,
+        profit,
         marginPct: Math.round(marginPct * 100) / 100,
-        companyProfit: grossProfit,
-        brokerProfit: grossProfit,
+        companyProfit: profit,
+        brokerProfit: profit,
     };
 }
 

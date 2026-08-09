@@ -556,19 +556,22 @@ export async function crmCustomerDetailController(req: AuthRequest, res: Respons
     ]);
 
     const financial = (() => {
-        let sold = 0; // what we charged the customer (взяли)
-        let paid = 0; // what we paid the carrier (продали / carrier rate)
+        let fromCustomer = 0; // взяли у кастомера (Customer Invoice / customerRate)
+        let toCarrier = 0; // отдали кериеру (Rate Con / Carrier Invoice / carrierRate)
         for (const s of shipments) {
-            const customer = Number(s.customerRate ?? s.price ?? 0);
-            const carrier = Number(s.carrierRate ?? 0);
-            if (Number.isFinite(customer)) sold += customer;
-            if (Number.isFinite(carrier)) paid += carrier;
+            const cust = Number(s.customerRate ?? s.price ?? 0);
+            const carr = Number(s.carrierRate ?? 0);
+            if (Number.isFinite(cust)) fromCustomer += cust;
+            if (Number.isFinite(carr)) toCarrier += carr;
         }
-        const profit = sold - paid;
+        // Profit = what we took from customer − what we paid carrier
+        const profit = fromCustomer - toCarrier;
         return {
-            totalQuoted: sold,
-            totalSold: sold,
-            totalPaid: paid,
+            totalQuoted: fromCustomer,
+            totalSold: fromCustomer,
+            totalPaid: toCarrier,
+            fromCustomer,
+            toCarrier,
             profit,
             withLoadNumber: shipments.filter((s) => s.loadNumber).length,
             completed: shipments.filter((s) =>

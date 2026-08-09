@@ -558,11 +558,12 @@ window.GreenOSModules.broker = {
           "accent-warn"
         ) +
         "</div>" +
-        '<p class="gos-muted" style="margin:0.35rem 0 0.75rem">Sold (customer): <strong>$' +
-        Math.round(fin.totalSold || fin.totalQuoted || 0) +
-        "</strong> · Paid (carrier): <strong>$" +
-        Math.round(fin.totalPaid || 0) +
-        "</strong> · Profit = sold − paid</p>" +
+        '<p class="gos-muted" style="margin:0.35rem 0 0.75rem">' +
+        "From customer (взяли): <strong>$" +
+        Math.round(fin.fromCustomer != null ? fin.fromCustomer : fin.totalSold || 0) +
+        "</strong> · To carrier (отдали): <strong>$" +
+        Math.round(fin.toCarrier != null ? fin.toCarrier : fin.totalPaid || 0) +
+        "</strong> · <strong>Profit = from customer − to carrier</strong></p>" +
         "<h3>All Shipments</h3>" +
         '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
         "<th>Green OS ID</th><th>Status</th><th>Load #</th><th>Route</th><th>Updated</th>" +
