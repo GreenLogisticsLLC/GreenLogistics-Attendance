@@ -555,17 +555,31 @@ export async function crmCustomerDetailController(req: AuthRequest, res: Respons
             : Promise.resolve([]),
     ]);
 
-    const financial = {
-        totalQuoted: shipments.reduce((a, s) => a + (s.price || 0), 0),
-        withLoadNumber: shipments.filter((s) => s.loadNumber).length,
-        completed: shipments.filter((s) =>
-            ["COMPLETED", "CLOSED", "WON", "DELIVERED"].includes(s.status)
-        ).length,
-        lost: shipments.filter((s) => s.status === "LOST").length,
-        active: shipments.filter((s) =>
-            !["COMPLETED", "CLOSED", "WON", "LOST"].includes(s.status)
-        ).length,
-    };
+    const financial = (() => {
+        let sold = 0; // what we charged the customer (взяли)
+        let paid = 0; // what we paid the carrier (продали / carrier rate)
+        for (const s of shipments) {
+            const customer = Number(s.customerRate ?? s.price ?? 0);
+            const carrier = Number(s.carrierRate ?? 0);
+            if (Number.isFinite(customer)) sold += customer;
+            if (Number.isFinite(carrier)) paid += carrier;
+        }
+        const profit = sold - paid;
+        return {
+            totalQuoted: sold,
+            totalSold: sold,
+            totalPaid: paid,
+            profit,
+            withLoadNumber: shipments.filter((s) => s.loadNumber).length,
+            completed: shipments.filter((s) =>
+                ["COMPLETED", "CLOSED", "WON", "DELIVERED"].includes(s.status)
+            ).length,
+            lost: shipments.filter((s) => s.status === "LOST").length,
+            active: shipments.filter((s) =>
+                !["COMPLETED", "CLOSED", "WON", "LOST"].includes(s.status)
+            ).length,
+        };
+    })();
 
     return res.json(
         apiResponse(true, "Customer", {

@@ -552,8 +552,17 @@ window.GreenOSModules.broker = {
         this.card("Shipments", (d.shipments || []).length, "accent-blue") +
         this.card("Active", fin.active || 0, "accent-green") +
         this.card("Completed", fin.completed || 0, "accent-green") +
-        this.card("Quoted $", Math.round(fin.totalQuoted || 0), "accent-warn") +
+        this.card(
+          "Profit $",
+          Math.round(fin.profit != null ? fin.profit : 0),
+          "accent-warn"
+        ) +
         "</div>" +
+        '<p class="gos-muted" style="margin:0.35rem 0 0.75rem">Sold (customer): <strong>$' +
+        Math.round(fin.totalSold || fin.totalQuoted || 0) +
+        "</strong> · Paid (carrier): <strong>$" +
+        Math.round(fin.totalPaid || 0) +
+        "</strong> · Profit = sold − paid</p>" +
         "<h3>All Shipments</h3>" +
         '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
         "<th>Green OS ID</th><th>Status</th><th>Load #</th><th>Route</th><th>Updated</th>" +
