@@ -436,6 +436,9 @@ window.GreenOSModules["dispatch"] = {
 
     if (tab === "general") {
       var contacts = data.contacts || {};
+      var custPrice = p.customerRate != null && p.customerRate !== "" ? p.customerRate : "";
+      var carrPrice = p.carrierRate != null && p.carrierRate !== "" ? p.carrierRate : "";
+      var profitVal = p.profit != null ? p.profit : p.grossProfit;
       main.innerHTML =
         "<h2>General</h2>" +
         '<div class="load-grid">' +
@@ -451,10 +454,30 @@ window.GreenOSModules["dispatch"] = {
         field("Weight", g.weight) +
         field("Pieces", g.pieces) +
         field("Miles", g.miles) +
+        field("Customer price (взяли)", self.money(custPrice)) +
+        field("Carrier price (отдали)", self.money(carrPrice)) +
+        field("Our profit", self.money(profitVal)) +
         field("Created", g.createdAt ? new Date(g.createdAt).toLocaleString() : "—") +
         field("Last Updated", g.updatedAt ? new Date(g.updatedAt).toLocaleString() : "—") +
         "</div>" +
         '<div class="load-edit-panel">' +
+        "<h3>Money on this Load</h3>" +
+        '<p class="gos-muted">Profit = Customer price − Carrier price. Example: $1500 − $1000 = <strong>$500</strong>.</p>' +
+        '<div class="load-form-grid">' +
+        '<label>Customer price $ (взяли у customer) <input id="ld-cust-price" type="number" step="0.01" value="' +
+        self.esc(custPrice) +
+        '" placeholder="1500"></label>' +
+        '<label>Carrier price $ (отдали carrier) <input id="ld-carr-price" type="number" step="0.01" value="' +
+        self.esc(carrPrice) +
+        '" placeholder="1000"></label>' +
+        '<label class="full">Our profit $ <input id="ld-profit-view" type="text" readonly value="' +
+        self.esc(
+          custPrice !== "" && carrPrice !== ""
+            ? (Number(custPrice) - Number(carrPrice)).toFixed(2)
+            : "—"
+        ) +
+        '"></label>' +
+        "</div>" +
         "<h3>Emails — Broker Gmail / Customer / Carrier</h3>" +
         '<p class="gos-muted">These emails go on Rate Con and BOL. Fill them as soon as the Load is created.</p>' +
         '<div class="load-grid" style="margin-bottom:0.75rem">' +
@@ -486,6 +509,18 @@ window.GreenOSModules["dispatch"] = {
         "</div>" +
         '<button type="button" class="btn-primary" id="ld-save-general">Save</button>' +
         "</div>";
+
+      function updateProfitView() {
+        var a = parseFloat(main.querySelector("#ld-cust-price").value);
+        var b = parseFloat(main.querySelector("#ld-carr-price").value);
+        var el = main.querySelector("#ld-profit-view");
+        if (!el) return;
+        if (Number.isFinite(a) && Number.isFinite(b)) el.value = (a - b).toFixed(2);
+        else el.value = "—";
+      }
+      main.querySelector("#ld-cust-price")?.addEventListener("input", updateProfitView);
+      main.querySelector("#ld-carr-price")?.addEventListener("input", updateProfitView);
+
       main.querySelector("#ld-save-general")?.addEventListener("click", async function () {
         try {
           await self.api("/" + encodeURIComponent(id), {
@@ -495,6 +530,8 @@ window.GreenOSModules["dispatch"] = {
               customerEmail: main.querySelector("#ld-customer-email").value || null,
               customerPhone: main.querySelector("#ld-customer-phone").value || null,
               carrierEmail: main.querySelector("#ld-carrier-email-g").value || null,
+              customerRate: main.querySelector("#ld-cust-price").value || null,
+              carrierRate: main.querySelector("#ld-carr-price").value || null,
               commodity: main.querySelector("#ld-commodity").value || null,
               equipment: main.querySelector("#ld-equipment").value || null,
               weight: main.querySelector("#ld-weight").value || null,
@@ -514,10 +551,13 @@ window.GreenOSModules["dispatch"] = {
     if (tab === "carrier") {
       main.innerHTML =
         "<h2>Assign Carrier</h2>" +
-        '<p class="gos-muted">Phase 2 — fill carrier details, then Save &amp; Assign to move the Load forward.</p>' +
+        '<p class="gos-muted">Phase 2 — fill carrier details + <strong>Carrier price</strong> (сколько отдали carrier). Profit = Customer price − Carrier price.</p>' +
         '<div class="load-grid">' +
         field("Carrier", c.carrierName) +
         field("Carrier Email", c.carrierEmail) +
+        field("Carrier price (отдали)", self.money(p.carrierRate)) +
+        field("Customer price (взяли)", self.money(p.customerRate)) +
+        field("Our profit", self.money(p.profit != null ? p.profit : p.grossProfit)) +
         field("MC", c.mc) +
         field("DOT", c.dot) +
         field("Insurance", c.insurance) +
@@ -534,6 +574,9 @@ window.GreenOSModules["dispatch"] = {
         '<label>Carrier email * <input id="ld-carrier-email" type="email" value="' +
         self.esc(c.carrierEmail || "") +
         '" placeholder="dispatch@carrier.com"></label>' +
+        '<label>Carrier price $ (отдали) * <input id="ld-carr-price" type="number" step="0.01" value="' +
+        self.esc(p.carrierRate != null && p.carrierRate !== "" ? p.carrierRate : "") +
+        '" placeholder="1000"></label>' +
         '<label>MC <input id="ld-mc" value="' + self.esc(c.mc || "") + '" placeholder="MC123456"></label>' +
         '<label>DOT <input id="ld-dot" value="' + self.esc(c.dot || "") + '"></label>' +
         '<label>Insurance <input id="ld-ins" value="' + self.esc(c.insurance || "") + '"></label>' +
@@ -558,6 +601,7 @@ window.GreenOSModules["dispatch"] = {
             body: JSON.stringify({
               carrierName: name,
               carrierEmail: main.querySelector("#ld-carrier-email").value || null,
+              carrierRate: main.querySelector("#ld-carr-price").value || null,
               carrierMc: main.querySelector("#ld-mc").value || null,
               carrierDot: main.querySelector("#ld-dot").value || null,
               carrierInsurance: main.querySelector("#ld-ins").value || null,
