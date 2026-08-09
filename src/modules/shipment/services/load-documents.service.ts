@@ -328,18 +328,52 @@ export class LoadDocumentsService {
                 });
                 if (pod) await tryAdvance("POD_UPLOADED");
                 await tryAdvance("CUSTOMER_INVOICE");
-                if (content.invoiceNumber) {
-                    await prisma.shipmentLead
-                        .update({
-                            where: { shipmentLeadId: input.shipmentLeadId },
-                            data: {
-                                invoiceNumber: String(content.invoiceNumber),
-                                invoiceDate: content.invoiceDate
-                                    ? new Date(String(content.invoiceDate))
-                                    : new Date(),
-                            },
-                        })
-                        .catch(() => null);
+                const customerAmt = (() => {
+                    const raw =
+                        content.totalAmountDue ??
+                        content.invoiceLineTotal ??
+                        content.invoiceSubtotal ??
+                        content.customerRate;
+                    if (raw == null || raw === "") return null;
+                    const n =
+                        typeof raw === "number"
+                            ? raw
+                            : Number(String(raw).replace(/[^0-9.-]/g, ""));
+                    return Number.isFinite(n) ? n : null;
+                })();
+                await prisma.shipmentLead
+                    .update({
+                        where: { shipmentLeadId: input.shipmentLeadId },
+                        data: {
+                            ...(content.invoiceNumber
+                                ? {
+                                      invoiceNumber: String(content.invoiceNumber),
+                                      invoiceDate: content.invoiceDate
+                                          ? new Date(String(content.invoiceDate))
+                                          : new Date(),
+                                  }
+                                : {}),
+                            ...(customerAmt != null && customerAmt > 0
+                                ? { customerRate: customerAmt }
+                                : {}),
+                        },
+                    })
+                    .catch(() => null);
+            } else if (docType === "RATE_CONFIRMATION") {
+                const rateRaw = content.flatRate ?? content.carrierRate;
+                if (rateRaw != null && rateRaw !== "") {
+                    const n =
+                        typeof rateRaw === "number"
+                            ? rateRaw
+                            : Number(String(rateRaw).replace(/[^0-9.-]/g, ""));
+                    if (Number.isFinite(n) && n > 0) {
+                        await prisma.shipmentLead
+                            .update({
+                                where: { shipmentLeadId: input.shipmentLeadId },
+                                data: { carrierRate: n },
+                            })
+                            .catch(() => null);
+                    }
                 }
             }
         }

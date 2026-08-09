@@ -123,9 +123,15 @@ window.GreenOSModules["dispatch"] = {
       var html =
         "<h2>" + (phase === "completed" ? "Completed Loads" : "Active Loads") + "</h2>" +
         '<div class="load-table-wrap"><table class="load-table"><thead><tr>' +
-        "<th>Load #</th><th>Shipment</th><th>Customer</th><th>Lane</th><th>Carrier</th><th>Status</th><th>Profit</th><th></th>" +
+        "<th>Load #</th><th>Shipment</th><th>Customer</th><th>Lane</th><th>Carrier</th><th>Status</th>" +
+        "<th>Customer $</th><th>Carrier $</th><th>Profit</th><th></th>" +
         "</tr></thead><tbody>";
       rows.forEach(function (r) {
+        var pr = r.pricing || {};
+        var profitCell =
+          pr.hasBothSides === false
+            ? '<span class="gos-muted" title="Enter Customer price and Carrier price">—</span>'
+            : self.money(pr.grossProfit != null ? pr.grossProfit : pr.profit);
         html +=
           "<tr>" +
           "<td><strong>" + self.esc(r.loadNumber) + "</strong></td>" +
@@ -134,7 +140,9 @@ window.GreenOSModules["dispatch"] = {
           "<td>" + self.esc((r.pickup || "—") + " → " + (r.delivery || "—")) + "</td>" +
           "<td>" + self.esc(r.carrierName || "—") + "</td>" +
           "<td><span class=\"load-status-pill\">" + self.esc(r.statusLabel || r.status) + "</span></td>" +
-          "<td>" + self.money(r.pricing && r.pricing.grossProfit) + "</td>" +
+          "<td>" + (pr.hasCustomerPrice ? self.money(pr.fromCustomer != null ? pr.fromCustomer : pr.customerRate) : "—") + "</td>" +
+          "<td>" + (pr.hasCarrierPrice ? self.money(pr.toCarrier != null ? pr.toCarrier : pr.carrierRate) : "—") + "</td>" +
+          "<td>" + profitCell + "</td>" +
           '<td><button type="button" class="btn-secondary load-open-btn" data-id="' +
           self.esc(r.shipmentLeadId) +
           '">Open</button></td>' +
@@ -1804,7 +1812,9 @@ window.GreenOSModules["dispatch"] = {
       '<label>Subtotal $ <input id="inv-sub" type="number" step="0.01" value="' + self.esc(rate) + '"></label>' +
       '<label>Tax rate % <input id="inv-taxrate" type="number" step="0.01" value="0"></label>' +
       '<label>Tax $ <input id="inv-tax" type="number" step="0.01" value="0"></label>' +
-      '<label>Total Amount Due $ <input id="inv-due" type="number" step="0.01" value="' + self.esc(rate) + '"></label>' +
+      '<label>Customer price / Total Due $ * <input id="inv-due" type="number" step="0.01" value="' +
+      self.esc(rate) +
+      '"></label>' +
       '<label>Payment terms <input id="inv-payterms" value="Net 30"></label>' +
       '<label class="full">Terms and Conditions <textarea id="inv-terms" rows="4">' +
       self.esc(defaultTerms) +
@@ -1858,7 +1868,8 @@ window.GreenOSModules["dispatch"] = {
             customerName: box.querySelector("#inv-bill-name").value || null,
             customerEmail: box.querySelector("#inv-bill-email").value || null,
             customerPhone: box.querySelector("#inv-bill-phone").value || null,
-            customerRate: box.querySelector("#inv-rate").value || null,
+            // Customer price = Total Amount Due (not hourly rate)
+            customerRate: box.querySelector("#inv-due").value || box.querySelector("#inv-line").value || null,
             invoiceNumber: box.querySelector("#inv-no").value || null,
             invoiceDate: box.querySelector("#inv-date").value || null,
           }),
@@ -1878,7 +1889,7 @@ window.GreenOSModules["dispatch"] = {
           invoiceDescription: box.querySelector("#inv-desc").value,
           invoiceHours: box.querySelector("#inv-hours").value,
           invoiceRatePerHour: box.querySelector("#inv-rate").value,
-          customerRate: box.querySelector("#inv-rate").value,
+          customerRate: box.querySelector("#inv-due").value || box.querySelector("#inv-line").value,
           invoiceLineTotal: box.querySelector("#inv-line").value,
           invoiceSubtotal: box.querySelector("#inv-sub").value,
           taxRate: box.querySelector("#inv-taxrate").value,

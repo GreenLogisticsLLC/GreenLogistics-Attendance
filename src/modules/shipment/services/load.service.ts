@@ -10,6 +10,29 @@ function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
 }
 
+function parseMoneyValue(v: unknown): number | null {
+    if (v == null || v === "") return null;
+    const n = typeof v === "number" ? v : Number(String(v).replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(n) ? n : null;
+}
+
+/** Prefer invoice total (what customer pays), not hourly rate. */
+export function customerAmountFromInvoiceContent(content: Record<string, unknown> | null | undefined): number | null {
+    if (!content) return null;
+    return (
+        parseMoneyValue(content.totalAmountDue) ??
+        parseMoneyValue(content.invoiceLineTotal) ??
+        parseMoneyValue(content.invoiceSubtotal) ??
+        parseMoneyValue(content.customerRate) ??
+        null
+    );
+}
+
+export function carrierAmountFromRateConContent(content: Record<string, unknown> | null | undefined): number | null {
+    if (!content) return null;
+    return parseMoneyValue(content.flatRate) ?? parseMoneyValue(content.carrierRate) ?? null;
+}
+
 /**
  * Company profit on a Load:
  *   From customer (взяли) − To carrier (отдали по carrier invoice / Rate Con)
@@ -47,6 +70,10 @@ export function computePricing(row: {
         marginPct: Math.round(marginPct * 100) / 100,
         companyProfit: profit,
         brokerProfit: profit,
+        hasCustomerPrice: row.customerRate != null || row.price != null,
+        hasCarrierPrice: row.carrierRate != null,
+        hasBothSides:
+            (row.customerRate != null || row.price != null) && row.carrierRate != null,
     };
 }
 
@@ -122,20 +149,79 @@ export class LoadService {
             take: limit,
         });
 
-        return rows.map((r) => ({
-            shipmentLeadId: r.shipmentLeadId,
-            loadNumber: r.loadNumber,
-            shipmentNumber: r.greenOsShipmentId,
-            status: r.status,
-            statusLabel: statusLabel(r.status),
-            customerName: r.customerName,
-            carrierName: r.carrierName,
-            pickup: [r.pickupCity, r.pickupState].filter(Boolean).join(", "),
-            delivery: [r.deliveryCity, r.deliveryState].filter(Boolean).join(", "),
-            pricing: computePricing(r),
-            updatedAt: r.updatedAt,
-            createdAt: r.createdAt,
-        }));
+        // Backfill missing rates from current Invoice / Rate Con JSON (fixes -$carrier display).
+        const ids = rows
+            .filter((r) => r.customerRate == null || r.carrierRate == null)
+            .map((r) => r.shipmentLeadId);
+        const docByLead = new Map<string, { inv?: string | null; rc?: string | null }>();
+        if (ids.length) {
+            const docs = await prisma.loadDocument.findMany({
+                where: {
+                    shipmentLeadId: { in: ids },
+                    isCurrent: true,
+                    docType: { in: ["CUSTOMER_INVOICE", "RATE_CONFIRMATION"] },
+                },
+                select: { shipmentLeadId: true, docType: true, contentJson: true },
+            });
+            for (const d of docs) {
+                const slot = docByLead.get(d.shipmentLeadId) || {};
+                if (d.docType === "CUSTOMER_INVOICE") slot.inv = d.contentJson;
+                if (d.docType === "RATE_CONFIRMATION") slot.rc = d.contentJson;
+                docByLead.set(d.shipmentLeadId, slot);
+            }
+        }
+
+        const mapped = [];
+        for (const r of rows) {
+            let customerRate = r.customerRate;
+            let carrierRate = r.carrierRate;
+            const slot = docByLead.get(r.shipmentLeadId);
+            if (slot) {
+                const patch: { customerRate?: number; carrierRate?: number } = {};
+                if ((customerRate == null || customerRate === 0) && slot.inv) {
+                    try {
+                        const amt = customerAmountFromInvoiceContent(JSON.parse(slot.inv));
+                        if (amt != null && amt > 0) {
+                            customerRate = amt;
+                            patch.customerRate = amt;
+                        }
+                    } catch {
+                        /* ignore bad JSON */
+                    }
+                }
+                if ((carrierRate == null || carrierRate === 0) && slot.rc) {
+                    try {
+                        const amt = carrierAmountFromRateConContent(JSON.parse(slot.rc));
+                        if (amt != null && amt > 0) {
+                            carrierRate = amt;
+                            patch.carrierRate = amt;
+                        }
+                    } catch {
+                        /* ignore bad JSON */
+                    }
+                }
+                if (Object.keys(patch).length) {
+                    await prisma.shipmentLead
+                        .update({ where: { shipmentLeadId: r.shipmentLeadId }, data: patch })
+                        .catch(() => null);
+                }
+            }
+            mapped.push({
+                shipmentLeadId: r.shipmentLeadId,
+                loadNumber: r.loadNumber,
+                shipmentNumber: r.greenOsShipmentId,
+                status: r.status,
+                statusLabel: statusLabel(r.status),
+                customerName: r.customerName,
+                carrierName: r.carrierName,
+                pickup: [r.pickupCity, r.pickupState].filter(Boolean).join(", "),
+                delivery: [r.deliveryCity, r.deliveryState].filter(Boolean).join(", "),
+                pricing: computePricing({ ...r, customerRate, carrierRate }),
+                updatedAt: r.updatedAt,
+                createdAt: r.createdAt,
+            });
+        }
+        return mapped;
     }
 
     async getLoadDetails(shipmentLeadId: string) {
@@ -164,6 +250,41 @@ export class LoadService {
         }
 
         const documents = await loadDocumentsService.listCurrent(shipmentLeadId);
+
+        // Backfill Customer / Carrier $ from invoice / Rate Con when DB rates are missing.
+        if (s.customerRate == null || s.customerRate === 0 || s.carrierRate == null || s.carrierRate === 0) {
+            const patch: { customerRate?: number; carrierRate?: number } = {};
+            for (const d of documents as Array<{ docType: string; contentJson?: string | null }>) {
+                if (!d.contentJson) continue;
+                try {
+                    const content = JSON.parse(d.contentJson);
+                    if (
+                        (s.customerRate == null || s.customerRate === 0) &&
+                        d.docType === "CUSTOMER_INVOICE" &&
+                        !patch.customerRate
+                    ) {
+                        const amt = customerAmountFromInvoiceContent(content);
+                        if (amt != null && amt > 0) patch.customerRate = amt;
+                    }
+                    if (
+                        (s.carrierRate == null || s.carrierRate === 0) &&
+                        d.docType === "RATE_CONFIRMATION" &&
+                        !patch.carrierRate
+                    ) {
+                        const amt = carrierAmountFromRateConContent(content);
+                        if (amt != null && amt > 0) patch.carrierRate = amt;
+                    }
+                } catch {
+                    /* ignore */
+                }
+            }
+            if (Object.keys(patch).length) {
+                await prisma.shipmentLead
+                    .update({ where: { shipmentLeadId }, data: patch })
+                    .catch(() => null);
+                Object.assign(s, patch);
+            }
+        }
 
         // Catch up lifecycle when docs already exist but status was stuck (e.g. at DELIVERED).
         // POD → POD_UPLOADED, Customer Invoice → CUSTOMER_INVOICE.
