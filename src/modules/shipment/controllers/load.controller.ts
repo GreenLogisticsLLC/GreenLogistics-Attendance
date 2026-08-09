@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import type { AuthRequest } from "../../../middlewares/auth.middleware.js";
 import { assertShipmentAccess } from "../../../auth/access.js";
+import { canViewLoadProfit } from "../../../auth/roles.js";
 import { loadService } from "../services/load.service.js";
 import { loadDocumentsService } from "../services/load-documents.service.js";
 import { LOAD_DOCS_ROOT } from "../services/load-pdf.service.js";
@@ -15,12 +16,52 @@ async function accessOr404(req: AuthRequest, res: Response, id: string) {
     return assertShipmentAccess(req, res, id);
 }
 
+const MONEY_PATCH_KEYS = [
+    "customerRate",
+    "carrierRate",
+    "fuelSurcharge",
+    "accessorialCharges",
+    "factoringFee",
+    "price",
+] as const;
+
+function stripMoneyFromPricing(pricing: Record<string, unknown> | null | undefined) {
+    if (!pricing) return null;
+    return {
+        restricted: true,
+        message: "Money / Profit is visible only to Accounting and Owner",
+    };
+}
+
+function redactLoadListRow(row: Record<string, unknown>) {
+    return { ...row, pricing: stripMoneyFromPricing(row.pricing as Record<string, unknown>) };
+}
+
+function redactLoadDetails(data: Record<string, unknown>) {
+    const out = { ...data, pricing: stripMoneyFromPricing(data.pricing as Record<string, unknown>) };
+    if (out.accounting && typeof out.accounting === "object") {
+        const a = { ...(out.accounting as Record<string, unknown>) };
+        delete a.brokerProfit;
+        delete a.companyProfit;
+        delete a.margin;
+        delete a.outstandingBalance;
+        a.restricted = true;
+        out.accounting = a;
+    }
+    out.canViewMoney = false;
+    return out;
+}
+
 export const loadController = {
     async list(req: AuthRequest, res: Response) {
         try {
             const phase = String(req.query.phase || "active") as "active" | "completed" | "all";
             const data = await loadService.listLoads({ phase });
-            res.json({ success: true, data });
+            const role = req.user?.role || "";
+            const safe = canViewLoadProfit(role)
+                ? data
+                : (data as Record<string, unknown>[]).map(redactLoadListRow);
+            res.json({ success: true, data: safe });
         } catch (err) {
             res.status(errStatus(err)).json({
                 success: false,
@@ -35,7 +76,11 @@ export const loadController = {
             const access = await accessOr404(req, res, id);
             if (!access.ok) return;
             const data = await loadService.getLoadDetails(id);
-            res.json({ success: true, data });
+            const role = req.user?.role || "";
+            const payload = canViewLoadProfit(role)
+                ? { ...data, canViewMoney: true }
+                : redactLoadDetails(data as unknown as Record<string, unknown>);
+            res.json({ success: true, data: payload });
         } catch (err) {
             res.status(errStatus(err)).json({
                 success: false,
@@ -52,7 +97,11 @@ export const loadController = {
             // Ignore any client-supplied load number — system only.
             await loadService.createLoad(id, req.user?.userId);
             const data = await loadService.getLoadDetails(id);
-            res.json({ success: true, message: "Load Number assigned automatically", data });
+            const role = req.user?.role || "";
+            const payload = canViewLoadProfit(role)
+                ? { ...data, canViewMoney: true }
+                : redactLoadDetails(data as unknown as Record<string, unknown>);
+            res.json({ success: true, message: "Load Number assigned automatically", data: payload });
         } catch (err) {
             res.status(errStatus(err)).json({
                 success: false,
@@ -66,7 +115,19 @@ export const loadController = {
             const id = String(req.params.id || "");
             const access = await accessOr404(req, res, id);
             if (!access.ok) return;
-            const data = await loadService.updateLoad(id, req.body || {}, req.user?.userId);
+            const body = { ...(req.body || {}) } as Record<string, unknown>;
+            const role = req.user?.role || "";
+            if (!canViewLoadProfit(role)) {
+                const blocked = MONEY_PATCH_KEYS.filter((k) => body[k] !== undefined);
+                if (blocked.length) {
+                    return res.status(403).json({
+                        success: false,
+                        message:
+                            "Only Accounting and Owner can set Customer / Carrier prices and Profit",
+                    });
+                }
+            }
+            const data = await loadService.updateLoad(id, body, req.user?.userId);
             res.json({ success: true, data });
         } catch (err) {
             res.status(errStatus(err)).json({

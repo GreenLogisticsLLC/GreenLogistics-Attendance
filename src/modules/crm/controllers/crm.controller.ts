@@ -9,7 +9,7 @@ import {
     scopedBrokerId,
     teamScopeUserId,
 } from "../../../auth/access.js";
-import { canManageBrokers, isDataScopedRole, isTeamScopedRole } from "../../../auth/roles.js";
+import { canManageBrokers, canViewLoadProfit, isDataScopedRole, isTeamScopedRole } from "../../../auth/roles.js";
 import { isBrokerOnTeam, listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { prisma } from "../../../config/database.js";
 import path from "path";
@@ -584,15 +584,37 @@ export async function crmCustomerDetailController(req: AuthRequest, res: Respons
         };
     })();
 
+    const role = req.user?.role || "";
+    const showMoney = canViewLoadProfit(role);
+    const shipmentsOut = showMoney
+        ? shipments
+        : shipments.map((s) => {
+              const { customerRate: _c, carrierRate: _r, price: _p, ...rest } = s as typeof s & {
+                  customerRate?: unknown;
+                  carrierRate?: unknown;
+                  price?: unknown;
+              };
+              return rest;
+          });
+
     return res.json(
         apiResponse(true, "Customer", {
             customer: name,
             contact: { gmail, phone },
-            shipments,
+            shipments: shipmentsOut,
             timeline,
             domainEvents: events,
             communications: mailbox,
-            financial,
+            financial: showMoney
+                ? financial
+                : {
+                      restricted: true,
+                      active: financial.active,
+                      completed: financial.completed,
+                      lost: financial.lost,
+                      withLoadNumber: financial.withLoadNumber,
+                  },
+            canViewMoney: showMoney,
             documents: shipments.flatMap((s) => {
                 try {
                     return s.documentsJson ? JSON.parse(s.documentsJson) : [];

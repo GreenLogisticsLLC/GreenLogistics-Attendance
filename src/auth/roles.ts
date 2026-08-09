@@ -35,7 +35,7 @@ export const ROLE_DESCRIPTIONS: Record<string, string> = {
     [Roles.Broker]: "Broker — only own shipments and personal workspace",
     [Roles.Dispatcher]: "Dispatcher — loads and carriers (future)",
     [Roles.HR]: "HR — employees and attendance (future)",
-    [Roles.Accounting]: "Accounting — finance and invoices (future)",
+    [Roles.Accounting]: "Accounting — Load money, invoices, and profit (Customer − Carrier)",
     [Roles.Viewer]: "Read-only access",
 };
 
@@ -165,6 +165,19 @@ export function modulesForRole(role: string): ModuleId[] {
 /** Company-wide shipment visibility (Owner/Manager/Admin). Team Lead is team-scoped. */
 export function canViewAllShipments(role: string): boolean {
     return !isDataScopedRole(role) && !isTeamScopedRole(role);
+}
+
+/**
+ * Load Money / Profit (Customer $ − Carrier $).
+ * Only Accounting fills books; Owner (and Admin) may view/edit.
+ * Brokers never see this — they run ops docs without P&L.
+ */
+export function canViewLoadProfit(role: string): boolean {
+    return (
+        role === Roles.Owner ||
+        role === Roles.Accounting ||
+        role === Roles.Administrator
+    );
 }
 
 export function canManageBrokers(role: string): boolean {

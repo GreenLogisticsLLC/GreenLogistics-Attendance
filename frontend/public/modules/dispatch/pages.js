@@ -16,6 +16,20 @@ window.GreenOSModules["dispatch"] = {
   _tab: "general",
   _loadId: null,
 
+  role() {
+    return (
+      (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
+      (window.GreenOSUser && window.GreenOSUser.role) ||
+      ""
+    );
+  },
+
+  /** Money / Profit — Accounting + Owner (+ Admin). Brokers never see it. */
+  canSeeMoney() {
+    var r = this.role();
+    return r === "Owner" || r === "Accounting" || r === "Administrator";
+  },
+
   async api(path, opts) {
     var token = localStorage.getItem("gl_token") || "";
     var res = await fetch("/api/loads" + path, Object.assign({
@@ -124,14 +138,32 @@ window.GreenOSModules["dispatch"] = {
         "<h2>" + (phase === "completed" ? "Completed Loads" : "Active Loads") + "</h2>" +
         '<div class="load-table-wrap"><table class="load-table"><thead><tr>' +
         "<th>Load #</th><th>Shipment</th><th>Customer</th><th>Lane</th><th>Carrier</th><th>Status</th>" +
-        "<th>Customer $</th><th>Carrier $</th><th>Profit</th><th></th>" +
+        (self.canSeeMoney() ? "<th>Customer $</th><th>Carrier $</th><th>Profit</th>" : "") +
+        "<th></th>" +
         "</tr></thead><tbody>";
       rows.forEach(function (r) {
         var pr = r.pricing || {};
-        var profitCell =
-          pr.hasBothSides === false
-            ? '<span class="gos-muted" title="Enter Customer price and Carrier price">—</span>'
-            : self.money(pr.grossProfit != null ? pr.grossProfit : pr.profit);
+        var moneyCols = "";
+        if (self.canSeeMoney()) {
+          var profitCell =
+            pr.hasBothSides === false
+              ? '<span class="gos-muted" title="Enter Customer price and Carrier price">—</span>'
+              : self.money(pr.grossProfit != null ? pr.grossProfit : pr.profit);
+          moneyCols =
+            "<td>" +
+            (pr.hasCustomerPrice
+              ? self.money(pr.fromCustomer != null ? pr.fromCustomer : pr.customerRate)
+              : "—") +
+            "</td>" +
+            "<td>" +
+            (pr.hasCarrierPrice
+              ? self.money(pr.toCarrier != null ? pr.toCarrier : pr.carrierRate)
+              : "—") +
+            "</td>" +
+            "<td>" +
+            profitCell +
+            "</td>";
+        }
         html +=
           "<tr>" +
           "<td><strong>" + self.esc(r.loadNumber) + "</strong></td>" +
@@ -140,9 +172,7 @@ window.GreenOSModules["dispatch"] = {
           "<td>" + self.esc((r.pickup || "—") + " → " + (r.delivery || "—")) + "</td>" +
           "<td>" + self.esc(r.carrierName || "—") + "</td>" +
           "<td><span class=\"load-status-pill\">" + self.esc(r.statusLabel || r.status) + "</span></td>" +
-          "<td>" + (pr.hasCustomerPrice ? self.money(pr.fromCustomer != null ? pr.fromCustomer : pr.customerRate) : "—") + "</td>" +
-          "<td>" + (pr.hasCarrierPrice ? self.money(pr.toCarrier != null ? pr.toCarrier : pr.carrierRate) : "—") + "</td>" +
-          "<td>" + profitCell + "</td>" +
+          moneyCols +
           '<td><button type="button" class="btn-secondary load-open-btn" data-id="' +
           self.esc(r.shipmentLeadId) +
           '">Open</button></td>' +
@@ -206,6 +236,7 @@ window.GreenOSModules["dispatch"] = {
   renderDetails(body, data) {
     var self = this;
     var id = data.identity.shipmentLeadId;
+    var showMoney = data.canViewMoney === true || self.canSeeMoney();
     var tabs = [
       "general",
       "carrier",
@@ -216,7 +247,10 @@ window.GreenOSModules["dispatch"] = {
       "notes",
       "accounting",
       "communications",
-    ];
+    ].filter(function (t) {
+      if (!showMoney && (t === "pricing" || t === "accounting")) return false;
+      return true;
+    });
     var tabLabels = {
       general: "General",
       carrier: "Carrier",
@@ -228,6 +262,9 @@ window.GreenOSModules["dispatch"] = {
       accounting: "Accounting",
       communications: "Communications",
     };
+    if (!showMoney && (self._tab === "pricing" || self._tab === "accounting")) {
+      self._tab = "general";
+    }
 
     var tabNav = tabs.map(function (t) {
       return (
@@ -461,6 +498,32 @@ window.GreenOSModules["dispatch"] = {
       var custPrice = p.customerRate != null && p.customerRate !== "" ? p.customerRate : "";
       var carrPrice = p.carrierRate != null && p.carrierRate !== "" ? p.carrierRate : "";
       var profitVal = p.profit != null ? p.profit : p.grossProfit;
+      var moneyGrid =
+        showMoney
+          ? field("Customer price (взяли)", self.money(custPrice)) +
+            field("Carrier price (отдали)", self.money(carrPrice)) +
+            field("Our profit", self.money(profitVal))
+          : "";
+      var moneyPanel =
+        showMoney
+          ? "<h3>Money on this Load</h3>" +
+            '<p class="gos-muted">Accounting / Owner only. Profit = Customer price − Carrier price. Example: $1500 − $1000 = <strong>$500</strong>.</p>' +
+            '<div class="load-form-grid">' +
+            '<label>Customer price $ (взяли у customer) <input id="ld-cust-price" type="number" step="0.01" value="' +
+            self.esc(custPrice) +
+            '" placeholder="1500"></label>' +
+            '<label>Carrier price $ (отдали carrier) <input id="ld-carr-price" type="number" step="0.01" value="' +
+            self.esc(carrPrice) +
+            '" placeholder="1000"></label>' +
+            '<label class="full">Our profit $ <input id="ld-profit-view" type="text" readonly value="' +
+            self.esc(
+              custPrice !== "" && carrPrice !== ""
+                ? (Number(custPrice) - Number(carrPrice)).toFixed(2)
+                : "—"
+            ) +
+            '"></label>' +
+            "</div>"
+          : "";
       main.innerHTML =
         "<h2>General</h2>" +
         '<div class="load-grid">' +
@@ -476,30 +539,12 @@ window.GreenOSModules["dispatch"] = {
         field("Weight", g.weight) +
         field("Pieces", g.pieces) +
         field("Miles", g.miles) +
-        field("Customer price (взяли)", self.money(custPrice)) +
-        field("Carrier price (отдали)", self.money(carrPrice)) +
-        field("Our profit", self.money(profitVal)) +
+        moneyGrid +
         field("Created", g.createdAt ? new Date(g.createdAt).toLocaleString() : "—") +
         field("Last Updated", g.updatedAt ? new Date(g.updatedAt).toLocaleString() : "—") +
         "</div>" +
         '<div class="load-edit-panel">' +
-        "<h3>Money on this Load</h3>" +
-        '<p class="gos-muted">Profit = Customer price − Carrier price. Example: $1500 − $1000 = <strong>$500</strong>.</p>' +
-        '<div class="load-form-grid">' +
-        '<label>Customer price $ (взяли у customer) <input id="ld-cust-price" type="number" step="0.01" value="' +
-        self.esc(custPrice) +
-        '" placeholder="1500"></label>' +
-        '<label>Carrier price $ (отдали carrier) <input id="ld-carr-price" type="number" step="0.01" value="' +
-        self.esc(carrPrice) +
-        '" placeholder="1000"></label>' +
-        '<label class="full">Our profit $ <input id="ld-profit-view" type="text" readonly value="' +
-        self.esc(
-          custPrice !== "" && carrPrice !== ""
-            ? (Number(custPrice) - Number(carrPrice)).toFixed(2)
-            : "—"
-        ) +
-        '"></label>' +
-        "</div>" +
+        moneyPanel +
         "<h3>Emails — Broker Gmail / Customer / Carrier</h3>" +
         '<p class="gos-muted">These emails go on Rate Con and BOL. Fill them as soon as the Load is created.</p>' +
         '<div class="load-grid" style="margin-bottom:0.75rem">' +
@@ -540,27 +585,32 @@ window.GreenOSModules["dispatch"] = {
         if (Number.isFinite(a) && Number.isFinite(b)) el.value = (a - b).toFixed(2);
         else el.value = "—";
       }
-      main.querySelector("#ld-cust-price")?.addEventListener("input", updateProfitView);
-      main.querySelector("#ld-carr-price")?.addEventListener("input", updateProfitView);
+      if (showMoney) {
+        main.querySelector("#ld-cust-price")?.addEventListener("input", updateProfitView);
+        main.querySelector("#ld-carr-price")?.addEventListener("input", updateProfitView);
+      }
 
       main.querySelector("#ld-save-general")?.addEventListener("click", async function () {
         try {
+          var payload = {
+            customerName: main.querySelector("#ld-customer").value || null,
+            customerEmail: main.querySelector("#ld-customer-email").value || null,
+            customerPhone: main.querySelector("#ld-customer-phone").value || null,
+            carrierEmail: main.querySelector("#ld-carrier-email-g").value || null,
+            commodity: main.querySelector("#ld-commodity").value || null,
+            equipment: main.querySelector("#ld-equipment").value || null,
+            weight: main.querySelector("#ld-weight").value || null,
+            pieces: main.querySelector("#ld-pieces").value || null,
+            miles: main.querySelector("#ld-miles").value || null,
+            specialInstructions: main.querySelector("#ld-special").value || null,
+          };
+          if (showMoney) {
+            payload.customerRate = main.querySelector("#ld-cust-price").value || null;
+            payload.carrierRate = main.querySelector("#ld-carr-price").value || null;
+          }
           await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
-            body: JSON.stringify({
-              customerName: main.querySelector("#ld-customer").value || null,
-              customerEmail: main.querySelector("#ld-customer-email").value || null,
-              customerPhone: main.querySelector("#ld-customer-phone").value || null,
-              carrierEmail: main.querySelector("#ld-carrier-email-g").value || null,
-              customerRate: main.querySelector("#ld-cust-price").value || null,
-              carrierRate: main.querySelector("#ld-carr-price").value || null,
-              commodity: main.querySelector("#ld-commodity").value || null,
-              equipment: main.querySelector("#ld-equipment").value || null,
-              weight: main.querySelector("#ld-weight").value || null,
-              pieces: main.querySelector("#ld-pieces").value || null,
-              miles: main.querySelector("#ld-miles").value || null,
-              specialInstructions: main.querySelector("#ld-special").value || null,
-            }),
+            body: JSON.stringify(payload),
           });
           self.openLoad(main.closest(".load-tms-body") || main.parentElement, id, "general");
         } catch (err) {
@@ -571,15 +621,25 @@ window.GreenOSModules["dispatch"] = {
     }
 
     if (tab === "carrier") {
+      var carrierMoneyGrid = showMoney
+        ? field("Carrier price (отдали)", self.money(p.carrierRate)) +
+          field("Customer price (взяли)", self.money(p.customerRate)) +
+          field("Our profit", self.money(p.profit != null ? p.profit : p.grossProfit))
+        : "";
+      var carrierPriceField = showMoney
+        ? '<label>Carrier price $ (отдали) <input id="ld-carr-price" type="number" step="0.01" value="' +
+          self.esc(p.carrierRate != null && p.carrierRate !== "" ? p.carrierRate : "") +
+          '" placeholder="1000"></label>'
+        : "";
       main.innerHTML =
         "<h2>Assign Carrier</h2>" +
-        '<p class="gos-muted">Phase 2 — fill carrier details + <strong>Carrier price</strong> (сколько отдали carrier). Profit = Customer price − Carrier price.</p>' +
+        '<p class="gos-muted">Phase 2 — fill carrier details' +
+        (showMoney ? ", then set Carrier price (Accounting). " : ". ") +
+        "Next: Generate Rate Confirmation.</p>" +
         '<div class="load-grid">' +
         field("Carrier", c.carrierName) +
         field("Carrier Email", c.carrierEmail) +
-        field("Carrier price (отдали)", self.money(p.carrierRate)) +
-        field("Customer price (взяли)", self.money(p.customerRate)) +
-        field("Our profit", self.money(p.profit != null ? p.profit : p.grossProfit)) +
+        carrierMoneyGrid +
         field("MC", c.mc) +
         field("DOT", c.dot) +
         field("Insurance", c.insurance) +
@@ -596,9 +656,7 @@ window.GreenOSModules["dispatch"] = {
         '<label>Carrier email * <input id="ld-carrier-email" type="email" value="' +
         self.esc(c.carrierEmail || "") +
         '" placeholder="dispatch@carrier.com"></label>' +
-        '<label>Carrier price $ (отдали) * <input id="ld-carr-price" type="number" step="0.01" value="' +
-        self.esc(p.carrierRate != null && p.carrierRate !== "" ? p.carrierRate : "") +
-        '" placeholder="1000"></label>' +
+        carrierPriceField +
         '<label>MC <input id="ld-mc" value="' + self.esc(c.mc || "") + '" placeholder="MC123456"></label>' +
         '<label>DOT <input id="ld-dot" value="' + self.esc(c.dot || "") + '"></label>' +
         '<label>Insurance <input id="ld-ins" value="' + self.esc(c.insurance || "") + '"></label>' +
@@ -618,21 +676,24 @@ window.GreenOSModules["dispatch"] = {
           return;
         }
         try {
+          var carrierPayload = {
+            carrierName: name,
+            carrierEmail: main.querySelector("#ld-carrier-email").value || null,
+            carrierMc: main.querySelector("#ld-mc").value || null,
+            carrierDot: main.querySelector("#ld-dot").value || null,
+            carrierInsurance: main.querySelector("#ld-ins").value || null,
+            driverName: main.querySelector("#ld-driver").value || null,
+            truckNumber: main.querySelector("#ld-truck").value || null,
+            trailerNumber: main.querySelector("#ld-trailer").value || null,
+            carrierStatus: main.querySelector("#ld-cstatus").value || "Assigned",
+            status: "CARRIER_ASSIGNED",
+          };
+          if (showMoney && main.querySelector("#ld-carr-price")) {
+            carrierPayload.carrierRate = main.querySelector("#ld-carr-price").value || null;
+          }
           await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
-            body: JSON.stringify({
-              carrierName: name,
-              carrierEmail: main.querySelector("#ld-carrier-email").value || null,
-              carrierRate: main.querySelector("#ld-carr-price").value || null,
-              carrierMc: main.querySelector("#ld-mc").value || null,
-              carrierDot: main.querySelector("#ld-dot").value || null,
-              carrierInsurance: main.querySelector("#ld-ins").value || null,
-              driverName: main.querySelector("#ld-driver").value || null,
-              truckNumber: main.querySelector("#ld-truck").value || null,
-              trailerNumber: main.querySelector("#ld-trailer").value || null,
-              carrierStatus: main.querySelector("#ld-cstatus").value || "Assigned",
-              status: "CARRIER_ASSIGNED",
-            }),
+            body: JSON.stringify(carrierPayload),
           });
           var host = document.querySelector("#load-tms-body");
           self.openLoad(host, id, "carrier");
@@ -644,6 +705,12 @@ window.GreenOSModules["dispatch"] = {
     }
 
     if (tab === "pricing") {
+      if (!showMoney) {
+        main.innerHTML =
+          "<h2>Pricing</h2>" +
+          '<p class="gos-muted">Money / Profit is only available to Accounting and Owner.</p>';
+        return;
+      }
       main.innerHTML =
         "<h2>Pricing</h2>" +
         '<p class="gos-muted">Profit = From customer (взяли) − To carrier (отдали). Example: $1500 − $1000 = <strong>$500</strong>.</p>' +
@@ -1309,22 +1376,27 @@ window.GreenOSModules["dispatch"] = {
 
         await self.api("/" + encodeURIComponent(id), {
           method: "PATCH",
-          body: JSON.stringify({
-            carrierName: carrier,
-            carrierEmail: carrierEmail,
-            customerEmail: box.querySelector("#rc-customer-email").value || null,
-            carrierMc: box.querySelector("#rc-mc").value || null,
-            carrierDot: box.querySelector("#rc-dot").value || null,
-            driverName: box.querySelector("#rc-driver").value || null,
-            truckNumber: box.querySelector("#rc-truck").value || null,
-            trailerNumber: box.querySelector("#rc-trailer").value || null,
-            equipment: box.querySelector("#rc-equip").value || null,
-            weight: box.querySelector("#rc-weight").value || null,
-            commodity: box.querySelector("#rc-commodity").value || null,
-            carrierRate: rate,
-            specialInstructions: box.querySelector("#rc-notes").value || null,
-            carrierNotes: box.querySelector("#rc-delnote").value || null,
-          }),
+          body: JSON.stringify(
+            Object.assign(
+              {
+                carrierName: carrier,
+                carrierEmail: carrierEmail,
+                customerEmail: box.querySelector("#rc-customer-email").value || null,
+                carrierMc: box.querySelector("#rc-mc").value || null,
+                carrierDot: box.querySelector("#rc-dot").value || null,
+                driverName: box.querySelector("#rc-driver").value || null,
+                truckNumber: box.querySelector("#rc-truck").value || null,
+                trailerNumber: box.querySelector("#rc-trailer").value || null,
+                equipment: box.querySelector("#rc-equip").value || null,
+                weight: box.querySelector("#rc-weight").value || null,
+                commodity: box.querySelector("#rc-commodity").value || null,
+                specialInstructions: box.querySelector("#rc-notes").value || null,
+                carrierNotes: box.querySelector("#rc-delnote").value || null,
+              },
+              // Money / books: Accounting+Owner only. Brokers still put Flat Rate on the PDF.
+              self.canSeeMoney() ? { carrierRate: rate } : {}
+            )
+          ),
         });
 
         if (statusEl) statusEl.textContent = "Generating Rate Confirmation PDF…";
@@ -1864,15 +1936,25 @@ window.GreenOSModules["dispatch"] = {
         if (statusEl) statusEl.textContent = "Saving invoice fields…";
         await self.api("/" + encodeURIComponent(id), {
           method: "PATCH",
-          body: JSON.stringify({
-            customerName: box.querySelector("#inv-bill-name").value || null,
-            customerEmail: box.querySelector("#inv-bill-email").value || null,
-            customerPhone: box.querySelector("#inv-bill-phone").value || null,
-            // Customer price = Total Amount Due (not hourly rate)
-            customerRate: box.querySelector("#inv-due").value || box.querySelector("#inv-line").value || null,
-            invoiceNumber: box.querySelector("#inv-no").value || null,
-            invoiceDate: box.querySelector("#inv-date").value || null,
-          }),
+          body: JSON.stringify(
+            Object.assign(
+              {
+                customerName: box.querySelector("#inv-bill-name").value || null,
+                customerEmail: box.querySelector("#inv-bill-email").value || null,
+                customerPhone: box.querySelector("#inv-bill-phone").value || null,
+                invoiceNumber: box.querySelector("#inv-no").value || null,
+                invoiceDate: box.querySelector("#inv-date").value || null,
+              },
+              self.canSeeMoney()
+                ? {
+                    customerRate:
+                      box.querySelector("#inv-due").value ||
+                      box.querySelector("#inv-line").value ||
+                      null,
+                  }
+                : {}
+            )
+          ),
         });
         if (statusEl) statusEl.textContent = "Generating Invoice PDF…";
         var content = {

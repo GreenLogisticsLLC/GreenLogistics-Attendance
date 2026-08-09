@@ -552,18 +552,22 @@ window.GreenOSModules.broker = {
         this.card("Shipments", (d.shipments || []).length, "accent-blue") +
         this.card("Active", fin.active || 0, "accent-green") +
         this.card("Completed", fin.completed || 0, "accent-green") +
-        this.card(
-          "Profit $",
-          Math.round(fin.profit != null ? fin.profit : 0),
-          "accent-warn"
-        ) +
+        (d.canViewMoney
+          ? this.card(
+              "Profit $",
+              Math.round(fin.profit != null ? fin.profit : 0),
+              "accent-warn"
+            )
+          : "") +
         "</div>" +
-        '<p class="gos-muted" style="margin:0.35rem 0 0.75rem">' +
-        "From customer (взяли): <strong>$" +
-        Math.round(fin.fromCustomer != null ? fin.fromCustomer : fin.totalSold || 0) +
-        "</strong> · To carrier (отдали): <strong>$" +
-        Math.round(fin.toCarrier != null ? fin.toCarrier : fin.totalPaid || 0) +
-        "</strong> · <strong>Profit = from customer − to carrier</strong></p>" +
+        (d.canViewMoney
+          ? '<p class="gos-muted" style="margin:0.35rem 0 0.75rem">' +
+            "From customer (взяли): <strong>$" +
+            Math.round(fin.fromCustomer != null ? fin.fromCustomer : fin.totalSold || 0) +
+            "</strong> · To carrier (отдали): <strong>$" +
+            Math.round(fin.toCarrier != null ? fin.toCarrier : fin.totalPaid || 0) +
+            "</strong> · <strong>Profit = from customer − to carrier</strong></p>"
+          : '<p class="gos-muted" style="margin:0.35rem 0 0.75rem">Profit is available only to Accounting and Owner.</p>') +
         "<h3>All Shipments</h3>" +
         '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
         "<th>Green OS ID</th><th>Status</th><th>Load #</th><th>Route</th><th>Updated</th>" +
