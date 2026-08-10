@@ -168,6 +168,8 @@
       if (!this.currentModule) return;
       // Attendance panels live in index.html and refresh themselves.
       if (this.currentModule === "attendance") return;
+      // Administration (API Integrations, users, etc.) — never auto-remount.
+      if (this.currentModule === "administration") return;
       if (
         this.currentModule === "broker" &&
         this.currentSub === "shipments" &&
