@@ -42,6 +42,15 @@
   gap: 0.75rem;
   padding: 1rem 1.1rem;
   border-bottom: 1px solid var(--gos-border);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.gos-sidebar-brand:hover,
+.gos-sidebar-brand:focus-visible {
+  background: rgba(255, 255, 255, 0.04);
+  outline: none;
 }
 
 .gos-sidebar-brand img {
@@ -1319,6 +1328,41 @@
   font: inherit;
 }
 .load-form-grid textarea { min-height: 4.5rem; resize: vertical; }
+
+.gos-money-field {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--gos-surface2);
+  border: 1px solid var(--gos-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.gos-money-prefix {
+  flex: 0 0 auto;
+  padding: 0.45rem 0.15rem 0.45rem 0.55rem;
+  color: var(--gos-muted);
+  font-weight: 600;
+  user-select: none;
+}
+
+.gos-money-field input {
+  flex: 1;
+  min-width: 0;
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  padding-left: 0.15rem !important;
+}
+
+.gos-money-field input:focus {
+  outline: none;
+}
+
+.gos-money-field:focus-within {
+  border-color: var(--gos-accent, #3b82f6);
+}
 .gos-error { color: var(--gos-danger); }
 .hidden { display: none !important; }
 

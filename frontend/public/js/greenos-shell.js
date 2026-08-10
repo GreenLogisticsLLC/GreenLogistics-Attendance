@@ -77,6 +77,15 @@
     },
 
     bindChrome() {
+      const logo = document.getElementById("gos-logo-refresh");
+      const refreshPage = () => window.location.reload();
+      logo?.addEventListener("click", refreshPage);
+      logo?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          refreshPage();
+        }
+      });
       document.getElementById("gos-ai-top-btn")?.addEventListener("click", () => {
         this.navigate("ai");
       });

@@ -1,46 +1,38 @@
-# GitHub + автоматическое обновление (как SeoGeo / GreenGroup)
+# GitHub + auto-deploy to so.greengrouplogistics.com
 
-## Репозиторий
+Production URL: **https://so.greengrouplogistics.com**
+
+See Russian step-by-step guide: **`docs/DEPLOY-SO-SUBDOMAIN.ru.md`**
+
+## Repository
 
 ```
 https://github.com/GreenLogisticsLLC/GreenLogistics-Attendance
 ```
 
-## Локальная работа
+## Local workflow
 
 ```bash
 git add .
-git commit -m "описание изменений"
+git commit -m "description"
 git push origin main
 ```
 
-После `push` в `main` сервер подтянет изменения по cron (как у папки SeoGeo).
+cPanel cron syncs `origin/main` every 5 minutes (same pattern as GreenGroup / SeoGeo).
 
-## Первичная настройка на cPanel (один раз)
+## cPanel paths
 
-1. **GitHub** — создайте репозиторий `GreenLogistics-Attendance` в организации `GreenLogisticsLLC` (приватный).
-2. **cPanel → Git Version Control → Clone**
-   - URL: `https://github.com/GreenLogisticsLLC/GreenLogistics-Attendance.git`
-   - Путь: `/home/ijh19zqesepn/repositories/GreenLogistics-Attendance`
-3. **Файл `.env` на сервере** (не в git):
-   ```bash
-   cp .env.example .env
-   # Отредактируйте JWT_SECRET, WEBHOOK_SECRET, DATABASE_URL
-   ```
-4. **cPanel → Setup Node.js App**
-   - Application root: `repositories/GreenLogistics-Attendance`
-   - Application URL: `attendance.greengrouplogistics.com` (или ваш поддомен)
-   - Application startup file: `dist/index.js`
-   - Node.js 18+ или 20
-5. **Cron** (каждые 5 минут):
-   ```
-   /bin/bash /home/ijh19zqesepn/repositories/GreenLogistics-Attendance/tools/cpanel-cron-deploy.sh
-   ```
-6. Проверка: `https://attendance.greengrouplogistics.com/api/health` — поле `commit` должно совпадать с последним push.
+| Item | Path |
+|------|------|
+| Git repo | `/home/ijh19zqesepn/repositories/GreenLogistics-Attendance` |
+| Cron script | `tools/cpanel-cron-deploy.sh` |
+| Node.js URL | `so.greengrouplogistics.com` |
+| Startup file | `dist/index.js` |
 
-## Webhook для считывателей (production)
+## Health check
 
 ```
-POST https://attendance.greengrouplogistics.com/api/v1/webhook/attendance
-Authorization: Bearer <WEBHOOK_SECRET из .env на сервере>
+GET https://so.greengrouplogistics.com/api/health
 ```
+
+Response field `commit` should match the latest GitHub push.

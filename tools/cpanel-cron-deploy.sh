@@ -3,6 +3,7 @@
 # /bin/bash /home/ijh19zqesepn/repositories/GreenLogistics-Attendance/tools/cpanel-cron-deploy.sh
 
 REPO="/home/ijh19zqesepn/repositories/GreenLogistics-Attendance"
+SO_PUBLIC="/home/ijh19zqesepn/so.greengrouplogistics.com"
 LOG="$REPO/deploy-check.txt"
 
 log() { echo "[$(date)] $*" >> "$LOG"; }
@@ -22,12 +23,16 @@ HEAD="$($GIT rev-parse --short HEAD 2>/dev/null || echo unknown)"
 log "Synced to $HEAD"
 
 if [ -x /usr/local/cpanel/bin/git_deploy ]; then
-  /usr/local/cpanel/bin/git_deploy "$REPO" >>"$LOG" 2>&1 || log "WARN: git_deploy failed, running build script"
+  timeout 120 /usr/local/cpanel/bin/git_deploy "$REPO" >>"$LOG" 2>&1 || log "WARN: git_deploy failed or timed out, running build script"
 fi
 
 /bin/bash "$REPO/tools/cpanel-deploy-build.sh" >>"$LOG" 2>&1 || { log "ERROR: build failed"; exit 1; }
 
 echo "$HEAD" > "$REPO/deploy-version.txt"
 echo "$HEAD" > "$REPO/frontend/public/deploy-version.txt"
+if [ -d "$SO_PUBLIC" ]; then
+  echo "$HEAD" > "$SO_PUBLIC/deploy-version.txt"
+  echo "so.greengrouplogistics.com deploy $HEAD at $(date)" >> "$SO_PUBLIC/deploy-check.txt"
+fi
 echo "Deployed $HEAD at $(date)" >> "$LOG"
-log "Deploy complete: $HEAD"
+log "Deploy complete: $HEAD → so.greengrouplogistics.com"

@@ -36,5 +36,5 @@ if errorlevel 1 (
 echo.
 echo Done. Open: https://github.com/GreenLogisticsLLC/GreenLogistics-Attendance
 echo.
-echo Next: set up cPanel Git clone + cron (see docs\DEPLOY-GITHUB.md)
+echo Next: set up cPanel for so.greengrouplogistics.com (see docs\DEPLOY-SO-SUBDOMAIN.ru.md)
 pause

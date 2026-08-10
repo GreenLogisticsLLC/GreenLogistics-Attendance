@@ -1,8 +1,5 @@
 ---
-# cPanel Git deploy hook — runs after git pull on the server.
-# Node.js app root should point to this repository directory.
-
+# cPanel Git → Deploy HEAD Commit (fast hook only; npm build via cron)
 deployment:
   tasks:
-    - export REPOPATH=$(pwd)
-    - /bin/bash $REPOPATH/tools/cpanel-deploy-build.sh
+    - /bin/bash tools/cpanel-git-deploy-hook.sh

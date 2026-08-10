@@ -59,6 +59,72 @@ window.GreenOSModules["dispatch"] = {
     return "$" + v.toFixed(2);
   },
 
+  /** US phone: (XXX) XXX-XXXX */
+  formatUsPhone(raw) {
+    var d = String(raw == null ? "" : raw).replace(/\D/g, "");
+    if (d.length === 11 && d.charAt(0) === "1") d = d.slice(1);
+    if (!d) return "";
+    if (d.length <= 3) return "(" + d;
+    if (d.length <= 6) return "(" + d.slice(0, 3) + ") " + d.slice(3);
+    return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6, 10);
+  },
+
+  /** E.164 for APIs (CarrierView SMS): +1XXXXXXXXXX */
+  toE164UsPhone(raw) {
+    var d = String(raw == null ? "" : raw).replace(/\D/g, "");
+    if (d.length === 11 && d.charAt(0) === "1") d = d.slice(1);
+    if (d.length !== 10) {
+      var t = String(raw == null ? "" : raw).trim();
+      return t || null;
+    }
+    return "+1" + d;
+  },
+
+  bindUsPhoneInput(el) {
+    if (!el) return;
+    var self = this;
+    el.value = self.formatUsPhone(el.value);
+    el.setAttribute("placeholder", "(XXX) XXX-XXXX");
+    el.setAttribute("maxlength", "14");
+    el.addEventListener("input", function () {
+      var start = el.selectionStart;
+      var before = el.value.length;
+      el.value = self.formatUsPhone(el.value);
+      var after = el.value.length;
+      if (typeof start === "number") {
+        var pos = Math.max(0, start + (after - before));
+        try {
+          el.setSelectionRange(pos, pos);
+        } catch (e) {}
+      }
+    });
+    el.addEventListener("blur", function () {
+      el.value = self.formatUsPhone(el.value);
+    });
+  },
+
+  parseMoneyInput(raw) {
+    if (raw == null || raw === "") return null;
+    var n = parseFloat(String(raw).replace(/[$,\s]/g, ""));
+    return Number.isFinite(n) ? String(n) : null;
+  },
+
+  moneyFieldHtml(id, value, placeholder) {
+    var v = value == null || value === "" ? "" : value;
+    return (
+      '<span class="gos-money-field">' +
+      '<span class="gos-money-prefix" aria-hidden="true">$</span>' +
+      '<input id="' +
+      id +
+      '" type="text" inputmode="decimal" value="' +
+      this.esc(v) +
+      '" placeholder="' +
+      this.esc(placeholder || "0.00") +
+      '">' +
+      "</span>"
+    );
+  },
+
   render(root, subPageId) {
     if (!root) return;
     var self = this;
@@ -510,19 +576,23 @@ window.GreenOSModules["dispatch"] = {
           ? "<h3>Money on this Load</h3>" +
             '<p class="gos-muted">Accounting / Owner only. Profit = Customer price − Carrier price. Example: $1500 − $1000 = <strong>$500</strong>.</p>' +
             '<div class="load-form-grid">' +
-            '<label>Customer price $ (взяли у customer) <input id="ld-cust-price" type="number" step="0.01" value="' +
-            self.esc(custPrice) +
-            '" placeholder="1500"></label>' +
-            '<label>Carrier price $ (отдали carrier) <input id="ld-carr-price" type="number" step="0.01" value="' +
-            self.esc(carrPrice) +
-            '" placeholder="1000"></label>' +
-            '<label class="full">Our profit $ <input id="ld-profit-view" type="text" readonly value="' +
+            "<label>Customer price (взяли у customer)" +
+            self.moneyFieldHtml("ld-cust-price", custPrice, "1500.00") +
+            "</label>" +
+            "<label>Carrier price (отдали carrier)" +
+            self.moneyFieldHtml("ld-carr-price", carrPrice, "1000.00") +
+            "</label>" +
+            '<label class="full">Our profit' +
+            '<span class="gos-money-field">' +
+            '<span class="gos-money-prefix" aria-hidden="true">$</span>' +
+            '<input id="ld-profit-view" type="text" readonly value="' +
             self.esc(
               custPrice !== "" && carrPrice !== ""
                 ? (Number(custPrice) - Number(carrPrice)).toFixed(2)
                 : "—"
             ) +
-            '"></label>' +
+            '">' +
+            "</span></label>" +
             "</div>"
           : "";
       main.innerHTML =
@@ -551,7 +621,12 @@ window.GreenOSModules["dispatch"] = {
         '<div class="load-grid" style="margin-bottom:0.75rem">' +
         field("Broker Gmail", contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email)) +
         field("Customer Email", contacts.customerEmail || g.customerEmail) +
-        field("Customer Phone", contacts.customerPhone || g.customerPhone) +
+        field(
+          "Customer Phone",
+          self.formatUsPhone(contacts.customerPhone || g.customerPhone) ||
+            contacts.customerPhone ||
+            g.customerPhone
+        ) +
         field("Carrier Email", contacts.carrierEmail || (data.carrier && data.carrier.carrierEmail)) +
         "</div>" +
         '<div class="load-form-grid">' +
@@ -560,8 +635,8 @@ window.GreenOSModules["dispatch"] = {
         self.esc(contacts.customerEmail || g.customerEmail || "") +
         '" placeholder="customer@gmail.com"></label>' +
         '<label>Customer phone <input id="ld-customer-phone" type="tel" value="' +
-        self.esc(contacts.customerPhone || g.customerPhone || "") +
-        '" placeholder="+1 (xxx) xxx-xxxx"></label>' +
+        self.esc(self.formatUsPhone(contacts.customerPhone || g.customerPhone || "")) +
+        '" placeholder="(XXX) XXX-XXXX"></label>' +
         '<label>Carrier email <input id="ld-carrier-email-g" type="email" value="' +
         self.esc(contacts.carrierEmail || (data.carrier && data.carrier.carrierEmail) || "") +
         '" placeholder="dispatch@carrier.com"></label>' +
@@ -579,13 +654,14 @@ window.GreenOSModules["dispatch"] = {
         "</div>";
 
       function updateProfitView() {
-        var a = parseFloat(main.querySelector("#ld-cust-price").value);
-        var b = parseFloat(main.querySelector("#ld-carr-price").value);
+        var a = parseFloat(self.parseMoneyInput(main.querySelector("#ld-cust-price").value));
+        var b = parseFloat(self.parseMoneyInput(main.querySelector("#ld-carr-price").value));
         var el = main.querySelector("#ld-profit-view");
         if (!el) return;
         if (Number.isFinite(a) && Number.isFinite(b)) el.value = (a - b).toFixed(2);
         else el.value = "—";
       }
+      self.bindUsPhoneInput(main.querySelector("#ld-customer-phone"));
       if (showMoney) {
         main.querySelector("#ld-cust-price")?.addEventListener("input", updateProfitView);
         main.querySelector("#ld-carr-price")?.addEventListener("input", updateProfitView);
@@ -593,10 +669,12 @@ window.GreenOSModules["dispatch"] = {
 
       main.querySelector("#ld-save-general")?.addEventListener("click", async function () {
         try {
+          var phoneRaw = main.querySelector("#ld-customer-phone").value || "";
+          var phoneFmt = self.formatUsPhone(phoneRaw);
           var payload = {
             customerName: main.querySelector("#ld-customer").value || null,
             customerEmail: main.querySelector("#ld-customer-email").value || null,
-            customerPhone: main.querySelector("#ld-customer-phone").value || null,
+            customerPhone: phoneFmt || null,
             carrierEmail: main.querySelector("#ld-carrier-email-g").value || null,
             commodity: main.querySelector("#ld-commodity").value || null,
             equipment: main.querySelector("#ld-equipment").value || null,
@@ -606,8 +684,8 @@ window.GreenOSModules["dispatch"] = {
             specialInstructions: main.querySelector("#ld-special").value || null,
           };
           if (showMoney) {
-            payload.customerRate = main.querySelector("#ld-cust-price").value || null;
-            payload.carrierRate = main.querySelector("#ld-carr-price").value || null;
+            payload.customerRate = self.parseMoneyInput(main.querySelector("#ld-cust-price").value);
+            payload.carrierRate = self.parseMoneyInput(main.querySelector("#ld-carr-price").value);
           }
           await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
@@ -628,9 +706,13 @@ window.GreenOSModules["dispatch"] = {
           field("Our profit", self.money(p.profit != null ? p.profit : p.grossProfit))
         : "";
       var carrierPriceField = showMoney
-        ? '<label>Carrier price $ (отдали) <input id="ld-carr-price" type="number" step="0.01" value="' +
-          self.esc(p.carrierRate != null && p.carrierRate !== "" ? p.carrierRate : "") +
-          '" placeholder="1000"></label>'
+        ? "<label>Carrier price (отдали)" +
+          self.moneyFieldHtml(
+            "ld-carr-price",
+            p.carrierRate != null && p.carrierRate !== "" ? p.carrierRate : "",
+            "1000.00"
+          ) +
+          "</label>"
         : "";
       main.innerHTML =
         "<h2>Assign Carrier</h2>" +
@@ -690,7 +772,7 @@ window.GreenOSModules["dispatch"] = {
             status: "CARRIER_ASSIGNED",
           };
           if (showMoney && main.querySelector("#ld-carr-price")) {
-            carrierPayload.carrierRate = main.querySelector("#ld-carr-price").value || null;
+            carrierPayload.carrierRate = self.parseMoneyInput(main.querySelector("#ld-carr-price").value);
           }
           await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
@@ -725,14 +807,18 @@ window.GreenOSModules["dispatch"] = {
         "</div>" +
         '<div class="load-edit-panel">' +
         '<div class="load-form-grid">' +
-        '<label>From customer $ <input id="ld-cr" type="number" step="0.01" value="' +
-        self.esc(p.customerRate || "") +
-        '" placeholder="1500"></label>' +
-        '<label>To carrier $ <input id="ld-crr" type="number" step="0.01" value="' +
-        self.esc(p.carrierRate || "") +
-        '" placeholder="1000"></label>' +
-        '<label>Fuel <input id="ld-fuel" type="number" step="0.01" value="' + self.esc(p.fuelSurcharge || "") + '"></label>' +
-        '<label>Accessorials <input id="ld-acc" type="number" step="0.01" value="' + self.esc(p.accessorialCharges || "") + '"></label>' +
+        "<label>From customer (Customer Invoice)" +
+        self.moneyFieldHtml("ld-cr", p.customerRate || "", "1500.00") +
+        "</label>" +
+        "<label>To carrier (Rate Con / Carrier Invoice)" +
+        self.moneyFieldHtml("ld-crr", p.carrierRate || "", "1000.00") +
+        "</label>" +
+        "<label>Fuel" +
+        self.moneyFieldHtml("ld-fuel", p.fuelSurcharge || "", "0.00") +
+        "</label>" +
+        "<label>Accessorials" +
+        self.moneyFieldHtml("ld-acc", p.accessorialCharges || "", "0.00") +
+        "</label>" +
         "</div>" +
         '<button type="button" class="btn-primary" id="ld-save-pricing">Save Rates</button>' +
         "</div>";
@@ -741,10 +827,10 @@ window.GreenOSModules["dispatch"] = {
           await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
             body: JSON.stringify({
-              customerRate: main.querySelector("#ld-cr").value || null,
-              carrierRate: main.querySelector("#ld-crr").value || null,
-              fuelSurcharge: main.querySelector("#ld-fuel").value || null,
-              accessorialCharges: main.querySelector("#ld-acc").value || null,
+              customerRate: self.parseMoneyInput(main.querySelector("#ld-cr").value),
+              carrierRate: self.parseMoneyInput(main.querySelector("#ld-crr").value),
+              fuelSurcharge: self.parseMoneyInput(main.querySelector("#ld-fuel").value),
+              accessorialCharges: self.parseMoneyInput(main.querySelector("#ld-acc").value),
             }),
           });
           self.openLoad(document.querySelector("#load-tms-body"), id, "pricing");
@@ -828,8 +914,12 @@ window.GreenOSModules["dispatch"] = {
         '<div class="load-edit-panel" style="margin-top:1rem">' +
         '<div class="load-form-grid">' +
         '<label>Driver phone <input id="ld-gps-phone" type="tel" value="' +
-        self.esc((active && active.driverPhone) || (data.carrier && data.carrier.driverPhone) || "") +
-        '" placeholder="+1XXXXXXXXXX"></label>' +
+        self.esc(
+          self.formatUsPhone(
+            (active && active.driverPhone) || (data.carrier && data.carrier.driverPhone) || ""
+          )
+        ) +
+        '" placeholder="(XXX) XXX-XXXX"></label>' +
         '<label class="full">Message to driver <input id="ld-gps-chat" maxlength="500" placeholder="Chat via CarrierView"></label>' +
         "</div>" +
         '<div class="load-actions" style="margin-top:0.5rem">' +
@@ -849,12 +939,15 @@ window.GreenOSModules["dispatch"] = {
         var el = main.querySelector("#ld-gps-status");
         if (el) el.textContent = t || "";
       }
+      self.bindUsPhoneInput(main.querySelector("#ld-gps-phone"));
       main.querySelector("#ld-gps-start")?.addEventListener("click", async function () {
         try {
           setGpsStatus("Starting…");
           await gpsApi("/start", {
             method: "POST",
-            body: JSON.stringify({ driverPhone: main.querySelector("#ld-gps-phone").value || null }),
+            body: JSON.stringify({
+              driverPhone: self.toE164UsPhone(main.querySelector("#ld-gps-phone").value) || null,
+            }),
           });
           self.openLoad(document.querySelector("#load-tms-body"), id, "tracking");
         } catch (err) {
@@ -1438,11 +1531,13 @@ window.GreenOSModules["dispatch"] = {
       '" placeholder="dispatch@carrier.com"></label>' +
       '<label>MC# <input id="rc-mc" value="' + self.esc(c.mc || "") + '"></label>' +
       '<label>DOT# <input id="rc-dot" value="' + self.esc(c.dot || "") + '"></label>' +
-      '<label>Carrier phone <input id="rc-cphone" value="" placeholder="(xxx) xxx-xxxx"></label>' +
+      '<label>Carrier phone <input id="rc-cphone" type="tel" value="" placeholder="(XXX) XXX-XXXX"></label>' +
       '<label>Equipment <input id="rc-equip" value="' + self.esc(g.equipment || "") + '"></label>' +
       '<label>Weight <input id="rc-weight" value="' + self.esc(g.weight || "") + '"></label>' +
       '<label>Commodity <input id="rc-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
-      '<label>Flat Rate $USD * <input id="rc-rate" type="number" step="0.01" value="' + self.esc(p.carrierRate || "") + '"></label>' +
+      "<label>Flat Rate $USD *" +
+      self.moneyFieldHtml("rc-rate", p.carrierRate || "", "1000.00") +
+      "</label>" +
       '<label class="full">Origin (pickup address) <input id="rc-origin" value="' + self.esc(place(g.pickup)) + '"></label>' +
       '<label>Pickup date <input id="rc-pdate" value="' + self.esc(dt(pickupSrc)) + '"></label>' +
       '<label>Pickup time <input id="rc-ptime" value="' + self.esc(tm(pickupSrc)) + '"></label>' +
@@ -1452,7 +1547,7 @@ window.GreenOSModules["dispatch"] = {
       '<label>Delivery time <input id="rc-dtime" value="' + self.esc(tm(deliverySrc)) + '"></label>' +
       '<label class="full">Delivery contact <input id="rc-dcontact" placeholder="Name / phone at consignee"></label>' +
       '<label>Driver name <input id="rc-driver" value="' + self.esc(c.driverName || "") + '"></label>' +
-      '<label>Driver phone <input id="rc-dphone" value=""></label>' +
+      '<label>Driver phone <input id="rc-dphone" type="tel" value="" placeholder="(XXX) XXX-XXXX"></label>' +
       '<label>Truck # <input id="rc-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
       '<label>Trailer # <input id="rc-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
       '<label class="full">Payment option <input id="rc-pay" value="" placeholder="QuickPay / Factoring / Net 30…"></label>' +
@@ -1471,6 +1566,8 @@ window.GreenOSModules["dispatch"] = {
       '<p id="rc-status" class="gos-muted" style="margin-top:0.5rem"></p>';
 
     box.scrollIntoView({ behavior: "smooth", block: "start" });
+    self.bindUsPhoneInput(box.querySelector("#rc-cphone"));
+    self.bindUsPhoneInput(box.querySelector("#rc-dphone"));
 
     box.querySelector("#rc-cancel")?.addEventListener("click", function () {
       box.classList.add("hidden");
@@ -1479,7 +1576,7 @@ window.GreenOSModules["dispatch"] = {
 
     box.querySelector("#rc-generate")?.addEventListener("click", async function () {
       var carrier = (box.querySelector("#rc-carrier").value || "").trim();
-      var rate = (box.querySelector("#rc-rate").value || "").trim();
+      var rate = self.parseMoneyInput(box.querySelector("#rc-rate").value);
       var carrierEmail = (box.querySelector("#rc-carrier-email").value || "").trim();
       if (!carrier) {
         alert("Carrier name is required for Rate Confirmation.");
@@ -1539,7 +1636,7 @@ window.GreenOSModules["dispatch"] = {
           carrierEmail: carrierEmail,
           carrierMc: box.querySelector("#rc-mc").value,
           carrierDot: box.querySelector("#rc-dot").value,
-          carrierPhone: box.querySelector("#rc-cphone").value,
+          carrierPhone: self.formatUsPhone(box.querySelector("#rc-cphone").value) || box.querySelector("#rc-cphone").value,
           equipment: box.querySelector("#rc-equip").value,
           weight: box.querySelector("#rc-weight").value,
           commodity: box.querySelector("#rc-commodity").value,
@@ -1554,7 +1651,7 @@ window.GreenOSModules["dispatch"] = {
           deliveryTime: box.querySelector("#rc-dtime").value,
           deliveryContact: box.querySelector("#rc-dcontact").value,
           driverName: box.querySelector("#rc-driver").value,
-          driverPhone: box.querySelector("#rc-dphone").value,
+          driverPhone: self.formatUsPhone(box.querySelector("#rc-dphone").value) || box.querySelector("#rc-dphone").value,
           truckNumber: box.querySelector("#rc-truck").value,
           trailerNumber: box.querySelector("#rc-trailer").value,
           paymentOption: box.querySelector("#rc-pay").value,
@@ -2001,20 +2098,28 @@ window.GreenOSModules["dispatch"] = {
       '<label>Bill To Gmail <input id="inv-bill-email" type="email" value="' +
       self.esc(contacts.customerEmail || g.customerEmail || "") +
       '"></label>' +
-      '<label>Bill To phone <input id="inv-bill-phone" value="' +
-      self.esc(contacts.customerPhone || g.customerPhone || "") +
-      '"></label>' +
+      '<label>Bill To phone <input id="inv-bill-phone" type="tel" value="' +
+      self.esc(self.formatUsPhone(contacts.customerPhone || g.customerPhone || "")) +
+      '" placeholder="(XXX) XXX-XXXX"></label>' +
       '<label class="full">Bill To address <input id="inv-bill-addr" value="" placeholder="Street, city, state, ZIP"></label>' +
       '<label class="full">Description <textarea id="inv-desc" rows="2">' + self.esc(desc) + "</textarea></label>" +
       '<label>Hours <input id="inv-hours" type="number" step="0.01" value="1"></label>' +
-      '<label>Rate / Hour $ <input id="inv-rate" type="number" step="0.01" value="' + self.esc(rate) + '"></label>' +
-      '<label>Line total $ <input id="inv-line" type="number" step="0.01" value="' + self.esc(rate) + '"></label>' +
-      '<label>Subtotal $ <input id="inv-sub" type="number" step="0.01" value="' + self.esc(rate) + '"></label>' +
+      "<label>Rate / Hour" +
+      self.moneyFieldHtml("inv-rate", rate, "0.00") +
+      "</label>" +
+      "<label>Line total" +
+      self.moneyFieldHtml("inv-line", rate, "0.00") +
+      "</label>" +
+      "<label>Subtotal" +
+      self.moneyFieldHtml("inv-sub", rate, "0.00") +
+      "</label>" +
       '<label>Tax rate % <input id="inv-taxrate" type="number" step="0.01" value="0"></label>' +
-      '<label>Tax $ <input id="inv-tax" type="number" step="0.01" value="0"></label>' +
-      '<label>Customer price / Total Due $ * <input id="inv-due" type="number" step="0.01" value="' +
-      self.esc(rate) +
-      '"></label>' +
+      "<label>Tax" +
+      self.moneyFieldHtml("inv-tax", "0", "0.00") +
+      "</label>" +
+      "<label>Customer price / Total Due *" +
+      self.moneyFieldHtml("inv-due", rate, "0.00") +
+      "</label>" +
       '<label>Payment terms <input id="inv-payterms" value="Net 30"></label>' +
       '<label class="full">Terms and Conditions <textarea id="inv-terms" rows="4">' +
       self.esc(defaultTerms) +
@@ -2030,10 +2135,11 @@ window.GreenOSModules["dispatch"] = {
       '<p id="inv-status" class="gos-muted" style="margin-top:0.5rem"></p>';
 
     box.scrollIntoView({ behavior: "smooth", block: "start" });
+    self.bindUsPhoneInput(box.querySelector("#inv-bill-phone"));
 
     function recalc() {
       var h = parseFloat(box.querySelector("#inv-hours").value) || 0;
-      var r = parseFloat(box.querySelector("#inv-rate").value) || 0;
+      var r = parseFloat(self.parseMoneyInput(box.querySelector("#inv-rate").value)) || 0;
       var line = Math.round(h * r * 100) / 100;
       box.querySelector("#inv-line").value = line;
       box.querySelector("#inv-sub").value = line;
@@ -2052,7 +2158,7 @@ window.GreenOSModules["dispatch"] = {
     });
 
     box.querySelector("#inv-generate")?.addEventListener("click", async function () {
-      var due = (box.querySelector("#inv-due").value || "").trim();
+      var due = self.parseMoneyInput(box.querySelector("#inv-due").value);
       if (!due) {
         alert("Total Amount Due is required.");
         return;
@@ -2062,6 +2168,7 @@ window.GreenOSModules["dispatch"] = {
       try {
         if (btnGen) btnGen.disabled = true;
         if (statusEl) statusEl.textContent = "Saving invoice fields…";
+        var billPhone = self.formatUsPhone(box.querySelector("#inv-bill-phone").value);
         await self.api("/" + encodeURIComponent(id), {
           method: "PATCH",
           body: JSON.stringify(
@@ -2069,15 +2176,15 @@ window.GreenOSModules["dispatch"] = {
               {
                 customerName: box.querySelector("#inv-bill-name").value || null,
                 customerEmail: box.querySelector("#inv-bill-email").value || null,
-                customerPhone: box.querySelector("#inv-bill-phone").value || null,
+                customerPhone: billPhone || null,
                 invoiceNumber: box.querySelector("#inv-no").value || null,
                 invoiceDate: box.querySelector("#inv-date").value || null,
               },
               self.canSeeMoney()
                 ? {
                     customerRate:
-                      box.querySelector("#inv-due").value ||
-                      box.querySelector("#inv-line").value ||
+                      due ||
+                      self.parseMoneyInput(box.querySelector("#inv-line").value) ||
                       null,
                   }
                 : {}
@@ -2094,17 +2201,17 @@ window.GreenOSModules["dispatch"] = {
           customerName: box.querySelector("#inv-bill-name").value,
           billToEmail: box.querySelector("#inv-bill-email").value,
           customerEmail: box.querySelector("#inv-bill-email").value,
-          billToPhone: box.querySelector("#inv-bill-phone").value,
+          billToPhone: billPhone || box.querySelector("#inv-bill-phone").value,
           billToAddress: box.querySelector("#inv-bill-addr").value,
           invoiceDescription: box.querySelector("#inv-desc").value,
           invoiceHours: box.querySelector("#inv-hours").value,
-          invoiceRatePerHour: box.querySelector("#inv-rate").value,
-          customerRate: box.querySelector("#inv-due").value || box.querySelector("#inv-line").value,
-          invoiceLineTotal: box.querySelector("#inv-line").value,
-          invoiceSubtotal: box.querySelector("#inv-sub").value,
+          invoiceRatePerHour: self.parseMoneyInput(box.querySelector("#inv-rate").value),
+          customerRate: due || self.parseMoneyInput(box.querySelector("#inv-line").value),
+          invoiceLineTotal: self.parseMoneyInput(box.querySelector("#inv-line").value),
+          invoiceSubtotal: self.parseMoneyInput(box.querySelector("#inv-sub").value),
           taxRate: box.querySelector("#inv-taxrate").value,
-          taxAmount: box.querySelector("#inv-tax").value,
-          totalAmountDue: box.querySelector("#inv-due").value,
+          taxAmount: self.parseMoneyInput(box.querySelector("#inv-tax").value),
+          totalAmountDue: due,
           paymentTerms: box.querySelector("#inv-payterms").value,
           invoiceTerms: box.querySelector("#inv-terms").value,
           sendPaymentTo: box.querySelector("#inv-payto").value,

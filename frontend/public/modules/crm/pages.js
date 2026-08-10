@@ -1114,34 +1114,6 @@ window.GreenOSModules.crm = {
               .join("")
           : "<li>No files attached yet — upload a photo or document from your computer</li>") +
         "</ul>" +
-        "<h3>Operations</h3>" +
-        '<div class="crm-card-grid" id="crm-ops">' +
-        '<div><span>Carrier</span><input id="ops-carrier" value="' +
-        esc(s.carrierName || "") +
-        '"></div>' +
-        '<div><span>Driver</span><input id="ops-driver" value="' +
-        esc(s.driverName || "") +
-        '"></div>' +
-        '<div><span>Truck</span><input id="ops-truck" value="' +
-        esc(s.truckNumber || "") +
-        '"></div>' +
-        '<div><span>Trailer</span><input id="ops-trailer" value="' +
-        esc(s.trailerNumber || "") +
-        '"></div>' +
-        '<div><span>Rate Confirmation</span><input id="ops-rc" value="' +
-        esc(s.rateConfirmation || "") +
-        '"></div>' +
-        '<div><span>POD URL</span><input id="ops-pod" value="' +
-        esc(s.podUrl || "") +
-        '"></div>' +
-        '<div><span>Invoice #</span><input id="ops-invoice" value="' +
-        esc(s.invoiceNumber || "") +
-        '"></div>' +
-        '<div><span>Payment</span><input id="ops-payment" value="' +
-        esc(s.paymentStatus || "") +
-        '"></div>' +
-        "</div>" +
-        '<button type="button" class="btn-secondary" id="crm-save-ops" style="width:auto;margin:0.75rem 0">Save Operations</button>' +
         '<div class="crm-actions">' +
         (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED" || s.status === "AGENT_OPEN"
           ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
@@ -1393,27 +1365,6 @@ window.GreenOSModules.crm = {
             window.GreenOSShell.navigate("loads", "active-loads");
           }
         }
-      });
-      modal.querySelector("#crm-save-ops")?.addEventListener("click", async function () {
-        var token = localStorage.getItem("gl_token") || "";
-        await fetch("/api/shipments/" + encodeURIComponent(id) + "/operations", {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + token,
-          },
-          body: JSON.stringify({
-            carrierName: modal.querySelector("#ops-carrier")?.value || null,
-            driverName: modal.querySelector("#ops-driver")?.value || null,
-            truckNumber: modal.querySelector("#ops-truck")?.value || null,
-            trailerNumber: modal.querySelector("#ops-trailer")?.value || null,
-            rateConfirmation: modal.querySelector("#ops-rc")?.value || null,
-            podUrl: modal.querySelector("#ops-pod")?.value || null,
-            invoiceNumber: modal.querySelector("#ops-invoice")?.value || null,
-            paymentStatus: modal.querySelector("#ops-payment")?.value || null,
-          }),
-        });
-        window.GreenOSModules.crm.openShipmentCard(root, id);
       });
     } catch (err) {
       if (gen !== this._cardOpenGen) return;
