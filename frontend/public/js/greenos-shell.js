@@ -86,6 +86,7 @@
           refreshPage();
         }
       });
+      this.bindThemeToggle();
       document.getElementById("gos-ai-top-btn")?.addEventListener("click", () => {
         this.navigate("ai");
       });
@@ -99,6 +100,51 @@
         } else {
           this.navigate("crm", "dashboard");
         }
+      });
+    },
+
+    getTheme() {
+      const t = document.documentElement.getAttribute("data-theme");
+      return t === "light" ? "light" : "dark";
+    },
+
+    applyTheme(theme) {
+      if (typeof window.applyGosTheme === "function") {
+        window.applyGosTheme(theme);
+        return;
+      }
+      const next = theme === "light" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      try {
+        localStorage.setItem("gos_theme", next);
+      } catch (e) {}
+      this.syncThemeToggleUi();
+    },
+
+    syncThemeToggleUi() {
+      if (typeof window.syncGosThemeButtons === "function") {
+        window.syncGosThemeButtons();
+        return;
+      }
+      const btn = document.getElementById("gos-theme-toggle");
+      if (!btn) return;
+      const light = this.getTheme() === "light";
+      btn.textContent = light ? "🌙" : "☀️";
+      btn.title = light ? "Switch to dark theme" : "Switch to light theme";
+      btn.setAttribute("aria-label", btn.title);
+    },
+
+    bindThemeToggle() {
+      if (typeof window.bindGosThemeButtons === "function") {
+        window.bindGosThemeButtons();
+        return;
+      }
+      this.syncThemeToggleUi();
+      const btn = document.getElementById("gos-theme-toggle");
+      if (!btn || btn.dataset.bound === "1") return;
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", () => {
+        this.applyTheme(this.getTheme() === "light" ? "dark" : "light");
       });
     },
 

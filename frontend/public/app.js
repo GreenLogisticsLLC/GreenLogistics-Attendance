@@ -24,12 +24,63 @@ const loginError = $("#login-error");
 const signupError = $("#signup-error");
 const signupSuccess = $("#signup-success");
 
+function applyGosTheme(theme) {
+    const next = theme === "light" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try {
+        localStorage.setItem("gos_theme", next);
+    } catch (e) {}
+    syncGosThemeButtons();
+}
+
+function getGosTheme() {
+    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+}
+
+function syncGosThemeButtons() {
+    const light = getGosTheme() === "light";
+    const label = light ? "Switch to dark theme" : "Switch to light theme";
+    const icon = light ? "🌙" : "☀️";
+    ["gos-theme-toggle", "gos-theme-toggle-login"].forEach(function (id) {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.textContent = icon;
+        btn.title = label;
+        btn.setAttribute("aria-label", label);
+    });
+    const loginFab = document.getElementById("gos-theme-toggle-login");
+    if (loginFab) {
+        const appVisible = appScreen && !appScreen.classList.contains("hidden");
+        loginFab.classList.toggle("hidden", Boolean(appVisible));
+    }
+}
+
+function bindGosThemeButtons() {
+    syncGosThemeButtons();
+    ["gos-theme-toggle", "gos-theme-toggle-login"].forEach(function (id) {
+        const btn = document.getElementById(id);
+        if (!btn || btn.dataset.bound === "1") return;
+        btn.dataset.bound = "1";
+        btn.addEventListener("click", function () {
+            applyGosTheme(getGosTheme() === "light" ? "dark" : "light");
+        });
+    });
+}
+
+window.applyGosTheme = applyGosTheme;
+window.getGosTheme = getGosTheme;
+window.syncGosThemeButtons = syncGosThemeButtons;
+window.bindGosThemeButtons = bindGosThemeButtons;
+
+bindGosThemeButtons();
+
 function showLogin() {
     loginScreen.classList.remove("hidden");
     appScreen.classList.add("hidden");
     loginForm.classList.remove("hidden");
     signupForm.classList.add("hidden");
     stopAttendanceTimers();
+    syncGosThemeButtons();
 }
 
 function stopAttendanceTimers() {
@@ -46,6 +97,7 @@ function showApp(user) {
     loginScreen.classList.add("hidden");
     appScreen.classList.remove("hidden");
     $("#logged-user").textContent = `${user.firstName} ${user.lastName} (${user.role})`;
+    syncGosThemeButtons();
 
     const canAdmin = ["Administrator", "Manager", "Owner"].includes(user.role);
     $("#nav-admin").classList.toggle("hidden", !canAdmin);

@@ -4,10 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GREEN LOGISTICS — GreenOS</title>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="greenos.css?v=20260810dates1">
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("gos_theme");
+          if (t !== "light" && t !== "dark") t = "dark";
+          document.documentElement.setAttribute("data-theme", t);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="styles.css?v=20260811theme1">
+    <link rel="stylesheet" href="greenos.css?v=20260811theme1">
 </head>
 <body>
+    <button type="button" class="gos-icon-btn gos-theme-fab" id="gos-theme-toggle-login" title="Switch theme" aria-label="Switch theme">☀️</button>
     <div id="login-screen" class="screen">
         <div class="login-card">
             <div class="logo">
@@ -101,6 +113,7 @@
                     <input type="search" id="gos-global-search" placeholder="Global search…">
                 </div>
                 <div class="gos-topbar-actions">
+                    <button type="button" class="gos-icon-btn" id="gos-theme-toggle" title="Switch theme" aria-label="Switch theme">🌙</button>
                     <button type="button" class="gos-icon-btn" id="gos-notifications-btn" title="Notifications">🔔</button>
                     <button type="button" class="gos-icon-btn" id="gos-ai-top-btn" title="AI Assistant">🤖</button>
                     <div class="gos-user-chip">
@@ -462,7 +475,7 @@
     <script src="modules/reports/pages.js"></script>
     <script src="modules/administration/pages.js?v=20260810cv1"></script>
     <script src="js/greenos-realtime.js?v=20260810shipfix1"></script>
-    <script src="js/greenos-shell.js?v=20260810logo1"></script>
-    <script src="app.js?v=20260805attendancefix"></script>
+    <script src="js/greenos-shell.js?v=20260811theme1"></script>
+    <script src="app.js?v=20260811theme1"></script>
 </body>
 </html>
