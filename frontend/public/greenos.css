@@ -1356,6 +1356,25 @@ html[data-theme="light"] {
 }
 .load-form-grid textarea { min-height: 4.5rem; resize: vertical; }
 
+.gos-ampm-time {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 2.35rem;
+}
+.gos-ampm-time select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.gos-ampm-time .gos-ampm-period {
+  flex: 0 0 4.25rem;
+}
+.gos-ampm-sep {
+  color: var(--gos-muted);
+  font-weight: 600;
+  user-select: none;
+}
+
 .gos-money-field {
   display: flex;
   align-items: center;

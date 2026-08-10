@@ -17,7 +17,6 @@ async function accessOr404(req: AuthRequest, res: Response, id: string) {
 }
 
 const MONEY_PATCH_KEYS = [
-    "customerRate",
     "carrierRate",
     "fuelSurcharge",
     "accessorialCharges",
@@ -27,9 +26,19 @@ const MONEY_PATCH_KEYS = [
 
 function stripMoneyFromPricing(pricing: Record<string, unknown> | null | undefined) {
     if (!pricing) return null;
+    const customerRate =
+        pricing.customerRate != null
+            ? pricing.customerRate
+            : pricing.fromCustomer != null
+              ? pricing.fromCustomer
+              : null;
     return {
         restricted: true,
         message: "Money / Profit is visible only to Accounting and Owner",
+        // Brokers may see/edit operational Rate (customer side) without profit.
+        customerRate,
+        fromCustomer: customerRate,
+        hasCustomerPrice: customerRate != null && customerRate !== "",
     };
 }
 
@@ -132,7 +141,7 @@ export const loadController = {
                     return res.status(403).json({
                         success: false,
                         message:
-                            "Only Accounting and Owner can set Customer / Carrier prices and Profit",
+                            "Only Accounting and Owner can set Carrier price and Profit fields",
                     });
                 }
             }

@@ -140,7 +140,7 @@ window.GreenOSModules["dispatch"] = {
     }
   },
 
-  /** HH:MM for <input type="time"> */
+  /** HH:MM (24h) from Date / ISO */
   toInputTime(raw) {
     if (!raw) return "";
     try {
@@ -153,6 +153,114 @@ window.GreenOSModules["dispatch"] = {
     } catch (e) {
       return "";
     }
+  },
+
+  /** Split HH:MM / Date into 12-hour parts for AM/PM selects */
+  ampmPartsFromRaw(raw) {
+    var hhmm = "";
+    if (raw == null || raw === "") return { h: "", m: "", p: "" };
+    if (typeof raw === "string" && /^\d{1,2}:\d{2}/.test(raw.trim())) {
+      hhmm = raw.trim().slice(0, 5);
+    } else {
+      hhmm = this.toInputTime(raw);
+    }
+    if (!hhmm) return { h: "", m: "", p: "" };
+    var bits = hhmm.split(":");
+    var h24 = parseInt(bits[0], 10);
+    var m = parseInt(bits[1], 10);
+    if (!Number.isFinite(h24) || !Number.isFinite(m)) return { h: "", m: "", p: "" };
+    var p = h24 >= 12 ? "PM" : "AM";
+    var h12 = h24 % 12;
+    if (h12 === 0) h12 = 12;
+    return {
+      h: String(h12),
+      m: String(m).padStart(2, "0"),
+      p: p,
+    };
+  },
+
+  /** AM/PM time controls → value still stored/read as HH:MM 24h */
+  timeFieldHtml(idPrefix, raw) {
+    var parts = this.ampmPartsFromRaw(raw);
+    var hOpts = ['<option value="">--</option>'];
+    for (var h = 1; h <= 12; h++) {
+      hOpts.push(
+        '<option value="' +
+          h +
+          '"' +
+          (String(parts.h) === String(h) ? " selected" : "") +
+          ">" +
+          h +
+          "</option>"
+      );
+    }
+    var mOpts = ['<option value="">--</option>'];
+    for (var m = 0; m < 60; m++) {
+      var mm = String(m).padStart(2, "0");
+      mOpts.push(
+        '<option value="' +
+          mm +
+          '"' +
+          (parts.m === mm ? " selected" : "") +
+          ">" +
+          mm +
+          "</option>"
+      );
+    }
+    var pOpts =
+      '<option value="">--</option>' +
+      '<option value="AM"' +
+      (parts.p === "AM" ? " selected" : "") +
+      ">AM</option>" +
+      '<option value="PM"' +
+      (parts.p === "PM" ? " selected" : "") +
+      ">PM</option>";
+    return (
+      '<span class="gos-ampm-time" data-ampm="' +
+      this.esc(idPrefix) +
+      '">' +
+      '<select id="' +
+      idPrefix +
+      '-h" aria-label="Hour">' +
+      hOpts.join("") +
+      "</select>" +
+      '<span class="gos-ampm-sep" aria-hidden="true">:</span>' +
+      '<select id="' +
+      idPrefix +
+      '-m" aria-label="Minute">' +
+      mOpts.join("") +
+      "</select>" +
+      '<select id="' +
+      idPrefix +
+      '-p" aria-label="AM or PM" class="gos-ampm-period">' +
+      pOpts +
+      "</select>" +
+      "</span>"
+    );
+  },
+
+  /** Read AM/PM selects as HH:MM 24h (empty if incomplete) */
+  readAmPmTime(root, idPrefix) {
+    if (!root) return "";
+    var hEl = root.querySelector("#" + idPrefix + "-h");
+    var mEl = root.querySelector("#" + idPrefix + "-m");
+    var pEl = root.querySelector("#" + idPrefix + "-p");
+    if (!hEl || !mEl || !pEl) return "";
+    var h12 = parseInt(hEl.value, 10);
+    var m = mEl.value;
+    var p = pEl.value;
+    if (!Number.isFinite(h12) || !m || (p !== "AM" && p !== "PM")) return "";
+    var h24 = h12 % 12;
+    if (p === "PM") h24 += 12;
+    return String(h24).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  },
+
+  /** Human label e.g. "1:30 PM" for PDFs */
+  formatAmPmLabel(hhmm) {
+    if (!hhmm) return "";
+    var parts = this.ampmPartsFromRaw(hhmm);
+    if (!parts.h || !parts.m || !parts.p) return String(hhmm);
+    return parts.h + ":" + parts.m + " " + parts.p;
   },
 
   /** Combine date + time inputs into ISO string for API */
@@ -657,6 +765,7 @@ window.GreenOSModules["dispatch"] = {
         field("Weight", g.weight) +
         field("Pieces", g.pieces) +
         field("Miles", g.miles) +
+        field("Rate", self.money(custPrice)) +
         moneyGrid +
         field("Created", g.createdAt ? new Date(g.createdAt).toLocaleString() : "—") +
         field("Last Updated", g.updatedAt ? new Date(g.updatedAt).toLocaleString() : "—") +
@@ -698,15 +807,18 @@ window.GreenOSModules["dispatch"] = {
         '<label>Pickup date <input id="ld-pickup-date" type="date" value="' +
         self.esc(self.toInputDate((g.pickup && (g.pickup.from || g.pickup.opsAt)) || "")) +
         '"></label>' +
-        '<label>Pickup time <input id="ld-pickup-time" type="time" value="' +
-        self.esc(self.toInputTime((g.pickup && (g.pickup.from || g.pickup.opsAt)) || "")) +
-        '"></label>' +
+        "<label>Pickup time" +
+        self.timeFieldHtml("ld-pickup-time", (g.pickup && (g.pickup.from || g.pickup.opsAt)) || "") +
+        "</label>" +
         '<label>Delivery date <input id="ld-delivery-date" type="date" value="' +
         self.esc(self.toInputDate((g.delivery && (g.delivery.from || g.delivery.opsAt)) || "")) +
         '"></label>' +
-        '<label>Delivery time <input id="ld-delivery-time" type="time" value="' +
-        self.esc(self.toInputTime((g.delivery && (g.delivery.from || g.delivery.opsAt)) || "")) +
-        '"></label>' +
+        "<label>Delivery time" +
+        self.timeFieldHtml("ld-delivery-time", (g.delivery && (g.delivery.from || g.delivery.opsAt)) || "") +
+        "</label>" +
+        "<label>Rate" +
+        self.moneyFieldHtml("ld-rate", custPrice, "0.00") +
+        "</label>" +
         '<label class="full">Special Instructions <textarea id="ld-special">' + self.esc(g.specialInstructions || "") + "</textarea></label>" +
         "</div>" +
         '<button type="button" class="btn-primary" id="ld-save-general">Save</button>' +
@@ -720,9 +832,21 @@ window.GreenOSModules["dispatch"] = {
         if (Number.isFinite(a) && Number.isFinite(b)) el.value = (a - b).toFixed(2);
         else el.value = "—";
       }
+      function syncRatePair(fromId, toId) {
+        var from = main.querySelector("#" + fromId);
+        var to = main.querySelector("#" + toId);
+        if (from && to) to.value = from.value;
+      }
       self.bindUsPhoneInput(main.querySelector("#ld-customer-phone"));
+      main.querySelector("#ld-rate")?.addEventListener("input", function () {
+        syncRatePair("ld-rate", "ld-cust-price");
+        updateProfitView();
+      });
       if (showMoney) {
-        main.querySelector("#ld-cust-price")?.addEventListener("input", updateProfitView);
+        main.querySelector("#ld-cust-price")?.addEventListener("input", function () {
+          syncRatePair("ld-cust-price", "ld-rate");
+          updateProfitView();
+        });
         main.querySelector("#ld-carr-price")?.addEventListener("input", updateProfitView);
       }
 
@@ -743,23 +867,23 @@ window.GreenOSModules["dispatch"] = {
             specialInstructions: main.querySelector("#ld-special").value || null,
             pickupFrom: self.combineDateTime(
               main.querySelector("#ld-pickup-date").value,
-              main.querySelector("#ld-pickup-time").value
+              self.readAmPmTime(main, "ld-pickup-time")
             ),
             deliveryFrom: self.combineDateTime(
               main.querySelector("#ld-delivery-date").value,
-              main.querySelector("#ld-delivery-time").value
+              self.readAmPmTime(main, "ld-delivery-time")
             ),
             opsPickupAt: self.combineDateTime(
               main.querySelector("#ld-pickup-date").value,
-              main.querySelector("#ld-pickup-time").value
+              self.readAmPmTime(main, "ld-pickup-time")
             ),
             opsDeliveryAt: self.combineDateTime(
               main.querySelector("#ld-delivery-date").value,
-              main.querySelector("#ld-delivery-time").value
+              self.readAmPmTime(main, "ld-delivery-time")
             ),
+            customerRate: self.parseMoneyInput(main.querySelector("#ld-rate").value),
           };
           if (showMoney) {
-            payload.customerRate = self.parseMoneyInput(main.querySelector("#ld-cust-price").value);
             payload.carrierRate = self.parseMoneyInput(main.querySelector("#ld-carr-price").value);
           }
           await self.api("/" + encodeURIComponent(id), {
@@ -845,15 +969,15 @@ window.GreenOSModules["dispatch"] = {
         '<label>Pickup date <input id="ld-c-pickup-date" type="date" value="' +
         self.esc(self.toInputDate((g.pickup && (g.pickup.from || g.pickup.opsAt)) || "")) +
         '"></label>' +
-        '<label>Pickup time <input id="ld-c-pickup-time" type="time" value="' +
-        self.esc(self.toInputTime((g.pickup && (g.pickup.from || g.pickup.opsAt)) || "")) +
-        '"></label>' +
+        "<label>Pickup time" +
+        self.timeFieldHtml("ld-c-pickup-time", (g.pickup && (g.pickup.from || g.pickup.opsAt)) || "") +
+        "</label>" +
         '<label>Delivery date <input id="ld-c-delivery-date" type="date" value="' +
         self.esc(self.toInputDate((g.delivery && (g.delivery.from || g.delivery.opsAt)) || "")) +
         '"></label>' +
-        '<label>Delivery time <input id="ld-c-delivery-time" type="time" value="' +
-        self.esc(self.toInputTime((g.delivery && (g.delivery.from || g.delivery.opsAt)) || "")) +
-        '"></label>' +
+        "<label>Delivery time" +
+        self.timeFieldHtml("ld-c-delivery-time", (g.delivery && (g.delivery.from || g.delivery.opsAt)) || "") +
+        "</label>" +
         "</div>" +
         '<button type="button" class="btn-primary" id="ld-save-carrier">Save &amp; Assign Carrier</button>' +
         '<p class="gos-muted" style="margin-top:0.5rem">After save → status <strong>Carrier Assigned</strong>. Next: Generate Rate Confirmation.</p>' +
@@ -870,11 +994,11 @@ window.GreenOSModules["dispatch"] = {
         try {
           var pickupIso = self.combineDateTime(
             main.querySelector("#ld-c-pickup-date").value,
-            main.querySelector("#ld-c-pickup-time").value
+            self.readAmPmTime(main, "ld-c-pickup-time")
           );
           var deliveryIso = self.combineDateTime(
             main.querySelector("#ld-c-delivery-date").value,
-            main.querySelector("#ld-c-delivery-time").value
+            self.readAmPmTime(main, "ld-c-delivery-time")
           );
           var carrierPayload = {
             carrierName: name,
@@ -1638,11 +1762,15 @@ window.GreenOSModules["dispatch"] = {
       "</label>" +
       '<label class="full">Origin (pickup address) <input id="rc-origin" value="' + self.esc(place(g.pickup)) + '"></label>' +
       '<label>Pickup date <input id="rc-pdate" type="date" value="' + self.esc(self.toInputDate(pickupSrc)) + '"></label>' +
-      '<label>Pickup time <input id="rc-ptime" type="time" value="' + self.esc(self.toInputTime(pickupSrc)) + '"></label>' +
+      "<label>Pickup time" +
+      self.timeFieldHtml("rc-ptime", pickupSrc) +
+      "</label>" +
       '<label class="full">Pickup contact <input id="rc-pcontact" placeholder="Name / phone at shipper"></label>' +
       '<label class="full">Final destination <input id="rc-dest" value="' + self.esc(place(g.delivery)) + '"></label>' +
       '<label>Delivery date <input id="rc-ddate" type="date" value="' + self.esc(self.toInputDate(deliverySrc)) + '"></label>' +
-      '<label>Delivery time <input id="rc-dtime" type="time" value="' + self.esc(self.toInputTime(deliverySrc)) + '"></label>' +
+      "<label>Delivery time" +
+      self.timeFieldHtml("rc-dtime", deliverySrc) +
+      "</label>" +
       '<label class="full">Delivery contact <input id="rc-dcontact" placeholder="Name / phone at consignee"></label>' +
       '<label>Driver name <input id="rc-driver" value="' + self.esc(c.driverName || "") + '"></label>' +
       '<label>Driver phone <input id="rc-dphone" type="tel" value="' +
@@ -1721,19 +1849,19 @@ window.GreenOSModules["dispatch"] = {
                 carrierNotes: box.querySelector("#rc-delnote").value || null,
                 pickupFrom: self.combineDateTime(
                   box.querySelector("#rc-pdate").value,
-                  box.querySelector("#rc-ptime").value
+                  self.readAmPmTime(box, "rc-ptime")
                 ),
                 deliveryFrom: self.combineDateTime(
                   box.querySelector("#rc-ddate").value,
-                  box.querySelector("#rc-dtime").value
+                  self.readAmPmTime(box, "rc-dtime")
                 ),
                 opsPickupAt: self.combineDateTime(
                   box.querySelector("#rc-pdate").value,
-                  box.querySelector("#rc-ptime").value
+                  self.readAmPmTime(box, "rc-ptime")
                 ),
                 opsDeliveryAt: self.combineDateTime(
                   box.querySelector("#rc-ddate").value,
-                  box.querySelector("#rc-dtime").value
+                  self.readAmPmTime(box, "rc-dtime")
                 ),
               },
               // Money / books: Accounting+Owner only. Brokers still put Flat Rate on the PDF.
@@ -1743,6 +1871,8 @@ window.GreenOSModules["dispatch"] = {
         });
 
         if (statusEl) statusEl.textContent = "Generating Rate Confirmation PDF…";
+        var pickupTime24 = self.readAmPmTime(box, "rc-ptime");
+        var deliveryTime24 = self.readAmPmTime(box, "rc-dtime");
         var content = {
           loadNumber: box.querySelector("#rc-load").value,
           shipmentNumber: box.querySelector("#rc-ship").value,
@@ -1762,11 +1892,11 @@ window.GreenOSModules["dispatch"] = {
           carrierRate: rate,
           pickupAddress: box.querySelector("#rc-origin").value,
           pickupDate: box.querySelector("#rc-pdate").value,
-          pickupTime: box.querySelector("#rc-ptime").value,
+          pickupTime: self.formatAmPmLabel(pickupTime24) || pickupTime24,
           pickupContact: box.querySelector("#rc-pcontact").value,
           deliveryAddress: box.querySelector("#rc-dest").value,
           deliveryDate: box.querySelector("#rc-ddate").value,
-          deliveryTime: box.querySelector("#rc-dtime").value,
+          deliveryTime: self.formatAmPmLabel(deliveryTime24) || deliveryTime24,
           deliveryContact: box.querySelector("#rc-dcontact").value,
           driverName: box.querySelector("#rc-driver").value,
           driverPhone: self.formatUsPhone(box.querySelector("#rc-dphone").value) || box.querySelector("#rc-dphone").value,
