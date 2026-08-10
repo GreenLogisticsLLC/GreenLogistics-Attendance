@@ -60,6 +60,21 @@ describe("CarrierView mapper", () => {
         assert.equal(body.locations.length, 2);
         assert.equal(body.locations[0].type, "pickup");
         assert.equal(body.locations[1].type, "destination");
+        assert.equal(body.locations[0].dateFrom, "2024-02-10 10:00");
+    });
+
+    it("omits empty location dates from create body", () => {
+        const body = toCarrierViewCreateBody({
+            driverPhone: "+15551234567",
+            externalLoadRef: "GL100002",
+            locations: [
+                { address: "A, TX", company: "A", type: "pickup" },
+                { address: "B, NV", company: "B", type: "destination", dateFrom: "2026-08-11 10:00" },
+            ],
+        });
+        assert.equal("dateFrom" in body.locations[0], false);
+        assert.equal("dateTo" in body.locations[0], false);
+        assert.equal(body.locations[1].dateFrom, "2026-08-11 10:00");
     });
 
     it("omits emails/dispatchers from PATCH unless include flags set", () => {

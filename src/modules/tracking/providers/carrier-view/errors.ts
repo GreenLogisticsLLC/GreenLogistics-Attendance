@@ -6,6 +6,8 @@
 export class CarrierViewError extends Error {
     readonly code: string;
     readonly httpStatus: number;
+    /** Alias for Express-style catch blocks that read `err.status`. */
+    readonly status: number;
     readonly details: unknown;
 
     constructor(code: string, message: string, httpStatus = 502, details?: unknown) {
@@ -13,6 +15,7 @@ export class CarrierViewError extends Error {
         this.name = "CarrierViewError";
         this.code = code;
         this.httpStatus = httpStatus;
+        this.status = httpStatus;
         this.details = details;
     }
 }
@@ -123,9 +126,43 @@ export function mapCarrierViewError(errorCode: string | undefined, errors?: unkn
     }
 }
 
-/** Safe message for brokers/UI — no raw provider dump. */
+/** Safe message for brokers/UI — include validation field hints when present. */
 export function carrierViewUserMessage(err: unknown): string {
-    if (err instanceof CarrierViewError) return err.message;
+    if (err instanceof CarrierViewError) {
+        const hint = formatDetailsHint(err.details);
+        return hint ? `${err.message}: ${hint}` : err.message;
+    }
     if (err instanceof Error) return err.message;
     return "CarrierView request failed";
+}
+
+function formatDetailsHint(details: unknown): string {
+    if (details == null) return "";
+    if (typeof details === "string") return details.slice(0, 240);
+    if (Array.isArray(details)) {
+        return details
+            .map((x) => (typeof x === "string" ? x : JSON.stringify(x)))
+            .filter(Boolean)
+            .slice(0, 6)
+            .join("; ")
+            .slice(0, 240);
+    }
+    if (typeof details === "object") {
+        const parts: string[] = [];
+        for (const [k, v] of Object.entries(details as Record<string, unknown>)) {
+            if (v == null) continue;
+            const val =
+                typeof v === "string"
+                    ? v
+                    : Array.isArray(v)
+                      ? v.map(String).join(", ")
+                      : typeof v === "object"
+                        ? JSON.stringify(v)
+                        : String(v);
+            parts.push(`${k}: ${val}`);
+            if (parts.length >= 6) break;
+        }
+        return parts.join("; ").slice(0, 240);
+    }
+    return "";
 }

@@ -112,14 +112,18 @@ export function toCarrierViewCreateBody(input: {
         integration_type: "carrier_view",
         driver_phone: input.driverPhone,
         load_id: input.externalLoadRef,
-        locations: input.locations.map((loc) => ({
-            address: loc.address,
-            company: loc.company || "",
-            comment: loc.comment || "",
-            type: loc.type,
-            dateFrom: loc.dateFrom || "",
-            dateTo: loc.dateTo || "",
-        })),
+        locations: input.locations.map((loc) => {
+            const row: Record<string, unknown> = {
+                address: loc.address,
+                company: loc.company || "",
+                comment: loc.comment || "",
+                type: loc.type,
+            };
+            // CarrierView requires dateFrom; never send empty strings.
+            if (loc.dateFrom) row.dateFrom = loc.dateFrom;
+            if (loc.dateTo) row.dateTo = loc.dateTo;
+            return row;
+        }),
         starts_active: input.startsActiveMinutes ?? 60,
         emails: input.emails ?? [],
         dispatchers: input.dispatchers ?? [],

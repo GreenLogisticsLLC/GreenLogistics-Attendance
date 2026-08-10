@@ -11,6 +11,30 @@ function placeAddress(city?: string | null, state?: string | null, zip?: string 
     return [city, state, zip].filter(Boolean).join(", ");
 }
 
+/** CarrierView expects E.164 US numbers: +1XXXXXXXXXX */
+function toE164UsPhone(raw: string): string | null {
+    const d = String(raw || "").replace(/\D/g, "");
+    let digits = d;
+    if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
+    if (digits.length === 10) return `+1${digits}`;
+    if (String(raw || "").trim().startsWith("+") && d.length >= 10) {
+        return `+${d}`;
+    }
+    return null;
+}
+
+function defaultPickupWindow(): { from: string; to: string } {
+    const from = new Date();
+    const to = new Date(from.getTime() + 4 * 60 * 60 * 1000);
+    return { from: formatCvDate(from)!, to: formatCvDate(to)! };
+}
+
+function defaultDeliveryWindow(): { from: string; to: string } {
+    const from = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const to = new Date(from.getTime() + 8 * 60 * 60 * 1000);
+    return { from: formatCvDate(from)!, to: formatCvDate(to)! };
+}
+
 function applyLoadSnapshot(normalized: NormalizedTrackingLoad) {
     return {
         driverPhone: normalized.driverPhone,
@@ -187,11 +211,15 @@ export class TrackingService {
             return existing;
         }
 
-        const phone = (input.driverPhone || shipment.driverPhone || "").trim();
+        const phoneRaw = (input.driverPhone || shipment.driverPhone || "").trim();
+        const phone = toE164UsPhone(phoneRaw);
         if (!phone) {
-            throw Object.assign(new Error("Driver phone is required for CarrierView tracking"), {
-                status: 422,
-            });
+            throw Object.assign(
+                new Error(
+                    "Driver phone must be a valid US number, e.g. (267) 579-2793 or +12675792793"
+                ),
+                { status: 422 }
+            );
         }
 
         const pickupAddr = placeAddress(shipment.pickupCity, shipment.pickupState, shipment.pickupZip);
@@ -206,33 +234,40 @@ export class TrackingService {
             });
         }
 
+        const pickupDates = defaultPickupWindow();
+        const deliveryDates = defaultDeliveryWindow();
+        const pickupFrom =
+            formatCvDate(shipment.opsPickupAt || shipment.pickupFrom) || pickupDates.from;
+        const pickupTo =
+            formatCvDate(shipment.pickupTo || shipment.opsPickupAt || shipment.pickupFrom) ||
+            pickupDates.to;
+        const deliveryFrom =
+            formatCvDate(shipment.opsDeliveryAt || shipment.deliveryFrom) || deliveryDates.from;
+        const deliveryTo =
+            formatCvDate(
+                shipment.deliveryTo || shipment.opsDeliveryAt || shipment.deliveryFrom
+            ) || deliveryDates.to;
+
         const locations: TrackingLocationInput[] = [
             {
                 address: pickupAddr,
                 company: shipment.customerName || "Pickup",
                 comment: shipment.specialInstructions || shipment.carrierNotes || "",
                 type: "pickup",
-                dateFrom: formatCvDate(shipment.opsPickupAt || shipment.pickupFrom),
-                dateTo: formatCvDate(shipment.pickupTo || shipment.opsPickupAt || shipment.pickupFrom),
+                dateFrom: pickupFrom,
+                dateTo: pickupTo,
             },
             {
                 address: destAddr,
                 company: shipment.customerName || "Destination",
                 comment: "",
                 type: "destination",
-                dateFrom: formatCvDate(shipment.opsDeliveryAt || shipment.deliveryFrom),
-                dateTo: formatCvDate(
-                    shipment.deliveryTo || shipment.opsDeliveryAt || shipment.deliveryFrom
-                ),
+                dateFrom: deliveryFrom,
+                dateTo: deliveryTo,
             },
         ];
 
-        if (input.driverPhone && input.driverPhone !== shipment.driverPhone) {
-            await prisma.shipmentLead.update({
-                where: { shipmentLeadId: input.shipmentLeadId },
-                data: { driverPhone: phone },
-            });
-        } else if (!shipment.driverPhone) {
+        if (phone !== shipment.driverPhone) {
             await prisma.shipmentLead.update({
                 where: { shipmentLeadId: input.shipmentLeadId },
                 data: { driverPhone: phone },

@@ -90,7 +90,7 @@ export class CarrierViewClient {
         // CarrierView may return HTTP 200 with success:false — always inspect body.
         if (json.success === false || (res.ok === false && json.success !== true)) {
             const code = json.error_code || (res.status === 429 ? "rate_limited" : "internal_error");
-            console.warn(`[CARRIERVIEW_API] fail code=${code} http=${res.status}`);
+            console.warn(`[CARRIERVIEW_API] fail code=${code} http=${res.status}`, json.errors ?? json.message ?? "");
             throw mapCarrierViewError(code, json.errors ?? json, res.status);
         }
 

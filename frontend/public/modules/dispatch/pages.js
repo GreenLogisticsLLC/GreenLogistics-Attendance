@@ -309,7 +309,6 @@ window.GreenOSModules["dispatch"] = {
       "pricing",
       "tracking",
       "documents",
-      "timeline",
       "notes",
       "accounting",
       "communications",
@@ -323,11 +322,11 @@ window.GreenOSModules["dispatch"] = {
       pricing: "Pricing",
       tracking: "Tracking",
       documents: "Documents",
-      timeline: "Timeline",
       notes: "Notes",
       accounting: "Accounting",
       communications: "Communications",
     };
+    if (self._tab === "timeline") self._tab = "general";
     if (!showMoney && (self._tab === "pricing" || self._tab === "accounting")) {
       self._tab = "general";
     }
@@ -405,21 +404,6 @@ window.GreenOSModules["dispatch"] = {
       })
       .join("");
 
-    var timelineMini = (data.timeline || [])
-      .slice()
-      .reverse()
-      .slice(0, 12)
-      .map(function (e) {
-        return (
-          '<li><strong>' +
-          self.esc(e.title) +
-          "</strong><span>" +
-          self.esc(new Date(e.createdAt).toLocaleString()) +
-          "</span></li>"
-        );
-      })
-      .join("");
-
     body.innerHTML =
       '<div class="load-layout">' +
       '<aside class="load-nav">' +
@@ -447,10 +431,6 @@ window.GreenOSModules["dispatch"] = {
       '<div class="load-actions">' +
       actions +
       "</div>" +
-      "<h4>Timeline</h4>" +
-      '<ul class="load-timeline-mini">' +
-      (timelineMini || "<li class=\"gos-muted\">No events yet</li>") +
-      "</ul>" +
       "</aside>" +
       "</div>";
 
@@ -999,33 +979,6 @@ window.GreenOSModules["dispatch"] = {
 
     if (tab === "documents") {
       self.renderDocumentsTab(main, data);
-      return;
-    }
-
-    if (tab === "timeline") {
-      var items = (data.timeline || [])
-        .slice()
-        .reverse()
-        .map(function (e) {
-          return (
-            "<li><div><strong>" +
-            self.esc(e.title) +
-            "</strong><span>" +
-            self.esc(e.eventType) +
-            "</span></div><p>" +
-            self.esc(e.message || "") +
-            "</p><time>" +
-            self.esc(new Date(e.createdAt).toLocaleString()) +
-            "</time></li>"
-          );
-        })
-        .join("");
-      main.innerHTML =
-        "<h2>Timeline</h2>" +
-        '<p class="gos-muted">Automatic — never enter timeline rows manually.</p>' +
-        '<ul class="load-timeline-full">' +
-        (items || "<li>No events</li>") +
-        "</ul>";
       return;
     }
 
