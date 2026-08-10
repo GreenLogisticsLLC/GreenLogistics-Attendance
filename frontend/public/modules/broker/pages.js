@@ -464,11 +464,17 @@ window.GreenOSModules.broker = {
       body.innerHTML =
         '<section class="gos-dash-hero">' +
         "<h1>MY Carrier</h1>" +
-        "<p>Carriers that worked with you — filled from Operations on the shipment card</p>" +
+        "<p>Carriers that worked with you — filled from Operations on the shipment card. For secure onboarding packages open <strong>Carriers</strong>.</p>" +
+        '<p><button type="button" class="btn-primary" id="broker-goto-carriers">Carrier Onboarding</button></p>' +
         "</section>" +
         '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
         "<th>Carrier</th><th>Shipments</th><th>Active</th><th>Drivers used</th><th>Last status</th><th>Updated</th>" +
         '</tr></thead><tbody id="broker-carrier-body"></tbody></table></div>';
+      body.querySelector("#broker-goto-carriers")?.addEventListener("click", function () {
+        if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
+          window.GreenOS.navigate("carriers");
+        }
+      });
       var tbody = body.querySelector("#broker-carrier-body");
       if (!rows.length) {
         tbody.innerHTML =

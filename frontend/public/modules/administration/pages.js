@@ -6,6 +6,7 @@ window.GreenOSModules['administration'] = {
   children: [
       { id: 'users', title: 'Users' },
       { id: 'email-accounts', title: 'Email Accounts' },
+      { id: 'carrier-onboarding', title: 'Carrier Onboarding' },
       { id: 'roles', title: 'Roles' },
       { id: 'permissions', title: 'Permissions' },
       { id: 'company-settings', title: 'Company Settings' },
@@ -49,6 +50,16 @@ window.GreenOSModules['administration'] = {
     if (active && active.id === 'api-integrations') {
       this.renderApiIntegrations(body);
       return;
+    }
+    if (active && active.id === 'carrier-onboarding') {
+      if (window.GreenOS && typeof window.GreenOS.navigate === 'function') {
+        window.GreenOS.navigate('carriers');
+        return;
+      }
+      if (window.GreenOSModules.carriers) {
+        window.GreenOSModules.carriers.render(body);
+        return;
+      }
     }
     body.innerHTML =
       '<h2>Administration — ' + label + '</h2>' +

@@ -59,7 +59,8 @@ export type ModuleId =
     | "communications"
     | "reports"
     | "ai"
-    | "administration";
+    | "administration"
+    | "carriers";
 
 const ALL_MODULES: ModuleId[] = [
     "dashboard",
@@ -71,6 +72,7 @@ const ALL_MODULES: ModuleId[] = [
     "loads",
     "trucking",
     "car-transport",
+    "carriers",
     "employees",
     "attendance",
     "accounting",
@@ -113,6 +115,7 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
     dispatch: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
     loads: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
     trucking: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
+    carriers: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
     "car-transport": [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher],
     employees: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.HR],
     attendance: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.HR, Roles.TeamLead],

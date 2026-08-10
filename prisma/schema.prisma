@@ -41,6 +41,7 @@ model User {
   brokerGmailAccount     BrokerGmailAccount?
   brokerMailboxMessages  BrokerMailboxMessage[]
   platformNotifications  PlatformNotification[]
+  assignedCarriers       Carrier[]              @relation("CarrierAssignedBroker")
 
   @@index([teamLeadId])
   @@map("users")
@@ -354,6 +355,8 @@ model ShipmentLead {
   opsPickupAt           DateTime?               @map("ops_pickup_at")
   opsDeliveryAt         DateTime?               @map("ops_delivery_at")
   assignedBrokerId      String?                 @map("assigned_broker_id")
+  /// Optional link to master Carrier profile (onboarding / compliance).
+  carrierProfileId      String?                 @map("carrier_profile_id")
   assignedAt            DateTime?               @map("assigned_at")
   acceptedAt            DateTime?               @map("accepted_at")
   acceptanceDeadline    DateTime?               @map("acceptance_deadline")
@@ -371,11 +374,13 @@ model ShipmentLead {
   brokerMailboxMessages BrokerMailboxMessage[]
   loadDocuments         LoadDocument[]
   shipmentTrackings     ShipmentTracking[]
+  carrierProfile        Carrier?                @relation(fields: [carrierProfileId], references: [carrierId], onDelete: SetNull)
 
   @@index([source])
   @@index([status])
   @@index([externalShipmentId])
   @@index([assignedBrokerId])
+  @@index([carrierProfileId])
   @@index([priority])
   @@index([createdAt])
   @@index([loadNumber])
@@ -669,4 +674,177 @@ model PlatformNotification {
   @@index([createdAt])
   @@index([notificationType])
   @@map("platform_notifications")
+}
+
+/// Master Carrier profile — Green OS is system of record (not Gmail).
+model Carrier {
+  carrierId         String                      @id @default(uuid()) @map("carrier_id")
+  legalName         String                      @map("legal_name")
+  dbaName           String?                     @map("dba_name")
+  email             String
+  phone             String?
+  mcNumber          String?                     @map("mc_number")
+  dotNumber         String?                     @map("dot_number")
+  address           String?
+  city              String?
+  state             String?
+  zip               String?
+  contactName       String?                     @map("contact_name")
+  /// ACTIVE | INACTIVE | BLOCKED
+  status            String                      @default("ACTIVE")
+  /// INVITED | OPENED | IN_PROGRESS | SUBMITTED | UNDER_REVIEW | APPROVED | REJECTED | EXPIRED | REQUEST_CHANGES
+  onboardingStatus  String                      @default("INVITED") @map("onboarding_status")
+  assignedBrokerId  String?                     @map("assigned_broker_id")
+  notes             String?
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
+  assignedBroker    User?                       @relation("CarrierAssignedBroker", fields: [assignedBrokerId], references: [userId], onDelete: SetNull)
+  sessions          CarrierOnboardingSession[]
+  documents         CarrierDocument[]
+  agreementSigns    CarrierAgreementSignature[]
+  rcSignatures      CarrierRcSignature[]
+  events            CarrierOnboardingEvent[]
+  shipments         ShipmentLead[]
+
+  @@index([email])
+  @@index([mcNumber])
+  @@index([dotNumber])
+  @@index([assignedBrokerId])
+  @@index([onboardingStatus])
+  @@index([status])
+  @@index([createdAt])
+  @@map("carriers")
+}
+
+model CarrierOnboardingSession {
+  sessionId       String                 @id @default(uuid()) @map("session_id")
+  carrierId       String                 @map("carrier_id")
+  /// SHA-256 of raw token — never store the raw token.
+  tokenHash       String                 @unique @map("token_hash")
+  expiresAt       DateTime               @map("expires_at")
+  usedAt          DateTime?              @map("used_at")
+  openedAt        DateTime?              @map("opened_at")
+  submittedAt     DateTime?              @map("submitted_at")
+  /// ACTIVE | SUBMITTED | EXPIRED | REVOKED
+  status          String                 @default("ACTIVE")
+  createdById     String?                @map("created_by_id")
+  /// Optional shipment for pre-filled Rate Confirmation.
+  shipmentLeadId  String?                @map("shipment_lead_id")
+  progressJson    String?                @map("progress_json")
+  changeRequestNote String?              @map("change_request_note")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+  carrier         Carrier                @relation(fields: [carrierId], references: [carrierId], onDelete: Cascade)
+
+  @@index([carrierId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([shipmentLeadId])
+  @@map("carrier_onboarding_sessions")
+}
+
+model CarrierDocument {
+  documentId       String    @id @default(uuid()) @map("document_id")
+  carrierId        String    @map("carrier_id")
+  shipmentLeadId   String?   @map("shipment_lead_id")
+  /// MC_AUTHORITY | NOA | W9 | INSURANCE | COI | BROKER_CARRIER_AGREEMENT | RATE_CONFIRMATION | OTHER
+  documentType     String    @map("document_type")
+  originalFilename String    @map("original_filename")
+  storageKey       String    @map("storage_key")
+  mimeType         String    @map("mime_type")
+  fileSize         Int       @map("file_size")
+  checksum         String?
+  uploadedBy       String    @default("CARRIER") @map("uploaded_by")
+  uploadedAt       DateTime  @default(now()) @map("uploaded_at")
+  /// CURRENT | ARCHIVED
+  status           String    @default("CURRENT")
+  version          Int       @default(1)
+  carrier          Carrier   @relation(fields: [carrierId], references: [carrierId], onDelete: Cascade)
+
+  @@index([carrierId])
+  @@index([documentType])
+  @@index([status])
+  @@index([shipmentLeadId])
+  @@map("carrier_documents")
+}
+
+model CarrierAgreementTemplate {
+  templateId  String                      @id @default(uuid()) @map("template_id")
+  title       String
+  version     String
+  bodyText    String                      @map("body_text")
+  fileRef     String?                     @map("file_ref")
+  active      Boolean                     @default(true)
+  createdAt   DateTime                    @default(now()) @map("created_at")
+  signatures  CarrierAgreementSignature[]
+
+  @@index([active])
+  @@map("carrier_agreement_templates")
+}
+
+model CarrierAgreementSignature {
+  signatureId  String                   @id @default(uuid()) @map("signature_id")
+  carrierId    String                   @map("carrier_id")
+  templateId   String                   @map("template_id")
+  sessionId    String?                  @map("session_id")
+  signerName   String                   @map("signer_name")
+  signerEmail  String                   @map("signer_email")
+  /// Drawn/typed signature payload (audit trail — not claimed as legal e-sign alone).
+  signatureData String                  @map("signature_data")
+  agreed       Boolean                  @default(true)
+  signedAt     DateTime                 @default(now()) @map("signed_at")
+  ipAddress    String?                  @map("ip_address")
+  userAgent    String?                  @map("user_agent")
+  documentHash String?                  @map("document_hash")
+  carrier      Carrier                  @relation(fields: [carrierId], references: [carrierId], onDelete: Cascade)
+  template     CarrierAgreementTemplate @relation(fields: [templateId], references: [templateId], onDelete: Restrict)
+
+  @@index([carrierId])
+  @@index([templateId])
+  @@index([sessionId])
+  @@map("carrier_agreement_signatures")
+}
+
+model CarrierRcSignature {
+  rcSignatureId   String   @id @default(uuid()) @map("rc_signature_id")
+  carrierId       String   @map("carrier_id")
+  sessionId       String?  @map("session_id")
+  shipmentLeadId  String?  @map("shipment_lead_id")
+  contentJson     String   @map("content_json")
+  signerName      String   @map("signer_name")
+  signerEmail     String   @map("signer_email")
+  signatureData   String   @map("signature_data")
+  signedAt        DateTime @default(now()) @map("signed_at")
+  ipAddress       String?  @map("ip_address")
+  userAgent       String?  @map("user_agent")
+  documentHash    String?  @map("document_hash")
+  carrier         Carrier  @relation(fields: [carrierId], references: [carrierId], onDelete: Cascade)
+
+  @@index([carrierId])
+  @@index([sessionId])
+  @@index([shipmentLeadId])
+  @@map("carrier_rc_signatures")
+}
+
+/// Immutable-style onboarding timeline (append-only).
+model CarrierOnboardingEvent {
+  eventId     String   @id @default(uuid()) @map("event_id")
+  carrierId   String   @map("carrier_id")
+  sessionId   String?  @map("session_id")
+  shipmentLeadId String? @map("shipment_lead_id")
+  action      String
+  title       String
+  message     String?
+  actorType   String   @default("SYSTEM") @map("actor_type")
+  actorId     String?  @map("actor_id")
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  metadataJson String? @map("metadata_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+  carrier     Carrier  @relation(fields: [carrierId], references: [carrierId], onDelete: Cascade)
+
+  @@index([carrierId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("carrier_onboarding_events")
 }

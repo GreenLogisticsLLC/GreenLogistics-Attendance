@@ -17,7 +17,7 @@ const app = express();
 app.set("trust proxy", 1);
 
 app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] }));
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "3mb" }));
 
 app.use((req, _res, next) => {
     if (req.path.includes("/webhook/attendance") && req.method === "POST") {
@@ -30,6 +30,11 @@ app.use("/api", apiRouter);
 
 const frontendPath = path.join(__dirname, "..", "frontend", "public");
 app.use(express.static(frontendPath));
+
+app.get("/carrier/onboarding/:token", (req, res) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.sendFile(path.join(frontendPath, "carrier-onboarding.html"));
+});
 
 app.get("*", (_req, res) => {
     res.sendFile(path.join(frontendPath, "index.html"));

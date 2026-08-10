@@ -66,6 +66,17 @@ window.GreenOSRegistry = [
     roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead"],
   },
   {
+    id: "carriers",
+    title: "Carriers",
+    icon: "🚛",
+    subtitle: "Carrier onboarding packages — Green OS system of record",
+    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead"],
+    children: [
+      { id: "list", title: "All Carriers" },
+      { id: "add", title: "Add Carrier" },
+    ],
+  },
+  {
     id: "dispatch",
     title: "Dispatch",
     icon: "🚛",
@@ -224,6 +235,7 @@ window.GreenOSRegistry = [
     children: [
       { id: "users", title: "Users" },
       { id: "email-accounts", title: "Email Accounts" },
+      { id: "carrier-onboarding", title: "Carrier Onboarding" },
       { id: "roles", title: "Roles" },
       { id: "permissions", title: "Permissions" },
       { id: "company-settings", title: "Company Settings" },
