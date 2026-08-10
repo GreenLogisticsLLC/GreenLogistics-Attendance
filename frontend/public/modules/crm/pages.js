@@ -732,14 +732,35 @@ window.GreenOSModules.crm = {
     }
   },
 
-  async openShipmentCard(root, id) {
+  async openShipmentCard(root, id, preview) {
     var modal = root.querySelector("#crm-modal");
     if (!modal) return;
     var gen = (this._cardOpenGen = (this._cardOpenGen || 0) + 1);
     modal.classList.remove("hidden");
     modal.setAttribute("data-shipment-id", id);
     modal.setAttribute("data-card-loading", "1");
-    modal.innerHTML = '<div class="crm-modal-card"><p>Loading…</p></div>';
+    var previewHtml = "";
+    if (preview) {
+      var esc = this.esc.bind(this);
+      previewHtml =
+        "<h2>" +
+        esc(preview.greenOsShipmentId || preview.shipmentTitle || "Shipment") +
+        "</h2>" +
+        (preview.customer ? "<p><strong>Customer:</strong> " + esc(preview.customer) + "</p>" : "") +
+        (preview.pickup || preview.delivery
+          ? "<p class=\"gos-muted\">" +
+            esc(preview.pickup || "—") +
+            " → " +
+            esc(preview.delivery || "—") +
+            "</p>"
+          : "") +
+        (preview.status ? "<p>" + this.statusBadge(preview.status) + "</p>" : "");
+    }
+    modal.innerHTML =
+      '<div class="crm-modal-card">' +
+      previewHtml +
+      '<p class="gos-muted" style="margin-top:0.75rem">Loading details…</p>' +
+      "</div>";
     try {
       var data = await this.api("/shipments/" + encodeURIComponent(id));
       if (gen !== this._cardOpenGen) return; // superseded by a newer open

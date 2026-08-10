@@ -15,6 +15,7 @@ window.GreenOSModules.broker = {
     { id: "notifications", title: "Notifications" },
   ],
   _shipmentsTimer: null,
+  _shipmentsCache: null,
 
   stopShipmentsAutoRefresh() {
     if (this._shipmentsTimer) {
@@ -275,6 +276,57 @@ window.GreenOSModules.broker = {
       '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="7">Loading…</td></tr></tbody></table></div>';
 
     var paintGen = 0;
+
+    function renderRows(rows) {
+      var tbody = document.getElementById("broker-ship-body");
+      if (!tbody) return;
+      var esc = self.esc.bind(self);
+      var fmt = self.fmtDate.bind(self);
+      var badge = self.statusBadge.bind(self);
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7">No shipments assigned yet</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows
+        .map(function (s, i) {
+          return (
+            '<tr class="crm-row" data-id="' +
+            s.shipmentLeadId +
+            '"><td>' +
+            (i + 1) +
+            "</td><td><strong>" +
+            esc(s.greenOsShipmentId || s.shipmentTitle) +
+            "</strong>" +
+            (s.greenOsShipmentId
+              ? '<br><small class="gos-muted">' + esc(s.shipmentTitle) + "</small>"
+              : "") +
+            "</td><td>" +
+            esc(s.customer) +
+            "</td><td>" +
+            esc(s.pickup) +
+            "</td><td>" +
+            esc(s.delivery) +
+            "</td><td>" +
+            badge(s.status) +
+            "</td><td>" +
+            fmt(s.updatedAt) +
+            "</td></tr>"
+          );
+        })
+        .join("");
+      tbody.querySelectorAll("[data-id]").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          if (window.GreenOSModules.crm && window.GreenOSModules.crm.openShipmentCard) {
+            var sid = tr.getAttribute("data-id");
+            var preview = (self._shipmentsCache || []).find(function (r) {
+              return r.shipmentLeadId === sid;
+            });
+            window.GreenOSModules.crm.openShipmentCard(root, sid, preview);
+          }
+        });
+      });
+    }
+
     async function paint(force) {
       var tbody = document.getElementById("broker-ship-body");
       var syncEl = document.getElementById("broker-ship-sync");
@@ -292,6 +344,10 @@ window.GreenOSModules.broker = {
       if (self._shipmentsPaintBusy) return;
       self._shipmentsPaintBusy = true;
       var myGen = ++paintGen;
+      if (self._shipmentsCache && self._shipmentsCache.length) {
+        renderRows(self._shipmentsCache);
+        if (syncEl) syncEl.textContent = "Refreshing…";
+      }
       try {
         var data = await self.api("/shipments");
         if (myGen !== paintGen) return;
@@ -300,6 +356,7 @@ window.GreenOSModules.broker = {
           return;
         }
         var rows = data.data || [];
+        self._shipmentsCache = rows;
         if (syncEl) {
           syncEl.textContent =
             "Auto-refresh on · " +
@@ -307,53 +364,13 @@ window.GreenOSModules.broker = {
             " shipment(s) · updated " +
             new Date().toLocaleTimeString();
         }
-        if (!rows.length) {
-          tbody.innerHTML = '<tr><td colspan="7">No shipments assigned yet</td></tr>';
-          return;
-        }
-        var esc = self.esc.bind(self);
-        var fmt = self.fmtDate.bind(self);
-        var badge = self.statusBadge.bind(self);
-        tbody.innerHTML = rows
-          .map(function (s, i) {
-            return (
-              '<tr class="crm-row" data-id="' +
-              s.shipmentLeadId +
-              '"><td>' +
-              (i + 1) +
-              "</td><td><strong>" +
-              esc(s.greenOsShipmentId || s.shipmentTitle) +
-              "</strong>" +
-              (s.greenOsShipmentId
-                ? '<br><small class="gos-muted">' + esc(s.shipmentTitle) + "</small>"
-                : "") +
-              "</td><td>" +
-              esc(s.customer) +
-              "</td><td>" +
-              esc(s.pickup) +
-              "</td><td>" +
-              esc(s.delivery) +
-              "</td><td>" +
-              badge(s.status) +
-              "</td><td>" +
-              fmt(s.updatedAt) +
-              "</td></tr>"
-            );
-          })
-          .join("");
-        tbody.querySelectorAll("[data-id]").forEach(function (tr) {
-          tr.addEventListener("click", function () {
-            if (window.GreenOSModules.crm && window.GreenOSModules.crm.openShipmentCard) {
-              window.GreenOSModules.crm.openShipmentCard(root, tr.getAttribute("data-id"));
-            }
-          });
-        });
+        renderRows(rows);
       } catch (err) {
         if (syncEl) {
           syncEl.textContent =
             "Refresh failed" +
             (err && err.message ? " (" + err.message + ")" : "") +
-            " — retrying…";
+            (self._shipmentsCache && self._shipmentsCache.length ? " — showing cached list" : " — retrying…");
         }
       } finally {
         self._shipmentsPaintBusy = false;

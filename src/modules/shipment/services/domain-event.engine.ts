@@ -87,13 +87,18 @@ export class DomainEventEngine {
 
     /** Pipeline stages for Shipment Card — derived from Domain Event types. */
     async buildLifecyclePipeline(shipmentLeadId: string) {
-        const events = await this.listForShipment(shipmentLeadId);
-        const occurred = new Set(events.map((e: { eventType: string }) => e.eventType));
-        // Also accept legacy timeline stages
-        const timeline = await prisma.shipmentTimelineEvent.findMany({
-            where: { shipmentLeadId },
-            select: { stage: true, createdAt: true },
-        });
+        const [events, timeline] = await Promise.all([
+            prisma.domainEvent.findMany({
+                where: { shipmentLeadId },
+                select: { eventType: true, createdAt: true },
+                orderBy: { createdAt: "asc" },
+            }),
+            prisma.shipmentTimelineEvent.findMany({
+                where: { shipmentLeadId },
+                select: { stage: true, createdAt: true },
+            }),
+        ]);
+        const occurred = new Set(events.map((e) => e.eventType));
         for (const t of timeline) occurred.add(t.stage);
 
         const aliases: Record<string, string[]> = {
@@ -110,7 +115,7 @@ export class DomainEventEngine {
             const keys = aliases[step.stage] || [step.stage];
             const match = [...events]
                 .reverse()
-                .find((e: { eventType: string; createdAt: Date }) => keys.includes(e.eventType));
+                .find((e) => keys.includes(e.eventType));
             const legacy = timeline
                 .slice()
                 .reverse()
@@ -157,6 +162,57 @@ export class DomainEventEngine {
                 at: match?.createdAt || legacy?.createdAt || null,
             };
         });
+    }
+
+    /** Read-only Q&A for card display — no DB writes (fast). */
+    async correspondenceForDisplay(shipmentLeadId: string) {
+        const brokerTypes = ["BROKER_QUESTION", "BROKER_ANSWER"];
+        const customerTypes = [
+            "CUSTOMER_RESPOND",
+            "CUSTOMER_REPLIED",
+            "CUSTOMER_QUESTION",
+            "NEW_MESSAGE",
+        ];
+        const [latestBroker, latestCustomer] = await Promise.all([
+            prisma.domainEvent.findFirst({
+                where: { shipmentLeadId, eventType: { in: brokerTypes } },
+                orderBy: { createdAt: "desc" },
+            }),
+            prisma.domainEvent.findFirst({
+                where: { shipmentLeadId, eventType: { in: customerTypes } },
+                orderBy: { createdAt: "desc" },
+            }),
+        ]);
+        const out: Array<{
+            id: string;
+            kind: string;
+            title: string;
+            message: string | null;
+            at: Date;
+            actorUserId: string | null;
+        }> = [];
+        if (latestBroker) {
+            out.push({
+                id: latestBroker.eventId,
+                kind: "BROKER_ANSWER",
+                title: "Broker Answer",
+                message: latestBroker.message || latestBroker.title,
+                at: latestBroker.createdAt,
+                actorUserId: latestBroker.actorUserId,
+            });
+        }
+        if (latestCustomer) {
+            out.push({
+                id: latestCustomer.eventId,
+                kind: "CUSTOMER_RESPOND",
+                title: "Customer Respond",
+                message: latestCustomer.message || latestCustomer.title,
+                at: latestCustomer.createdAt,
+                actorUserId: latestCustomer.actorUserId,
+            });
+        }
+        out.sort((a, b) => a.at.getTime() - b.at.getTime());
+        return out;
     }
 
     /**

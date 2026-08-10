@@ -80,6 +80,48 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
     };
 }
 
+/** List table columns only — skips heavy JSON/text blobs. */
+const SHIPMENT_LIST_SELECT = {
+    shipmentLeadId: true,
+    greenOsShipmentId: true,
+    shipmentTitle: true,
+    customerName: true,
+    pickupCity: true,
+    pickupState: true,
+    pickupZip: true,
+    deliveryCity: true,
+    deliveryState: true,
+    deliveryZip: true,
+    miles: true,
+    category: true,
+    equipment: true,
+    vehicle: true,
+    price: true,
+    priority: true,
+    status: true,
+    loadNumber: true,
+    viewUrl: true,
+    assignedBrokerId: true,
+    createdAt: true,
+    updatedAt: true,
+    receivedAt: true,
+} as const;
+
+function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, BrokerUser>) {
+    const e = enrichLead(lead, brokers);
+    return {
+        shipmentLeadId: lead.shipmentLeadId as string,
+        greenOsShipmentId: e.greenOsShipmentId,
+        shipmentTitle: lead.shipmentTitle as string,
+        customer: e.customer,
+        pickup: e.pickup,
+        delivery: e.delivery,
+        status: lead.status as string,
+        statusLabel: e.statusLabel,
+        updatedAt: lead.updatedAt as Date | string | null,
+    };
+}
+
 export class CrmService {
     async getDashboard(options?: { teamLeadId?: string }) {
         const todayStart = startOfToday(config.timezone);
@@ -219,6 +261,8 @@ export class CrmService {
         status?: string;
         limit?: number;
         teamLeadId?: string;
+        /** Broker My Shipments — slim payload, no heavy blobs. */
+        lite?: boolean;
     }) {
         const where: Record<string, unknown> = {};
         if (options?.brokerId) {
@@ -235,12 +279,17 @@ export class CrmService {
         }
         if (options?.status) where.status = options.status;
 
+        const lite = options?.lite === true;
         const rows = await prisma.shipmentLead.findMany({
             where,
             orderBy: { updatedAt: "desc" },
-            take: options?.limit ?? 300,
+            take: options?.limit ?? (lite ? 150 : 300),
+            select: SHIPMENT_LIST_SELECT,
         });
         const brokers = await userMap(rows.map((r) => r.assignedBrokerId || ""));
+        if (lite) {
+            return rows.map((r) => toBrokerListRow(r as unknown as Record<string, unknown>, brokers));
+        }
         return rows.map((r) => enrichLead(r as unknown as Record<string, unknown>, brokers));
     }
 
@@ -256,23 +305,39 @@ export class CrmService {
         });
         if (!lead) return null;
 
-        await ensureGreenOsShipmentId(lead.shipmentLeadId).catch(() => null);
-        const refreshedId = await prisma.shipmentLead.findUnique({
-            where: { shipmentLeadId: id },
-            select: { greenOsShipmentId: true },
-        });
+        const greenOsPromise = lead.greenOsShipmentId
+            ? Promise.resolve(lead.greenOsShipmentId)
+            : ensureGreenOsShipmentId(lead.shipmentLeadId).catch(() => lead.greenOsShipmentId);
 
-        const brokers = await userMap(lead.assignedBrokerId ? [lead.assignedBrokerId] : []);
+        const [greenOsShipmentId, brokers, pipeline, correspondence, mailboxEmails] =
+            await Promise.all([
+                greenOsPromise,
+                userMap(lead.assignedBrokerId ? [lead.assignedBrokerId] : []),
+                domainEventEngine.buildLifecyclePipeline(lead.shipmentLeadId),
+                domainEventEngine.correspondenceForDisplay(lead.shipmentLeadId),
+                prisma.brokerMailboxMessage.findMany({
+                    where: { shipmentLeadId: lead.shipmentLeadId },
+                    orderBy: { receivedAt: "asc" },
+                    take: 80,
+                    select: {
+                        messageId: true,
+                        subject: true,
+                        fromAddress: true,
+                        snippet: true,
+                        receivedAt: true,
+                        matchMethod: true,
+                        userId: true,
+                    },
+                }),
+            ]);
+
         const enriched = enrichLead(
             {
                 ...(lead as unknown as Record<string, unknown>),
-                greenOsShipmentId: refreshedId?.greenOsShipmentId || lead.greenOsShipmentId,
+                greenOsShipmentId: greenOsShipmentId || lead.greenOsShipmentId,
             },
             brokers
         );
-
-        const pipeline = await domainEventEngine.buildLifecyclePipeline(lead.shipmentLeadId);
-        const correspondence = await domainEventEngine.listCorrespondence(lead.shipmentLeadId);
 
         let documents: unknown[] = [];
         try {
@@ -280,21 +345,6 @@ export class CrmService {
         } catch {
             documents = [];
         }
-
-        const mailboxEmails = await prisma.brokerMailboxMessage.findMany({
-            where: { shipmentLeadId: lead.shipmentLeadId },
-            orderBy: { receivedAt: "asc" },
-            take: 80,
-            select: {
-                messageId: true,
-                subject: true,
-                fromAddress: true,
-                snippet: true,
-                receivedAt: true,
-                matchMethod: true,
-                userId: true,
-            },
-        });
 
         return {
             ...enriched,

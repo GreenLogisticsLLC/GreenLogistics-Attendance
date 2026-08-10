@@ -73,6 +73,7 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
         brokerId,
         status,
         teamLeadId: !brokerId && teamLeadId ? teamLeadId : undefined,
+        lite: req.user?.role === "Broker",
     });
     return res.json(apiResponse(true, "Shipments loaded", data));
 }
