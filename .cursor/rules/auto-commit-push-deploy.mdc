@@ -1,0 +1,15 @@
+---
+description: Always commit, push, and deploy without asking the user
+alwaysApply: true
+---
+
+# Commit / Push / Deploy — no confirmation
+
+When finishing work that changes the codebase:
+
+1. **Commit and push immediately** — do not ask "нужен commit и push?".
+2. Follow the repo git safety protocol (status/diff/log, HEREDOC/PowerShell-safe commit message, no force-push, no secrets).
+3. **Deploy to production** after push when possible:
+   - Repo auto-deploys via cPanel cron on `main` (`tools/cpanel-cron-deploy.sh`).
+   - If SSH or a deploy script is available, run pull + `npm run build` (or `deploy:build`) + Node restart on the server so the user only needs **Ctrl+F5**.
+4. Tell the user briefly: commit hash pushed, deploy triggered/done, they only need **Ctrl+F5**.
