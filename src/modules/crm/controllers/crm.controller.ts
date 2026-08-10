@@ -451,6 +451,211 @@ export async function crmOnRoadController(req: AuthRequest, res: Response) {
     );
 }
 
+/**
+ * Live trucking board — GPS-tracked loads + In Road trucks (broker-scoped).
+ */
+export async function crmTruckingController(req: AuthRequest, res: Response) {
+    if (isDataScopedRole(req.user?.role || "") && !scopedBrokerId(req)) {
+        return res.status(401).json(apiResponse(false, "Unauthorized"));
+    }
+    const brokerId = scopedBrokerId(req);
+    const teamLeadId = teamScopeUserId(req);
+
+    const leadScope: Record<string, unknown> = {};
+    if (brokerId) {
+        leadScope.assignedBrokerId = brokerId;
+    } else if (teamLeadId) {
+        const ids = await listTeamBrokerIds(teamLeadId);
+        leadScope.assignedBrokerId = { in: ids.length ? ids : ["__none__"] };
+    }
+
+    const roadStatuses = [
+        "CARRIER_ASSIGNED",
+        "RATE_CON_GENERATED",
+        "CARRIER_ACCEPTED",
+        "PICKUP",
+        "IN_TRANSIT",
+        "DISPATCH",
+        "PICKED_UP",
+    ];
+
+    const [gpsRows, roadLoads] = await Promise.all([
+        prisma.shipmentTracking.findMany({
+            where: {
+                status: "ACTIVE",
+                ...(Object.keys(leadScope).length
+                    ? { shipmentLead: leadScope }
+                    : {}),
+            },
+            include: {
+                shipmentLead: {
+                    select: {
+                        shipmentLeadId: true,
+                        greenOsShipmentId: true,
+                        loadNumber: true,
+                        shipmentTitle: true,
+                        status: true,
+                        customerName: true,
+                        carrierName: true,
+                        driverName: true,
+                        driverPhone: true,
+                        truckNumber: true,
+                        trailerNumber: true,
+                        pickupCity: true,
+                        pickupState: true,
+                        deliveryCity: true,
+                        deliveryState: true,
+                        assignedBrokerId: true,
+                    },
+                },
+            },
+            orderBy: { lastPositionAt: "desc" },
+            take: 200,
+        }),
+        prisma.shipmentLead.findMany({
+            where: {
+                ...leadScope,
+                status: { in: roadStatuses },
+                OR: [{ truckNumber: { not: null } }, { driverName: { not: null } }],
+            },
+            select: {
+                shipmentLeadId: true,
+                greenOsShipmentId: true,
+                loadNumber: true,
+                shipmentTitle: true,
+                status: true,
+                customerName: true,
+                carrierName: true,
+                driverName: true,
+                driverPhone: true,
+                truckNumber: true,
+                trailerNumber: true,
+                pickupCity: true,
+                pickupState: true,
+                deliveryCity: true,
+                deliveryState: true,
+                updatedAt: true,
+            },
+            orderBy: { updatedAt: "desc" },
+            take: 200,
+        }),
+    ]);
+
+    const gpsByLead = new Map(gpsRows.map((g) => [g.shipmentLeadId, g]));
+
+    type TruckRow = {
+        shipmentLeadId: string;
+        greenOsShipmentId: string | null;
+        loadNumber: string | null;
+        shipmentTitle: string | null;
+        status: string;
+        customer: string;
+        carrier: string;
+        driver: string;
+        driverPhone: string;
+        truck: string;
+        trailer: string;
+        pickup: string;
+        delivery: string;
+        online: boolean;
+        provider: string | null;
+        providerLoadId: string | null;
+        latitude: number | null;
+        longitude: number | null;
+        address: string | null;
+        lastPositionAt: Date | null;
+        movementType: string | null;
+        routeStarted: boolean;
+        driverIsLate: boolean;
+        timeLeftSec: number | null;
+        distanceLeftMeters: number | null;
+        trackingUrl: string | null;
+        clientTrackingUrl: string | null;
+    };
+
+    const trucks: TruckRow[] = gpsRows.map((g) => {
+        const s = g.shipmentLead;
+        return {
+            shipmentLeadId: s.shipmentLeadId,
+            greenOsShipmentId: s.greenOsShipmentId,
+            loadNumber: s.loadNumber,
+            shipmentTitle: s.shipmentTitle,
+            status: s.status,
+            customer: s.customerName || "—",
+            carrier: s.carrierName || "—",
+            driver: s.driverName || "—",
+            driverPhone: g.driverPhone || s.driverPhone || "—",
+            truck: s.truckNumber || "—",
+            trailer: s.trailerNumber || "—",
+            pickup: [s.pickupCity, s.pickupState].filter(Boolean).join(", ") || "—",
+            delivery: [s.deliveryCity, s.deliveryState].filter(Boolean).join(", ") || "—",
+            online: true,
+            provider: g.provider,
+            providerLoadId: g.providerLoadId,
+            latitude: g.lastLatitude,
+            longitude: g.lastLongitude,
+            address: g.lastAddress,
+            lastPositionAt: g.lastPositionAt,
+            movementType: g.movementType,
+            routeStarted: g.routeStarted,
+            driverIsLate: g.driverIsLate,
+            timeLeftSec: g.timeLeftSec,
+            distanceLeftMeters: g.distanceLeftMeters,
+            trackingUrl: g.trackingUrl,
+            clientTrackingUrl: g.clientTrackingUrl,
+        };
+    });
+
+    for (const s of roadLoads) {
+        if (gpsByLead.has(s.shipmentLeadId)) continue;
+        trucks.push({
+            shipmentLeadId: s.shipmentLeadId,
+            greenOsShipmentId: s.greenOsShipmentId,
+            loadNumber: s.loadNumber,
+            shipmentTitle: s.shipmentTitle,
+            status: s.status,
+            customer: s.customerName || "—",
+            carrier: s.carrierName || "—",
+            driver: s.driverName || "—",
+            driverPhone: s.driverPhone || "—",
+            truck: s.truckNumber || "—",
+            trailer: s.trailerNumber || "—",
+            pickup: [s.pickupCity, s.pickupState].filter(Boolean).join(", ") || "—",
+            delivery: [s.deliveryCity, s.deliveryState].filter(Boolean).join(", ") || "—",
+            online: false,
+            provider: null,
+            providerLoadId: null,
+            latitude: null,
+            longitude: null,
+            address: null,
+            lastPositionAt: null,
+            movementType: null,
+            routeStarted: false,
+            driverIsLate: false,
+            timeLeftSec: null,
+            distanceLeftMeters: null,
+            trackingUrl: null,
+            clientTrackingUrl: null,
+        });
+    }
+
+    trucks.sort((a, b) => {
+        if (a.online !== b.online) return a.online ? -1 : 1;
+        const ta = a.lastPositionAt ? new Date(a.lastPositionAt).getTime() : 0;
+        const tb = b.lastPositionAt ? new Date(b.lastPositionAt).getTime() : 0;
+        return tb - ta;
+    });
+
+    return res.json(
+        apiResponse(true, "Trucking", {
+            count: trucks.length,
+            onlineCount: trucks.filter((t) => t.online).length,
+            updatedAt: new Date().toISOString(),
+            items: trucks,
+        })
+    );
+}
+
 export async function crmMyNotificationsController(req: AuthRequest, res: Response) {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json(apiResponse(false, "Unauthorized"));

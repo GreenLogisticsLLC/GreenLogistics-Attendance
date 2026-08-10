@@ -17,6 +17,7 @@ window.GreenOSRegistry = [
       { id: "customers", title: "My Customers" },
       { id: "carriers", title: "MY Carrier" },
       { id: "on-road", title: "ON Road" },
+      { id: "trucking", title: "Trucking" },
       { id: "notifications", title: "Notifications" },
     ],
   },
@@ -56,6 +57,13 @@ window.GreenOSRegistry = [
       { id: "active-loads", title: "Active Loads" },
       { id: "completed-loads", title: "Completed Loads" },
     ],
+  },
+  {
+    id: "trucking",
+    title: "Trucking",
+    icon: "🛰️",
+    subtitle: "Live trucks on the road (GPS + In Road)",
+    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead"],
   },
   {
     id: "dispatch",

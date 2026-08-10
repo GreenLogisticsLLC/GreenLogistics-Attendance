@@ -170,6 +170,8 @@
       if (this.currentModule === "attendance") return;
       // Administration (API Integrations, users, etc.) — never auto-remount.
       if (this.currentModule === "administration") return;
+      // Trucking has its own live timer.
+      if (this.currentModule === "trucking") return;
       if (
         this.currentModule === "broker" &&
         this.currentSub === "shipments" &&

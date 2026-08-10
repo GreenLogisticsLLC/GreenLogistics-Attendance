@@ -48,6 +48,7 @@ export type ModuleId =
     | "assignment"
     | "dispatch"
     | "loads"
+    | "trucking"
     | "car-transport"
     | "employees"
     | "attendance"
@@ -68,6 +69,7 @@ const ALL_MODULES: ModuleId[] = [
     "assignment",
     "dispatch",
     "loads",
+    "trucking",
     "car-transport",
     "employees",
     "attendance",
@@ -110,6 +112,7 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
     assignment: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
     dispatch: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
     loads: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
+    trucking: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
     "car-transport": [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher],
     employees: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.HR],
     attendance: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.HR, Roles.TeamLead],

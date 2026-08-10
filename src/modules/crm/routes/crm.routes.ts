@@ -18,6 +18,7 @@ import {
     crmMyCustomersController,
     crmMyCarriersController,
     crmOnRoadController,
+    crmTruckingController,
     crmMyNotificationsController,
     crmTestCustomerAcceptController,
     crmUpdateShipmentController,
@@ -65,6 +66,7 @@ crmRouter.get("/customers", crmRoles, crmMyCustomersController);
 crmRouter.get("/customers/:name", crmRoles, crmCustomerDetailController);
 crmRouter.get("/carriers", crmRoles, crmMyCarriersController);
 crmRouter.get("/on-road", crmRoles, crmOnRoadController);
+crmRouter.get("/trucking", crmRoles, crmTruckingController);
 crmRouter.get("/notifications", crmRoles, crmMyNotificationsController);
 crmRouter.post("/notifications/read-all", crmRoles, crmMarkAllNotificationsReadController);
 crmRouter.post("/notifications/:id/read", crmRoles, crmMarkNotificationReadController);

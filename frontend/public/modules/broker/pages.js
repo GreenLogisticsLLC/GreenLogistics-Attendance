@@ -11,6 +11,7 @@ window.GreenOSModules.broker = {
     { id: "customers", title: "My Customers" },
     { id: "carriers", title: "MY Carrier" },
     { id: "on-road", title: "ON Road" },
+    { id: "trucking", title: "Trucking" },
     { id: "notifications", title: "Notifications" },
   ],
   _shipmentsTimer: null,
@@ -72,6 +73,10 @@ window.GreenOSModules.broker = {
     else if (active.id === "customers") self.renderCustomers(body, root);
     else if (active.id === "carriers") self.renderCarriers(body, root);
     else if (active.id === "on-road") self.renderOnRoad(body, root);
+    else if (active.id === "trucking") {
+      if (window.GreenOSModules.trucking) window.GreenOSModules.trucking.render(body);
+      else body.innerHTML = "<p>Trucking module not loaded — hard refresh.</p>";
+    }
     else if (active.id === "notifications") self.renderNotifications(body);
     else self.renderDashboard(body, root);
   },
