@@ -131,12 +131,21 @@ window.GreenOSModules["dispatch"] = {
     var children = this.children || [];
     var active = children.find(function (c) { return c.id === subPageId; }) || children[0];
     var openId = null;
-    var viewingId = self._loadId || null;
+    var viewingId = null;
     try {
       openId = sessionStorage.getItem("gos_open_load_id");
       if (openId) sessionStorage.removeItem("gos_open_load_id");
-      if (!viewingId) viewingId = sessionStorage.getItem("gos_viewing_load_id");
     } catch (e) {}
+    // Resume open Load Details only when already on screen (soft refresh).
+    // Fresh My Loads / Active Loads always shows the list first.
+    if (document.querySelector(".load-layout")) {
+      viewingId = self._loadId || null;
+      try {
+        if (!viewingId) viewingId = sessionStorage.getItem("gos_viewing_load_id");
+      } catch (e) {}
+    } else {
+      self._loadId = null;
+    }
 
     var navHtml = children.map(function (c) {
       var isActive = active && c.id === active.id;
@@ -270,7 +279,8 @@ window.GreenOSModules["dispatch"] = {
     if (!body) return;
     body.innerHTML = "<p class=\"gos-muted\">Loading Load Details…</p>";
     try {
-      var data = await self.api("/" + encodeURIComponent(id));
+      var qs = self._tab === "tracking" ? "?includeGps=1" : "";
+      var data = await self.api("/" + encodeURIComponent(id) + qs);
       // Stale response if user navigated away / opened another load.
       if (self._loadId && self._loadId !== id) return;
       self.renderDetails(body, data);
@@ -441,7 +451,12 @@ window.GreenOSModules["dispatch"] = {
 
     body.querySelectorAll(".load-tab").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        self._tab = btn.getAttribute("data-tab");
+        var next = btn.getAttribute("data-tab");
+        self._tab = next;
+        if (next === "tracking" && !(data.gps && data.gps.configured != null)) {
+          self.openLoad(body, id, "tracking");
+          return;
+        }
         self.renderDetails(body, data);
       });
     });

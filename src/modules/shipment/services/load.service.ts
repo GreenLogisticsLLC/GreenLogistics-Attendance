@@ -119,7 +119,11 @@ export class LoadService {
         });
     }
 
-    async listLoads(filter: { phase: "active" | "completed" | "all"; limit?: number }) {
+    async listLoads(filter: {
+        phase: "active" | "completed" | "all";
+        limit?: number;
+        brokerId?: string;
+    }) {
         const limit = Math.min(filter.limit || 100, 300);
         const activeStatuses = [
             "LOAD_CREATED",
@@ -136,28 +140,47 @@ export class LoadService {
         ];
         const completedStatuses = ["COMPLETED", "CLOSED"];
 
-        const where =
+        const where: Record<string, unknown> =
             filter.phase === "active"
                 ? { loadNumber: { not: null }, status: { in: activeStatuses } }
                 : filter.phase === "completed"
                   ? { loadNumber: { not: null }, status: { in: completedStatuses } }
                   : { loadNumber: { not: null } };
+        if (filter.brokerId) where.assignedBrokerId = filter.brokerId;
 
         const rows = await prisma.shipmentLead.findMany({
             where,
             orderBy: { updatedAt: "desc" },
             take: limit,
+            select: {
+                shipmentLeadId: true,
+                loadNumber: true,
+                greenOsShipmentId: true,
+                status: true,
+                customerName: true,
+                carrierName: true,
+                pickupCity: true,
+                pickupState: true,
+                deliveryCity: true,
+                deliveryState: true,
+                customerRate: true,
+                carrierRate: true,
+                fuelSurcharge: true,
+                accessorialCharges: true,
+                factoringFee: true,
+                price: true,
+                updatedAt: true,
+                createdAt: true,
+            },
         });
 
-        // Backfill missing rates from current Invoice / Rate Con JSON (fixes -$carrier display).
-        const ids = rows
-            .filter((r) => r.customerRate == null || r.carrierRate == null)
-            .map((r) => r.shipmentLeadId);
+        // Read-only rate hints from docs — no sequential UPDATEs on list (was slow).
+        const needDoc = rows.filter((r) => r.customerRate == null || r.carrierRate == null);
         const docByLead = new Map<string, { inv?: string | null; rc?: string | null }>();
-        if (ids.length) {
+        if (needDoc.length) {
             const docs = await prisma.loadDocument.findMany({
                 where: {
-                    shipmentLeadId: { in: ids },
+                    shipmentLeadId: { in: needDoc.map((r) => r.shipmentLeadId) },
                     isCurrent: true,
                     docType: { in: ["CUSTOMER_INVOICE", "RATE_CONFIRMATION"] },
                 },
@@ -171,42 +194,29 @@ export class LoadService {
             }
         }
 
-        const mapped = [];
-        for (const r of rows) {
+        return rows.map((r) => {
             let customerRate = r.customerRate;
             let carrierRate = r.carrierRate;
             const slot = docByLead.get(r.shipmentLeadId);
             if (slot) {
-                const patch: { customerRate?: number; carrierRate?: number } = {};
                 if ((customerRate == null || customerRate === 0) && slot.inv) {
                     try {
                         const amt = customerAmountFromInvoiceContent(JSON.parse(slot.inv));
-                        if (amt != null && amt > 0) {
-                            customerRate = amt;
-                            patch.customerRate = amt;
-                        }
+                        if (amt != null && amt > 0) customerRate = amt;
                     } catch {
-                        /* ignore bad JSON */
+                        /* ignore */
                     }
                 }
                 if ((carrierRate == null || carrierRate === 0) && slot.rc) {
                     try {
                         const amt = carrierAmountFromRateConContent(JSON.parse(slot.rc));
-                        if (amt != null && amt > 0) {
-                            carrierRate = amt;
-                            patch.carrierRate = amt;
-                        }
+                        if (amt != null && amt > 0) carrierRate = amt;
                     } catch {
-                        /* ignore bad JSON */
+                        /* ignore */
                     }
                 }
-                if (Object.keys(patch).length) {
-                    await prisma.shipmentLead
-                        .update({ where: { shipmentLeadId: r.shipmentLeadId }, data: patch })
-                        .catch(() => null);
-                }
             }
-            mapped.push({
+            return {
                 shipmentLeadId: r.shipmentLeadId,
                 loadNumber: r.loadNumber,
                 shipmentNumber: r.greenOsShipmentId,
@@ -219,37 +229,54 @@ export class LoadService {
                 pricing: computePricing({ ...r, customerRate, carrierRate }),
                 updatedAt: r.updatedAt,
                 createdAt: r.createdAt,
-            });
-        }
-        return mapped;
+            };
+        });
     }
 
-    async getLoadDetails(shipmentLeadId: string) {
+    async getLoadDetails(
+        shipmentLeadId: string,
+        opts?: { includeGps?: boolean; syncLifecycle?: boolean }
+    ) {
         const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!s) throw Object.assign(new Error("Load not found"), { status: 404 });
 
+        const [brokerUser, documents, mailbox] = await Promise.all([
+            s.assignedBrokerId
+                ? prisma.user.findUnique({
+                      where: { userId: s.assignedBrokerId },
+                      select: { userId: true, firstName: true, lastName: true, email: true },
+                  })
+                : Promise.resolve(null),
+            loadDocumentsService.listCurrent(shipmentLeadId),
+            prisma.brokerMailboxMessage.findMany({
+                where: { shipmentLeadId },
+                orderBy: { receivedAt: "desc" },
+                take: 40,
+                select: {
+                    messageId: true,
+                    subject: true,
+                    fromAddress: true,
+                    snippet: true,
+                    receivedAt: true,
+                },
+            }),
+        ]);
+
         let broker: { userId: string; name: string; email: string | null; gmail: string | null } | null =
             null;
-        if (s.assignedBrokerId) {
-            const u = await prisma.user.findUnique({
+        if (brokerUser && s.assignedBrokerId) {
+            const gmail = await prisma.brokerGmailAccount.findUnique({
                 where: { userId: s.assignedBrokerId },
-                select: { userId: true, firstName: true, lastName: true, email: true },
+                select: { gmailAddress: true, isActive: true },
             });
-            if (u) {
-                const gmail = await prisma.brokerGmailAccount.findUnique({
-                    where: { userId: s.assignedBrokerId },
-                    select: { gmailAddress: true, isActive: true },
-                });
-                broker = {
-                    userId: u.userId,
-                    name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim(),
-                    email: u.email,
-                    gmail: (gmail?.isActive !== false && gmail?.gmailAddress) || u.email || null,
-                };
-            }
+            broker = {
+                userId: brokerUser.userId,
+                name: [brokerUser.firstName, brokerUser.lastName].filter(Boolean).join(" ").trim(),
+                email: brokerUser.email,
+                gmail:
+                    (gmail?.isActive !== false && gmail?.gmailAddress) || brokerUser.email || null,
+            };
         }
-
-        const documents = await loadDocumentsService.listCurrent(shipmentLeadId);
 
         // Backfill Customer / Carrier $ from invoice / Rate Con when DB rates are missing.
         if (s.customerRate == null || s.customerRate === 0 || s.carrierRate == null || s.carrierRate === 0) {
@@ -286,67 +313,55 @@ export class LoadService {
             }
         }
 
-        // Catch up lifecycle when docs already exist but status was stuck (e.g. at DELIVERED).
-        // POD → POD_UPLOADED, Customer Invoice → CUSTOMER_INVOICE.
-        {
-            const { shipmentService } = await import("./shipment.service.js");
-            const hasDoc = (t: string) => documents.some((d) => d.docType === t);
-            const tryAdvance = async (status: string) => {
+        // Lifecycle catch-up is optional — do not block the Load Details paint path.
+        if (opts?.syncLifecycle !== false) {
+            void (async () => {
                 try {
-                    await shipmentService.transitionStatus({
-                        shipmentLeadId,
-                        status,
-                        skipLifecycleCheck: false,
-                    });
-                    return true;
+                    const { shipmentService } = await import("./shipment.service.js");
+                    const hasDoc = (t: string) => documents.some((d) => d.docType === t);
+                    const tryAdvance = async (status: string) => {
+                        try {
+                            await shipmentService.transitionStatus({
+                                shipmentLeadId,
+                                status,
+                                skipLifecycleCheck: false,
+                            });
+                            return true;
+                        } catch {
+                            return false;
+                        }
+                    };
+                    let st = normalizeStatus(s.status);
+                    if (hasDoc("POD") && ["IN_TRANSIT", "DELIVERED"].includes(st)) {
+                        if (await tryAdvance("POD_UPLOADED")) st = "POD_UPLOADED";
+                    }
+                    if (
+                        hasDoc("CUSTOMER_INVOICE") &&
+                        ["IN_TRANSIT", "DELIVERED", "POD_UPLOADED"].includes(st)
+                    ) {
+                        if (hasDoc("POD") && st === "DELIVERED") {
+                            if (await tryAdvance("POD_UPLOADED")) st = "POD_UPLOADED";
+                        }
+                        await tryAdvance("CUSTOMER_INVOICE");
+                    }
                 } catch {
-                    return false;
+                    /* non-blocking */
                 }
-            };
-            let st = normalizeStatus(s.status);
-            if (hasDoc("POD") && ["IN_TRANSIT", "DELIVERED"].includes(st)) {
-                if (await tryAdvance("POD_UPLOADED")) st = "POD_UPLOADED";
-            }
-            if (
-                hasDoc("CUSTOMER_INVOICE") &&
-                ["IN_TRANSIT", "DELIVERED", "POD_UPLOADED"].includes(st)
-            ) {
-                if (hasDoc("POD") && st === "DELIVERED") {
-                    if (await tryAdvance("POD_UPLOADED")) st = "POD_UPLOADED";
-                }
-                if (await tryAdvance("CUSTOMER_INVOICE")) st = "CUSTOMER_INVOICE";
-            }
-            if (st !== normalizeStatus(s.status)) {
-                const refreshed = await prisma.shipmentLead.findUnique({
-                    where: { shipmentLeadId },
-                });
-                if (refreshed) Object.assign(s, refreshed);
+            })();
+        }
+
+        let gps = null;
+        if (opts?.includeGps) {
+            try {
+                const { trackingService } = await import("../../tracking/services/tracking.service.js");
+                gps = await trackingService.buildTrackingPayload(shipmentLeadId);
+            } catch {
+                gps = null;
             }
         }
 
-        const timeline = await domainEventEngine.listForShipment(shipmentLeadId);
         const pricing = computePricing(s);
         const tracking = trackingFromStatus(s.status, s.trackingStatus);
-        let gps = null;
-        try {
-            const { trackingService } = await import("../../tracking/services/tracking.service.js");
-            gps = await trackingService.buildTrackingPayload(shipmentLeadId);
-        } catch {
-            gps = null;
-        }
-
-        const mailbox = await prisma.brokerMailboxMessage.findMany({
-            where: { shipmentLeadId },
-            orderBy: { receivedAt: "desc" },
-            take: 40,
-            select: {
-                messageId: true,
-                subject: true,
-                fromAddress: true,
-                snippet: true,
-                receivedAt: true,
-            },
-        });
 
         return {
             identity: {
@@ -471,14 +486,7 @@ export class LoadService {
                 calls: [],
                 futureIntegrations: ["RingCentral", "Gmail"],
             },
-            timeline: timeline.map((e) => ({
-                eventId: e.eventId,
-                eventType: e.eventType,
-                title: e.title,
-                message: e.message,
-                createdAt: e.createdAt,
-                actorUserId: e.actorUserId,
-            })),
+            timeline: [],
             quickActions: [
                 { id: "assign_carrier", label: "Assign Carrier", status: "CARRIER_ASSIGNED" },
                 { id: "generate_rate_con", label: "Generate Rate Confirmation", docType: "RATE_CONFIRMATION" },

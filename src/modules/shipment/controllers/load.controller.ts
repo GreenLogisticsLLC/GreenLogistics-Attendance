@@ -59,8 +59,11 @@ export const loadController = {
     async list(req: AuthRequest, res: Response) {
         try {
             const phase = String(req.query.phase || "active") as "active" | "completed" | "all";
-            const data = await loadService.listLoads({ phase });
             const role = req.user?.role || "";
+            const data = await loadService.listLoads({
+                phase,
+                brokerId: role === "Broker" ? req.user?.userId : undefined,
+            });
             const safe = canViewLoadProfit(role)
                 ? data
                 : (data as Record<string, unknown>[]).map(redactLoadListRow);
@@ -78,7 +81,10 @@ export const loadController = {
             const id = String(req.params.id || "");
             const access = await accessOr404(req, res, id);
             if (!access.ok) return;
-            const data = await loadService.getLoadDetails(id);
+            const includeGps =
+                String(req.query.includeGps || req.query.gps || "") === "1" ||
+                String(req.query.includeGps || "").toLowerCase() === "true";
+            const data = await loadService.getLoadDetails(id, { includeGps });
             const role = req.user?.role || "";
             const payload = canViewLoadProfit(role)
                 ? { ...data, canViewMoney: true }

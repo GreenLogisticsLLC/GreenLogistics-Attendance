@@ -43,13 +43,21 @@ window.GreenOSModules = window.GreenOSModules || {};
 
       var openId = null;
       var openTab = null;
-      var viewingId = self._loadId || null;
+      var viewingId = null;
       try {
         openId = sessionStorage.getItem("gos_open_load_id");
         openTab = sessionStorage.getItem("gos_open_load_tab");
         if (openId) sessionStorage.removeItem("gos_open_load_id");
-        if (!viewingId) viewingId = sessionStorage.getItem("gos_viewing_load_id");
       } catch (e) {}
+      // Fresh "My Loads" opens the list; only keep details if already on screen.
+      if (document.querySelector(".load-layout")) {
+        viewingId = self._loadId || null;
+        try {
+          if (!viewingId) viewingId = sessionStorage.getItem("gos_viewing_load_id");
+        } catch (e) {}
+      } else {
+        self._loadId = null;
+      }
 
       var navHtml = children
         .map(function (c) {
