@@ -249,9 +249,9 @@ export class CrmService {
             where: { shipmentLeadId: id },
             include: {
                 emailMessage: true,
-                timelineEvents: { orderBy: { createdAt: "asc" } },
-                importLogs: { orderBy: { createdAt: "desc" }, take: 50 },
-                domainEvents: { orderBy: { createdAt: "asc" } },
+                timelineEvents: { orderBy: { createdAt: "asc" }, take: 80 },
+                importLogs: { orderBy: { createdAt: "desc" }, take: 30 },
+                domainEvents: { orderBy: { createdAt: "desc" }, take: 120 },
             },
         });
         if (!lead) return null;
@@ -301,7 +301,8 @@ export class CrmService {
             documents,
             correspondence,
             timeline: lead.timelineEvents,
-            domainEvents: lead.domainEvents,
+            // Queried newest-first for speed; expose oldest→newest for the card UI.
+            domainEvents: [...lead.domainEvents].reverse(),
             pipeline,
             mailboxEmails,
             email: lead.emailMessage

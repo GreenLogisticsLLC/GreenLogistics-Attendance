@@ -694,6 +694,11 @@ window.GreenOSModules.crm = {
     if (!modal || modal.classList.contains("hidden")) return;
     var id = modal.getAttribute("data-shipment-id");
     if (!id) return;
+    // Never interrupt an in-flight first open (stuck "Loading…" race).
+    if (modal.getAttribute("data-card-loading") === "1") return;
+    if (modal.querySelector(".crm-modal-card p") && /Loading/i.test(modal.textContent || "")) {
+      return;
+    }
     try {
       var data = await this.api("/shipments/" + encodeURIComponent(id));
       if (!data || !data.success || !data.data) return;
@@ -730,12 +735,17 @@ window.GreenOSModules.crm = {
   async openShipmentCard(root, id) {
     var modal = root.querySelector("#crm-modal");
     if (!modal) return;
+    var gen = (this._cardOpenGen = (this._cardOpenGen || 0) + 1);
     modal.classList.remove("hidden");
     modal.setAttribute("data-shipment-id", id);
+    modal.setAttribute("data-card-loading", "1");
     modal.innerHTML = '<div class="crm-modal-card"><p>Loading…</p></div>';
     try {
       var data = await this.api("/shipments/" + encodeURIComponent(id));
+      if (gen !== this._cardOpenGen) return; // superseded by a newer open
+      if (modal.getAttribute("data-shipment-id") !== id) return;
       if (!data.success) {
+        modal.removeAttribute("data-card-loading");
         modal.innerHTML =
           '<div class="crm-modal-card"><p>' +
           this.esc(data.message) +
@@ -747,6 +757,7 @@ window.GreenOSModules.crm = {
         return;
       }
       var s = data.data;
+      modal.removeAttribute("data-card-loading");
       modal.setAttribute("data-shipment-status", String(s.status || ""));
       modal.setAttribute("data-load-number", String(s.loadNumber || ""));
       modal.setAttribute(
@@ -1404,9 +1415,17 @@ window.GreenOSModules.crm = {
         });
         window.GreenOSModules.crm.openShipmentCard(root, id);
       });
-    } catch {
+    } catch (err) {
+      if (gen !== this._cardOpenGen) return;
+      modal.removeAttribute("data-card-loading");
       modal.innerHTML =
-        '<div class="crm-modal-card"><p>Failed to load card</p></div>';
+        '<div class="crm-modal-card"><p>Failed to load card' +
+        (err && err.message ? ": " + this.esc(err.message) : "") +
+        '</p><button type="button" class="btn-secondary" id="crm-close">Close</button></div>';
+      modal.querySelector("#crm-close")?.addEventListener("click", function () {
+        modal.classList.add("hidden");
+        modal.innerHTML = "";
+      });
     }
   },
 };

@@ -315,7 +315,16 @@
     if (typeof window.GreenOSEmailReload === "function") {
       window.GreenOSEmailReload();
     }
-    if (typeof window.GreenOSBrokerReloadShipments === "function") {
+    var modalOpen = false;
+    try {
+      var m = document.getElementById("crm-modal");
+      modalOpen = Boolean(m && !m.classList.contains("hidden"));
+    } catch (e) {}
+    // Avoid stacking list refreshes while a shipment card is loading/open.
+    if (
+      !modalOpen &&
+      typeof window.GreenOSBrokerReloadShipments === "function"
+    ) {
       window.GreenOSBrokerReloadShipments();
     }
 
@@ -334,7 +343,8 @@
       window.GreenOS.currentModule !== "broker" &&
       window.GreenOS.currentModule !== "attendance" &&
       window.GreenOS.currentModule !== "loads" &&
-      window.GreenOS.currentModule !== "dispatch"
+      window.GreenOS.currentModule !== "dispatch" &&
+      window.GreenOS.currentModule !== "administration"
     ) {
       window.GreenOS.refreshModule();
     }

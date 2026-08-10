@@ -263,18 +263,33 @@ window.GreenOSModules.broker = {
   async renderShipments(body, root) {
     var self = this;
     body.innerHTML =
-      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>Shipments assigned to you — list refreshes automatically every 10 seconds</p></section>' +
+      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>Shipments assigned to you — list refreshes automatically</p></section>' +
       '<p class="gos-muted" id="broker-ship-sync" style="margin:0 0 0.75rem">Loading…</p>' +
       '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
       "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Updated</th>" +
       '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="7">Loading…</td></tr></tbody></table></div>';
 
-    async function paint() {
+    var paintGen = 0;
+    async function paint(force) {
       var tbody = document.getElementById("broker-ship-body");
       var syncEl = document.getElementById("broker-ship-sync");
       if (!tbody) return;
+      // Do not hammer API while a shipment card is opening/open.
+      var modal = document.getElementById("crm-modal");
+      if (
+        !force &&
+        modal &&
+        !modal.classList.contains("hidden") &&
+        modal.getAttribute("data-card-loading") === "1"
+      ) {
+        return;
+      }
+      if (self._shipmentsPaintBusy) return;
+      self._shipmentsPaintBusy = true;
+      var myGen = ++paintGen;
       try {
         var data = await self.api("/shipments");
+        if (myGen !== paintGen) return;
         if (!data.success) {
           if (syncEl) syncEl.textContent = data.message || "Failed to load";
           return;
@@ -328,14 +343,21 @@ window.GreenOSModules.broker = {
             }
           });
         });
-      } catch {
-        if (syncEl) syncEl.textContent = "Refresh failed — retrying…";
+      } catch (err) {
+        if (syncEl) {
+          syncEl.textContent =
+            "Refresh failed" +
+            (err && err.message ? " (" + err.message + ")" : "") +
+            " — retrying…";
+        }
+      } finally {
+        self._shipmentsPaintBusy = false;
       }
     }
 
     window.GreenOSBrokerReloadShipments = function () {
       if (!document.getElementById("broker-ship-body")) return;
-      paint();
+      paint(false);
     };
 
     self.stopShipmentsAutoRefresh();
@@ -345,10 +367,10 @@ window.GreenOSModules.broker = {
         self.stopShipmentsAutoRefresh();
         return;
       }
-      paint();
-    }, 10000);
+      paint(false);
+    }, 30000);
 
-    await paint();
+    await paint(true);
   },
 
   async renderCustomers(body, root) {
