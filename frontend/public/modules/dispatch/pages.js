@@ -477,6 +477,7 @@ window.GreenOSModules["dispatch"] = {
     var c = data.carrier || {};
     var p = data.pricing || {};
     var id = data.identity.shipmentLeadId;
+    var showMoney = data.canViewMoney === true || self.canSeeMoney();
 
     function field(label, value) {
       return (
