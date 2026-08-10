@@ -128,6 +128,82 @@ export class BrokerGmailOAuthService {
         return Boolean(config.gmail.clientId && config.gmail.clientSecret);
     }
 
+    /** Send email as the broker's connected Gmail (From = broker). */
+    async sendMailAsBroker(
+        userId: string,
+        options: { to: string; subject: string; text: string; html: string }
+    ): Promise<{ from: string }> {
+        if (!this.isClientConfigured()) {
+            throw Object.assign(
+                new Error("Gmail OAuth client is not configured"),
+                { status: 503 }
+            );
+        }
+        const account = await prisma.brokerGmailAccount.findUnique({ where: { userId } });
+        if (!isBrokerGmailConnected(account)) {
+            throw Object.assign(
+                new Error(
+                    "Broker Gmail is not connected. Connect your Gmail in My Workspace, then resend the carrier link."
+                ),
+                { status: 400, code: "BROKER_GMAIL_REQUIRED" }
+            );
+        }
+        const oauth2 = createOAuthClient();
+        oauth2.setCredentials({
+            refresh_token: decryptBrokerRefreshToken(account!.refreshToken),
+        });
+        const gmail = google.gmail({ version: "v1", auth: oauth2 });
+        const from = account!.gmailAddress;
+        const boundary = `greenos_${Date.now()}`;
+        const encodeSubject = (subject: string) => {
+            if (/^[\x20-\x7E]*$/.test(subject)) return subject;
+            return `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`;
+        };
+        const raw = [
+            `From: ${from}`,
+            `To: ${options.to}`,
+            `Subject: ${encodeSubject(options.subject)}`,
+            "MIME-Version: 1.0",
+            `Content-Type: multipart/alternative; boundary="${boundary}"`,
+            "",
+            `--${boundary}`,
+            'Content-Type: text/plain; charset="UTF-8"',
+            "Content-Transfer-Encoding: 7bit",
+            "",
+            options.text,
+            `--${boundary}`,
+            'Content-Type: text/html; charset="UTF-8"',
+            "Content-Transfer-Encoding: 7bit",
+            "",
+            options.html,
+            `--${boundary}--`,
+            "",
+        ].join("\r\n");
+        const encoded = Buffer.from(raw)
+            .toString("base64")
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+        try {
+            await gmail.users.messages.send({
+                userId: "me",
+                requestBody: { raw: encoded },
+            });
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (/insufficient|scope|403/i.test(msg)) {
+                throw Object.assign(
+                    new Error(
+                        "Broker Gmail cannot send yet. Disconnect and reconnect Gmail so send permission is granted."
+                    ),
+                    { status: 403 }
+                );
+            }
+            throw err;
+        }
+        return { from };
+    }
+
     getAuthUrlForBroker(userId: string, brokerId: string): string {
         if (!this.isClientConfigured()) {
             throw new Error("Gmail OAuth client is not configured");

@@ -980,7 +980,7 @@ window.GreenOSModules["dispatch"] = {
         "</label>" +
         "</div>" +
         '<button type="button" class="btn-primary" id="ld-save-carrier">Save &amp; Assign Carrier</button>' +
-        '<p class="gos-muted" style="margin-top:0.5rem">After save → status <strong>Carrier Assigned</strong>. Next: Generate Rate Confirmation.</p>' +
+        '<p class="gos-muted" style="margin-top:0.5rem">After save → status <strong>Carrier Assigned</strong>. Green OS emails the Agreement + MC/NOA/W-9 link from <strong>your Gmail</strong> to the carrier.</p>' +
         "</div>";
       self.bindUsPhoneInput(main.querySelector("#ld-carrier-phone"));
       self.bindUsPhoneInput(main.querySelector("#ld-driver-phone"));
@@ -1025,6 +1025,34 @@ window.GreenOSModules["dispatch"] = {
             method: "PATCH",
             body: JSON.stringify(carrierPayload),
           });
+          var inviteMsg = "";
+          try {
+            var token = localStorage.getItem("gl_token") || "";
+            var invRes = await fetch(
+              "/api/carriers/from-load/" + encodeURIComponent(id) + "/invite-agreement",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: "Bearer " + token,
+                },
+                body: "{}",
+              }
+            );
+            var invJson = await invRes.json().catch(function () { return {}; });
+            if (!invRes.ok || invJson.success === false) {
+              inviteMsg =
+                "\n\nCarrier saved, but onboarding email failed:\n" +
+                (invJson.message || "Connect Broker Gmail, then Resend from Carriers.");
+            } else {
+              inviteMsg =
+                "\n\nSecure Agreement link emailed to the carrier from your Gmail.";
+            }
+          } catch (inviteErr) {
+            inviteMsg =
+              "\n\nCarrier saved, but onboarding email failed. Connect Broker Gmail and resend.";
+          }
+          alert("Carrier assigned." + inviteMsg);
           var host = document.querySelector("#load-tms-body");
           self.openLoad(host, id, "carrier");
         } catch (err) {
@@ -2027,6 +2055,7 @@ window.GreenOSModules["dispatch"] = {
       "</div>" +
       '<div class="load-actions" style="margin-top:0.75rem">' +
       '<button type="button" class="btn-primary" id="bol-generate">Save &amp; Generate BOL PDF</button>' +
+      '<p class="gos-muted" style="margin:0.35rem 0 0">After Save, Green OS emails the filled RC + BOL secure link from your Gmail to the carrier.</p>' +
       '<button type="button" class="btn-secondary" id="bol-cancel">Cancel</button>' +
       "</div>" +
       '<p id="bol-status" class="gos-muted" style="margin-top:0.5rem"></p>';
@@ -2117,6 +2146,30 @@ window.GreenOSModules["dispatch"] = {
           method: "POST",
           body: JSON.stringify({ changeReason: changeReason || "GENERATED", content: content }),
         });
+        if (statusEl) statusEl.textContent = "Sending RC/BOL secure link to carrier…";
+        try {
+          var bolToken = localStorage.getItem("gl_token") || "";
+          var bolInvRes = await fetch(
+            "/api/carriers/from-load/" + encodeURIComponent(id) + "/invite-rc-bol",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + bolToken,
+              },
+              body: "{}",
+            }
+          );
+          var bolInvJson = await bolInvRes.json().catch(function () { return {}; });
+          if (!bolInvRes.ok || bolInvJson.success === false) {
+            alert(
+              "BOL saved, but RC/BOL email failed:\n" +
+                (bolInvJson.message || "Connect Broker Gmail and retry.")
+            );
+          }
+        } catch (bolInvErr) {
+          alert("BOL saved, but RC/BOL email failed. Connect Broker Gmail.");
+        }
         if (statusEl) statusEl.textContent = "Done — opening PDF…";
         await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
         if (row && row.documentId) {

@@ -3,9 +3,13 @@ import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { platformNotificationService } from "../../shipment/services/platform-notification.service.js";
 import {
+    AGREEMENT_TEMPLATE_TITLE,
+    AGREEMENT_TEMPLATE_VERSION,
     DEFAULT_AGREEMENT_BODY,
     DEFAULT_ONBOARDING_EXPIRY_DAYS,
+    ONBOARDING_PURPOSE,
     REQUIRED_CARRIER_DOC_TYPES,
+    type OnboardingPurpose,
 } from "../constants.js";
 import { carrierEmailService } from "./carrier-email.service.js";
 import { carrierStorageService } from "./carrier-storage.service.js";
@@ -52,14 +56,18 @@ function place(city?: string | null, state?: string | null, zip?: string | null)
 export class CarrierService {
     async ensureAgreementTemplate() {
         const active = await prisma.carrierAgreementTemplate.findFirst({
-            where: { active: true },
+            where: { active: true, version: AGREEMENT_TEMPLATE_VERSION },
             orderBy: { createdAt: "desc" },
         });
         if (active) return active;
+        await prisma.carrierAgreementTemplate.updateMany({
+            where: { active: true },
+            data: { active: false },
+        });
         return prisma.carrierAgreementTemplate.create({
             data: {
-                title: "Carrier-Broker Agreement",
-                version: "1.0",
+                title: AGREEMENT_TEMPLATE_TITLE,
+                version: AGREEMENT_TEMPLATE_VERSION,
                 bodyText: DEFAULT_AGREEMENT_BODY,
                 active: true,
             },
@@ -265,15 +273,173 @@ export class CarrierService {
         const invite = await this.createSessionAndSendInvite(carrier.carrierId, {
             ...actor,
             shipmentLeadId,
+            purpose: ONBOARDING_PURPOSE.AGREEMENT_PACKET,
+        }).catch((err) => {
+            return {
+                sent: false,
+                warning: err instanceof Error ? err.message : "Invite email failed",
+                session: null,
+                onboardingUrl: "",
+                purpose: ONBOARDING_PURPOSE.AGREEMENT_PACKET,
+                sentVia: "none",
+            };
         });
 
         return { carrier, inviteSent: invite.sent, warning: invite.warning };
     }
 
+    /**
+     * Step 1 — after Assign Carrier: create/link Carrier + email agreement packet
+     * FROM broker Gmail TO carrier Gmail.
+     */
+    async inviteAgreementFromLoad(shipmentLeadId: string, actor: Actor) {
+        const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!lead) throw Object.assign(new Error("Load not found"), { status: 404 });
+        if (actor.role === "Broker" && lead.assignedBrokerId && lead.assignedBrokerId !== actor.userId) {
+            throw Object.assign(new Error("Access denied"), { status: 403 });
+        }
+        const email = String(lead.carrierEmail || "").trim().toLowerCase();
+        const legalName = String(lead.carrierName || "").trim();
+        if (!legalName) {
+            throw Object.assign(new Error("Carrier name is required before sending onboarding"), {
+                status: 400,
+            });
+        }
+        if (!email || !email.includes("@")) {
+            throw Object.assign(new Error("Carrier email is required before sending onboarding"), {
+                status: 400,
+            });
+        }
+        const brokerId = actor.role === "Broker" ? actor.userId : lead.assignedBrokerId || actor.userId;
+        if (!brokerId) {
+            throw Object.assign(new Error("Assigned broker is required"), { status: 400 });
+        }
+
+        let carrier =
+            (lead.carrierProfileId
+                ? await prisma.carrier.findUnique({ where: { carrierId: lead.carrierProfileId } })
+                : null) ||
+            (await prisma.carrier.findFirst({
+                where: { email, assignedBrokerId: brokerId },
+                orderBy: { updatedAt: "desc" },
+            }));
+
+        if (!carrier) {
+            carrier = await prisma.carrier.create({
+                data: {
+                    legalName,
+                    email,
+                    phone: lead.carrierPhone,
+                    mcNumber: lead.carrierMc,
+                    dotNumber: lead.carrierDot,
+                    contactName: lead.driverName || legalName,
+                    assignedBrokerId: brokerId,
+                    onboardingStatus: "INVITED",
+                    status: "ACTIVE",
+                },
+            });
+            await this.emitEvent({
+                carrierId: carrier.carrierId,
+                shipmentLeadId,
+                action: "CARRIER_CREATED",
+                title: "Carrier created from Assign Carrier",
+                actorType: "BROKER",
+                actorId: actor.userId,
+                ip: actor.ip,
+                userAgent: actor.userAgent,
+            });
+        } else {
+            carrier = await prisma.carrier.update({
+                where: { carrierId: carrier.carrierId },
+                data: {
+                    legalName,
+                    email,
+                    phone: lead.carrierPhone || carrier.phone,
+                    mcNumber: lead.carrierMc || carrier.mcNumber,
+                    dotNumber: lead.carrierDot || carrier.dotNumber,
+                    assignedBrokerId: brokerId,
+                },
+            });
+        }
+
+        await prisma.shipmentLead.update({
+            where: { shipmentLeadId },
+            data: { carrierProfileId: carrier.carrierId },
+        });
+
+        const invite = await this.createSessionAndSendInvite(carrier.carrierId, {
+            ...actor,
+            shipmentLeadId,
+            purpose: ONBOARDING_PURPOSE.AGREEMENT_PACKET,
+        });
+        return { carrier, invite };
+    }
+
+    /**
+     * Step 2 — after BOL Save: email RC+BOL review link FROM broker Gmail.
+     */
+    async inviteRcBolFromLoad(shipmentLeadId: string, actor: Actor) {
+        const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!lead) throw Object.assign(new Error("Load not found"), { status: 404 });
+        if (actor.role === "Broker" && lead.assignedBrokerId && lead.assignedBrokerId !== actor.userId) {
+            throw Object.assign(new Error("Access denied"), { status: 403 });
+        }
+        if (!lead.carrierProfileId) {
+            const email = String(lead.carrierEmail || "").trim().toLowerCase();
+            const legalName = String(lead.carrierName || "").trim();
+            if (!legalName || !email) {
+                throw Object.assign(
+                    new Error("Carrier name and email are required on the load before RC/BOL link"),
+                    { status: 400 }
+                );
+            }
+            const brokerId =
+                actor.role === "Broker" ? actor.userId : lead.assignedBrokerId || actor.userId;
+            const created = await prisma.carrier.create({
+                data: {
+                    legalName,
+                    email,
+                    phone: lead.carrierPhone,
+                    mcNumber: lead.carrierMc,
+                    dotNumber: lead.carrierDot,
+                    assignedBrokerId: brokerId || null,
+                    onboardingStatus: "IN_PROGRESS",
+                },
+            });
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId },
+                data: { carrierProfileId: created.carrierId },
+            });
+        }
+        const refreshed = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!refreshed?.carrierProfileId) {
+            throw Object.assign(new Error("Carrier profile missing on load"), { status: 400 });
+        }
+        const bol = await prisma.loadDocument.findFirst({
+            where: { shipmentLeadId, docType: "BOL", isCurrent: true },
+        });
+        if (!bol) {
+            throw Object.assign(new Error("Save BOL first, then the RC/BOL link can be sent"), {
+                status: 400,
+            });
+        }
+        const invite = await this.createSessionAndSendInvite(refreshed.carrierProfileId, {
+            ...actor,
+            shipmentLeadId,
+            purpose: ONBOARDING_PURPOSE.RC_BOL_PACKET,
+        });
+        return { invite, carrierId: refreshed.carrierProfileId };
+    }
+
     async createSessionAndSendInvite(
         carrierId: string,
-        actor: Actor & { shipmentLeadId?: string | null; reason?: string }
+        actor: Actor & {
+            shipmentLeadId?: string | null;
+            reason?: string;
+            purpose?: OnboardingPurpose;
+        }
     ) {
+        const purpose = actor.purpose || ONBOARDING_PURPOSE.AGREEMENT_PACKET;
         const carrier = await prisma.carrier.findUnique({
             where: { carrierId },
             include: {
@@ -283,15 +449,18 @@ export class CarrierService {
                         firstName: true,
                         lastName: true,
                         email: true,
-                        brokerGmailAccount: { select: { gmailAddress: true, isActive: true } },
+                        brokerGmailAccount: { select: { gmailAddress: true, isActive: true, status: true, refreshToken: true } },
                     },
                 },
             },
         });
         if (!carrier) throw Object.assign(new Error("Carrier not found"), { status: 404 });
+        if (!carrier.assignedBrokerId) {
+            throw Object.assign(new Error("Carrier has no assigned broker"), { status: 400 });
+        }
 
         await prisma.carrierOnboardingSession.updateMany({
-            where: { carrierId, status: "ACTIVE" },
+            where: { carrierId, status: "ACTIVE", purpose },
             data: { status: "REVOKED" },
         });
 
@@ -304,6 +473,7 @@ export class CarrierService {
                 tokenHash,
                 expiresAt,
                 status: "ACTIVE",
+                purpose,
                 createdById: actor.userId || null,
                 shipmentLeadId: actor.shipmentLeadId || null,
                 changeRequestNote: actor.reason || null,
@@ -315,24 +485,60 @@ export class CarrierService {
             ? `${carrier.assignedBroker.firstName} ${carrier.assignedBroker.lastName}`.trim()
             : undefined;
 
-        let warning: string | undefined;
-        try {
-            await carrierEmailService.sendOnboardingInvite({
-                to: carrier.email,
-                contactName: carrier.contactName || "",
-                carrierLegalName: carrier.legalName,
-                onboardingUrl: url,
-                brokerName,
+        let loadNumber: string | null = null;
+        if (session.shipmentLeadId) {
+            const lead = await prisma.shipmentLead.findUnique({
+                where: { shipmentLeadId: session.shipmentLeadId },
+                select: { loadNumber: true, greenOsShipmentId: true },
             });
+            loadNumber = lead?.loadNumber || lead?.greenOsShipmentId || null;
+        }
+
+        let warning: string | undefined;
+        let sentVia = "broker-gmail";
+        try {
+            const mail =
+                purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                    ? await carrierEmailService.sendRcBolInvite({
+                          brokerUserId: carrier.assignedBrokerId,
+                          to: carrier.email,
+                          contactName: carrier.contactName || "",
+                          carrierLegalName: carrier.legalName,
+                          onboardingUrl: url,
+                          brokerName,
+                          loadNumber,
+                      })
+                    : await carrierEmailService.sendAgreementInvite({
+                          brokerUserId: carrier.assignedBrokerId,
+                          to: carrier.email,
+                          contactName: carrier.contactName || "",
+                          carrierLegalName: carrier.legalName,
+                          onboardingUrl: url,
+                          brokerName,
+                          loadNumber,
+                      });
+            sentVia = mail.via;
         } catch (err) {
             warning = err instanceof Error ? err.message : "Failed to send invite email";
+            throw Object.assign(new Error(warning), {
+                status: (err as { status?: number })?.status || 400,
+                code: (err as { code?: string })?.code,
+                sessionId: session.sessionId,
+            });
         }
 
         await prisma.carrier.update({
             where: { carrierId },
             data: {
                 onboardingStatus:
-                    carrier.onboardingStatus === "REQUEST_CHANGES" ? "REQUEST_CHANGES" : "INVITED",
+                    carrier.onboardingStatus === "REQUEST_CHANGES" ||
+                    purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                        ? carrier.onboardingStatus === "APPROVED"
+                            ? "APPROVED"
+                            : carrier.onboardingStatus === "SUBMITTED"
+                              ? "IN_PROGRESS"
+                              : "INVITED"
+                        : "INVITED",
             },
         });
 
@@ -340,16 +546,23 @@ export class CarrierService {
             carrierId,
             sessionId: session.sessionId,
             shipmentLeadId: session.shipmentLeadId,
-            action: "INVITATION_SENT",
-            title: "Onboarding invitation sent",
-            message: warning ? `Email warning: ${warning}` : `Invite emailed to ${carrier.email}`,
+            action:
+                purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                    ? "RC_BOL_INVITATION_SENT"
+                    : "INVITATION_SENT",
+            title:
+                purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                    ? "RC/BOL invitation sent from broker Gmail"
+                    : "Agreement invitation sent from broker Gmail",
+            message: `Emailed ${carrier.email} via ${sentVia}`,
             actorType: "BROKER",
             actorId: actor.userId,
             ip: actor.ip,
             userAgent: actor.userAgent,
+            metadata: { purpose, sentVia },
         });
 
-        return { session, sent: !warning, warning, onboardingUrl: url };
+        return { session, sent: true, warning, onboardingUrl: url, purpose, sentVia };
     }
 
     async resendInvite(carrierId: string, actor: Actor) {
@@ -386,6 +599,7 @@ export class CarrierService {
                     carrierLegalName: carrier.legalName,
                     reason,
                     onboardingUrl: invite.onboardingUrl,
+                    brokerUserId: carrier.assignedBrokerId,
                 });
             } catch {
                 /* invite already sent */
@@ -609,13 +823,69 @@ export class CarrierService {
             progress = {};
         }
 
+        const purpose = session.purpose || ONBOARDING_PURPOSE.AGREEMENT_PACKET;
+        let rateConDoc: Record<string, unknown> | null = null;
+        let bolDoc: Record<string, unknown> | null = null;
+        if (purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET && session.shipmentLeadId) {
+            const [rcRow, bolRow] = await Promise.all([
+                prisma.loadDocument.findFirst({
+                    where: {
+                        shipmentLeadId: session.shipmentLeadId,
+                        docType: "RATE_CONFIRMATION",
+                        isCurrent: true,
+                    },
+                }),
+                prisma.loadDocument.findFirst({
+                    where: {
+                        shipmentLeadId: session.shipmentLeadId,
+                        docType: "BOL",
+                        isCurrent: true,
+                    },
+                }),
+            ]);
+            const parse = (raw: string | null | undefined) => {
+                if (!raw) return {};
+                try {
+                    return JSON.parse(raw);
+                } catch {
+                    return {};
+                }
+            };
+            if (rcRow) {
+                rateConDoc = {
+                    documentId: rcRow.documentId,
+                    title: rcRow.title,
+                    version: rcRow.version,
+                    content: parse(rcRow.contentJson),
+                };
+            }
+            if (bolRow) {
+                bolDoc = {
+                    documentId: bolRow.documentId,
+                    title: bolRow.title,
+                    version: bolRow.version,
+                    content: parse(bolRow.contentJson),
+                };
+            }
+        }
+
+        const requireDocs = purpose === ONBOARDING_PURPOSE.AGREEMENT_PACKET;
+        const requireAgreement = purpose === ONBOARDING_PURPOSE.AGREEMENT_PACKET;
+        const requireRc =
+            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                ? true
+                : Boolean(session.shipmentLeadId) && purpose !== ONBOARDING_PURPOSE.AGREEMENT_PACKET;
+
         return {
             session: {
                 sessionId: session.sessionId,
                 expiresAt: session.expiresAt,
                 shipmentLeadId: session.shipmentLeadId,
                 changeRequestNote: session.changeRequestNote,
-                requireRc: Boolean(session.shipmentLeadId),
+                purpose,
+                requireRc: purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET || Boolean(session.shipmentLeadId && purpose !== ONBOARDING_PURPOSE.AGREEMENT_PACKET),
+                requireAgreement,
+                requireDocs,
             },
             carrier: session.carrier,
             agreementTemplate: {
@@ -642,6 +912,8 @@ export class CarrierService {
                 : null,
             rcSigned: Boolean(rc),
             rcDraft,
+            rateConDoc,
+            bolDoc,
             shipment,
             progress,
             checklist: this.buildChecklist({
@@ -649,7 +921,9 @@ export class CarrierService {
                 documents,
                 agreementSigned: Boolean(agreement),
                 rcSigned: Boolean(rc),
-                requireRc: Boolean(session.shipmentLeadId),
+                requireRc: purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET,
+                requireAgreement,
+                requireDocs,
             }),
         };
     }
@@ -671,7 +945,11 @@ export class CarrierService {
         agreementSigned: boolean;
         rcSigned: boolean;
         requireRc: boolean;
+        requireAgreement?: boolean;
+        requireDocs?: boolean;
     }) {
+        const requireAgreement = input.requireAgreement !== false;
+        const requireDocs = input.requireDocs !== false;
         const companyOk = Boolean(
             input.carrier.legalName &&
                 input.carrier.email &&
@@ -692,22 +970,28 @@ export class CarrierService {
             ok: currentTypes.has(t),
         }));
         const missing: string[] = [];
-        if (!companyOk) missing.push("Company Information");
-        if (!input.agreementSigned) missing.push("Carrier-Broker Agreement signature");
-        if (input.requireRc && !input.rcSigned) missing.push("Rate Confirmation signature");
-        for (const d of docs) {
-            if (!d.ok) {
-                if (d.type === "MC_AUTHORITY") missing.push("MC Authority");
-                else if (d.type === "NOA") missing.push("NOA");
-                else if (d.type === "W9") missing.push("W-9");
+        if (requireDocs || requireAgreement) {
+            if (!companyOk) missing.push("Company Information");
+        }
+        if (requireAgreement && !input.agreementSigned) {
+            missing.push("Carrier-Broker Agreement signature");
+        }
+        if (input.requireRc && !input.rcSigned) missing.push("Rate Confirmation / BOL signature");
+        if (requireDocs) {
+            for (const d of docs) {
+                if (!d.ok) {
+                    if (d.type === "MC_AUTHORITY") missing.push("MC Authority");
+                    else if (d.type === "NOA") missing.push("NOA");
+                    else if (d.type === "W9") missing.push("W-9");
+                }
             }
         }
         return {
-            companyInformation: companyOk,
-            agreement: input.agreementSigned,
+            companyInformation: !requireDocs && !requireAgreement ? true : companyOk,
+            agreement: requireAgreement ? input.agreementSigned : true,
             rc: input.requireRc ? input.rcSigned : true,
             rcRequired: input.requireRc,
-            documents: docs,
+            documents: requireDocs ? docs : docs.map((d) => ({ ...d, ok: true })),
             missing,
             ready: missing.length === 0,
         };
@@ -722,12 +1006,16 @@ export class CarrierService {
             ["contactName", "contactName"],
             ["email", "email"],
             ["phone", "phone"],
+            ["fax", "fax"],
+            ["federalTaxId", "federalTaxId"],
             ["mcNumber", "mcNumber"],
             ["dotNumber", "dotNumber"],
             ["address", "address"],
             ["city", "city"],
             ["state", "state"],
             ["zip", "zip"],
+            ["equipmentNotes", "equipmentNotes"],
+            ["paymentOption", "paymentOption"],
         ];
         for (const [from, to] of map) {
             if (body[from] !== undefined) {
@@ -1034,25 +1322,32 @@ export class CarrierService {
             },
         });
 
-        const docs = [
-            "Carrier-Broker Agreement",
-            ...(snapshot.checklist.rcRequired ? ["RC"] : []),
-            "MC Authority",
-            "NOA",
-            "W-9",
-        ];
+        const docs =
+            (session.purpose || "") === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                ? ["Rate Confirmation signed", "BOL acknowledged"]
+                : [
+                      "Carrier-Broker Agreement",
+                      "MC Authority",
+                      "NOA",
+                      "W-9",
+                  ];
 
         let warning: string | undefined;
         if (carrier?.assignedBroker) {
             const dest = this.brokerEmail(carrier.assignedBroker);
             warning = dest.warning;
             try {
-                await carrierEmailService.sendBrokerSubmissionNotice({
+                await carrierEmailService.sendBrokerPackageReady({
                     to: dest.email,
+                    brokerUserId: carrier.assignedBroker.userId,
                     carrierLegalName: carrier.legalName,
                     mcNumber: carrier.mcNumber,
                     dotNumber: carrier.dotNumber,
                     carrierUrl: carrierEmailService.carrierRecordUrl(carrier.carrierId),
+                    purposeLabel:
+                        (session.purpose || "") === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                            ? "RC / BOL signed"
+                            : "Agreement package SUBMITTED",
                     docs,
                 });
                 await this.emitEvent({
@@ -1078,8 +1373,12 @@ export class CarrierService {
             await platformNotificationService.notifyUser({
                 userId: carrier.assignedBroker.userId,
                 notificationType: "CARRIER_ONBOARDING_SUBMITTED",
-                title: "Carrier onboarding completed",
-                message: `${carrier.legalName} submitted the onboarding package.`,
+                title: "Carrier package ready",
+                message: `${carrier.legalName} submitted ${
+                    (session.purpose || "") === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                        ? "RC/BOL"
+                        : "agreement documents"
+                }.`,
                 meta: { carrierId: carrier.carrierId },
             });
         }
@@ -1087,7 +1386,7 @@ export class CarrierService {
         return {
             success: true,
             message:
-                "Thank you. Your carrier onboarding package has been successfully submitted to Green Logistics.",
+                "Thank you. Your carrier package has been successfully submitted to Green Logistics.",
             warning,
         };
     }

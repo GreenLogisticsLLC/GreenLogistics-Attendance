@@ -6,103 +6,45 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Green Logistics — Carrier Onboarding</title>
   <style>
-    :root {
-      --bg: #f3f6fb;
-      --card: #ffffff;
-      --text: #152033;
-      --muted: #5b6b84;
-      --accent: #059669;
-      --border: #d5dde9;
-      --danger: #dc2626;
-    }
+    :root { --bg:#f3f6fb; --card:#fff; --text:#152033; --muted:#5b6b84; --accent:#059669; --border:#d5dde9; --danger:#dc2626; }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: "Segoe UI", system-ui, sans-serif;
-      background: linear-gradient(160deg, #e8f5ef 0%, #f3f6fb 40%, #eef2f8 100%);
-      color: var(--text);
-      min-height: 100vh;
-    }
-    .wrap { max-width: 720px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
-    header { text-align: center; margin-bottom: 1.25rem; }
-    header h1 { margin: 0; font-size: 1.35rem; letter-spacing: 0.04em; color: var(--accent); }
-    header p { margin: 0.35rem 0 0; color: var(--muted); }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 1.1rem 1.15rem;
-      box-shadow: 0 10px 30px rgba(21,32,51,0.06);
-      margin-bottom: 1rem;
-    }
-    .steps { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.75rem 0 0; }
-    .step {
-      font-size: 0.75rem;
-      padding: 0.35rem 0.55rem;
-      border-radius: 999px;
-      background: #eef2f8;
-      color: var(--muted);
-    }
-    .step.done { background: rgba(5,150,105,0.15); color: var(--accent); font-weight: 600; }
-    .step.active { background: var(--accent); color: #fff; font-weight: 600; }
-    label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.82rem; color: var(--muted); }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
-    @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
-    input, textarea, select {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.55rem 0.65rem;
-      font: inherit;
-      color: var(--text);
-      background: #fff;
-    }
-    textarea { min-height: 160px; white-space: pre-wrap; }
-    .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
-    button {
-      border: 0;
-      border-radius: 8px;
-      padding: 0.65rem 1rem;
-      font: inherit;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .btn-primary { background: var(--accent); color: #fff; }
-    .btn-secondary { background: #eef2f8; color: var(--text); }
-    .error { color: var(--danger); white-space: pre-wrap; }
-    .ok { color: var(--accent); }
-    .muted { color: var(--muted); font-size: 0.9rem; }
-    .check { list-style: none; padding: 0; margin: 0.5rem 0; }
-    .check li { padding: 0.35rem 0; }
-    .agreement-box {
-      max-height: 280px;
-      overflow: auto;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.75rem;
-      background: #f8fafc;
-      white-space: pre-wrap;
-      font-size: 0.85rem;
-      line-height: 1.45;
-    }
-    .sig-pad {
-      border: 1px dashed var(--border);
-      border-radius: 8px;
-      background: #fff;
-      width: 100%;
-      height: 140px;
-      touch-action: none;
-    }
-    .hidden { display: none !important; }
-    .doc-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.65rem 0; }
-    .badge { font-size: 0.75rem; padding: 0.2rem 0.45rem; border-radius: 6px; background: #eef2f8; }
-    .badge.ok { background: rgba(5,150,105,0.15); color: var(--accent); }
+    body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:linear-gradient(160deg,#e8f5ef 0%,#f3f6fb 40%,#eef2f8 100%); color:var(--text); min-height:100vh; }
+    .wrap { max-width:720px; margin:0 auto; padding:1.25rem 1rem 3rem; }
+    header { text-align:center; margin-bottom:1.25rem; }
+    header h1 { margin:0; font-size:1.35rem; letter-spacing:0.04em; color:var(--accent); }
+    header p { margin:0.35rem 0 0; color:var(--muted); }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:1.1rem 1.15rem; box-shadow:0 10px 30px rgba(21,32,51,0.06); margin-bottom:1rem; }
+    .steps { display:flex; flex-wrap:wrap; gap:0.4rem; margin:0.75rem 0 0; }
+    .step { font-size:0.75rem; padding:0.35rem 0.55rem; border-radius:999px; background:#eef2f8; color:var(--muted); }
+    .step.done { background:rgba(5,150,105,0.15); color:var(--accent); font-weight:600; }
+    .step.active { background:var(--accent); color:#fff; font-weight:600; }
+    label { display:flex; flex-direction:column; gap:0.3rem; font-size:0.82rem; color:var(--muted); }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:0.65rem; }
+    @media (max-width:640px){ .grid{ grid-template-columns:1fr; } }
+    input, textarea, select { border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.65rem; font:inherit; color:var(--text); background:#fff; }
+    .actions { display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:1rem; }
+    button { border:0; border-radius:8px; padding:0.65rem 1rem; font:inherit; font-weight:600; cursor:pointer; }
+    .btn-primary { background:var(--accent); color:#fff; }
+    .btn-secondary { background:#eef2f8; color:var(--text); }
+    .error { color:var(--danger); white-space:pre-wrap; }
+    .ok { color:var(--accent); }
+    .muted { color:var(--muted); font-size:0.9rem; }
+    .check { list-style:none; padding:0; margin:0.5rem 0; }
+    .check li { padding:0.35rem 0; }
+    .agreement-box { max-height:320px; overflow:auto; border:1px solid var(--border); border-radius:8px; padding:0.75rem; background:#f8fafc; white-space:pre-wrap; font-size:0.82rem; line-height:1.45; }
+    .sig-pad { border:1px dashed var(--border); border-radius:8px; background:#fff; width:100%; height:140px; touch-action:none; }
+    .hidden { display:none !important; }
+    .doc-row { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; margin:0.65rem 0; }
+    .badge { font-size:0.75rem; padding:0.2rem 0.45rem; border-radius:6px; background:#eef2f8; }
+    .badge.ok { background:rgba(5,150,105,0.15); color:var(--accent); }
+    .pay label { flex-direction:row; align-items:flex-start; gap:0.5rem; margin:0.4rem 0; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
       <h1>GREEN LOGISTICS</h1>
-      <p>Carrier Onboarding</p>
+      <p id="hdr-sub">Carrier Onboarding</p>
     </header>
     <div id="boot" class="card muted">Loading secure onboarding…</div>
     <div id="app" class="hidden"></div>
@@ -112,87 +54,48 @@
   var token = (location.pathname.split("/").filter(Boolean).pop() || "").trim();
   var state = null;
   var step = 0;
-  var sigMode = "agreement";
 
   function esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
-
+  function isRcBol() { return state && state.session && state.session.purpose === "RC_BOL_PACKET"; }
   async function api(path, opts) {
     var res = await fetch("/api/carrier-onboarding/" + encodeURIComponent(token) + path, opts);
     var data = await res.json().catch(function () { return {}; });
     if (!res.ok || data.success === false) {
       var err = new Error(data.message || "Request failed");
-      err.code = data.code;
-      err.missing = data.missing;
-      throw err;
+      err.code = data.code; err.missing = data.missing; throw err;
     }
     return data.data;
   }
-
   function showError(msg) {
     document.getElementById("boot").classList.remove("hidden");
-    document.getElementById("boot").innerHTML = '<p class="error">' + esc(msg) + "</p>" +
-      '<p class="muted">Contact your Green Logistics representative if you need a new link.</p>';
+    document.getElementById("boot").innerHTML = '<p class="error">' + esc(msg) + "</p><p class=\"muted\">Contact your Green Logistics broker for a new link.</p>";
     document.getElementById("app").classList.add("hidden");
   }
-
-  function val(id) {
-    var el = document.getElementById(id);
-    return el ? el.value : "";
-  }
-
+  function val(id) { var el = document.getElementById(id); return el ? el.value : ""; }
   function bindSigPad(canvas) {
     if (!canvas || canvas.dataset.bound) return;
     canvas.dataset.bound = "1";
-    var ctx = canvas.getContext("2d");
-    var drawing = false;
-    function pos(e) {
-      var r = canvas.getBoundingClientRect();
-      var t = e.touches ? e.touches[0] : e;
-      return { x: (t.clientX - r.left) * (canvas.width / r.width), y: (t.clientY - r.top) * (canvas.height / r.height) };
-    }
-    function start(e) { drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
-    function move(e) {
-      if (!drawing) return;
-      var p = pos(e);
-      ctx.lineWidth = 2;
-      ctx.lineCap = "round";
-      ctx.strokeStyle = "#152033";
-      ctx.lineTo(p.x, p.y);
-      ctx.stroke();
-      e.preventDefault();
-    }
-    function end() { drawing = false; }
-    canvas.addEventListener("mousedown", start);
-    canvas.addEventListener("mousemove", move);
-    canvas.addEventListener("mouseup", end);
-    canvas.addEventListener("mouseleave", end);
-    canvas.addEventListener("touchstart", start, { passive: false });
-    canvas.addEventListener("touchmove", move, { passive: false });
-    canvas.addEventListener("touchend", end);
+    var ctx = canvas.getContext("2d"); var drawing = false;
+    function pos(e) { var r = canvas.getBoundingClientRect(); var t = e.touches ? e.touches[0] : e; return { x:(t.clientX-r.left)*(canvas.width/r.width), y:(t.clientY-r.top)*(canvas.height/r.height) }; }
+    function start(e){ drawing=true; var p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); }
+    function move(e){ if(!drawing)return; var p=pos(e); ctx.lineWidth=2; ctx.lineCap="round"; ctx.strokeStyle="#152033"; ctx.lineTo(p.x,p.y); ctx.stroke(); e.preventDefault(); }
+    function end(){ drawing=false; }
+    canvas.addEventListener("mousedown", start); canvas.addEventListener("mousemove", move); canvas.addEventListener("mouseup", end); canvas.addEventListener("mouseleave", end);
+    canvas.addEventListener("touchstart", start, {passive:false}); canvas.addEventListener("touchmove", move, {passive:false}); canvas.addEventListener("touchend", end);
   }
+  function sigData(){ var c=document.getElementById("sig-canvas"); return c?c.toDataURL("image/png"):""; }
+  function clearSig(){ var c=document.getElementById("sig-canvas"); if(!c)return; c.getContext("2d").clearRect(0,0,c.width,c.height); }
+  function setMsg(text, ok){ var el=document.getElementById("msg"); if(!el)return; el.className=ok?"ok":"error"; el.textContent=text||""; }
 
-  function sigData() {
-    var c = document.getElementById("sig-canvas");
-    return c ? c.toDataURL("image/png") : "";
+  function labels() {
+    if (isRcBol()) return ["RC & BOL", "Sign", "Done"];
+    return ["Company", "Agreement", "Documents", "Review", "Done"];
   }
-
-  function clearSig() {
-    var c = document.getElementById("sig-canvas");
-    if (!c) return;
-    var ctx = c.getContext("2d");
-    ctx.clearRect(0, 0, c.width, c.height);
-  }
-
+  function maxStep() { return isRcBol() ? 1 : 3; }
   function stepsHtml() {
-    var labels = ["Company", "Agreement", "Documents", "Review", "Done"];
-    if (state.session.requireRc) labels = ["Company", "Agreement", "RC", "Documents", "Review"];
-    return labels.map(function (l, i) {
+    return labels().map(function (l, i) {
       var cls = "step" + (i < step ? " done" : "") + (i === step ? " active" : "");
       return '<span class="' + cls + '">' + (i < step ? "✓ " : "") + esc(l) + "</span>";
     }).join("");
@@ -200,81 +103,41 @@
 
   function companyForm() {
     var c = state.carrier || {};
-    return (
-      '<div class="card"><h2 style="margin:0 0 0.75rem;font-size:1.1rem">Company Information</h2>' +
-      '<div class="grid">' +
-      '<label>Legal Company Name<input id="f-legal" value="' + esc(c.legalName) + '"></label>' +
+    var pay = c.paymentOption || "";
+    return '<div class="card"><h2 style="margin:0 0 0.75rem;font-size:1.1rem">Carrier Profile</h2><div class="grid">' +
+      '<label>Carrier Name<input id="f-legal" value="' + esc(c.legalName) + '"></label>' +
       '<label>DBA<input id="f-dba" value="' + esc(c.dbaName) + '"></label>' +
-      '<label>Contact Name<input id="f-contact" value="' + esc(c.contactName) + '"></label>' +
-      '<label>Email<input id="f-email" type="email" value="' + esc(c.email) + '"></label>' +
+      '<label>Dispatch Contact<input id="f-contact" value="' + esc(c.contactName) + '"></label>' +
+      '<label>Dispatch E-mail<input id="f-email" type="email" value="' + esc(c.email) + '"></label>' +
       '<label>Phone<input id="f-phone" value="' + esc(c.phone) + '"></label>' +
-      '<label>MC Number<input id="f-mc" value="' + esc(c.mcNumber) + '"></label>' +
-      '<label>DOT Number<input id="f-dot" value="' + esc(c.dotNumber) + '"></label>' +
+      '<label>Fax<input id="f-fax" value="' + esc(c.fax) + '"></label>' +
+      '<label>FED ID #<input id="f-fed" value="' + esc(c.federalTaxId) + '"></label>' +
+      '<label>MC#<input id="f-mc" value="' + esc(c.mcNumber) + '"></label>' +
+      '<label>DOT#<input id="f-dot" value="' + esc(c.dotNumber) + '"></label>' +
       '<label>Address<input id="f-address" value="' + esc(c.address) + '"></label>' +
       '<label>City<input id="f-city" value="' + esc(c.city) + '"></label>' +
       '<label>State<input id="f-state" maxlength="2" value="' + esc(c.state) + '"></label>' +
       '<label>ZIP<input id="f-zip" value="' + esc(c.zip) + '"></label>' +
-      "</div>" +
-      '<div class="actions">' +
-      '<button type="button" class="btn-secondary" id="btn-save">Save Progress</button>' +
-      '<button type="button" class="btn-primary" id="btn-next">Continue</button>' +
-      "</div><p id="msg" class="muted"></p></div>"
-    );
+      '<label class="full" style="grid-column:1/-1">Equipment and Quantity<textarea id="f-equip">' + esc(c.equipmentNotes) + '</textarea></label>' +
+      '</div><p class="muted" style="margin:0.75rem 0 0.35rem">Payment option</p><div class="pay">' +
+      '<label><input type="radio" name="pay" value="STANDARD"' + (pay==="STANDARD"?" checked":"") + '> Standard Payment (20-25 days)</label>' +
+      '<label><input type="radio" name="pay" value="QUICK_3"' + (pay==="QUICK_3"?" checked":"") + '> Quick Pay 3% (3-5 business days, ACH)</label>' +
+      '<label><input type="radio" name="pay" value="QUICK_5"' + (pay==="QUICK_5"?" checked":"") + '> Quick Pay 5% (24hrs)</label>' +
+      '<label><input type="radio" name="pay" value="FACTORING"' + (pay==="FACTORING"?" checked":"") + '> Factoring company (LOR required)</label>' +
+      '</div><div class="actions"><button type="button" class="btn-secondary" id="btn-save">Save Progress</button><button type="button" class="btn-primary" id="btn-next">Continue</button></div><p id="msg" class="muted"></p></div>';
   }
 
   function agreementForm() {
     var t = state.agreementTemplate || {};
-    return (
-      '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">' + esc(t.title) +
-      ' <span class="badge">v' + esc(t.version) + "</span></h2>" +
-      '<div class="agreement-box">' + esc(t.bodyText) + "</div>" +
+    return '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">' + esc(t.title) +
+      ' <span class="badge">v' + esc(t.version) + '</span></h2><div class="agreement-box">' + esc(t.bodyText) + "</div>" +
       (state.agreementSigned
         ? '<p class="ok">✓ Agreement already signed</p><div class="actions"><button type="button" class="btn-primary" id="btn-next">Continue</button></div>'
         : '<label style="margin-top:0.75rem">Full Legal Name<input id="sig-name" value="' + esc(state.carrier.contactName || "") + '"></label>' +
-          '<p class="muted" style="margin:0.5rem 0 0.25rem">Signature</p>' +
-          '<canvas id="sig-canvas" class="sig-pad" width="640" height="140"></canvas>' +
-          '<label style="margin-top:0.65rem;flex-direction:row;align-items:center;gap:0.5rem">' +
-          '<input type="checkbox" id="sig-agree"> I have read and agree to the Carrier-Broker Agreement.</label>' +
-          '<div class="actions">' +
-          '<button type="button" class="btn-secondary" id="btn-clear-sig">Clear signature</button>' +
-          '<button type="button" class="btn-primary" id="btn-sign-ag">Sign &amp; Continue</button>' +
-          "</div>") +
-      '<p id="msg" class="muted"></p></div>'
-    );
-  }
-
-  function rcForm() {
-    var rc = state.rcDraft || {};
-    if (!state.session.requireRc) {
-      return '<div class="card"><p class="muted">No load is linked yet — Rate Confirmation will be signed when a shipment is assigned.</p>' +
-        '<div class="actions"><button type="button" class="btn-primary" id="btn-next">Continue</button></div></div>';
-    }
-    return (
-      '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Rate Confirmation</h2>' +
-      '<p class="muted">Review the details from Green OS. You do not need to re-enter load data.</p>' +
-      '<div class="agreement-box">' +
-      "RATE CONFIRMATION\\n\\nGreen Logistics\\n\\n" +
-      "Carrier: " + esc(rc.carrierName) + "\\n" +
-      "MC: " + esc(rc.carrierMc) + "\\n" +
-      "DOT: " + esc(rc.carrierDot) + "\\n\\n" +
-      "Shipment: " + esc(rc.shipmentReference) + "\\n" +
-      "Pickup: " + esc(rc.pickup) + "\\n" +
-      "Delivery: " + esc(rc.delivery) + "\\n" +
-      "Vehicle / cargo: " + esc(rc.vehicleCargo) + "\\n" +
-      "Agreed Rate: " + esc(rc.agreedRateLabel) + "\\n" +
-      "Date: " + esc(rc.date) + "\\n" +
-      (rc.additionalTerms ? "\\nAdditional terms:\\n" + esc(rc.additionalTerms) : "") +
-      "</div>" +
-      (state.rcSigned
-        ? '<p class="ok">✓ RC already signed</p><div class="actions"><button type="button" class="btn-primary" id="btn-next">Continue</button></div>'
-        : '<label style="margin-top:0.75rem">Full Legal Name<input id="sig-name" value="' + esc(state.carrier.contactName || "") + '"></label>' +
-          '<canvas id="sig-canvas" class="sig-pad" width="640" height="140"></canvas>' +
-          '<div class="actions">' +
-          '<button type="button" class="btn-secondary" id="btn-clear-sig">Clear</button>' +
-          '<button type="button" class="btn-primary" id="btn-sign-rc">I Agree &amp; Sign</button>' +
-          "</div>") +
-      '<p id="msg" class="muted"></p></div>'
-    );
+          '<p class="muted" style="margin:0.5rem 0 0.25rem">Signature</p><canvas id="sig-canvas" class="sig-pad" width="640" height="140"></canvas>' +
+          '<label style="margin-top:0.65rem;flex-direction:row;align-items:center;gap:0.5rem"><input type="checkbox" id="sig-agree"> I have read and agree to the Broker-Carrier Agreement.</label>' +
+          '<div class="actions"><button type="button" class="btn-secondary" id="btn-clear-sig">Clear signature</button><button type="button" class="btn-primary" id="btn-sign-ag">Sign &amp; Continue</button></div>') +
+      '<p id="msg" class="muted"></p></div>';
   }
 
   function docsForm() {
@@ -287,218 +150,132 @@
     ];
     var current = {};
     (state.documents || []).forEach(function (d) { current[d.documentType] = d; });
-    return (
-      '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Required Documents</h2>' +
+    return '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Required Documents</h2>' +
       types.map(function (t) {
         var d = current[t.id];
-        return (
-          '<div class="doc-row"><strong style="min-width:8rem">' + esc(t.label) + "</strong>" +
+        return '<div class="doc-row"><strong style="min-width:8rem">' + esc(t.label) + "</strong>" +
           (d ? '<span class="badge ok">✓ v' + d.version + " " + esc(d.originalFilename) + "</span>" : '<span class="badge">Missing</span>') +
-          '<input type="file" data-type="' + t.id + '" accept=".pdf,image/*">' +
-          "</div>"
-        );
+          '<input type="file" data-type="' + t.id + '" accept=".pdf,image/*"></div>';
       }).join("") +
-      '<div class="actions">' +
-      '<button type="button" class="btn-secondary" id="btn-save-docs">Refresh</button>' +
-      '<button type="button" class="btn-primary" id="btn-next">Continue</button>' +
-      "</div><p id="msg" class="muted"></p></div>"
-    );
+      '<div class="actions"><button type="button" class="btn-secondary" id="btn-save-docs">Refresh</button><button type="button" class="btn-primary" id="btn-next">Continue</button></div><p id="msg" class="muted"></p></div>';
   }
 
   function reviewForm() {
     var cl = state.checklist || {};
-    return (
-      '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Review &amp; Submit</h2>' +
-      '<ul class="check">' +
+    return '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Review &amp; Submit</h2><ul class="check">' +
       "<li>" + (cl.companyInformation ? "✓" : "○") + " Company Information</li>" +
-      "<li>" + (cl.agreement ? "✓" : "○") + " Carrier-Broker Agreement</li>" +
-      (cl.rcRequired ? "<li>" + (cl.rc ? "✓" : "○") + " Rate Confirmation</li>" : "") +
+      "<li>" + (cl.agreement ? "✓" : "○") + " Broker-Carrier Agreement</li>" +
       (cl.documents || []).map(function (d) {
         var label = d.type === "MC_AUTHORITY" ? "MC Authority" : d.type === "W9" ? "W-9" : d.type;
         return "<li>" + (d.ok ? "✓" : "○") + " " + esc(label) + "</li>";
       }).join("") +
       "</ul>" +
-      (cl.missing && cl.missing.length
-        ? '<p class="error">Please complete:\\n- ' + esc(cl.missing.join("\\n- ")) + "</p>"
-        : '<p class="ok">All required items are complete.</p>') +
-      '<div class="actions">' +
-      '<button type="button" class="btn-secondary" id="btn-back">Back</button>' +
-      '<button type="button" class="btn-primary" id="btn-submit"' + (cl.ready ? "" : " disabled") + ">Submit</button>" +
-      "</div><p id=\"msg\" class=\"muted\"></p></div>"
-    );
+      (cl.missing && cl.missing.length ? '<p class="error">Please complete:\n- ' + esc(cl.missing.join("\n- ")) + "</p>" : '<p class="ok">All required items are complete. Submit sends the package to your broker in Green OS.</p>') +
+      '<div class="actions"><button type="button" class="btn-secondary" id="btn-back">Back</button><button type="button" class="btn-primary" id="btn-submit"' + (cl.ready ? "" : " disabled") + ">Save / Submit</button></div><p id=\"msg\" class=\"muted\"></p></div>";
   }
 
-  function doneForm(msg) {
-    return (
-      '<div class="card" style="text-align:center">' +
-      "<h2>Complete</h2>" +
-      '<p class="ok">' + esc(msg || "Thank you. Your carrier onboarding package has been successfully submitted to Green Logistics.") + "</p>" +
-      "</div>"
-    );
+  function pretty(obj) {
+    try { return esc(JSON.stringify(obj || {}, null, 2)); } catch (e) { return ""; }
   }
 
-  function maxStep() {
-    return state.session.requireRc ? 4 : 3;
+  function rcBolForm() {
+    var rc = (state.rateConDoc && state.rateConDoc.content) || state.rcDraft || {};
+    var bol = (state.bolDoc && state.bolDoc.content) || {};
+    return '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Rate Confirmation</h2>' +
+      '<p class="muted">Pre-filled from Green OS — review only.</p><div class="agreement-box">' + pretty(rc) + "</div>" +
+      '<h2 style="margin:1rem 0 0.5rem;font-size:1.1rem">Bill of Lading</h2><div class="agreement-box">' + pretty(bol) + "</div>" +
+      (state.rcSigned
+        ? '<p class="ok">✓ Already signed</p><div class="actions"><button type="button" class="btn-primary" id="btn-submit">Finish</button></div>'
+        : '<label style="margin-top:0.75rem">Full Legal Name<input id="sig-name" value="' + esc(state.carrier.contactName || "") + '"></label>' +
+          '<canvas id="sig-canvas" class="sig-pad" width="640" height="140"></canvas>' +
+          '<div class="actions"><button type="button" class="btn-secondary" id="btn-clear-sig">Clear</button><button type="button" class="btn-primary" id="btn-sign-rc">I Agree &amp; Sign RC / BOL</button></div>') +
+      '<p id="msg" class="muted"></p></div>';
+  }
+
+  function companyPayload() {
+    var pay = "";
+    var checked = document.querySelector('input[name="pay"]:checked');
+    if (checked) pay = checked.value;
+    return {
+      legalName: val("f-legal"), dbaName: val("f-dba"), contactName: val("f-contact"), email: val("f-email"),
+      phone: val("f-phone"), fax: val("f-fax"), federalTaxId: val("f-fed"), mcNumber: val("f-mc"), dotNumber: val("f-dot"),
+      address: val("f-address"), city: val("f-city"), state: val("f-state"), zip: val("f-zip"),
+      equipmentNotes: val("f-equip"), paymentOption: pay, progress: { step: step },
+    };
   }
 
   function render() {
-    var boot = document.getElementById("boot");
+    document.getElementById("boot").classList.add("hidden");
     var app = document.getElementById("app");
-    boot.classList.add("hidden");
     app.classList.remove("hidden");
+    document.getElementById("hdr-sub").textContent = isRcBol() ? "Review RC & BOL" : "Carrier-Broker Agreement Packet";
     var c = state.carrier || {};
-    var note = state.session.changeRequestNote
-      ? '<div class="card"><p class="error"><strong>Changes requested:</strong> ' + esc(state.session.changeRequestNote) + "</p></div>"
-      : "";
+    var note = state.session.changeRequestNote ? '<div class="card"><p class="error"><strong>Changes requested:</strong> ' + esc(state.session.changeRequestNote) + "</p></div>" : "";
     var body = "";
-    if (step === 0) body = companyForm();
-    else if (step === 1) body = agreementForm();
-    else if (state.session.requireRc && step === 2) body = rcForm();
-    else if ((state.session.requireRc && step === 3) || (!state.session.requireRc && step === 2)) body = docsForm();
-    else if ((state.session.requireRc && step === 4) || (!state.session.requireRc && step === 3)) body = reviewForm();
-    else body = doneForm();
-
-    app.innerHTML =
-      '<div class="card"><strong>' + esc(c.legalName) + "</strong>" +
-      '<div class="steps">' + stepsHtml() + "</div></div>" + note + body;
-
+    if (isRcBol()) {
+      if (step === 0) body = rcBolForm();
+      else body = '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">Thank you. Your RC/BOL signature was submitted to Green Logistics.</p></div>';
+    } else {
+      if (step === 0) body = companyForm();
+      else if (step === 1) body = agreementForm();
+      else if (step === 2) body = docsForm();
+      else if (step === 3) body = reviewForm();
+      else body = '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">Thank you. Your package was saved in Green OS and your broker was notified.</p></div>';
+    }
+    app.innerHTML = '<div class="card"><strong>' + esc(c.legalName) + '</strong><div class="steps">' + stepsHtml() + "</div></div>" + note + body;
     bindSigPad(document.getElementById("sig-canvas"));
     wire();
   }
 
-  async function reload() {
-    state = await api("");
-    render();
-  }
-
-  function setMsg(text, ok) {
-    var el = document.getElementById("msg");
-    if (!el) return;
-    el.className = ok ? "ok" : "error";
-    el.textContent = text || "";
-  }
+  async function reload() { state = await api(""); render(); }
 
   function wire() {
     document.getElementById("btn-save")?.addEventListener("click", async function () {
-      try {
-        await api("/save", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            legalName: val("f-legal"),
-            dbaName: val("f-dba"),
-            contactName: val("f-contact"),
-            email: val("f-email"),
-            phone: val("f-phone"),
-            mcNumber: val("f-mc"),
-            dotNumber: val("f-dot"),
-            address: val("f-address"),
-            city: val("f-city"),
-            state: val("f-state"),
-            zip: val("f-zip"),
-            progress: { step: step },
-          }),
-        });
-        setMsg("Progress saved.", true);
-        await reload();
-      } catch (e) {
-        setMsg(e.message, false);
-      }
+      try { await api("/save", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(companyPayload()) }); setMsg("Progress saved.", true); await reload(); }
+      catch (e) { setMsg(e.message, false); }
     });
-
     document.getElementById("btn-next")?.addEventListener("click", async function () {
-      if (step === 0) {
-        document.getElementById("btn-save")?.click();
-        await new Promise(function (r) { setTimeout(r, 200); });
+      if (step === 0 && !isRcBol()) {
+        try { await api("/save", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(companyPayload()) }); } catch (e) { setMsg(e.message, false); return; }
       }
       step = Math.min(step + 1, maxStep());
       await reload();
     });
-
-    document.getElementById("btn-back")?.addEventListener("click", function () {
-      step = Math.max(0, step - 1);
-      render();
-    });
-
+    document.getElementById("btn-back")?.addEventListener("click", function () { step = Math.max(0, step - 1); render(); });
     document.getElementById("btn-clear-sig")?.addEventListener("click", clearSig);
-
     document.getElementById("btn-sign-ag")?.addEventListener("click", async function () {
       try {
-        await api("/sign-agreement", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            signerName: val("sig-name"),
-            signatureData: sigData(),
-            agreed: document.getElementById("sig-agree")?.checked,
-          }),
-        });
-        step += 1;
-        await reload();
-      } catch (e) {
-        setMsg(e.message, false);
-      }
+        await api("/sign-agreement", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ signerName: val("sig-name"), signatureData: sigData(), agreed: document.getElementById("sig-agree")?.checked }) });
+        step += 1; await reload();
+      } catch (e) { setMsg(e.message, false); }
     });
-
     document.getElementById("btn-sign-rc")?.addEventListener("click", async function () {
       try {
-        await api("/sign-rc", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            signerName: val("sig-name"),
-            signatureData: sigData(),
-          }),
-        });
-        step += 1;
-        await reload();
-      } catch (e) {
-        setMsg(e.message, false);
-      }
+        await api("/sign-rc", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ signerName: val("sig-name"), signatureData: sigData() }) });
+        await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body: "{}" });
+        step = 2; render();
+      } catch (e) { setMsg(e.message, false); await reload(); }
     });
-
     document.querySelectorAll('input[type="file"][data-type]').forEach(function (inp) {
       inp.addEventListener("change", async function () {
         if (!inp.files || !inp.files[0]) return;
-        var fd = new FormData();
-        fd.append("file", inp.files[0]);
-        fd.append("documentType", inp.getAttribute("data-type"));
-        try {
-          setMsg("Uploading…", true);
-          await api("/documents", { method: "POST", body: fd });
-          await reload();
-          setMsg("Uploaded.", true);
-        } catch (e) {
-          setMsg(e.message, false);
-        }
+        var fd = new FormData(); fd.append("file", inp.files[0]); fd.append("documentType", inp.getAttribute("data-type"));
+        try { setMsg("Uploading…", true); await api("/documents", { method:"POST", body: fd }); await reload(); setMsg("Uploaded.", true); }
+        catch (e) { setMsg(e.message, false); }
       });
     });
-
     document.getElementById("btn-save-docs")?.addEventListener("click", reload);
-
     document.getElementById("btn-submit")?.addEventListener("click", async function () {
       try {
-        var data = await api("/submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        var data = await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body:"{}" });
         step = maxStep() + 1;
-        document.getElementById("app").innerHTML =
-          '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">' +
-          esc(data.message) +
-          "</p></div>";
-      } catch (e) {
-        setMsg(e.message, false);
-        await reload();
-      }
+        document.getElementById("app").innerHTML = '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">' + esc(data.message) + "</p></div>";
+      } catch (e) { setMsg(e.message, false); await reload(); }
     });
   }
 
-  if (!token) {
-    showError("Invalid onboarding link.");
-    return;
-  }
-
-  reload().catch(function (e) {
-    showError(e.message || "Invalid onboarding link.");
-  });
+  if (!token) { showError("Invalid onboarding link."); return; }
+  reload().catch(function (e) { showError(e.message || "Invalid onboarding link."); });
 })();
   </script>
 </body>

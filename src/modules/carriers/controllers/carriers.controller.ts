@@ -128,6 +128,38 @@ export const carriersController = {
         }
     },
 
+    async inviteAgreementFromLoad(req: AuthRequest, res: Response) {
+        try {
+            const data = await carrierService.inviteAgreementFromLoad(
+                String(req.params.shipmentLeadId),
+                actorFrom(req)
+            );
+            res.json({ success: true, data });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                code: (err as { code?: string }).code,
+                message: err instanceof Error ? err.message : "Failed to send agreement link",
+            });
+        }
+    },
+
+    async inviteRcBolFromLoad(req: AuthRequest, res: Response) {
+        try {
+            const data = await carrierService.inviteRcBolFromLoad(
+                String(req.params.shipmentLeadId),
+                actorFrom(req)
+            );
+            res.json({ success: true, data });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                code: (err as { code?: string }).code,
+                message: err instanceof Error ? err.message : "Failed to send RC/BOL link",
+            });
+        }
+    },
+
     async approve(req: AuthRequest, res: Response) {
         try {
             const data = await carrierService.approve(String(req.params.id), actorFrom(req));

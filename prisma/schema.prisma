@@ -690,6 +690,10 @@ model Carrier {
   state             String?
   zip               String?
   contactName       String?                     @map("contact_name")
+  fax               String?
+  federalTaxId      String?                     @map("federal_tax_id")
+  equipmentNotes    String?                     @map("equipment_notes")
+  paymentOption     String?                     @map("payment_option")
   /// ACTIVE | INACTIVE | BLOCKED
   status            String                      @default("ACTIVE")
   /// INVITED | OPENED | IN_PROGRESS | SUBMITTED | UNDER_REVIEW | APPROVED | REJECTED | EXPIRED | REQUEST_CHANGES
@@ -727,6 +731,8 @@ model CarrierOnboardingSession {
   submittedAt     DateTime?              @map("submitted_at")
   /// ACTIVE | SUBMITTED | EXPIRED | REVOKED
   status          String                 @default("ACTIVE")
+  /// AGREEMENT_PACKET (after Assign Carrier) | RC_BOL_PACKET (after BOL save)
+  purpose         String                 @default("AGREEMENT_PACKET")
   createdById     String?                @map("created_by_id")
   /// Optional shipment for pre-filled Rate Confirmation.
   shipmentLeadId  String?                @map("shipment_lead_id")

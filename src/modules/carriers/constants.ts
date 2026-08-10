@@ -43,26 +43,13 @@ export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
 export const DEFAULT_ONBOARDING_EXPIRY_DAYS = 7;
 
-export const DEFAULT_AGREEMENT_BODY = `CARRIER–BROKER AGREEMENT
+export const ONBOARDING_PURPOSE = {
+    AGREEMENT_PACKET: "AGREEMENT_PACKET",
+    RC_BOL_PACKET: "RC_BOL_PACKET",
+} as const;
 
-This Carrier–Broker Agreement ("Agreement") is entered into between Green Logistics LLC ("Broker") and the undersigned motor carrier ("Carrier").
+export type OnboardingPurpose = (typeof ONBOARDING_PURPOSE)[keyof typeof ONBOARDING_PURPOSE];
 
-1. AUTHORITY. Carrier represents that it is duly authorized by the FMCSA with active MC and DOT authority, and maintains insurance as required by applicable law.
-
-2. SERVICES. Carrier agrees to transport freight safely and on time pursuant to rate confirmations issued by Broker.
-
-3. PAYMENT. Broker will pay Carrier the agreed rate stated on the applicable Rate Confirmation, subject to receipt of required paperwork (POD, invoice, and supporting documents).
-
-4. COMPLIANCE. Carrier shall comply with all federal, state, and local laws, including Hours of Service and hazardous materials rules where applicable.
-
-5. INDEMNITY. Carrier shall indemnify Broker against claims arising from Carrier's operations, negligence, or failure to perform.
-
-6. INDEPENDENT CONTRACTOR. Carrier is an independent contractor and not an employee of Broker.
-
-7. DOCUMENTS. Carrier agrees to provide current MC Authority, Notice of Assignment (NOA) if factoring, W-9, and insurance certificates as requested.
-
-8. ELECTRONIC ACCEPTANCE. By typing or drawing a signature and checking acceptance in the Green OS Carrier Onboarding Portal, Carrier acknowledges review of this Agreement. This record creates an audit trail; parties may later adopt a formal e-signature provider.
-
-Green Logistics LLC
-Carrier Onboarding — Version 1.0
-`;
+export { GREEN_LOGISTICS_AGREEMENT_V2 as DEFAULT_AGREEMENT_BODY } from "./agreement-template-v2.js";
+export const AGREEMENT_TEMPLATE_VERSION = "2.0";
+export const AGREEMENT_TEMPLATE_TITLE = "Broker - Carrier Agreement";

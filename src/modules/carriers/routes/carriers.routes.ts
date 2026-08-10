@@ -14,6 +14,16 @@ carriersRouter.use(authMiddleware);
 carriersRouter.get("/", requireRole(...staff), carriersController.list);
 carriersRouter.get("/dashboard", requireRole(...staff), carriersController.dashboard);
 carriersRouter.post("/", requireRole(...staff), carriersController.create);
+carriersRouter.post(
+    "/from-load/:shipmentLeadId/invite-agreement",
+    requireRole(...staff),
+    carriersController.inviteAgreementFromLoad
+);
+carriersRouter.post(
+    "/from-load/:shipmentLeadId/invite-rc-bol",
+    requireRole(...staff),
+    carriersController.inviteRcBolFromLoad
+);
 carriersRouter.get("/:id", requireRole(...staff), carriersController.get);
 carriersRouter.patch("/:id", requireRole(...staff), carriersController.patch);
 carriersRouter.post("/:id/onboarding/invite", requireRole(...staff), carriersController.invite);
