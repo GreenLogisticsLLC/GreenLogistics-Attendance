@@ -1327,6 +1327,11 @@
   padding: 0.45rem 0.55rem;
   font: inherit;
 }
+.load-form-grid input[type="date"],
+.load-form-grid input[type="time"] {
+  color-scheme: dark;
+  min-height: 2.35rem;
+}
 .load-form-grid textarea { min-height: 4.5rem; resize: vertical; }
 
 .gos-money-field {

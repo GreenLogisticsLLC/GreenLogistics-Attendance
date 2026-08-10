@@ -421,6 +421,7 @@ export class LoadService {
             carrier: {
                 carrierName: s.carrierName,
                 carrierEmail: s.carrierEmail,
+                carrierPhone: s.carrierPhone,
                 mc: s.carrierMc,
                 dot: s.carrierDot,
                 insurance: s.carrierInsurance,
@@ -557,6 +558,7 @@ export class LoadService {
         str("customerEmail");
         str("customerPhone");
         str("carrierEmail");
+        str("carrierPhone");
         str("carrierName");
         str("carrierMc");
         str("carrierDot");
@@ -579,21 +581,24 @@ export class LoadService {
         num("factoringFee");
         num("price");
 
-        if (body.opsPickupAt !== undefined) {
-            data.opsPickupAt = body.opsPickupAt ? new Date(String(body.opsPickupAt)) : null;
-        }
-        if (body.opsDeliveryAt !== undefined) {
-            data.opsDeliveryAt = body.opsDeliveryAt ? new Date(String(body.opsDeliveryAt)) : null;
-        }
-        if (body.invoiceDate !== undefined) {
-            data.invoiceDate = body.invoiceDate ? new Date(String(body.invoiceDate)) : null;
-        }
-        if (body.invoiceDueDate !== undefined) {
-            data.invoiceDueDate = body.invoiceDueDate ? new Date(String(body.invoiceDueDate)) : null;
-        }
-        if (body.paymentDate !== undefined) {
-            data.paymentDate = body.paymentDate ? new Date(String(body.paymentDate)) : null;
-        }
+        const dateField = (key: string) => {
+            if (body[key] === undefined) return;
+            if (body[key] == null || body[key] === "") {
+                data[key] = null;
+                return;
+            }
+            const d = new Date(String(body[key]));
+            data[key] = Number.isNaN(d.getTime()) ? null : d;
+        };
+        dateField("pickupFrom");
+        dateField("pickupTo");
+        dateField("deliveryFrom");
+        dateField("deliveryTo");
+        dateField("opsPickupAt");
+        dateField("opsDeliveryAt");
+        dateField("invoiceDate");
+        dateField("invoiceDueDate");
+        dateField("paymentDate");
 
         if (Object.keys(data).length) {
             await prisma.shipmentLead.update({ where: { shipmentLeadId }, data });

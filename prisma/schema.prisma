@@ -319,6 +319,8 @@ model ShipmentLead {
   carrierName           String?                 @map("carrier_name")
   /// Carrier dispatch / ops email (for Rate Con / BOL / send).
   carrierEmail          String?                 @map("carrier_email")
+  /// Carrier dispatch / ops cell phone.
+  carrierPhone          String?                 @map("carrier_phone")
   carrierMc             String?                 @map("carrier_mc")
   carrierDot            String?                 @map("carrier_dot")
   carrierInsurance      String?                 @map("carrier_insurance")
