@@ -252,8 +252,15 @@
     document.getElementById("btn-sign-rc")?.addEventListener("click", async function () {
       try {
         await api("/sign-rc", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ signerName: val("sig-name"), signatureData: sigData() }) });
-        await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body: "{}" });
-        step = 2; render();
+        var data = await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body: "{}" });
+        step = 2;
+        var extra = data.brokerNotified
+          ? '<p class="ok" style="margin-top:0.75rem">Your broker was emailed the filled RC/BOL package.</p>'
+          : (data.warning ? '<p class="error" style="margin-top:0.75rem">' + esc(data.warning) + "</p>" : "");
+        document.getElementById("app").innerHTML =
+          '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">' +
+          esc(data.message || "Thank you. Your RC/BOL signature was submitted to Green Logistics.") +
+          "</p>" + extra + "</div>";
       } catch (e) { setMsg(e.message, false); await reload(); }
     });
     document.querySelectorAll('input[type="file"][data-type]').forEach(function (inp) {
@@ -269,7 +276,15 @@
       try {
         var data = await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body:"{}" });
         step = maxStep() + 1;
-        document.getElementById("app").innerHTML = '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">' + esc(data.message) + "</p></div>";
+        var extra = data.brokerNotified
+          ? '<p class="ok" style="margin-top:0.75rem">Your broker was emailed the filled package.</p>'
+          : (data.warning ? '<p class="error" style="margin-top:0.75rem">' + esc(data.warning) + "</p>" : "");
+        document.getElementById("app").innerHTML =
+          '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">' +
+          esc(data.message) +
+          "</p>" +
+          extra +
+          "</div>";
       } catch (e) { setMsg(e.message, false); await reload(); }
     });
   }

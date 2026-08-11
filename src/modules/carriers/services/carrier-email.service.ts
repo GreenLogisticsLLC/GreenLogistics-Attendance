@@ -178,37 +178,98 @@ export class CarrierEmailService {
         carrierUrl: string;
         purposeLabel: string;
         docs: string[];
+        /** Filled carrier profile lines shown in the email body */
+        packageFields?: Array<{ label: string; value: string }>;
+        signedBy?: string | null;
+        signedAt?: string | null;
+        replyToCarrierEmail?: string | null;
     }) {
-        const subject = `Carrier package ready — ${input.carrierLegalName}`;
+        const fields = input.packageFields || [];
+        const subject = `Carrier package completed — ${input.carrierLegalName}`;
+        const fieldText = fields.map((f) => `${f.label}: ${f.value || "—"}`).join("\n");
         const text = [
+            `Green Logistics — carrier package returned to broker`,
+            "",
+            `Package: ${input.purposeLabel}`,
             `Carrier: ${input.carrierLegalName}`,
             `MC: ${input.mcNumber || "—"}`,
             `DOT: ${input.dotNumber || "—"}`,
-            `Package: ${input.purposeLabel}`,
+            input.signedBy ? `Signed by: ${input.signedBy}` : "",
+            input.signedAt ? `Signed at: ${input.signedAt}` : "",
             "",
-            "Received:",
+            "Filled information:",
+            fieldText || "(see Green OS)",
+            "",
+            "Documents / checklist:",
             ...input.docs.map((d) => `✓ ${d}`),
             "",
-            `Open in Green OS: ${input.carrierUrl}`,
+            `Open full package in Green OS: ${input.carrierUrl}`,
             "",
-            "Documents are stored in Green OS (not attached to this email).",
-        ].join("\n");
+            "Sensitive files (W-9, MC, NOA) are stored in Green OS — open the carrier card to download.",
+        ]
+            .filter((line) => line !== "")
+            .join("\n");
+
+        const fieldsHtml = fields
+            .map(
+                (f) =>
+                    `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5eaf2;color:#5b6b84;width:40%">${esc(
+                        f.label
+                    )}</td><td style="padding:6px 10px;border-bottom:1px solid #e5eaf2;font-weight:600">${esc(
+                        f.value || "—"
+                    )}</td></tr>`
+            )
+            .join("");
+
         const html = `
-          <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
-            <h2 style="color:#059669">Carrier package ready</h2>
-            <p><strong>${esc(input.carrierLegalName)}</strong></p>
-            <p>MC: ${esc(input.mcNumber || "—")}<br/>DOT: ${esc(input.dotNumber || "—")}<br/>Package: <strong>${esc(
-                input.purposeLabel
-            )}</strong></p>
+          <div style="font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:0 auto;color:#152033;line-height:1.5">
+            <h2 style="color:#059669;margin:0 0 8px">Carrier package completed</h2>
+            <p style="margin:0 0 12px;color:#5b6b84">${esc(input.purposeLabel)}</p>
+            <p><strong>${esc(input.carrierLegalName)}</strong><br/>
+            MC: ${esc(input.mcNumber || "—")} · DOT: ${esc(input.dotNumber || "—")}</p>
+            ${
+                input.signedBy
+                    ? `<p>Signed by <strong>${esc(input.signedBy)}</strong>${
+                          input.signedAt ? ` · ${esc(input.signedAt)}` : ""
+                      }</p>`
+                    : ""
+            }
+            <h3 style="margin:18px 0 8px;font-size:15px">Filled carrier information</h3>
+            <table style="width:100%;border-collapse:collapse;background:#f8fafc;border:1px solid #e5eaf2;border-radius:8px">${fieldsHtml}</table>
+            <h3 style="margin:18px 0 8px;font-size:15px">Received</h3>
             <ul>${input.docs.map((d) => `<li>✓ ${esc(d)}</li>`).join("")}</ul>
             <p style="margin:24px 0">
               <a href="${esc(input.carrierUrl)}" style="background:#059669;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;font-weight:600">
-                Open Carrier in Green OS
+                Open filled package in Green OS
               </a>
             </p>
+            <p style="color:#5b6b84;font-size:13px">MC Authority / NOA / W-9 are saved in Green OS (download from the carrier card). This email is the broker notification with the filled form data.</p>
           </div>`;
-        // Notify broker inbox — system/company mail is fine (To = broker).
-        await sendMail({ to: input.to, subject, text, html });
+
+        const payload = { to: input.to, subject, text, html };
+        let lastErr: unknown;
+
+        // 1) Prefer broker Gmail → broker inbox (same mailbox they use day-to-day)
+        if (input.brokerUserId) {
+            try {
+                await brokerGmailOAuthService.sendMailAsBroker(input.brokerUserId, payload);
+                return { via: "broker-gmail" as const, to: input.to };
+            } catch (err) {
+                lastErr = err;
+            }
+        }
+
+        // 2) Fallback: company/system mail To broker
+        try {
+            await sendMail(payload);
+            return { via: "system" as const, to: input.to };
+        } catch (err) {
+            lastErr = err;
+        }
+
+        throw lastErr instanceof Error
+            ? lastErr
+            : Object.assign(new Error("Failed to email broker the completed package"), { status: 500 });
     }
 
     async sendOnboardingInvite(input: {

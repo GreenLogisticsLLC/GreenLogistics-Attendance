@@ -106,14 +106,27 @@ export class CarrierService {
 
     private brokerEmail(broker: {
         email?: string | null;
-        brokerGmailAccount?: { gmailAddress: string; isActive: boolean } | null;
+        brokerGmailAccount?: {
+            gmailAddress: string;
+            isActive?: boolean | null;
+            status?: string | null;
+        } | null;
     }): { email: string; warning?: string } {
+        const acc = broker.brokerGmailAccount;
         const gmail =
-            broker.brokerGmailAccount?.isActive !== false
-                ? broker.brokerGmailAccount?.gmailAddress
+            acc &&
+            acc.isActive !== false &&
+            (acc.status == null || acc.status === "CONNECTED") &&
+            acc.gmailAddress
+                ? acc.gmailAddress
                 : null;
         if (gmail) return { email: gmail };
-        if (broker.email) return { email: broker.email };
+        if (broker.email) {
+            return {
+                email: broker.email,
+                warning: "Broker Gmail not connected — emailed account email instead",
+            };
+        }
         const fallback = carrierEmailService.fallbackAdminEmail();
         return {
             email: fallback,
@@ -1315,47 +1328,87 @@ export class CarrierService {
                         firstName: true,
                         lastName: true,
                         email: true,
-                        brokerGmailAccount: { select: { gmailAddress: true, isActive: true } },
+                        brokerGmailAccount: {
+                            select: {
+                                gmailAddress: true,
+                                isActive: true,
+                                status: true,
+                                refreshToken: true,
+                            },
+                        },
                     },
                 },
-                documents: { where: { status: "CURRENT" } },
+                documents: { where: { status: "CURRENT" }, orderBy: { uploadedAt: "desc" } },
+                agreementSigns: { orderBy: { signedAt: "desc" }, take: 1 },
+                rcSignatures: { orderBy: { signedAt: "desc" }, take: 1 },
             },
         });
 
-        const docs =
-            (session.purpose || "") === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                ? ["Rate Confirmation signed", "BOL acknowledged"]
-                : [
-                      "Carrier-Broker Agreement",
-                      "MC Authority",
-                      "NOA",
-                      "W-9",
-                  ];
+        const isRcBol = (session.purpose || "") === ONBOARDING_PURPOSE.RC_BOL_PACKET;
+        const docs = isRcBol
+            ? ["Rate Confirmation signed", "BOL acknowledged"]
+            : [
+                  ...(carrier?.agreementSigns?.length ? ["Broker-Carrier Agreement signed"] : []),
+                  ...(carrier?.documents || []).map(
+                      (d) => `${d.documentType} — ${d.originalFilename} (v${d.version})`
+                  ),
+              ];
+
+        const packageFields = carrier
+            ? [
+                  { label: "Legal Name", value: carrier.legalName || "" },
+                  { label: "DBA", value: carrier.dbaName || "" },
+                  { label: "Dispatch Contact", value: carrier.contactName || "" },
+                  { label: "Email", value: carrier.email || "" },
+                  { label: "Phone", value: carrier.phone || "" },
+                  { label: "Fax", value: carrier.fax || "" },
+                  { label: "FED ID #", value: carrier.federalTaxId || "" },
+                  { label: "MC #", value: carrier.mcNumber || "" },
+                  { label: "DOT #", value: carrier.dotNumber || "" },
+                  { label: "Address", value: carrier.address || "" },
+                  { label: "City", value: carrier.city || "" },
+                  { label: "State", value: carrier.state || "" },
+                  { label: "ZIP", value: carrier.zip || "" },
+                  { label: "Equipment", value: carrier.equipmentNotes || "" },
+                  { label: "Payment option", value: carrier.paymentOption || "" },
+              ]
+            : [];
+
+        const latestSign = isRcBol
+            ? carrier?.rcSignatures?.[0]
+            : carrier?.agreementSigns?.[0];
 
         let warning: string | undefined;
+        let brokerNotified = false;
         if (carrier?.assignedBroker) {
             const dest = this.brokerEmail(carrier.assignedBroker);
             warning = dest.warning;
             try {
-                await carrierEmailService.sendBrokerPackageReady({
+                const sent = await carrierEmailService.sendBrokerPackageReady({
                     to: dest.email,
                     brokerUserId: carrier.assignedBroker.userId,
                     carrierLegalName: carrier.legalName,
                     mcNumber: carrier.mcNumber,
                     dotNumber: carrier.dotNumber,
                     carrierUrl: carrierEmailService.carrierRecordUrl(carrier.carrierId),
-                    purposeLabel:
-                        (session.purpose || "") === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                            ? "RC / BOL signed"
-                            : "Agreement package SUBMITTED",
-                    docs,
+                    purposeLabel: isRcBol ? "RC / BOL signed by carrier" : "Agreement package SUBMITTED by carrier",
+                    docs: docs.length ? docs : ["Package submitted"],
+                    packageFields,
+                    signedBy: latestSign?.signerName || null,
+                    signedAt: latestSign?.signedAt
+                        ? new Date(latestSign.signedAt).toLocaleString()
+                        : null,
+                    replyToCarrierEmail: carrier.email,
                 });
+                brokerNotified = true;
                 await this.emitEvent({
                     carrierId: session.carrierId,
                     sessionId: session.sessionId,
                     action: "BROKER_NOTIFIED",
-                    title: "Broker notified",
-                    message: `Emailed ${dest.email}${warning ? ` (${warning})` : ""}`,
+                    title: "Broker notified with filled package",
+                    message: `Emailed filled package to ${sent.to} via ${sent.via}${
+                        warning ? ` (${warning})` : ""
+                    }`,
                     actorType: "SYSTEM",
                 });
             } catch (err) {
@@ -1375,19 +1428,22 @@ export class CarrierService {
                 notificationType: "CARRIER_ONBOARDING_SUBMITTED",
                 title: "Carrier package ready",
                 message: `${carrier.legalName} submitted ${
-                    (session.purpose || "") === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                        ? "RC/BOL"
-                        : "agreement documents"
+                    isRcBol ? "RC/BOL" : "agreement documents"
                 }.`,
                 meta: { carrierId: carrier.carrierId },
             });
+        } else {
+            warning = "No assigned broker — filled package saved in Green OS only";
         }
 
         return {
             success: true,
-            message:
-                "Thank you. Your carrier package has been successfully submitted to Green Logistics.",
+            brokerNotified,
             warning,
+            message: brokerNotified
+                ? "Thank you. Your carrier package has been successfully submitted to Green Logistics. Your broker was emailed the filled package."
+                : "Thank you. Your carrier package has been successfully submitted to Green Logistics." +
+                  (warning ? ` (Broker email: ${warning})` : ""),
         };
     }
 
