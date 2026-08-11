@@ -203,6 +203,21 @@ export const carriersController = {
         }
     },
 
+    async regenerateRcBolPdfs(req: AuthRequest, res: Response) {
+        try {
+            const data = await carrierService.regenerateRcBolPdfs(
+                String(req.params.id),
+                actorFrom(req)
+            );
+            res.json({ success: true, data });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to archive RC/BOL PDFs",
+            });
+        }
+    },
+
     async downloadDocument(req: AuthRequest, res: Response) {
         try {
             const { doc, absolutePath } = await carrierService.downloadDocument(

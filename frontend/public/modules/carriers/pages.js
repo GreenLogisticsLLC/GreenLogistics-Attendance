@@ -222,7 +222,14 @@ window.GreenOSModules.carriers = {
       var broker = c.assignedBroker
         ? self.esc(c.assignedBroker.firstName + " " + c.assignedBroker.lastName)
         : "—";
-      var tabs = ["overview", "documents", "agreement", "rc", "onboarding", "timeline"];
+      var tabs = [
+        { id: "overview", label: "Overview" },
+        { id: "documents", label: "Documents" },
+        { id: "agreement", label: "Agreement" },
+        { id: "rc", label: "RC/BOL" },
+        { id: "onboarding", label: "Onboarding" },
+        { id: "timeline", label: "Timeline" },
+      ];
       main.innerHTML =
         '<div class="load-actions" style="margin-bottom:0.5rem">' +
         '<button type="button" class="btn-secondary" id="cr-back">← Carriers</button>' +
@@ -237,8 +244,8 @@ window.GreenOSModules.carriers = {
         tabs.map(function (t) {
           return (
             '<button type="button" class="gos-subnav-item' +
-            (self._tab === t ? " is-active" : "") +
-            '" data-tab="' + t + '">' + t + "</button>"
+            (self._tab === t.id ? " is-active" : "") +
+            '" data-tab="' + t.id + '">' + t.label + "</button>"
           );
         }).join("") +
         "</nav>" +
@@ -479,23 +486,141 @@ window.GreenOSModules.carriers = {
   },
 
   renderRc(el, c) {
+    var self = this;
     var rows = c.rcSignatures || [];
-    if (!rows.length) {
-      el.innerHTML = '<p class="gos-muted">No RC signature on file. Link a shipment when inviting to pre-fill RC.</p>';
+    var docs = c.documents || [];
+    function currentDoc(type) {
+      return (
+        docs.find(function (d) {
+          return d.documentType === type && d.status === "CURRENT";
+        }) ||
+        docs.find(function (d) {
+          return d.documentType === type;
+        }) ||
+        null
+      );
+    }
+    var rcPdf = currentDoc("RATE_CONFIRMATION");
+    var bolPdf = currentDoc("BOL");
+
+    if (!rows.length && !rcPdf && !bolPdf) {
+      el.innerHTML =
+        '<p class="gos-muted">No RC/BOL signature on file. Send the RC/BOL link from the Load after Rate Confirmation and BOL are saved.</p>';
       return;
     }
-    el.innerHTML = rows.map(function (r) {
-      var content = {};
-      try { content = JSON.parse(r.contentJson || "{}"); } catch (e) {}
+
+    function pdfPanel(title, doc, dlId) {
       return (
-        '<div class="load-edit-panel"><pre style="white-space:pre-wrap;font:inherit">' +
-        this.esc(JSON.stringify(content, null, 2)) +
-        "</pre><p class=\"gos-muted\">Signed by " +
-        this.esc(r.signerName) + " · " +
-        this.esc(r.signedAt ? new Date(r.signedAt).toLocaleString() : "") +
-        "</p></div>"
+        '<div class="load-edit-panel" style="margin-bottom:0.75rem">' +
+        "<h3 style=\"margin:0 0 0.35rem\">" +
+        self.esc(title) +
+        "</h3>" +
+        (doc
+          ? '<p class="gos-muted">v' +
+            doc.version +
+            " · " +
+            self.esc(doc.originalFilename) +
+            " · " +
+            self.esc(doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : "") +
+            "</p>" +
+            '<button type="button" class="btn-primary" id="' +
+            dlId +
+            '">Download PDF</button>'
+          : '<p class="gos-muted">PDF not archived on this carrier yet.</p>') +
+        "</div>"
       );
-    }, this).join("");
+    }
+
+    var needsGenerate = rows.length && (!rcPdf || !bolPdf);
+    el.innerHTML =
+      pdfPanel("Rate Confirmation PDF", rcPdf, "cr-dl-rc") +
+      pdfPanel("Bill of Lading PDF", bolPdf, "cr-dl-bol") +
+      (needsGenerate
+        ? '<div class="load-edit-panel" style="margin-bottom:0.75rem">' +
+          '<p class="gos-muted">Copy the current Load RC/BOL PDFs into this carrier record.</p>' +
+          '<button type="button" class="btn-secondary" id="cr-gen-rcbol">Generate / Archive PDFs</button>' +
+          '<p id="cr-rcbol-msg" class="gos-muted" style="margin-top:0.5rem"></p>' +
+          "</div>"
+        : '<p id="cr-rcbol-msg" class="gos-muted"></p>') +
+      (rows.length
+        ? rows
+            .map(function (r) {
+              return (
+                '<div class="load-edit-panel">' +
+                "<p><strong>" +
+                self.esc(r.signerName) +
+                "</strong> · " +
+                self.esc(r.signedAt ? new Date(r.signedAt).toLocaleString() : "") +
+                "</p>" +
+                '<p class="gos-muted">IP ' +
+                self.esc(r.ipAddress || "—") +
+                (r.shipmentLeadId ? " · Load linked" : "") +
+                "</p>" +
+                (r.signatureData && String(r.signatureData).indexOf("data:image") === 0
+                  ? '<img alt="Signature" src="' +
+                    r.signatureData +
+                    '" style="max-width:320px;background:#fff;border:1px solid var(--gos-border);border-radius:8px">'
+                  : "") +
+                "</div>"
+              );
+            })
+            .join("")
+        : "");
+
+    async function downloadDoc(documentId, filename) {
+      var token = localStorage.getItem("gl_token") || "";
+      var res = await fetch(
+        "/api/carriers/" +
+          encodeURIComponent(c.carrierId) +
+          "/documents/" +
+          encodeURIComponent(documentId) +
+          "/download",
+        { headers: { Authorization: "Bearer " + token } }
+      );
+      if (!res.ok) throw new Error("Download failed");
+      var blob = await res.blob();
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "document.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    el.querySelector("#cr-dl-rc")?.addEventListener("click", async function () {
+      var msg = el.querySelector("#cr-rcbol-msg");
+      try {
+        if (msg) msg.textContent = "Downloading…";
+        await downloadDoc(rcPdf.documentId, rcPdf.originalFilename || "Rate-Confirmation.pdf");
+        if (msg) msg.textContent = "";
+      } catch (e) {
+        if (msg) msg.textContent = e.message || "Download failed";
+      }
+    });
+    el.querySelector("#cr-dl-bol")?.addEventListener("click", async function () {
+      var msg = el.querySelector("#cr-rcbol-msg");
+      try {
+        if (msg) msg.textContent = "Downloading…";
+        await downloadDoc(bolPdf.documentId, bolPdf.originalFilename || "BOL.pdf");
+        if (msg) msg.textContent = "";
+      } catch (e) {
+        if (msg) msg.textContent = e.message || "Download failed";
+      }
+    });
+    el.querySelector("#cr-gen-rcbol")?.addEventListener("click", async function () {
+      var msg = el.querySelector("#cr-rcbol-msg");
+      try {
+        if (msg) msg.textContent = "Archiving PDFs from Load…";
+        await self.api("/" + encodeURIComponent(c.carrierId) + "/rc-bol/regenerate-pdf", {
+          method: "POST",
+          body: "{}",
+        });
+        self._tab = "rc";
+        self.showDetail(document.getElementById("cr-main") || el.parentElement, c.carrierId);
+      } catch (e) {
+        if (msg) msg.textContent = e.message || "Generate failed";
+      }
+    });
   },
 
   renderOnboarding(el, c) {

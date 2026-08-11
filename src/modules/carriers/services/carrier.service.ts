@@ -1338,6 +1338,12 @@ export class CarrierService {
                 documentHash,
             },
         });
+        const archived = await this.archiveSignedRcBolPdfs({
+            carrierId: session.carrierId,
+            shipmentLeadId: session.shipmentLeadId,
+            sessionId: session.sessionId,
+            uploadedBy: "SYSTEM",
+        });
         await this.emitEvent({
             carrierId: session.carrierId,
             sessionId: session.sessionId,
@@ -1348,9 +1354,120 @@ export class CarrierService {
             actorType: "CARRIER",
             ip: meta.ip,
             userAgent: meta.userAgent,
-            metadata: { documentHash },
+            metadata: { documentHash, ...archived },
         });
-        return row;
+        return { ...row, ...archived };
+    }
+
+    /**
+     * Copy current Load RC + BOL PDFs into Carrier Documents (versioned audit copies).
+     */
+    async archiveSignedRcBolPdfs(input: {
+        carrierId: string;
+        shipmentLeadId: string;
+        sessionId?: string | null;
+        uploadedBy?: string;
+    }): Promise<{ rateConDocumentId: string | null; bolDocumentId: string | null }> {
+        const out: { rateConDocumentId: string | null; bolDocumentId: string | null } = {
+            rateConDocumentId: null,
+            bolDocumentId: null,
+        };
+        for (const docType of ["RATE_CONFIRMATION", "BOL"] as const) {
+            const loadDoc = await prisma.loadDocument.findFirst({
+                where: {
+                    shipmentLeadId: input.shipmentLeadId,
+                    docType,
+                    isCurrent: true,
+                },
+            });
+            if (!loadDoc?.storedName) continue;
+            const src = path.join(LOAD_DOCS_ROOT, input.shipmentLeadId, loadDoc.storedName);
+            if (!fs.existsSync(src)) continue;
+
+            const prev = await prisma.carrierDocument.findFirst({
+                where: {
+                    carrierId: input.carrierId,
+                    documentType: docType,
+                    status: "CURRENT",
+                },
+                orderBy: { version: "desc" },
+            });
+            const version = (prev?.version || 0) + 1;
+            if (prev) {
+                await prisma.carrierDocument.update({
+                    where: { documentId: prev.documentId },
+                    data: { status: "ARCHIVED" },
+                });
+            }
+
+            const dir = carrierStorageService.ensureDir(input.carrierId);
+            const originalFilename =
+                loadDoc.fileName ||
+                (docType === "RATE_CONFIRMATION"
+                    ? `Rate-Confirmation-v${loadDoc.version}-signed.pdf`
+                    : `BOL-v${loadDoc.version}-signed.pdf`);
+            const storageKey = `${docType}_v${version}_${Date.now()}_signed.pdf`;
+            const absolutePath = path.join(dir, storageKey);
+            fs.copyFileSync(src, absolutePath);
+            const buf = fs.readFileSync(absolutePath);
+            const checksum = crypto.createHash("sha256").update(buf).digest("hex");
+
+            const created = await prisma.carrierDocument.create({
+                data: {
+                    carrierId: input.carrierId,
+                    shipmentLeadId: input.shipmentLeadId,
+                    documentType: docType,
+                    originalFilename,
+                    storageKey,
+                    mimeType: loadDoc.mimeType || "application/pdf",
+                    fileSize: buf.length,
+                    checksum,
+                    uploadedBy: input.uploadedBy || "SYSTEM",
+                    status: "CURRENT",
+                    version,
+                },
+            });
+            if (docType === "RATE_CONFIRMATION") out.rateConDocumentId = created.documentId;
+            else out.bolDocumentId = created.documentId;
+        }
+        return out;
+    }
+
+    /** Backfill RC/BOL PDFs for an existing carrier signature from the linked load. */
+    async regenerateRcBolPdfs(carrierId: string, actor: Actor) {
+        await this.assertCarrierAccess(carrierId, actor);
+        const latest = await prisma.carrierRcSignature.findFirst({
+            where: { carrierId },
+            orderBy: { signedAt: "desc" },
+        });
+        if (!latest?.shipmentLeadId) {
+            throw Object.assign(new Error("No RC signature with a linked load found"), { status: 404 });
+        }
+        const archived = await this.archiveSignedRcBolPdfs({
+            carrierId,
+            shipmentLeadId: latest.shipmentLeadId,
+            sessionId: latest.sessionId,
+            uploadedBy: "STAFF",
+        });
+        if (!archived.rateConDocumentId && !archived.bolDocumentId) {
+            throw Object.assign(
+                new Error("Load RC/BOL PDFs not found. Generate them on the Load Documents tab first."),
+                { status: 404 }
+            );
+        }
+        await this.emitEvent({
+            carrierId,
+            shipmentLeadId: latest.shipmentLeadId,
+            action: "RC_BOL_PDF_ARCHIVED",
+            title: "RC/BOL PDFs archived to carrier",
+            message: "Staff regenerated carrier copies of Rate Confirmation and BOL PDFs",
+            actorType: "STAFF",
+            actorId: actor.userId,
+            ip: actor.ip,
+            userAgent: actor.userAgent,
+            metadata: archived,
+        });
+        return archived;
     }
 
     async publicUpload(

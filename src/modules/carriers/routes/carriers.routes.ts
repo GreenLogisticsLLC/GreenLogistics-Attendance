@@ -41,6 +41,11 @@ carriersRouter.post(
     requireRole(...staff),
     carriersController.regenerateAgreementPdf
 );
+carriersRouter.post(
+    "/:id/rc-bol/regenerate-pdf",
+    requireRole(...staff),
+    carriersController.regenerateRcBolPdfs
+);
 carriersRouter.get(
     "/:id/documents/:documentId/download",
     requireRole(...staff),

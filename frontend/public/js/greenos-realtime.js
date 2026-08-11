@@ -344,7 +344,8 @@
       window.GreenOS.currentModule !== "attendance" &&
       window.GreenOS.currentModule !== "loads" &&
       window.GreenOS.currentModule !== "dispatch" &&
-      window.GreenOS.currentModule !== "administration"
+      window.GreenOS.currentModule !== "administration" &&
+      window.GreenOS.currentModule !== "carriers"
     ) {
       window.GreenOS.refreshModule();
     }
