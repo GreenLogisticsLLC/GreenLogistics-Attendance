@@ -229,9 +229,11 @@ export const carriersController = {
                 return res.status(404).json({ success: false, message: "File missing on disk" });
             }
             res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
+            const inline = String(req.query.inline || "") === "1";
+            const safeName = encodeURIComponent(doc.originalFilename || "document.pdf");
             res.setHeader(
                 "Content-Disposition",
-                `attachment; filename="${encodeURIComponent(doc.originalFilename)}"`
+                `${inline ? "inline" : "attachment"}; filename="${safeName}"`
             );
             fs.createReadStream(absolutePath).pipe(res);
         } catch (err) {
@@ -360,9 +362,10 @@ export const carrierOnboardingPublicController = {
                 req.ip
             );
             res.setHeader("Content-Type", file.mimeType);
+            const inline = String(req.query.inline || "") === "1";
             res.setHeader(
                 "Content-Disposition",
-                `attachment; filename="${file.fileName.replace(/"/g, "")}"`
+                `${inline ? "inline" : "attachment"}; filename="${file.fileName.replace(/"/g, "")}"`
             );
             res.setHeader("X-Robots-Tag", "noindex, nofollow");
             fs.createReadStream(file.absolutePath).pipe(res);

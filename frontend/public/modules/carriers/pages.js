@@ -29,6 +29,36 @@ window.GreenOSModules.carriers = {
     return data.data;
   },
 
+  /** Open or download a carrier-archived document (Agreement / RC / BOL / uploads). */
+  async openCarrierDoc(carrierId, documentId, filename, inline) {
+    var token = localStorage.getItem("gl_token") || "";
+    var url =
+      "/api/carriers/" +
+      encodeURIComponent(carrierId) +
+      "/documents/" +
+      encodeURIComponent(documentId) +
+      "/download" +
+      (inline ? "?inline=1" : "");
+    var res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+    if (!res.ok) throw new Error(inline ? "Failed to open document" : "Download failed");
+    var blob = await res.blob();
+    var obj = URL.createObjectURL(blob);
+    if (inline) {
+      window.open(obj, "_blank", "noopener");
+      setTimeout(function () {
+        try {
+          URL.revokeObjectURL(obj);
+        } catch (e) {}
+      }, 60000);
+      return;
+    }
+    var a = document.createElement("a");
+    a.href = obj;
+    a.download = filename || "document.pdf";
+    a.click();
+    URL.revokeObjectURL(obj);
+  },
+
   render(root, subPageId) {
     if (!root) return;
     var self = this;
@@ -350,32 +380,45 @@ window.GreenOSModules.carriers = {
           "<td>" + d.version + "</td>" +
           "<td>" + self.esc(d.status) + "</td>" +
           "<td>" + self.esc(d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "") + "</td>" +
-          '<td><a class="btn-secondary" href="/api/carriers/' +
-          encodeURIComponent(c.carrierId) +
-          "/documents/" +
-          encodeURIComponent(d.documentId) +
-          '/download" target="_blank" rel="noopener">Download</a></td>' +
+          '<td style="white-space:nowrap">' +
+          '<button type="button" class="btn-secondary cr-doc-view" data-id="' +
+          self.esc(d.documentId) +
+          '" data-name="' +
+          self.esc(d.originalFilename) +
+          '">View</button> ' +
+          '<button type="button" class="btn-secondary cr-doc-dl" data-id="' +
+          self.esc(d.documentId) +
+          '" data-name="' +
+          self.esc(d.originalFilename) +
+          '">Download</button>' +
+          "</td>" +
           "</tr>"
         );
       }).join("") +
       "</tbody></table></div>";
-    // Attach auth via fetch download buttons instead of naked links
-    el.querySelectorAll("a.btn-secondary").forEach(function (a) {
-      a.addEventListener("click", async function (ev) {
-        ev.preventDefault();
+    el.querySelectorAll(".cr-doc-view").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
         try {
-          var token = localStorage.getItem("gl_token") || "";
-          var res = await fetch(a.getAttribute("href"), {
-            headers: { Authorization: "Bearer " + token },
-          });
-          if (!res.ok) throw new Error("Download failed");
-          var blob = await res.blob();
-          var url = URL.createObjectURL(blob);
-          var link = document.createElement("a");
-          link.href = url;
-          link.download = a.closest("tr")?.children[1]?.textContent || "document";
-          link.click();
-          URL.revokeObjectURL(url);
+          await self.openCarrierDoc(
+            c.carrierId,
+            btn.getAttribute("data-id"),
+            btn.getAttribute("data-name"),
+            true
+          );
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+    });
+    el.querySelectorAll(".cr-doc-dl").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        try {
+          await self.openCarrierDoc(
+            c.carrierId,
+            btn.getAttribute("data-id"),
+            btn.getAttribute("data-name"),
+            false
+          );
         } catch (e) {
           alert(e.message);
         }
@@ -407,7 +450,10 @@ window.GreenOSModules.carriers = {
           " · " +
           self.esc(currentPdf.uploadedAt ? new Date(currentPdf.uploadedAt).toLocaleString() : "") +
           "</p>" +
-          '<button type="button" class="btn-primary" id="cr-dl-agreement">Download PDF</button>'
+          '<div style="display:flex;flex-wrap:wrap;gap:0.45rem">' +
+          '<button type="button" class="btn-secondary" id="cr-view-agreement">View</button>' +
+          '<button type="button" class="btn-primary" id="cr-dl-agreement">Download PDF</button>' +
+          "</div>"
         : '<p class="gos-muted">PDF not generated yet for this signature.</p>' +
           '<button type="button" class="btn-secondary" id="cr-gen-agreement">Generate PDF</button>') +
       '<p id="cr-agreement-msg" class="gos-muted" style="margin-top:0.5rem"></p>' +
@@ -439,31 +485,31 @@ window.GreenOSModules.carriers = {
           }).join("")
         : "");
 
-    async function downloadDoc(documentId) {
-      var token = localStorage.getItem("gl_token") || "";
-      var res = await fetch(
-        "/api/carriers/" +
-          encodeURIComponent(c.carrierId) +
-          "/documents/" +
-          encodeURIComponent(documentId) +
-          "/download",
-        { headers: { Authorization: "Bearer " + token } }
+    async function openDoc(inline) {
+      await self.openCarrierDoc(
+        c.carrierId,
+        currentPdf.documentId,
+        (currentPdf && currentPdf.originalFilename) || "Broker-Carrier-Agreement.pdf",
+        inline
       );
-      if (!res.ok) throw new Error("Download failed");
-      var blob = await res.blob();
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement("a");
-      a.href = url;
-      a.download = (currentPdf && currentPdf.originalFilename) || "Broker-Carrier-Agreement.pdf";
-      a.click();
-      URL.revokeObjectURL(url);
     }
+
+    el.querySelector("#cr-view-agreement")?.addEventListener("click", async function () {
+      var msg = el.querySelector("#cr-agreement-msg");
+      try {
+        if (msg) msg.textContent = "Opening…";
+        await openDoc(true);
+        if (msg) msg.textContent = "";
+      } catch (e) {
+        if (msg) msg.textContent = e.message || "Failed to open";
+      }
+    });
 
     el.querySelector("#cr-dl-agreement")?.addEventListener("click", async function () {
       var msg = el.querySelector("#cr-agreement-msg");
       try {
         if (msg) msg.textContent = "Downloading…";
-        await downloadDoc(currentPdf.documentId);
+        await openDoc(false);
         if (msg) msg.textContent = "";
       } catch (e) {
         if (msg) msg.textContent = e.message || "Download failed";
@@ -509,7 +555,7 @@ window.GreenOSModules.carriers = {
       return;
     }
 
-    function pdfPanel(title, doc, dlId) {
+    function pdfPanel(title, doc, viewId, dlId) {
       return (
         '<div class="load-edit-panel" style="margin-bottom:0.75rem">' +
         "<h3 style=\"margin:0 0 0.35rem\">" +
@@ -523,9 +569,14 @@ window.GreenOSModules.carriers = {
             " · " +
             self.esc(doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : "") +
             "</p>" +
+            '<div style="display:flex;flex-wrap:wrap;gap:0.45rem">' +
+            '<button type="button" class="btn-secondary" id="' +
+            viewId +
+            '">View</button>' +
             '<button type="button" class="btn-primary" id="' +
             dlId +
-            '">Download PDF</button>'
+            '">Download PDF</button>' +
+            "</div>"
           : '<p class="gos-muted">PDF not archived on this carrier yet.</p>') +
         "</div>"
       );
@@ -533,8 +584,8 @@ window.GreenOSModules.carriers = {
 
     var needsGenerate = rows.length && (!rcPdf || !bolPdf);
     el.innerHTML =
-      pdfPanel("Rate Confirmation PDF", rcPdf, "cr-dl-rc") +
-      pdfPanel("Bill of Lading PDF", bolPdf, "cr-dl-bol") +
+      pdfPanel("Rate Confirmation PDF", rcPdf, "cr-view-rc", "cr-dl-rc") +
+      pdfPanel("Bill of Lading PDF", bolPdf, "cr-view-bol", "cr-dl-bol") +
       (needsGenerate
         ? '<div class="load-edit-panel" style="margin-bottom:0.75rem">' +
           '<p class="gos-muted">Copy the current Load RC/BOL PDFs into this carrier record.</p>' +
@@ -567,41 +618,50 @@ window.GreenOSModules.carriers = {
             .join("")
         : "");
 
-    async function downloadDoc(documentId, filename) {
-      var token = localStorage.getItem("gl_token") || "";
-      var res = await fetch(
-        "/api/carriers/" +
-          encodeURIComponent(c.carrierId) +
-          "/documents/" +
-          encodeURIComponent(documentId) +
-          "/download",
-        { headers: { Authorization: "Bearer " + token } }
+    async function openDoc(doc, inline) {
+      await self.openCarrierDoc(
+        c.carrierId,
+        doc.documentId,
+        doc.originalFilename || "document.pdf",
+        inline
       );
-      if (!res.ok) throw new Error("Download failed");
-      var blob = await res.blob();
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement("a");
-      a.href = url;
-      a.download = filename || "document.pdf";
-      a.click();
-      URL.revokeObjectURL(url);
     }
 
+    el.querySelector("#cr-view-rc")?.addEventListener("click", async function () {
+      var msg = el.querySelector("#cr-rcbol-msg");
+      try {
+        if (msg) msg.textContent = "Opening…";
+        await openDoc(rcPdf, true);
+        if (msg) msg.textContent = "";
+      } catch (e) {
+        if (msg) msg.textContent = e.message || "Failed to open";
+      }
+    });
     el.querySelector("#cr-dl-rc")?.addEventListener("click", async function () {
       var msg = el.querySelector("#cr-rcbol-msg");
       try {
         if (msg) msg.textContent = "Downloading…";
-        await downloadDoc(rcPdf.documentId, rcPdf.originalFilename || "Rate-Confirmation.pdf");
+        await openDoc(rcPdf, false);
         if (msg) msg.textContent = "";
       } catch (e) {
         if (msg) msg.textContent = e.message || "Download failed";
+      }
+    });
+    el.querySelector("#cr-view-bol")?.addEventListener("click", async function () {
+      var msg = el.querySelector("#cr-rcbol-msg");
+      try {
+        if (msg) msg.textContent = "Opening…";
+        await openDoc(bolPdf, true);
+        if (msg) msg.textContent = "";
+      } catch (e) {
+        if (msg) msg.textContent = e.message || "Failed to open";
       }
     });
     el.querySelector("#cr-dl-bol")?.addEventListener("click", async function () {
       var msg = el.querySelector("#cr-rcbol-msg");
       try {
         if (msg) msg.textContent = "Downloading…";
-        await downloadDoc(bolPdf.documentId, bolPdf.originalFilename || "BOL.pdf");
+        await openDoc(bolPdf, false);
         if (msg) msg.textContent = "";
       } catch (e) {
         if (msg) msg.textContent = e.message || "Download failed";

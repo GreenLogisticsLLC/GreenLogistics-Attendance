@@ -203,19 +203,23 @@
   function block(title, bodyHtml) {
     return '<div class="doc-block"><strong>' + esc(title) + "</strong>" + bodyHtml + "</div>";
   }
-  function pdfBtn(docMeta, label) {
+  function pdfBtn(docMeta, downloadLabel) {
     if (!docMeta || !docMeta.documentId || !docMeta.hasPdf) return "";
-    var href =
+    var base =
       "/api/carrier-onboarding/" +
       encodeURIComponent(token) +
       "/load-documents/" +
       encodeURIComponent(docMeta.documentId) +
       "/download";
     return (
-      '<div class="doc-actions"><a class="btn-secondary" href="' +
-      href +
+      '<div class="doc-actions" style="display:flex;flex-wrap:wrap;gap:0.45rem">' +
+      '<a class="btn-secondary" href="' +
+      base +
+      '?inline=1" target="_blank" rel="noopener">View</a>' +
+      '<a class="btn-secondary" href="' +
+      base +
       '" target="_blank" rel="noopener">' +
-      esc(label || "Download PDF") +
+      esc(downloadLabel || "Download PDF") +
       "</a></div>"
     );
   }
