@@ -377,25 +377,105 @@ window.GreenOSModules.carriers = {
   },
 
   renderAgreement(el, c) {
+    var self = this;
     var signs = c.agreementSigns || [];
-    if (!signs.length) {
+    var pdfDocs = (c.documents || []).filter(function (d) {
+      return d.documentType === "BROKER_CARRIER_AGREEMENT";
+    });
+    var currentPdf = pdfDocs.find(function (d) { return d.status === "CURRENT"; }) || pdfDocs[0];
+
+    if (!signs.length && !currentPdf) {
       el.innerHTML = '<p class="gos-muted">Agreement not signed yet.</p>';
       return;
     }
-    el.innerHTML = signs.map(function (s) {
-      return (
-        '<div class="load-edit-panel">' +
-        "<p><strong>" + this.esc(s.signerName) + "</strong> · " +
-        this.esc(s.signedAt ? new Date(s.signedAt).toLocaleString() : "") +
-        "</p>" +
-        "<p class=\"gos-muted\">Template " + this.esc(s.template && s.template.version) +
-        " · IP " + this.esc(s.ipAddress) + "</p>" +
-        (s.signatureData && String(s.signatureData).indexOf("data:image") === 0
-          ? '<img alt="Signature" src="' + s.signatureData + '" style="max-width:320px;background:#fff;border:1px solid var(--gos-border);border-radius:8px">'
-          : "") +
-        "</div>"
+
+    var pdfBlock =
+      '<div class="load-edit-panel" style="margin-bottom:0.75rem">' +
+      "<h3 style=\"margin:0 0 0.35rem\">Signed Agreement PDF</h3>" +
+      (currentPdf
+        ? '<p class="gos-muted">v' +
+          currentPdf.version +
+          " · " +
+          self.esc(currentPdf.originalFilename) +
+          " · " +
+          self.esc(currentPdf.uploadedAt ? new Date(currentPdf.uploadedAt).toLocaleString() : "") +
+          "</p>" +
+          '<button type="button" class="btn-primary" id="cr-dl-agreement">Download PDF</button>'
+        : '<p class="gos-muted">PDF not generated yet for this signature.</p>' +
+          '<button type="button" class="btn-secondary" id="cr-gen-agreement">Generate PDF</button>') +
+      '<p id="cr-agreement-msg" class="gos-muted" style="margin-top:0.5rem"></p>' +
+      "</div>";
+
+    el.innerHTML =
+      pdfBlock +
+      (signs.length
+        ? signs.map(function (s) {
+            return (
+              '<div class="load-edit-panel">' +
+              "<p><strong>" +
+              self.esc(s.signerName) +
+              "</strong> · " +
+              self.esc(s.signedAt ? new Date(s.signedAt).toLocaleString() : "") +
+              "</p>" +
+              '<p class="gos-muted">Template ' +
+              self.esc(s.template && s.template.version) +
+              " · IP " +
+              self.esc(s.ipAddress) +
+              "</p>" +
+              (s.signatureData && String(s.signatureData).indexOf("data:image") === 0
+                ? '<img alt="Signature" src="' +
+                  s.signatureData +
+                  '" style="max-width:320px;background:#fff;border:1px solid var(--gos-border);border-radius:8px">'
+                : "") +
+              "</div>"
+            );
+          }).join("")
+        : "");
+
+    async function downloadDoc(documentId) {
+      var token = localStorage.getItem("gl_token") || "";
+      var res = await fetch(
+        "/api/carriers/" +
+          encodeURIComponent(c.carrierId) +
+          "/documents/" +
+          encodeURIComponent(documentId) +
+          "/download",
+        { headers: { Authorization: "Bearer " + token } }
       );
-    }, this).join("");
+      if (!res.ok) throw new Error("Download failed");
+      var blob = await res.blob();
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = (currentPdf && currentPdf.originalFilename) || "Broker-Carrier-Agreement.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    el.querySelector("#cr-dl-agreement")?.addEventListener("click", async function () {
+      var msg = el.querySelector("#cr-agreement-msg");
+      try {
+        if (msg) msg.textContent = "Downloading…";
+        await downloadDoc(currentPdf.documentId);
+        if (msg) msg.textContent = "";
+      } catch (e) {
+        if (msg) msg.textContent = e.message || "Download failed";
+      }
+    });
+
+    el.querySelector("#cr-gen-agreement")?.addEventListener("click", async function () {
+      var msg = el.querySelector("#cr-agreement-msg");
+      try {
+        if (msg) msg.textContent = "Generating PDF…";
+        await self.api("/" + encodeURIComponent(c.carrierId) + "/agreement/regenerate-pdf", {
+          method: "POST",
+          body: "{}",
+        });
+        self.showDetail(document.getElementById("cr-main") || el.parentElement, c.carrierId);
+      } catch (e) {
+        if (msg) msg.textContent = e.message || "Generate failed";
+      }
+    });
   },
 
   renderRc(el, c) {

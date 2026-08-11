@@ -36,6 +36,11 @@ carriersRouter.post(
 );
 carriersRouter.post("/:id/onboarding/approve", requireRole(...staff), carriersController.approve);
 carriersRouter.post("/:id/onboarding/reject", requireRole(...staff), carriersController.reject);
+carriersRouter.post(
+    "/:id/agreement/regenerate-pdf",
+    requireRole(...staff),
+    carriersController.regenerateAgreementPdf
+);
 carriersRouter.get(
     "/:id/documents/:documentId/download",
     requireRole(...staff),

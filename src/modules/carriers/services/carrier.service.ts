@@ -13,6 +13,7 @@ import {
 } from "../constants.js";
 import { carrierEmailService } from "./carrier-email.service.js";
 import { carrierStorageService } from "./carrier-storage.service.js";
+import { storeCarrierAgreementPdf } from "./carrier-agreement-pdf.service.js";
 
 type Actor = { userId?: string; role?: string; ip?: string; userAgent?: string };
 
@@ -1103,16 +1104,38 @@ export class CarrierService {
                 documentHash,
             },
         });
+
+        let pdfDocumentId: string | null = null;
+        try {
+            pdfDocumentId = await this.archiveSignedAgreementPdf({
+                carrierId: session.carrierId,
+                signature: row,
+                template,
+                carrier: session.carrier,
+            });
+        } catch (err) {
+            await this.emitEvent({
+                carrierId: session.carrierId,
+                sessionId: session.sessionId,
+                action: "AGREEMENT_PDF_FAILED",
+                title: "Agreement PDF generation failed",
+                message: err instanceof Error ? err.message : "PDF failed",
+                actorType: "SYSTEM",
+            });
+        }
+
         await this.emitEvent({
             carrierId: session.carrierId,
             sessionId: session.sessionId,
             action: "AGREEMENT_SIGNED",
             title: "Agreement signed",
-            message: `Signed by ${signerName} (template ${template.version})`,
+            message: `Signed by ${signerName} (template ${template.version})${
+                pdfDocumentId ? " · PDF archived" : ""
+            }`,
             actorType: "CARRIER",
             ip: meta.ip,
             userAgent: meta.userAgent,
-            metadata: { templateId: template.templateId, documentHash },
+            metadata: { templateId: template.templateId, documentHash, pdfDocumentId },
         });
         if (["INVITED", "OPENED"].includes(session.carrier.onboardingStatus)) {
             await prisma.carrier.update({
@@ -1120,7 +1143,136 @@ export class CarrierService {
                 data: { onboardingStatus: "IN_PROGRESS" },
             });
         }
-        return row;
+        return { ...row, pdfDocumentId };
+    }
+
+    /** Create versioned signed Agreement PDF under Carrier Documents. */
+    async archiveSignedAgreementPdf(input: {
+        carrierId: string;
+        signature: {
+            signatureId: string;
+            signerName: string;
+            signerEmail: string;
+            signatureData: string;
+            signedAt: Date;
+            ipAddress: string | null;
+            documentHash: string | null;
+        };
+        template: { title: string; version: string; bodyText: string };
+        carrier: {
+            legalName: string;
+            dbaName: string | null;
+            contactName: string | null;
+            email: string;
+            phone: string | null;
+            fax?: string | null;
+            federalTaxId?: string | null;
+            mcNumber: string | null;
+            dotNumber: string | null;
+            address: string | null;
+            city: string | null;
+            state: string | null;
+            zip: string | null;
+            equipmentNotes?: string | null;
+            paymentOption?: string | null;
+        };
+    }) {
+        const prev = await prisma.carrierDocument.findFirst({
+            where: {
+                carrierId: input.carrierId,
+                documentType: "BROKER_CARRIER_AGREEMENT",
+                status: "CURRENT",
+            },
+            orderBy: { version: "desc" },
+        });
+        const version = (prev?.version || 0) + 1;
+        if (prev) {
+            await prisma.carrierDocument.update({
+                where: { documentId: prev.documentId },
+                data: { status: "ARCHIVED" },
+            });
+        }
+
+        const stored = await storeCarrierAgreementPdf({
+            carrierId: input.carrierId,
+            version,
+            legalName: input.carrier.legalName,
+            dbaName: input.carrier.dbaName,
+            contactName: input.carrier.contactName,
+            email: input.carrier.email,
+            phone: input.carrier.phone,
+            fax: input.carrier.fax,
+            federalTaxId: input.carrier.federalTaxId,
+            mcNumber: input.carrier.mcNumber,
+            dotNumber: input.carrier.dotNumber,
+            address: input.carrier.address,
+            city: input.carrier.city,
+            state: input.carrier.state,
+            zip: input.carrier.zip,
+            equipmentNotes: input.carrier.equipmentNotes,
+            paymentOption: input.carrier.paymentOption,
+            agreementTitle: input.template.title,
+            agreementVersion: input.template.version,
+            agreementBody: input.template.bodyText,
+            signerName: input.signature.signerName,
+            signerEmail: input.signature.signerEmail,
+            signatureDataUrl: input.signature.signatureData,
+            signedAt: input.signature.signedAt,
+            ipAddress: input.signature.ipAddress,
+            documentHash: input.signature.documentHash,
+        });
+
+        const doc = await prisma.carrierDocument.create({
+            data: {
+                carrierId: input.carrierId,
+                documentType: "BROKER_CARRIER_AGREEMENT",
+                originalFilename: `Broker-Carrier-Agreement_v${input.template.version}_${input.carrier.legalName.replace(
+                    /[^\w.\- ]+/g,
+                    ""
+                ).slice(0, 40)}.pdf`,
+                storageKey: stored.storageKey,
+                mimeType: "application/pdf",
+                fileSize: stored.fileSize,
+                checksum: stored.checksum,
+                uploadedBy: "SYSTEM",
+                status: "CURRENT",
+                version,
+            },
+        });
+        return doc.documentId;
+    }
+
+    /** Backfill signed Agreement PDF for carriers that signed before PDF generation existed. */
+    async regenerateAgreementPdf(carrierId: string, actor: Actor) {
+        await this.assertCarrierAccess(carrierId, actor);
+        const carrier = await prisma.carrier.findUnique({ where: { carrierId } });
+        if (!carrier) throw Object.assign(new Error("Carrier not found"), { status: 404 });
+        const signature = await prisma.carrierAgreementSignature.findFirst({
+            where: { carrierId },
+            orderBy: { signedAt: "desc" },
+            include: { template: true },
+        });
+        if (!signature) {
+            throw Object.assign(new Error("No agreement signature on file"), { status: 400 });
+        }
+        const template = signature.template || (await this.ensureAgreementTemplate());
+        const pdfDocumentId = await this.archiveSignedAgreementPdf({
+            carrierId,
+            signature,
+            template,
+            carrier,
+        });
+        await this.emitEvent({
+            carrierId,
+            action: "AGREEMENT_PDF_GENERATED",
+            title: "Agreement PDF generated",
+            message: `PDF document ${pdfDocumentId}`,
+            actorType: "BROKER",
+            actorId: actor.userId,
+            ip: actor.ip,
+            userAgent: actor.userAgent,
+        });
+        return { pdfDocumentId };
     }
 
     async publicSignRc(

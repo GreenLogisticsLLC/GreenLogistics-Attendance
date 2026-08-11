@@ -188,6 +188,21 @@ export const carriersController = {
         }
     },
 
+    async regenerateAgreementPdf(req: AuthRequest, res: Response) {
+        try {
+            const data = await carrierService.regenerateAgreementPdf(
+                String(req.params.id),
+                actorFrom(req)
+            );
+            res.json({ success: true, data });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to generate PDF",
+            });
+        }
+    },
+
     async downloadDocument(req: AuthRequest, res: Response) {
         try {
             const { doc, absolutePath } = await carrierService.downloadDocument(
