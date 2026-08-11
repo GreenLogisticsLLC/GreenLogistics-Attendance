@@ -62,3 +62,7 @@ carrierOnboardingPublicRouter.post(
 );
 carrierOnboardingPublicRouter.post("/:token/sign-rc", carrierOnboardingPublicController.signRc);
 carrierOnboardingPublicRouter.post("/:token/submit", carrierOnboardingPublicController.submit);
+carrierOnboardingPublicRouter.get(
+    "/:token/load-documents/:documentId/download",
+    carrierOnboardingPublicController.downloadLoadDocument
+);

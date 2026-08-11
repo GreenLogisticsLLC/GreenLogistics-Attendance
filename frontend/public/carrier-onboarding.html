@@ -32,6 +32,19 @@
     .check { list-style:none; padding:0; margin:0.5rem 0; }
     .check li { padding:0.35rem 0; }
     .agreement-box { max-height:320px; overflow:auto; border:1px solid var(--border); border-radius:8px; padding:0.75rem; background:#f8fafc; white-space:pre-wrap; font-size:0.82rem; line-height:1.45; }
+    .doc-sheet { border:1px solid var(--border); border-radius:10px; padding:0.85rem 0.95rem; background:#f8fafc; font-size:0.88rem; line-height:1.4; }
+    .doc-sheet h3 { margin:0 0 0.55rem; font-size:0.95rem; color:var(--accent); }
+    .doc-meta { display:flex; flex-wrap:wrap; gap:0.35rem 1rem; margin-bottom:0.7rem; color:var(--muted); font-size:0.8rem; }
+    .kv { display:grid; grid-template-columns:9.5rem 1fr; gap:0.25rem 0.55rem; margin:0.15rem 0; }
+    .kv dt { color:var(--muted); font-size:0.78rem; }
+    .kv dd { margin:0; font-weight:560; word-break:break-word; }
+    .doc-cols { display:grid; grid-template-columns:1fr 1fr; gap:0.65rem; margin:0.65rem 0; }
+    @media (max-width:640px){ .doc-cols{ grid-template-columns:1fr; } .kv{ grid-template-columns:1fr; } }
+    .doc-block { border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.65rem; background:#fff; }
+    .doc-block strong { display:block; font-size:0.75rem; color:var(--muted); margin-bottom:0.25rem; letter-spacing:0.02em; }
+    .doc-notes { white-space:pre-wrap; margin-top:0.55rem; padding:0.55rem 0.65rem; border-radius:8px; background:#fff; border:1px solid var(--border); font-size:0.8rem; color:#243247; }
+    .doc-actions { margin:0.55rem 0 0; }
+    .doc-actions a { display:inline-block; text-decoration:none; }
     .sig-pad { border:1px dashed var(--border); border-radius:8px; background:#fff; width:100%; height:140px; touch-action:none; }
     .hidden { display:none !important; }
     .doc-row { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; margin:0.65rem 0; }
@@ -174,16 +187,165 @@
       '<div class="actions"><button type="button" class="btn-secondary" id="btn-back">Back</button><button type="button" class="btn-primary" id="btn-submit"' + (cl.ready ? "" : " disabled") + ">Save / Submit</button></div><p id=\"msg\" class=\"muted\"></p></div>";
   }
 
-  function pretty(obj) {
-    try { return esc(JSON.stringify(obj || {}, null, 2)); } catch (e) { return ""; }
+  function dash(v) {
+    var s = v == null ? "" : String(v).trim();
+    return s ? esc(s) : "—";
+  }
+  function money(v) {
+    if (v == null || v === "") return "—";
+    var n = Number(v);
+    if (!isFinite(n)) return dash(v);
+    return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function kv(label, value) {
+    return '<div class="kv"><dt>' + esc(label) + "</dt><dd>" + value + "</dd></div>";
+  }
+  function block(title, bodyHtml) {
+    return '<div class="doc-block"><strong>' + esc(title) + "</strong>" + bodyHtml + "</div>";
+  }
+  function pdfBtn(docMeta, label) {
+    if (!docMeta || !docMeta.documentId || !docMeta.hasPdf) return "";
+    var href =
+      "/api/carrier-onboarding/" +
+      encodeURIComponent(token) +
+      "/load-documents/" +
+      encodeURIComponent(docMeta.documentId) +
+      "/download";
+    return (
+      '<div class="doc-actions"><a class="btn-secondary" href="' +
+      href +
+      '" target="_blank" rel="noopener">' +
+      esc(label || "Download PDF") +
+      "</a></div>"
+    );
+  }
+
+  function renderRcSheet(c, meta) {
+    c = c || {};
+    var rate = c.flatRate != null && c.flatRate !== "" ? c.flatRate : c.carrierRate;
+    var notes = c.specialNotes || c.specialInstructions || "";
+    var terms = c.terms || "";
+    return (
+      '<div class="doc-sheet">' +
+      "<h3>Load Confirmation and Payment Agreement</h3>" +
+      '<div class="doc-meta">' +
+      "<span>Load #: <strong>" + dash(c.loadNumber) + "</strong></span>" +
+      (c.shipmentNumber ? "<span>Shipment: <strong>" + dash(c.shipmentNumber) + "</strong></span>" : "") +
+      "<span>Date: <strong>" + dash(c.confirmationDate) + "</strong></span>" +
+      (meta && meta.version ? "<span>v" + esc(meta.version) + "</span>" : "") +
+      "</div>" +
+      kv("Broker", dash(c.brokerName)) +
+      kv("Broker email", dash(c.brokerEmail)) +
+      kv("Carrier", dash(c.carrierName)) +
+      kv("Carrier email", dash(c.carrierEmail)) +
+      kv("MC#", dash(c.carrierMc)) +
+      kv("DOT#", dash(c.carrierDot)) +
+      kv("Phone", dash(c.carrierPhone)) +
+      kv("Equipment", dash(c.equipment)) +
+      kv("Commodity", dash(c.commodity)) +
+      kv("Weight", dash(c.weight)) +
+      kv("Flat rate", money(rate)) +
+      kv("Payment option", dash(c.paymentOption)) +
+      '<div class="doc-cols">' +
+      block(
+        "Origin",
+        "<div>" +
+          dash(c.pickupAddress) +
+          "</div>" +
+          kv("Date", dash(c.pickupDate || c.pickupWindow)) +
+          kv("Time", dash(c.pickupTime)) +
+          kv("Contact", dash(c.pickupContact))
+      ) +
+      block(
+        "Destination",
+        "<div>" +
+          dash(c.deliveryAddress) +
+          "</div>" +
+          kv("Date", dash(c.deliveryDate || c.deliveryWindow)) +
+          kv("Time", dash(c.deliveryTime)) +
+          kv("Contact", dash(c.deliveryContact))
+      ) +
+      "</div>" +
+      kv(
+        "Driver",
+        dash(
+          [c.driverName, c.driverPhone, c.truckNumber ? "Truck " + c.truckNumber : "", c.trailerNumber ? "Trailer " + c.trailerNumber : ""]
+            .filter(Boolean)
+            .join(" · ")
+        )
+      ) +
+      kv("Delivery note", dash(c.deliveryNote)) +
+      (notes ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Special notes</strong>' + esc(notes) + "</div>" : "") +
+      (terms ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Terms</strong>' + esc(terms) + "</div>" : "") +
+      pdfBtn(meta, "Download Rate Confirmation PDF") +
+      "</div>"
+    );
+  }
+
+  function renderBolSheet(c, meta) {
+    c = c || {};
+    return (
+      '<div class="doc-sheet">' +
+      "<h3>Bill of Lading — Original / Not Negotiable</h3>" +
+      '<div class="doc-meta">' +
+      "<span>BOL #: <strong>" + dash(c.bolNumber || c.loadNumber) + "</strong></span>" +
+      "<span>Load #: <strong>" + dash(c.loadNumber) + "</strong></span>" +
+      (c.shipmentNumber ? "<span>Shipment: <strong>" + dash(c.shipmentNumber) + "</strong></span>" : "") +
+      "<span>Pickup: <strong>" + dash(c.pickupDate || c.confirmationDate) + "</strong></span>" +
+      (meta && meta.version ? "<span>v" + esc(meta.version) + "</span>" : "") +
+      "</div>" +
+      kv("Freight terms", dash(c.freightTerms || "PREPAID")) +
+      kv("Customer order #", dash(c.customerOrderNo || c.referenceNumber)) +
+      kv("Broker email", dash(c.brokerEmail)) +
+      kv("Carrier", dash(c.carrierName)) +
+      kv("MC#", dash(c.carrierMc)) +
+      kv("Truck / Trailer", dash([c.truckNumber, c.trailerNumber].filter(Boolean).join(" / "))) +
+      kv("Driver / contact", dash(c.driverName || c.carrierPhone || c.driverPhone)) +
+      '<div class="doc-cols">' +
+      block(
+        "Ships from",
+        "<div>" +
+          dash(c.pickupAddress) +
+          "</div>" +
+          kv("Shipper ID", dash(c.shipperIdNo)) +
+          kv("Seal #", dash(c.sealNo)) +
+          kv("Contact", dash(c.pickupContact))
+      ) +
+      block(
+        "Ships to",
+        "<div>" +
+          dash(c.deliveryAddress) +
+          "</div>" +
+          kv("Consignee ID", dash(c.consigneeIdNo)) +
+          kv("Contact", dash(c.deliveryContact))
+      ) +
+      "</div>" +
+      kv("Commodity", dash(c.commodity)) +
+      kv("Weight", dash(c.weight)) +
+      kv("# pkgs", dash(c.packageQty != null ? c.packageQty : c.pieces)) +
+      kv("Third party bill to", dash(c.thirdPartyBillTo || c.customerName)) +
+      (c.specialInstructions
+        ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Additional instructions</strong>' +
+          esc(c.specialInstructions) +
+          "</div>"
+        : "") +
+      pdfBtn(meta, "Download BOL PDF") +
+      "</div>"
+    );
   }
 
   function rcBolForm() {
-    var rc = (state.rateConDoc && state.rateConDoc.content) || state.rcDraft || {};
-    var bol = (state.bolDoc && state.bolDoc.content) || {};
+    var rcMeta = state.rateConDoc || null;
+    var bolMeta = state.bolDoc || null;
+    var rc = (rcMeta && rcMeta.content) || state.rcDraft || {};
+    var bol = (bolMeta && bolMeta.content) || {};
+    var hasRc = rc && (rc.loadNumber || rc.carrierName || rc.pickupAddress || rc.flatRate != null || rc.carrierRate != null);
+    var hasBol = bol && (bol.bolNumber || bol.loadNumber || bol.pickupAddress || bol.deliveryAddress);
     return '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Rate Confirmation</h2>' +
-      '<p class="muted">Pre-filled from Green OS — review only.</p><div class="agreement-box">' + pretty(rc) + "</div>" +
-      '<h2 style="margin:1rem 0 0.5rem;font-size:1.1rem">Bill of Lading</h2><div class="agreement-box">' + pretty(bol) + "</div>" +
+      '<p class="muted">Pre-filled from Green OS — review only.</p>' +
+      (hasRc ? renderRcSheet(rc, rcMeta) : '<p class="error">Rate Confirmation is not available yet. Ask your broker to generate it in Green OS.</p>') +
+      '<h2 style="margin:1rem 0 0.5rem;font-size:1.1rem">Bill of Lading</h2>' +
+      (hasBol ? renderBolSheet(bol, bolMeta) : '<p class="error">Bill of Lading is not available yet. Ask your broker to generate it in Green OS.</p>') +
       (state.rcSigned
         ? '<p class="ok">✓ Already signed</p><div class="actions"><button type="button" class="btn-primary" id="btn-submit">Finish</button></div>'
         : '<label style="margin-top:0.75rem">Full Legal Name<input id="sig-name" value="' + esc(state.carrier.contactName || "") + '"></label>' +

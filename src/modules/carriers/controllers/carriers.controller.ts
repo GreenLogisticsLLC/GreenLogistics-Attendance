@@ -336,4 +336,26 @@ export const carrierOnboardingPublicController = {
             });
         }
     },
+
+    async downloadLoadDocument(req: AuthRequest, res: Response) {
+        try {
+            const file = await carrierService.publicDownloadLoadDocument(
+                String(req.params.token),
+                String(req.params.documentId),
+                req.ip
+            );
+            res.setHeader("Content-Type", file.mimeType);
+            res.setHeader(
+                "Content-Disposition",
+                `attachment; filename="${file.fileName.replace(/"/g, "")}"`
+            );
+            res.setHeader("X-Robots-Tag", "noindex, nofollow");
+            fs.createReadStream(file.absolutePath).pipe(res);
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Download failed",
+            });
+        }
+    },
 };

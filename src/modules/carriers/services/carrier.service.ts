@@ -1,7 +1,10 @@
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { platformNotificationService } from "../../shipment/services/platform-notification.service.js";
+import { LOAD_DOCS_ROOT } from "../../shipment/services/load-pdf.service.js";
 import {
     AGREEMENT_TEMPLATE_TITLE,
     AGREEMENT_TEMPLATE_VERSION,
@@ -870,6 +873,8 @@ export class CarrierService {
                     documentId: rcRow.documentId,
                     title: rcRow.title,
                     version: rcRow.version,
+                    fileName: rcRow.fileName,
+                    hasPdf: Boolean(rcRow.storedName),
                     content: parse(rcRow.contentJson),
                 };
             }
@@ -878,6 +883,8 @@ export class CarrierService {
                     documentId: bolRow.documentId,
                     title: bolRow.title,
                     version: bolRow.version,
+                    fileName: bolRow.fileName,
+                    hasPdf: Boolean(bolRow.storedName),
                     content: parse(bolRow.contentJson),
                 };
             }
@@ -1607,6 +1614,34 @@ export class CarrierService {
         if (!doc) throw Object.assign(new Error("Document not found"), { status: 404 });
         const absolutePath = carrierStorageService.absolutePath(carrierId, doc.storageKey);
         return { doc, absolutePath };
+    }
+
+    /** Public RC/BOL PDF download for carrier portal (token-scoped). */
+    async publicDownloadLoadDocument(rawToken: string, documentId: string, ip?: string) {
+        const session = await this.resolveSession(rawToken, ip);
+        if (!session.shipmentLeadId) {
+            throw Object.assign(new Error("No load linked to this invitation"), { status: 404 });
+        }
+        const row = await prisma.loadDocument.findFirst({
+            where: {
+                documentId,
+                shipmentLeadId: session.shipmentLeadId,
+                docType: { in: ["RATE_CONFIRMATION", "BOL"] },
+                isCurrent: true,
+            },
+        });
+        if (!row || !row.storedName) {
+            throw Object.assign(new Error("Document PDF not found"), { status: 404 });
+        }
+        const absolutePath = path.join(LOAD_DOCS_ROOT, row.shipmentLeadId, row.storedName);
+        if (!fs.existsSync(absolutePath)) {
+            throw Object.assign(new Error("PDF file missing on disk"), { status: 404 });
+        }
+        return {
+            absolutePath,
+            fileName: row.fileName || `${row.docType}.pdf`,
+            mimeType: row.mimeType || "application/pdf",
+        };
     }
 }
 
