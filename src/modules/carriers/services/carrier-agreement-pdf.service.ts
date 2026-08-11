@@ -157,7 +157,6 @@ export function buildCarrierAgreementPdf(input: AgreementPdfInput): Promise<Buff
                 doc.rect(doc.page.margins.left, y, 280, 90).stroke("#d5dde9");
                 doc.image(img, doc.page.margins.left + 8, y + 8, {
                     fit: [264, 74],
-                    align: "left",
                     valign: "center",
                 });
                 doc.y = y + 100;
