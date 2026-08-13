@@ -56,8 +56,6 @@ export function buildLoadQuickActions(input: {
     const rateConDone = hasType(docs, "RATE_CONFIRMATION") || statusIdx >= flowIndex("RATE_CON_GENERATED");
     const bolDone = hasType(docs, "BOL") || statusIdx >= flowIndex("CARRIER_ACCEPTED");
     const pickupDone = statusIdx >= flowIndex("PICKUP");
-    const transitDone = statusIdx >= flowIndex("IN_TRANSIT");
-    const deliveredDone = statusIdx >= flowIndex("DELIVERED");
     const podDone = hasType(docs, "POD") || statusIdx >= flowIndex("POD_UPLOADED");
     const customerInvDone =
         hasType(docs, "CUSTOMER_INVOICE") || statusIdx >= flowIndex("CUSTOMER_INVOICE");
@@ -102,25 +100,11 @@ export function buildLoadQuickActions(input: {
             need: "Generate BOL first",
         },
         {
-            id: "mark_transit",
-            label: "Mark In Road",
-            status: "IN_TRANSIT",
-            done: transitDone,
-            need: "Mark Loaded / Pickup first",
-        },
-        {
-            id: "mark_delivered",
-            label: "Mark Delivered",
-            status: "DELIVERED",
-            done: deliveredDone,
-            need: "Mark In Road first",
-        },
-        {
             id: "upload_pod",
             label: "Generate POD",
             docType: "POD",
             done: podDone,
-            need: "Mark Delivered first",
+            need: "Mark Loaded / Pickup first",
         },
         {
             id: "create_invoice",
