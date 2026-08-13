@@ -11,6 +11,10 @@ import {
     generateLoadDocumentPdf,
     type LoadDocumentContent,
 } from "./load-pdf.service.js";
+import {
+    assertQuickActionAllowed,
+    quickActionIdForDocType,
+} from "../load-quick-actions.js";
 
 function fmtDate(d?: Date | null) {
     if (!d) return null;
@@ -202,6 +206,23 @@ export class LoadDocumentsService {
             });
         }
 
+        const existingDocs = await prisma.loadDocument.findMany({
+            where: {
+                shipmentLeadId: input.shipmentLeadId,
+                isCurrent: true,
+                status: { not: "ARCHIVED" },
+            },
+            select: { docType: true },
+        });
+        const actionId = quickActionIdForDocType(docType);
+        if (actionId) {
+            assertQuickActionAllowed(actionId, {
+                status: lead.status,
+                carrierName: lead.carrierName,
+                documents: existingDocs,
+            });
+        }
+
         const base = await this.buildContentFromLoad(input.shipmentLeadId);
         const content: LoadDocumentContent = { ...base, ...(input.contentOverrides || {}) };
 
@@ -314,6 +335,8 @@ export class LoadDocumentsService {
             // Keep the left rail in sync with real docs (Rate Con / POD / Invoice).
             if (docType === "RATE_CONFIRMATION" && version === 1) {
                 await tryAdvance("RATE_CON_GENERATED");
+            } else if (docType === "BOL" && version === 1) {
+                await tryAdvance("CARRIER_ACCEPTED");
             } else if (docType === "POD") {
                 await tryAdvance("POD_UPLOADED");
             } else if (docType === "CUSTOMER_INVOICE") {

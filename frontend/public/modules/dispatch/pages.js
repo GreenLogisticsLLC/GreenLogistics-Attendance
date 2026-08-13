@@ -541,6 +541,7 @@ window.GreenOSModules["dispatch"] = {
       if (i > curIdx) curIdx = i;
     }
     if (hasDocType("RATE_CONFIRMATION")) bumpLife("RATE_CON_GENERATED");
+    if (hasDocType("BOL")) bumpLife("CARRIER_ACCEPTED");
     if (hasDocType("POD")) bumpLife("POD_UPLOADED");
     if (hasDocType("CUSTOMER_INVOICE")) bumpLife("CUSTOMER_INVOICE");
     var lifeHtml = lifecycle
@@ -552,11 +553,37 @@ window.GreenOSModules["dispatch"] = {
 
     var actions = (data.quickActions || [])
       .map(function (a) {
-        return (
-          '<button type="button" class="btn-secondary load-action-btn" data-action="' +
-          self.esc(a.id) +
-          '">' +
+        var state = a.state || "current";
+        var cls =
+          "load-action-btn" +
+          (state === "current" ? " btn-primary is-current" : " btn-secondary") +
+          (state === "done" ? " is-done" : "") +
+          (state === "locked" ? " is-locked" : "");
+        var label =
+          (state === "done" ? "✓ " : "") +
           self.esc(a.label) +
+          (state === "locked" ? "" : "");
+        return (
+          '<button type="button" class="' +
+          cls +
+          '" data-action="' +
+          self.esc(a.id) +
+          '" data-state="' +
+          self.esc(state) +
+          '" data-blocked="' +
+          self.esc(a.blockedReason || "") +
+          '"' +
+          (state === "locked" || state === "done" ? " disabled" : "") +
+          " title=\"" +
+          self.esc(
+            state === "locked"
+              ? a.blockedReason || "Complete the previous step first"
+              : state === "done"
+                ? "Completed"
+                : a.label
+          ) +
+          '">' +
+          label +
           "</button>"
         );
       })
@@ -611,6 +638,14 @@ window.GreenOSModules["dispatch"] = {
 
     body.querySelectorAll(".load-action-btn").forEach(function (btn) {
       btn.addEventListener("click", async function () {
+        var state = btn.getAttribute("data-state") || "current";
+        if (state === "locked") {
+          alert(btn.getAttribute("data-blocked") || "Complete the previous step first");
+          return;
+        }
+        if (state === "done") {
+          return;
+        }
         var action = btn.getAttribute("data-action");
         // Assign Carrier = go fill Carrier tab (do not jump status without data).
         if (action === "assign_carrier") {

@@ -5,6 +5,10 @@ import { loadDocumentsService } from "./load-documents.service.js";
 import { TRACKING_STEPS } from "../load.constants.js";
 import { isLoadPhase, normalizeStatus, statusLabel } from "../shipment.lifecycle.js";
 import { allocateLoadNumber } from "../load-number.js";
+import {
+    assertQuickActionAllowed,
+    buildLoadQuickActions,
+} from "../load-quick-actions.js";
 
 function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
@@ -488,18 +492,11 @@ export class LoadService {
                 futureIntegrations: ["RingCentral", "Gmail"],
             },
             timeline: [],
-            quickActions: [
-                { id: "assign_carrier", label: "Assign Carrier", status: "CARRIER_ASSIGNED" },
-                { id: "generate_rate_con", label: "Generate Rate Confirmation", docType: "RATE_CONFIRMATION" },
-                { id: "generate_bol", label: "Generate BOL", docType: "BOL" },
-                { id: "mark_pickup", label: "Mark Loaded / Pickup", status: "PICKUP" },
-                { id: "mark_transit", label: "Mark In Road", status: "IN_TRANSIT" },
-                { id: "mark_delivered", label: "Mark Delivered", status: "DELIVERED" },
-                { id: "upload_pod", label: "Generate POD", docType: "POD" },
-                { id: "create_invoice", label: "Create Invoice", docType: "CUSTOMER_INVOICE" },
-                { id: "carrier_invoice", label: "Carrier Invoice", docType: "CARRIER_INVOICE" },
-                { id: "close_load", label: "Close Load", status: "CLOSED" },
-            ],
+            quickActions: buildLoadQuickActions({
+                status: s.status,
+                carrierName: s.carrierName,
+                documents,
+            }),
             futureReady: [
                 "DAT",
                 "Truckstop",
@@ -655,6 +652,21 @@ export class LoadService {
         actorUserId?: string,
         body?: Record<string, unknown>
     ) {
+        const shipment = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+            select: { status: true, carrierName: true },
+        });
+        if (!shipment) throw Object.assign(new Error("Load not found"), { status: 404 });
+        const documents = await prisma.loadDocument.findMany({
+            where: { shipmentLeadId, isCurrent: true, status: { not: "ARCHIVED" } },
+            select: { docType: true },
+        });
+        assertQuickActionAllowed(action, {
+            status: shipment.status,
+            carrierName: shipment.carrierName,
+            documents,
+        });
+
         const map: Record<string, string> = {
             assign_carrier: "CARRIER_ASSIGNED",
             mark_pickup: "PICKUP",
