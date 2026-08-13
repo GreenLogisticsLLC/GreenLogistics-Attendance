@@ -101,7 +101,7 @@ export function buildLoadQuickActions(input: {
         },
         {
             id: "upload_pod",
-            label: "Generate POD",
+            label: "Upload POD",
             docType: "POD",
             done: podDone,
             need: "Mark Loaded / Pickup first",
@@ -111,7 +111,7 @@ export function buildLoadQuickActions(input: {
             label: "Create Invoice",
             docType: "CUSTOMER_INVOICE",
             done: customerInvDone,
-            need: "Generate POD first",
+            need: "Upload POD first",
         },
         {
             id: "carrier_invoice",

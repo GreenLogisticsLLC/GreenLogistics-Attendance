@@ -7,6 +7,7 @@ import { canViewLoadProfit } from "../../../auth/roles.js";
 import { loadService } from "../services/load.service.js";
 import { loadDocumentsService } from "../services/load-documents.service.js";
 import { LOAD_DOCS_ROOT } from "../services/load-pdf.service.js";
+import { uploadPodFile } from "../services/pod-upload.service.js";
 
 function errStatus(err: unknown): number {
     return (err as { status?: number })?.status || 500;
@@ -242,6 +243,49 @@ export const loadController = {
             res.status(errStatus(err)).json({
                 success: false,
                 message: err instanceof Error ? err.message : "Failed to edit document",
+            });
+        }
+    },
+
+    async uploadPod(req: AuthRequest, res: Response) {
+        try {
+            const id = String(req.params.id || "");
+            const access = await accessOr404(req, res, id);
+            if (!access.ok) return;
+            const file = req.file;
+            if (!file?.path) {
+                res.status(400).json({ success: false, message: "POD file is required" });
+                return;
+            }
+            const confirmSignature =
+                String(req.body?.confirmSignature || "") === "1" ||
+                String(req.body?.confirmSignature || "").toLowerCase() === "true";
+            try {
+                const data = await uploadPodFile({
+                    shipmentLeadId: id,
+                    actorUserId: req.user?.userId,
+                    originalName: file.originalname,
+                    mimeType: file.mimetype,
+                    tempPath: file.path,
+                    confirmSignature,
+                });
+                res.json({ success: true, data });
+            } catch (err) {
+                if (file.path && fs.existsSync(file.path)) {
+                    try {
+                        fs.unlinkSync(file.path);
+                    } catch {
+                        /* ignore */
+                    }
+                }
+                throw err;
+            }
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                code: (err as { code?: string }).code,
+                analysis: (err as { analysis?: unknown }).analysis,
+                message: err instanceof Error ? err.message : "POD upload failed",
             });
         }
     },

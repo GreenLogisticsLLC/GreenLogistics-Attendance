@@ -1416,7 +1416,7 @@ window.GreenOSModules["dispatch"] = {
       ["CARRIER_INVOICE", "Generate Carrier Invoice"],
       ["DISPATCH_SHEET", "Generate Dispatch Sheet"],
       ["LOAD_SUMMARY", "Generate Load Summary"],
-      ["POD", "Generate POD"],
+      ["POD", "Upload POD"],
     ];
 
     var genBtns = genTypes
@@ -2227,12 +2227,15 @@ window.GreenOSModules["dispatch"] = {
     });
   },
 
-  /** POD wizard — Proof of Delivery matching Green Logistics BOL style. */
+  /** POD upload — signed BOL file verified against this load's BOL. */
   showPodWizard(main, id, data, changeReason) {
     var self = this;
     var g = data.general || {};
     var c = data.carrier || {};
-    var contacts = data.contacts || {};
+    var docs = data.documents || [];
+    var bolDoc = docs.find(function (d) {
+      return String(d.docType || "").toUpperCase() === "BOL";
+    });
     var box = main.querySelector("#load-doc-editor");
     if (!box) {
       main.insertAdjacentHTML("beforeend", '<div id="load-doc-editor" class="load-edit-panel"></div>');
@@ -2241,56 +2244,41 @@ window.GreenOSModules["dispatch"] = {
     box.classList.remove("hidden");
 
     function place(obj) {
-      if (!obj) return "";
-      return [obj.city, obj.state, obj.zip].filter(Boolean).join(", ");
+      if (!obj) return "—";
+      return [obj.city, obj.state, obj.zip].filter(Boolean).join(", ") || "—";
     }
-    function dt(d) {
-      if (!d) return "";
-      try {
-        return new Date(d).toLocaleDateString();
-      } catch (e) {
-        return "";
-      }
-    }
-    var pickupSrc = (g.pickup && (g.pickup.opsAt || g.pickup.from)) || null;
-    var deliverySrc = (g.delivery && (g.delivery.opsAt || g.delivery.from)) || null;
 
     box.innerHTML =
-      "<h3>Generate Proof of Delivery (POD)</h3>" +
-      '<p class="gos-muted">Same company header / emails / carrier blocks as BOL — delivery receipt for receiver signature.</p>' +
-      '<div class="load-form-grid">' +
-      '<label>Load / BOL No <input id="pod-no" value="' + self.esc(g.loadNumber || "") + '"></label>' +
-      '<label>Delivery date <input id="pod-ddate" value="' + self.esc(dt(deliverySrc) || new Date().toLocaleDateString()) + '"></label>' +
-      '<label>Broker Gmail <input id="pod-broker-email" value="' +
-      self.esc(contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "") +
-      '" readonly></label>' +
-      '<label>Customer email <input id="pod-customer-email" type="email" value="' +
-      self.esc(contacts.customerEmail || g.customerEmail || "") +
-      '"></label>' +
-      '<label>Carrier email * <input id="pod-carrier-email" type="email" value="' +
-      self.esc(c.carrierEmail || contacts.carrierEmail || "") +
-      '"></label>' +
-      '<label>Customer <input id="pod-customer" value="' + self.esc(g.customer || "") + '"></label>' +
-      '<label class="full">Shipped from <input id="pod-origin" value="' + self.esc(place(g.pickup)) + '"></label>' +
-      '<label>Pickup date <input id="pod-pdate" value="' + self.esc(dt(pickupSrc)) + '"></label>' +
-      '<label class="full">Delivered to <input id="pod-dest" value="' + self.esc(place(g.delivery)) + '"></label>' +
-      '<label>Carrier <input id="pod-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
-      '<label>MC# <input id="pod-mc" value="' + self.esc(c.mc || "") + '"></label>' +
-      '<label>Driver <input id="pod-driver" value="' + self.esc(c.driverName || "") + '"></label>' +
-      '<label>Truck <input id="pod-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
-      '<label>Trailer# <input id="pod-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
-      '<label>Commodity <input id="pod-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
-      '<label># Pkgs <input id="pod-pkgs" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
-      '<label>Weight <input id="pod-weight" value="' + self.esc(g.weight || "") + '"></label>' +
-      '<label>Receiver print name <input id="pod-receiver" value=""></label>' +
-      '<label>Condition <select id="pod-good"><option value="yes">Good order</option><option value="no">Exceptions noted</option></select></label>' +
-      '<label class="full">Exceptions / delivery notes <textarea id="pod-exceptions" rows="2"></textarea></label>' +
-      '<label class="full">Special notes <textarea id="pod-notes" rows="2">' +
-      self.esc(g.specialInstructions || "") +
-      "</textarea></label>" +
+      "<h3>Upload Proof of Delivery (POD)</h3>" +
+      '<p class="gos-muted">Upload the <strong>same BOL</strong> for this load after the receiver signs it. GreenOS checks the file against BOL <strong>' +
+      self.esc(g.loadNumber || "") +
+      "</strong>, requires a receiver signature, and alerts the broker's Team Lead if exception notes are present.</p>" +
+      '<div class="load-grid" style="margin:0.75rem 0">' +
+      '<div class="load-field"><span>Load / BOL</span><strong>' +
+      self.esc(g.loadNumber || "—") +
+      "</strong></div>" +
+      '<div class="load-field"><span>Carrier</span><strong>' +
+      self.esc(c.carrierName || "—") +
+      "</strong></div>" +
+      '<div class="load-field"><span>Pickup</span><strong>' +
+      self.esc(place(g.pickup)) +
+      "</strong></div>" +
+      '<div class="load-field"><span>Delivery</span><strong>' +
+      self.esc(place(g.delivery)) +
+      "</strong></div>" +
       "</div>" +
+      (bolDoc && bolDoc.fileUrl
+        ? '<p><button type="button" class="btn-secondary" id="pod-view-bol">View current BOL</button></p>'
+        : '<p class="error">No BOL on this load yet — generate BOL first.</p>') +
+      '<label class="full" style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.75rem">POD file (PDF or photo)' +
+      '<input type="file" id="pod-file" accept=".pdf,image/*"></label>' +
+      '<label style="display:flex;flex-direction:row;align-items:center;gap:0.5rem;margin-top:0.65rem">' +
+      '<input type="checkbox" id="pod-confirm-sig"> I confirm the receiver signature is visible on this POD' +
+      "</label>" +
       '<div class="load-actions" style="margin-top:0.75rem">' +
-      '<button type="button" class="btn-primary" id="pod-generate">Save &amp; Generate POD PDF</button>' +
+      '<button type="button" class="btn-primary" id="pod-upload"' +
+      (bolDoc ? "" : " disabled") +
+      ">Upload &amp; Verify POD</button>" +
       '<button type="button" class="btn-secondary" id="pod-cancel">Cancel</button>' +
       "</div>" +
       '<p id="pod-status" class="gos-muted" style="margin-top:0.5rem"></p>';
@@ -2300,91 +2288,76 @@ window.GreenOSModules["dispatch"] = {
       box.classList.add("hidden");
       box.innerHTML = "";
     });
+    box.querySelector("#pod-view-bol")?.addEventListener("click", function () {
+      if (!bolDoc || !bolDoc.fileUrl) return;
+      self.openPdf(bolDoc.fileUrl, true).catch(function (err) {
+        alert(err.message || "Failed to open BOL");
+      });
+    });
 
-    box.querySelector("#pod-generate")?.addEventListener("click", async function () {
-      var carrierEmail = (box.querySelector("#pod-carrier-email").value || "").trim();
-      if (!carrierEmail) {
-        alert("Carrier email is required on POD.");
-        box.querySelector("#pod-carrier-email").focus();
+    box.querySelector("#pod-upload")?.addEventListener("click", async function () {
+      var fileInput = box.querySelector("#pod-file");
+      var file = fileInput && fileInput.files && fileInput.files[0];
+      if (!file) {
+        alert("Choose a POD file (signed BOL PDF or photo).");
         return;
       }
       var statusEl = box.querySelector("#pod-status");
-      var btnGen = box.querySelector("#pod-generate");
+      var btn = box.querySelector("#pod-upload");
+      var confirmSig = Boolean(box.querySelector("#pod-confirm-sig")?.checked);
       try {
-        if (btnGen) btnGen.disabled = true;
-        if (statusEl) statusEl.textContent = "Saving load…";
-        await self.api("/" + encodeURIComponent(id), {
-          method: "PATCH",
-          body: JSON.stringify({
-            customerName: box.querySelector("#pod-customer").value || null,
-            customerEmail: box.querySelector("#pod-customer-email").value || null,
-            carrierName: box.querySelector("#pod-carrier").value || null,
-            carrierEmail: carrierEmail,
-            carrierMc: box.querySelector("#pod-mc").value || null,
-            driverName: box.querySelector("#pod-driver").value || null,
-            truckNumber: box.querySelector("#pod-truck").value || null,
-            trailerNumber: box.querySelector("#pod-trailer").value || null,
-            commodity: box.querySelector("#pod-commodity").value || null,
-            weight: box.querySelector("#pod-weight").value || null,
-            pieces: box.querySelector("#pod-pkgs").value || null,
-            specialInstructions: box.querySelector("#pod-notes").value || null,
-            carrierNotes: box.querySelector("#pod-exceptions").value || null,
-          }),
+        if (btn) btn.disabled = true;
+        if (statusEl) statusEl.textContent = "Uploading and verifying against BOL…";
+        var token = localStorage.getItem("gl_token") || "";
+        var fd = new FormData();
+        fd.append("file", file);
+        if (confirmSig) fd.append("confirmSignature", "1");
+        var res = await fetch(
+          "/api/loads/" + encodeURIComponent(id) + "/documents/POD/upload",
+          {
+            method: "POST",
+            headers: { Authorization: "Bearer " + token },
+            body: fd,
+          }
+        );
+        var payload = await res.json().catch(function () {
+          return {};
         });
-        if (statusEl) statusEl.textContent = "Generating POD PDF…";
-        var content = {
-          loadNumber: g.loadNumber,
-          shipmentNumber: g.shipmentNumber,
-          bolNumber: box.querySelector("#pod-no").value,
-          brokerEmail: box.querySelector("#pod-broker-email").value,
-          customerName: box.querySelector("#pod-customer").value,
-          customerEmail: box.querySelector("#pod-customer-email").value,
-          carrierName: box.querySelector("#pod-carrier").value,
-          carrierEmail: carrierEmail,
-          carrierMc: box.querySelector("#pod-mc").value,
-          driverName: box.querySelector("#pod-driver").value,
-          truckNumber: box.querySelector("#pod-truck").value,
-          trailerNumber: box.querySelector("#pod-trailer").value,
-          pickupAddress: box.querySelector("#pod-origin").value,
-          pickupDate: box.querySelector("#pod-pdate").value,
-          deliveryAddress: box.querySelector("#pod-dest").value,
-          deliveryDate: box.querySelector("#pod-ddate").value,
-          commodity: box.querySelector("#pod-commodity").value,
-          pieces: box.querySelector("#pod-pkgs").value,
-          weight: box.querySelector("#pod-weight").value,
-          receiverName: box.querySelector("#pod-receiver").value,
-          deliveredInGoodOrder: box.querySelector("#pod-good").value === "yes",
-          exceptionsNotes: box.querySelector("#pod-exceptions").value,
-          deliveryNote: box.querySelector("#pod-exceptions").value,
-          specialInstructions: box.querySelector("#pod-notes").value,
-          specialNotes: box.querySelector("#pod-notes").value,
-        };
-        var endpoint =
-          (changeReason || "GENERATED") === "GENERATED"
-            ? "/" + encodeURIComponent(id) + "/documents/POD/generate"
-            : "/" + encodeURIComponent(id) + "/documents/POD/edit";
-        var row = await self.api(endpoint, {
-          method: "POST",
-          body: JSON.stringify({ changeReason: changeReason || "GENERATED", content: content }),
-        });
-        if (statusEl) statusEl.textContent = "Done — opening PDF…";
-        await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
-        if (row && row.documentId) {
-          try {
-            await self.openPdf(
-              "/api/loads/" +
-                encodeURIComponent(id) +
-                "/documents/" +
-                encodeURIComponent(row.documentId) +
-                "/download",
-              true
-            );
-          } catch (e) {}
+        if (!res.ok || payload.success === false) {
+          var msg = payload.message || "POD upload failed";
+          if (payload.code === "POD_NO_SIGNATURE") {
+            msg +=
+              "\n\nCheck “I confirm the receiver signature…” if the signature is clearly on the file, then retry.";
+          }
+          throw new Error(msg);
         }
+        var a = (payload.data && payload.data.analysis) || {};
+        var extra =
+          payload.data && payload.data.teamLeadNotified
+            ? " Team Lead was notified about exception notes."
+            : "";
+        if (statusEl) {
+          statusEl.textContent =
+            "POD accepted" + (a.hasExceptionNotes ? " (exceptions noted)." : ".") + extra;
+          statusEl.className = a.hasExceptionNotes ? "error" : "gos-muted";
+        }
+        alert(
+          "POD verified and saved." +
+            (a.hasExceptionNotes ? "\nException notes found — Team Lead notified." : "")
+        );
+        var host =
+          document.querySelector("#load-tms-body") ||
+          main.closest("[data-module]") ||
+          main.parentElement;
+        await self.openLoad(host, id, "documents");
       } catch (err) {
-        alert(err.message || err);
-        if (btnGen) btnGen.disabled = false;
-        if (statusEl) statusEl.textContent = "";
+        if (statusEl) {
+          statusEl.textContent = err.message || "Upload failed";
+          statusEl.className = "error";
+        } else {
+          alert(err.message || err);
+        }
+        if (btn) btn.disabled = false;
       }
     });
   },
