@@ -29,17 +29,86 @@
     currentModule: "dashboard",
     currentSub: null,
     user: null,
+    _historyBound: false,
 
     initShell() {
       this.user = window.GreenOSUser || this.user || null;
       this.renderSidebar();
       this.bindChrome();
+      this.bindHistory();
       if (window.GreenOSRealtime && typeof window.GreenOSRealtime.connect === "function") {
         window.GreenOSRealtime.connect();
       }
+      const fromUrl = this.parseRoute();
       const start =
-        this.user && this.user.role === "Broker" ? "broker" : "dashboard";
-      this.navigate(start);
+        fromUrl.module && this.canAccessModule(fromUrl.module)
+          ? fromUrl.module
+          : this.user && this.user.role === "Broker"
+            ? "broker"
+            : "dashboard";
+      this.navigate(start, fromUrl.sub, { replace: true });
+    },
+
+    /** Parse `#/module` or `#/module/sub` from the URL. */
+    parseRoute() {
+      const raw = String(window.location.hash || "").replace(/^#\/?/, "").trim();
+      if (!raw) return { module: null, sub: null };
+      const parts = raw
+        .split("/")
+        .filter(Boolean)
+        .map(function (p) {
+          try {
+            return decodeURIComponent(p);
+          } catch (e) {
+            return p;
+          }
+        });
+      return { module: parts[0] || null, sub: parts[1] || null };
+    },
+
+    buildRouteUrl(moduleId, subPageId) {
+      let hash = "#/" + encodeURIComponent(moduleId || "dashboard");
+      if (subPageId) hash += "/" + encodeURIComponent(subPageId);
+      return window.location.pathname + window.location.search + hash;
+    },
+
+    writeHistory(moduleId, subPageId, replace) {
+      const state = {
+        gos: true,
+        module: moduleId,
+        sub: subPageId || null,
+      };
+      const url = this.buildRouteUrl(moduleId, subPageId);
+      try {
+        if (replace) {
+          window.history.replaceState(state, "", url);
+        } else {
+          window.history.pushState(state, "", url);
+        }
+      } catch (e) {
+        /* ignore history errors (e.g. file://) */
+      }
+    },
+
+    bindHistory() {
+      if (this._historyBound) return;
+      this._historyBound = true;
+      window.addEventListener("popstate", (e) => {
+        let moduleId = null;
+        let sub = null;
+        if (e.state && e.state.gos && e.state.module) {
+          moduleId = e.state.module;
+          sub = e.state.sub || null;
+        } else {
+          const parsed = this.parseRoute();
+          moduleId = parsed.module;
+          sub = parsed.sub;
+        }
+        if (!moduleId) {
+          moduleId = this.role() === "Broker" ? "broker" : "dashboard";
+        }
+        this.navigate(moduleId, sub, { skipHistory: true });
+      });
     },
 
     role() {
@@ -154,17 +223,27 @@
       });
     },
 
-    navigate(moduleId, subPageId) {
+    navigate(moduleId, subPageId, opts) {
+      opts = opts || {};
       if (!this.canAccessModule(moduleId)) {
         const fallback = this.role() === "Broker" ? "broker" : "dashboard";
         if (moduleId !== fallback) {
-          this.navigate(fallback);
+          this.navigate(fallback, null, { replace: opts.replace, skipHistory: opts.skipHistory });
           return;
         }
       }
+
+      const nextSub = subPageId || null;
+      const same =
+        this.currentModule === moduleId && (this.currentSub || null) === nextSub;
+
       this.currentModule = moduleId;
-      this.currentSub = subPageId || null;
+      this.currentSub = nextSub;
       this.setActiveNav(moduleId);
+
+      if (!opts.skipHistory) {
+        this.writeHistory(moduleId, nextSub, Boolean(opts.replace || same));
+      }
 
       const host = document.getElementById("gos-module-host");
       const attendanceHost = document.getElementById("gos-attendance-host");
@@ -269,7 +348,7 @@
       // A full re-render would destroy an open shipment card mid-edit.
       const modal = document.getElementById("crm-modal");
       if (modal && !modal.classList.contains("hidden")) return;
-      this.navigate(this.currentModule, this.currentSub || undefined);
+      this.navigate(this.currentModule, this.currentSub || undefined, { skipHistory: true });
     },
 
     renderDashboard(root) {
@@ -412,4 +491,6 @@
       });
     },
   };
+
+  window.GreenOSShell = window.GreenOS;
 })();
