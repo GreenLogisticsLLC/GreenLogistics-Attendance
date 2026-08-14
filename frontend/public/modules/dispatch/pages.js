@@ -2377,7 +2377,7 @@ window.GreenOSModules["dispatch"] = {
       '<div class="crm-modal-card load-review-card">' +
       '<div class="crm-modal-head">' +
       "<div><h2>Send Review Link</h2>" +
-      '<p class="gos-muted">Choose Customer, Carrier, or both. The thank-you email is sent from your connected Gmail with Google, LinkedIn, and website review links.</p></div>' +
+      '<p class="gos-muted">Choose Customer, Carrier, or both. The thank-you email goes out from your connected Gmail, or from company mail if your Gmail is not linked.</p></div>' +
       '<button type="button" class="btn-secondary" id="review-close">Close</button>' +
       "</div>" +
       '<div class="load-review-choices">' +
@@ -2424,7 +2424,7 @@ window.GreenOSModules["dispatch"] = {
       "</div>" +
       '<p id="review-status" class="gos-muted"></p>' +
       '<div class="load-actions">' +
-      '<button type="button" class="btn-primary" id="review-send">Send from Gmail</button>' +
+      '<button type="button" class="btn-primary" id="review-send">Send Review Email</button>' +
       "</div></div>";
     document.body.appendChild(modal);
 
@@ -2460,7 +2460,23 @@ window.GreenOSModules["dispatch"] = {
           }
         );
         closeModal();
-        var msg = "Review link sent.";
+        var rows = (result && result.reviewSendResult) || [];
+        var msg = rows.length
+          ? "Review link sent:\n" +
+            rows
+              .map(function (r) {
+                return (
+                  "• " +
+                  r.kind +
+                  " → " +
+                  r.to +
+                  "\n   from " +
+                  r.from +
+                  (r.via === "system" ? " (company mail — your Gmail is not connected)" : "")
+                );
+              })
+              .join("\n")
+          : "Review link sent.";
         if (result && result.reviewSendWarning) {
           msg += "\n\n" + result.reviewSendWarning;
         }

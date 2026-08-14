@@ -788,13 +788,8 @@ export class LoadService {
                 );
             }
 
+            const senderUserIds = [actorUserId, shipment.assignedBrokerId];
             const brokerUserId = shipment.assignedBrokerId || actorUserId;
-            if (!brokerUserId) {
-                throw Object.assign(
-                    new Error("Assign a broker to this load before sending the review email"),
-                    { status: 422 }
-                );
-            }
 
             const customerEmail = String(body?.customerEmail || shipment.customerEmail || "")
                 .trim()
@@ -816,18 +811,28 @@ export class LoadService {
             }
 
             const now = new Date();
-            const sent: Array<{ kind: "customer" | "carrier"; to: string; from: string }> = [];
+            const sent: Array<{
+                kind: "customer" | "carrier";
+                to: string;
+                from: string;
+                via: "broker-gmail" | "system";
+            }> = [];
             const errors: string[] = [];
             if (sendCustomer) {
                 try {
                     const result = await sendLoadReviewEmail({
-                        brokerUserId,
+                        senderUserIds,
                         to: customerEmail,
                         recipientKind: "customer",
                         recipientName: shipment.customerName,
                         loadNumber: shipment.loadNumber,
                     });
-                    sent.push({ kind: "customer", to: customerEmail, from: result.from });
+                    sent.push({
+                        kind: "customer",
+                        to: customerEmail,
+                        from: result.from,
+                        via: result.via,
+                    });
                 } catch (err) {
                     errors.push(
                         `Customer (${customerEmail}): ${err instanceof Error ? err.message : String(err)}`
@@ -837,13 +842,18 @@ export class LoadService {
             if (sendCarrier) {
                 try {
                     const result = await sendLoadReviewEmail({
-                        brokerUserId,
+                        senderUserIds,
                         to: carrierEmail,
                         recipientKind: "carrier",
                         recipientName: shipment.carrierName,
                         loadNumber: shipment.loadNumber,
                     });
-                    sent.push({ kind: "carrier", to: carrierEmail, from: result.from });
+                    sent.push({
+                        kind: "carrier",
+                        to: carrierEmail,
+                        from: result.from,
+                        via: result.via,
+                    });
                 } catch (err) {
                     errors.push(
                         `Carrier (${carrierEmail}): ${err instanceof Error ? err.message : String(err)}`
@@ -875,7 +885,7 @@ export class LoadService {
                               reviewCarrierSentTo: carrierSent.to,
                           }
                         : {}),
-                    reviewSentById: actorUserId || brokerUserId,
+                    reviewSentById: actorUserId || brokerUserId || null,
                 },
             });
 
@@ -893,6 +903,7 @@ export class LoadService {
             const details = await this.getLoadDetails(shipmentLeadId);
             return {
                 ...details,
+                reviewSendResult: sent,
                 reviewSendWarning: errors.length ? errors.join(" ") : null,
             };
         }
