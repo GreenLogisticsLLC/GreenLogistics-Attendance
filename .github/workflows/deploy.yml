@@ -32,15 +32,21 @@ jobs:
           GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
           GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
           PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
         run: |
           OPENAI_KEY_B64="$(printf '%s' "${OPENAI_API_KEY:-}" | base64 -w0)"
           OPENAI_MODEL_SAFE="${OPENAI_MODEL:-gpt-5.5}"
           GMAIL_CLIENT_ID_B64="$(printf '%s' "${GMAIL_CLIENT_ID:-}" | base64 -w0)"
           GMAIL_CLIENT_SECRET_B64="$(printf '%s' "${GMAIL_CLIENT_SECRET:-}" | base64 -w0)"
           PUBLIC_APP_URL_B64="$(printf '%s' "${PUBLIC_APP_URL:-}" | base64 -w0)"
+          SMTP_B64="$(printf '%s\n%s\n%s\n%s\n%s' "${SMTP_HOST:-}" "${SMTP_PORT:-587}" "${SMTP_USER:-}" "${SMTP_PASS:-}" "${SMTP_FROM:-}" | base64 -w0)"
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
-            "OPENAI_KEY_B64='${OPENAI_KEY_B64}' OPENAI_MODEL_SAFE='${OPENAI_MODEL_SAFE}' GMAIL_CLIENT_ID_B64='${GMAIL_CLIENT_ID_B64}' GMAIL_CLIENT_SECRET_B64='${GMAIL_CLIENT_SECRET_B64}' PUBLIC_APP_URL_B64='${PUBLIC_APP_URL_B64}' bash -s" << 'EOF'
+            "OPENAI_KEY_B64='${OPENAI_KEY_B64}' OPENAI_MODEL_SAFE='${OPENAI_MODEL_SAFE}' GMAIL_CLIENT_ID_B64='${GMAIL_CLIENT_ID_B64}' GMAIL_CLIENT_SECRET_B64='${GMAIL_CLIENT_SECRET_B64}' PUBLIC_APP_URL_B64='${PUBLIC_APP_URL_B64}' SMTP_B64='${SMTP_B64}' bash -s" << 'EOF'
           set -euo pipefail
           cd /root/GreenLogistics-Attendance
           git fetch origin
@@ -91,6 +97,23 @@ jobs:
             echo "Synced Gmail OAuth configuration to server .env"
           else
             echo "WARN: Gmail OAuth GitHub secrets are empty"
+          fi
+
+          # Outbound corporate mailbox (review + system mail) — never stored in git.
+          SMTP_PLAIN="$(printf '%s' "${SMTP_B64:-}" | base64 -d || true)"
+          SMTP_HOST="$(printf '%s' "$SMTP_PLAIN" | sed -n '1p' | tr -d '\r')"
+          SMTP_PORT="$(printf '%s' "$SMTP_PLAIN" | sed -n '2p' | tr -d '\r')"
+          SMTP_USER="$(printf '%s' "$SMTP_PLAIN" | sed -n '3p' | tr -d '\r')"
+          SMTP_PASS="$(printf '%s' "$SMTP_PLAIN" | sed -n '4p' | tr -d '\r')"
+          SMTP_FROM="$(printf '%s' "$SMTP_PLAIN" | sed -n '5p' | tr -d '\r')"
+          if [ -n "${SMTP_HOST:-}" ] && [ -n "${SMTP_USER:-}" ] && [ -n "${SMTP_PASS:-}" ]; then
+            grep -vE '^(SMTP_HOST|SMTP_PORT|SMTP_USER|SMTP_PASS|SMTP_FROM)=' .env > .env.smtp.tmp || true
+            printf 'SMTP_HOST=%s\nSMTP_PORT=%s\nSMTP_USER=%s\nSMTP_PASS=%s\nSMTP_FROM=%s\n' \
+              "$SMTP_HOST" "${SMTP_PORT:-587}" "$SMTP_USER" "$SMTP_PASS" "${SMTP_FROM:-$SMTP_USER}" >> .env.smtp.tmp
+            mv .env.smtp.tmp .env
+            echo "Synced SMTP configuration to server .env (user=${SMTP_USER})"
+          else
+            echo "WARN: SMTP GitHub secrets are empty — review emails cannot be sent"
           fi
 
           npm run build
