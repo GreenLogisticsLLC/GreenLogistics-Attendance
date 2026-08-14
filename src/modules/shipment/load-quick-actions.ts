@@ -45,6 +45,8 @@ export function buildLoadQuickActions(input: {
     carrierName?: string | null;
     customerPaidAt?: Date | string | null;
     carrierPaidAt?: Date | string | null;
+    reviewCustomerSentAt?: Date | string | null;
+    reviewCarrierSentAt?: Date | string | null;
     documents: Array<{ docType?: string | null; contentJson?: string | null }>;
 }): LoadQuickAction[] {
     const statusIdx = flowIndex(input.status);
@@ -90,6 +92,10 @@ export function buildLoadQuickActions(input: {
     const legacyPaid = statusIdx >= flowIndex("CARRIER_PAYMENT");
     const customerPaid = Boolean(input.customerPaidAt) || legacyPaid || closedDone;
     const carrierPaid = Boolean(input.carrierPaidAt) || legacyPaid || closedDone;
+    const reviewSent =
+        Boolean(input.reviewCustomerSentAt) ||
+        Boolean(input.reviewCarrierSentAt) ||
+        closedDone;
 
     const defs: Array<{
         id: string;
@@ -150,22 +156,44 @@ export function buildLoadQuickActions(input: {
             need: "Accounting has not marked Carrier Paid",
         },
         {
+            id: "send_review_link",
+            label: "Send Review Link",
+            done: reviewSent,
+            need: "Upload POD with receiver SIGNATURE first",
+        },
+        {
             id: "close_load",
             label: "Close Load",
             status: "CLOSED",
             done: closedDone,
-            need: "Customer Paid and Carrier Paid are required before closing",
+            need: !reviewSent
+                ? "Send Review Link first"
+                : "Customer Paid and Carrier Paid are required before closing",
         },
     ];
 
-    const firstOpen = defs.findIndex((d) => !d.done);
+    const firstOpenAction = defs.findIndex((d) => !d.done && d.kind !== "status");
+    const firstOpenPayment = defs.findIndex((d) => !d.done && d.kind === "status");
 
     return defs.map((d, i) => {
         let state: QuickActionState;
         let blockedReason: string | undefined;
         if (d.done) {
             state = "done";
-        } else if (i === firstOpen) {
+        } else if (d.kind === "status") {
+            if (i === firstOpenPayment) {
+                state = "current";
+            } else {
+                state = "locked";
+                blockedReason = d.need;
+            }
+        } else if (
+            d.id === "close_load" &&
+            (!reviewSent || !customerPaid || !carrierPaid)
+        ) {
+            state = "locked";
+            blockedReason = d.need;
+        } else if (i === firstOpenAction) {
             state = "current";
         } else {
             state = "locked";
@@ -191,6 +219,8 @@ export function assertQuickActionAllowed(
         carrierName?: string | null;
         customerPaidAt?: Date | string | null;
         carrierPaidAt?: Date | string | null;
+        reviewCustomerSentAt?: Date | string | null;
+        reviewCarrierSentAt?: Date | string | null;
         documents: Array<{ docType?: string | null }>;
     }
 ) {
@@ -208,6 +238,8 @@ export function assertQuickActionAllowed(
     if (row.state === "done") {
         // Allow document regenerations (new PDF versions) from wizards / actions.
         if (row.docType) return;
+        // Brokers may still send the remaining customer/carrier review email.
+        if (actionId === "send_review_link") return;
         throw Object.assign(new Error("This step is already completed"), {
             status: 422,
             code: "STEP_DONE",

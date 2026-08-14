@@ -11,6 +11,7 @@ import {
     assertQuickActionAllowed,
     buildLoadQuickActions,
 } from "../load-quick-actions.js";
+import { sendLoadReviewEmail } from "./load-review-email.service.js";
 
 function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
@@ -20,6 +21,10 @@ function parseMoneyValue(v: unknown): number | null {
     if (v == null || v === "") return null;
     const n = typeof v === "number" ? v : Number(String(v).replace(/[^0-9.-]/g, ""));
     return Number.isFinite(n) ? n : null;
+}
+
+function looksLikeEmail(v: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
 }
 
 /** Prefer invoice total (what customer pays), not hourly rate. */
@@ -493,6 +498,12 @@ export class LoadService {
                         ? 0
                         : pricing.totalRevenue,
             },
+            reviews: {
+                customerSentAt: s.reviewCustomerSentAt,
+                customerSentTo: s.reviewCustomerSentTo,
+                carrierSentAt: s.reviewCarrierSentAt,
+                carrierSentTo: s.reviewCarrierSentTo,
+            },
             communications: {
                 emails: mailbox,
                 sms: [],
@@ -505,6 +516,8 @@ export class LoadService {
                 carrierName: s.carrierName,
                 customerPaidAt: s.customerPaidAt,
                 carrierPaidAt: s.carrierPaidAt,
+                reviewCustomerSentAt: s.reviewCustomerSentAt,
+                reviewCarrierSentAt: s.reviewCarrierSentAt,
                 documents,
             }),
             futureReady: [
@@ -668,8 +681,13 @@ export class LoadService {
             select: {
                 status: true,
                 carrierName: true,
+                customerName: true,
+                customerEmail: true,
+                carrierEmail: true,
                 customerPaidAt: true,
                 carrierPaidAt: true,
+                reviewCustomerSentAt: true,
+                reviewCarrierSentAt: true,
                 loadNumber: true,
                 assignedBrokerId: true,
             },
@@ -684,6 +702,8 @@ export class LoadService {
             carrierName: shipment.carrierName,
             customerPaidAt: shipment.customerPaidAt,
             carrierPaidAt: shipment.carrierPaidAt,
+            reviewCustomerSentAt: shipment.reviewCustomerSentAt,
+            reviewCarrierSentAt: shipment.reviewCarrierSentAt,
             documents,
         });
 
@@ -738,7 +758,7 @@ export class LoadService {
                     title: customerPayment ? "Customer Paid" : "Carrier Paid",
                     message: customerPayment
                         ? `Payment Received for Load ${shipment.loadNumber || ""}`
-                        : `Carrier / factoring payment completed for Load ${shipment.loadNumber || ""}. Close Load is now available.`,
+                        : `Carrier / factoring payment completed for Load ${shipment.loadNumber || ""}`,
                     shipmentLeadId,
                     meta: { paidAt: now.toISOString() },
                 });
@@ -756,6 +776,125 @@ export class LoadService {
                 }
             }
             return this.getLoadDetails(shipmentLeadId);
+        }
+
+        if (action === "send_review_link") {
+            const sendCustomer = Boolean(body?.sendCustomer ?? body?.customer);
+            const sendCarrier = Boolean(body?.sendCarrier ?? body?.carrier);
+            if (!sendCustomer && !sendCarrier) {
+                throw Object.assign(
+                    new Error("Choose Send Customer, Send Carrier, or both"),
+                    { status: 422 }
+                );
+            }
+
+            const brokerUserId = shipment.assignedBrokerId || actorUserId;
+            if (!brokerUserId) {
+                throw Object.assign(
+                    new Error("Assign a broker to this load before sending the review email"),
+                    { status: 422 }
+                );
+            }
+
+            const customerEmail = String(body?.customerEmail || shipment.customerEmail || "")
+                .trim()
+                .toLowerCase();
+            const carrierEmail = String(body?.carrierEmail || shipment.carrierEmail || "")
+                .trim()
+                .toLowerCase();
+            if (sendCustomer && !looksLikeEmail(customerEmail)) {
+                throw Object.assign(
+                    new Error("Customer email is missing or invalid. Save it on the General tab first."),
+                    { status: 422 }
+                );
+            }
+            if (sendCarrier && !looksLikeEmail(carrierEmail)) {
+                throw Object.assign(
+                    new Error("Carrier email is missing or invalid. Save it on the Carrier tab first."),
+                    { status: 422 }
+                );
+            }
+
+            const now = new Date();
+            const sent: Array<{ kind: "customer" | "carrier"; to: string; from: string }> = [];
+            const errors: string[] = [];
+            if (sendCustomer) {
+                try {
+                    const result = await sendLoadReviewEmail({
+                        brokerUserId,
+                        to: customerEmail,
+                        recipientKind: "customer",
+                        recipientName: shipment.customerName,
+                        loadNumber: shipment.loadNumber,
+                    });
+                    sent.push({ kind: "customer", to: customerEmail, from: result.from });
+                } catch (err) {
+                    errors.push(
+                        `Customer (${customerEmail}): ${err instanceof Error ? err.message : String(err)}`
+                    );
+                }
+            }
+            if (sendCarrier) {
+                try {
+                    const result = await sendLoadReviewEmail({
+                        brokerUserId,
+                        to: carrierEmail,
+                        recipientKind: "carrier",
+                        recipientName: shipment.carrierName,
+                        loadNumber: shipment.loadNumber,
+                    });
+                    sent.push({ kind: "carrier", to: carrierEmail, from: result.from });
+                } catch (err) {
+                    errors.push(
+                        `Carrier (${carrierEmail}): ${err instanceof Error ? err.message : String(err)}`
+                    );
+                }
+            }
+            if (!sent.length) {
+                throw Object.assign(new Error(errors.join("\n") || "Failed to send review email"), {
+                    status: 400,
+                });
+            }
+
+            const customerSent = sent.find((row) => row.kind === "customer");
+            const carrierSent = sent.find((row) => row.kind === "carrier");
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId },
+                data: {
+                    ...(customerSent
+                        ? {
+                              customerEmail: customerSent.to,
+                              reviewCustomerSentAt: now,
+                              reviewCustomerSentTo: customerSent.to,
+                          }
+                        : {}),
+                    ...(carrierSent
+                        ? {
+                              carrierEmail: carrierSent.to,
+                              reviewCarrierSentAt: now,
+                              reviewCarrierSentTo: carrierSent.to,
+                          }
+                        : {}),
+                    reviewSentById: actorUserId || brokerUserId,
+                },
+            });
+
+            await domainEventEngine.emit({
+                shipmentLeadId,
+                eventType: "REVIEW_LINK_SENT",
+                title: "Review Link Sent",
+                message: `Thank-you / review email sent to ${sent
+                    .map((row) => `${row.kind} (${row.to})`)
+                    .join(" and ")} for Load ${shipment.loadNumber || ""}`,
+                actorUserId,
+                payload: { sent, errors },
+            });
+
+            const details = await this.getLoadDetails(shipmentLeadId);
+            return {
+                ...details,
+                reviewSendWarning: errors.length ? errors.join(" ") : null,
+            };
         }
 
         const map: Record<string, string> = {

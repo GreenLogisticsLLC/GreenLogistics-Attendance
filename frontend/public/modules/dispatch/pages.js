@@ -566,6 +566,8 @@ window.GreenOSModules["dispatch"] = {
           (state === "done" ? "✓ " : "") +
           self.esc(a.label) +
           (state === "locked" ? "" : "");
+        var disabled =
+          state === "locked" || (state === "done" && a.id !== "send_review_link");
         return (
           '<button type="button" class="' +
           cls +
@@ -576,13 +578,15 @@ window.GreenOSModules["dispatch"] = {
           '" data-blocked="' +
           self.esc(a.blockedReason || "") +
           '"' +
-          (state === "locked" || state === "done" ? " disabled" : "") +
+          (disabled ? " disabled" : "") +
           " title=\"" +
           self.esc(
             state === "locked"
               ? a.blockedReason || "Complete the previous step first"
               : state === "done"
-                ? "Completed"
+                ? a.id === "send_review_link"
+                  ? "Sent — click to send again or to the other party"
+                  : "Completed"
                 : a.label
           ) +
           '">' +
@@ -674,14 +678,14 @@ window.GreenOSModules["dispatch"] = {
     body.querySelectorAll(".load-action-btn").forEach(function (btn) {
       btn.addEventListener("click", async function () {
         var state = btn.getAttribute("data-state") || "current";
+        var action = btn.getAttribute("data-action");
         if (state === "locked") {
           alert(btn.getAttribute("data-blocked") || "Complete the previous step first");
           return;
         }
-        if (state === "done") {
+        if (state === "done" && action !== "send_review_link") {
           return;
         }
-        var action = btn.getAttribute("data-action");
         // Assign Carrier = go fill Carrier tab (do not jump status without data).
         if (action === "assign_carrier") {
           self._tab = "carrier";
@@ -730,6 +734,10 @@ window.GreenOSModules["dispatch"] = {
             var mainEl = body.querySelector("#load-main");
             if (mainEl) self.showInvoiceWizard(mainEl, id, data, "GENERATED");
           }, 40);
+          return;
+        }
+        if (action === "send_review_link") {
+          self.showReviewLinkModal(body, id, data);
           return;
         }
         try {
@@ -2350,7 +2358,120 @@ window.GreenOSModules["dispatch"] = {
     });
   },
 
-  /** POD upload — signed BOL file verified against this load's BOL. */
+  /** Thank-you / review link email: Send Customer, Send Carrier, or both. */
+  showReviewLinkModal(body, id, data) {
+    var self = this;
+    document.getElementById("load-review-modal")?.remove();
+    var reviews = data.reviews || {};
+    var contacts = data.contacts || {};
+    var g = data.general || {};
+    var c = data.carrier || {};
+    var customerEmail = contacts.customerEmail || g.customerEmail || "";
+    var carrierEmail = contacts.carrierEmail || (c && c.carrierEmail) || "";
+    var customerSent = Boolean(reviews.customerSentAt);
+    var carrierSent = Boolean(reviews.carrierSentAt);
+    var modal = document.createElement("div");
+    modal.id = "load-review-modal";
+    modal.className = "crm-modal";
+    modal.innerHTML =
+      '<div class="crm-modal-card load-review-card">' +
+      '<div class="crm-modal-head">' +
+      "<div><h2>Send Review Link</h2>" +
+      '<p class="gos-muted">Choose Customer, Carrier, or both. The thank-you email is sent from your connected Gmail with Google, LinkedIn, and website review links.</p></div>' +
+      '<button type="button" class="btn-secondary" id="review-close">Close</button>' +
+      "</div>" +
+      '<div class="load-review-choices">' +
+      '<label class="load-review-choice' +
+      (customerSent ? " is-sent" : "") +
+      '">' +
+      '<input type="checkbox" id="review-send-customer"' +
+      (customerEmail ? " checked" : "") +
+      ">" +
+      "<div><strong>Send Customer</strong>" +
+      "<span>" +
+      self.esc(g.customer || "Customer") +
+      "</span>" +
+      '<input type="email" id="review-customer-email" value="' +
+      self.esc(customerEmail) +
+      '" placeholder="customer@email.com">' +
+      (customerSent
+        ? "<small>✓ Sent " +
+          self.esc(new Date(reviews.customerSentAt).toLocaleString()) +
+          (reviews.customerSentTo ? " to " + self.esc(reviews.customerSentTo) : "") +
+          "</small>"
+        : "") +
+      "</div></label>" +
+      '<label class="load-review-choice' +
+      (carrierSent ? " is-sent" : "") +
+      '">' +
+      '<input type="checkbox" id="review-send-carrier"' +
+      (carrierEmail ? " checked" : "") +
+      ">" +
+      "<div><strong>Send Carrier</strong>" +
+      "<span>" +
+      self.esc((c && c.carrierName) || "Carrier") +
+      "</span>" +
+      '<input type="email" id="review-carrier-email" value="' +
+      self.esc(carrierEmail) +
+      '" placeholder="carrier@email.com">' +
+      (carrierSent
+        ? "<small>✓ Sent " +
+          self.esc(new Date(reviews.carrierSentAt).toLocaleString()) +
+          (reviews.carrierSentTo ? " to " + self.esc(reviews.carrierSentTo) : "") +
+          "</small>"
+        : "") +
+      "</div></label>" +
+      "</div>" +
+      '<p id="review-status" class="gos-muted"></p>' +
+      '<div class="load-actions">' +
+      '<button type="button" class="btn-primary" id="review-send">Send from Gmail</button>' +
+      "</div></div>";
+    document.body.appendChild(modal);
+
+    function closeModal() {
+      modal.remove();
+    }
+    modal.addEventListener("click", function (ev) {
+      if (ev.target === modal) closeModal();
+    });
+    modal.querySelector("#review-close")?.addEventListener("click", closeModal);
+    modal.querySelector("#review-send")?.addEventListener("click", async function () {
+      var sendBtn = modal.querySelector("#review-send");
+      var statusEl = modal.querySelector("#review-status");
+      var sendCustomer = modal.querySelector("#review-send-customer").checked;
+      var sendCarrier = modal.querySelector("#review-send-carrier").checked;
+      if (!sendCustomer && !sendCarrier) {
+        alert("Choose Send Customer, Send Carrier, or both.");
+        return;
+      }
+      try {
+        if (sendBtn) sendBtn.disabled = true;
+        if (statusEl) statusEl.textContent = "Sending thank-you email from your Gmail…";
+        var result = await self.api(
+          "/" + encodeURIComponent(id) + "/actions/send_review_link",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              sendCustomer: sendCustomer,
+              sendCarrier: sendCarrier,
+              customerEmail: modal.querySelector("#review-customer-email").value,
+              carrierEmail: modal.querySelector("#review-carrier-email").value,
+            }),
+          }
+        );
+        closeModal();
+        var msg = "Review link sent.";
+        if (result && result.reviewSendWarning) {
+          msg += "\n\n" + result.reviewSendWarning;
+        }
+        alert(msg);
+        self.openLoad(body, id, self._tab);
+      } catch (err) {
+        if (statusEl) statusEl.textContent = err.message || "Failed to send";
+        if (sendBtn) sendBtn.disabled = false;
+      }
+    });
+  },
   showPodWizard(main, id, data, changeReason) {
     var self = this;
     var g = data.general || {};

@@ -342,6 +342,12 @@ model ShipmentLead {
   /// Accounting confirms carrier / factoring company was paid.
   carrierPaidAt         DateTime?               @map("carrier_paid_at")
   carrierPaidById       String?                 @map("carrier_paid_by_id")
+  /// Thank-you / review link emails sent by the broker before Close Load.
+  reviewCustomerSentAt  DateTime?               @map("review_customer_sent_at")
+  reviewCustomerSentTo  String?                 @map("review_customer_sent_to")
+  reviewCarrierSentAt   DateTime?               @map("review_carrier_sent_at")
+  reviewCarrierSentTo   String?                 @map("review_carrier_sent_to")
+  reviewSentById        String?                 @map("review_sent_by_id")
   /// Pricing (broker never hand-calculates profit — derived in API).
   customerRate          Float?                  @map("customer_rate")
   carrierRate           Float?                  @map("carrier_rate")
