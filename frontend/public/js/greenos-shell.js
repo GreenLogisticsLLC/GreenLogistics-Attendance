@@ -162,6 +162,19 @@
       document.getElementById("gos-sidebar-toggle")?.addEventListener("click", () => {
         document.getElementById("gos-sidebar")?.classList.toggle("is-open");
       });
+      const globalSearch = document.getElementById("gos-global-search");
+      if (globalSearch && globalSearch.dataset.routeBound !== "1") {
+        globalSearch.dataset.routeBound = "1";
+        globalSearch.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter" || !globalSearch.value.trim()) return;
+          if (this.role() === "Broker") {
+            e.preventDefault();
+            this.navigate("broker", "shipments");
+            // My Shipments reads the existing search value while rendering.
+            globalSearch.dispatchEvent(new Event("input"));
+          }
+        });
+      }
       document.getElementById("gos-notifications-btn")?.addEventListener("click", () => {
         if (window.GreenOSRealtime) window.GreenOSRealtime.clearUnread();
         if (this.role() === "Broker") {

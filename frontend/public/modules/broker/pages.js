@@ -277,17 +277,39 @@ window.GreenOSModules.broker = {
 
     var paintGen = 0;
 
+    function searchQuery() {
+      var input = document.getElementById("gos-global-search");
+      return input ? String(input.value || "").trim().toLowerCase() : "";
+    }
+
+    function filterByLocationZip(rows) {
+      var query = searchQuery();
+      if (!query) return rows;
+      return rows.filter(function (shipment) {
+        var locations =
+          String(shipment.pickup || "") + " " + String(shipment.delivery || "");
+        return locations.toLowerCase().includes(query);
+      });
+    }
+
     function renderRows(rows) {
       var tbody = document.getElementById("broker-ship-body");
       if (!tbody) return;
       var esc = self.esc.bind(self);
       var fmt = self.fmtDate.bind(self);
       var badge = self.statusBadge.bind(self);
-      if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="7">No shipments assigned yet</td></tr>';
+      var query = searchQuery();
+      var visibleRows = filterByLocationZip(rows);
+      if (!visibleRows.length) {
+        tbody.innerHTML =
+          '<tr><td colspan="7">' +
+          (query
+            ? "No shipments found for ZIP " + esc(query)
+            : "No shipments assigned yet") +
+          "</td></tr>";
         return;
       }
-      tbody.innerHTML = rows
+      tbody.innerHTML = visibleRows
         .map(function (s, i) {
           return (
             '<tr class="crm-row" data-id="' +
@@ -327,6 +349,26 @@ window.GreenOSModules.broker = {
       });
     }
 
+    function applyGlobalSearch() {
+      if (!document.getElementById("broker-ship-body")) return;
+      var rows = self._shipmentsCache || [];
+      var visibleCount = filterByLocationZip(rows).length;
+      var query = searchQuery();
+      var syncEl = document.getElementById("broker-ship-sync");
+      renderRows(rows);
+      if (syncEl && query) {
+        syncEl.textContent =
+          "ZIP " + query + " · " + visibleCount + " matching shipment(s)";
+      }
+    }
+
+    var globalSearch = document.getElementById("gos-global-search");
+    if (window.GreenOSBrokerSearchHandler && globalSearch) {
+      globalSearch.removeEventListener("input", window.GreenOSBrokerSearchHandler);
+    }
+    window.GreenOSBrokerSearchHandler = applyGlobalSearch;
+    globalSearch?.addEventListener("input", applyGlobalSearch);
+
     async function paint(force) {
       var tbody = document.getElementById("broker-ship-body");
       var syncEl = document.getElementById("broker-ship-sync");
@@ -358,11 +400,18 @@ window.GreenOSModules.broker = {
         var rows = data.data || [];
         self._shipmentsCache = rows;
         if (syncEl) {
-          syncEl.textContent =
-            "Auto-refresh on · " +
-            rows.length +
-            " shipment(s) · updated " +
-            new Date().toLocaleTimeString();
+          var query = searchQuery();
+          syncEl.textContent = query
+            ? "ZIP " +
+              query +
+              " · " +
+              filterByLocationZip(rows).length +
+              " matching shipment(s) · updated " +
+              new Date().toLocaleTimeString()
+            : "Auto-refresh on · " +
+              rows.length +
+              " shipment(s) · updated " +
+              new Date().toLocaleTimeString();
         }
         renderRows(rows);
       } catch (err) {
