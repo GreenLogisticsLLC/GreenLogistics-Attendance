@@ -2233,6 +2233,9 @@ window.GreenOSModules["dispatch"] = {
     var g = data.general || {};
     var c = data.carrier || {};
     var docs = data.documents || [];
+    var role = self.role();
+    var canManualApprove =
+      role === "Team Lead" || role === "Manager" || role === "Accounting";
     var bolDoc = docs.find(function (d) {
       return String(d.docType || "").toUpperCase() === "BOL";
     });
@@ -2275,6 +2278,17 @@ window.GreenOSModules["dispatch"] = {
       '<label style="display:flex;flex-direction:row;align-items:center;gap:0.5rem;margin-top:0.65rem">' +
       '<input type="checkbox" id="pod-confirm-sig"> I confirm there is a mark in the SIGNATURE box (receiver received cargo)' +
       "</label>" +
+      (canManualApprove
+        ? '<div style="margin-top:0.75rem;padding:0.75rem;border:1px solid var(--gos-border);border-radius:8px">' +
+          '<label style="display:flex;flex-direction:row;align-items:center;gap:0.5rem">' +
+          '<input type="checkbox" id="pod-manual-approve"> Manually approve this POD (' +
+          self.esc(role) +
+          ")</label>" +
+          '<label style="display:flex;flex-direction:column;gap:0.3rem;margin-top:0.55rem">Approval reason' +
+          '<input id="pod-manual-reason" placeholder="Why automated verification may be overridden"></label>' +
+          '<p class="gos-muted" style="margin:0.4rem 0 0">Manual approval is recorded in the Load timeline and POD audit.</p>' +
+          "</div>"
+        : "") +
       '<div class="load-actions" style="margin-top:0.75rem">' +
       '<button type="button" class="btn-primary" id="pod-upload"' +
       (bolDoc ? "" : " disabled") +
@@ -2305,6 +2319,13 @@ window.GreenOSModules["dispatch"] = {
       var statusEl = box.querySelector("#pod-status");
       var btn = box.querySelector("#pod-upload");
       var confirmSig = Boolean(box.querySelector("#pod-confirm-sig")?.checked);
+      var manualApprove = Boolean(box.querySelector("#pod-manual-approve")?.checked);
+      var manualReason = String(box.querySelector("#pod-manual-reason")?.value || "").trim();
+      if (manualApprove && !manualReason) {
+        alert("Enter the reason for manual POD approval.");
+        box.querySelector("#pod-manual-reason")?.focus();
+        return;
+      }
       try {
         if (btn) btn.disabled = true;
         if (statusEl) statusEl.textContent = "Uploading and verifying against BOL…";
@@ -2312,6 +2333,10 @@ window.GreenOSModules["dispatch"] = {
         var fd = new FormData();
         fd.append("file", file);
         if (confirmSig) fd.append("confirmSignature", "1");
+        if (manualApprove) {
+          fd.append("manualApprove", "1");
+          fd.append("manualApprovalReason", manualReason);
+        }
         var res = await fetch(
           "/api/loads/" + encodeURIComponent(id) + "/documents/POD/upload",
           {
@@ -2342,7 +2367,9 @@ window.GreenOSModules["dispatch"] = {
           statusEl.className = a.hasExceptionNotes ? "error" : "gos-muted";
         }
         alert(
-          "POD verified — receiver SIGNATURE accepted. Cargo marked received." +
+          (payload.data && payload.data.manuallyApproved
+            ? "POD manually approved and saved."
+            : "POD verified — receiver SIGNATURE accepted. Cargo marked received.") +
             (a.hasExceptionNotes ? "\nException notes found — Team Lead notified." : "") +
             "\nNext step unlocked: Create Invoice."
         );

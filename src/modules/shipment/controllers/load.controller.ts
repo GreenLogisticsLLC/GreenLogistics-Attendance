@@ -260,14 +260,20 @@ export const loadController = {
             const confirmSignature =
                 String(req.body?.confirmSignature || "") === "1" ||
                 String(req.body?.confirmSignature || "").toLowerCase() === "true";
+            const manualApprove =
+                String(req.body?.manualApprove || "") === "1" ||
+                String(req.body?.manualApprove || "").toLowerCase() === "true";
             try {
                 const data = await uploadPodFile({
                     shipmentLeadId: id,
                     actorUserId: req.user?.userId,
+                    actorRole: req.user?.role,
                     originalName: file.originalname,
                     mimeType: file.mimetype,
                     tempPath: file.path,
                     confirmSignature,
+                    manualApprove,
+                    manualApprovalReason: String(req.body?.manualApprovalReason || ""),
                 });
                 res.json({ success: true, data });
             } catch (err) {

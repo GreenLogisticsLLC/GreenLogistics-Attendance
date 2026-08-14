@@ -24,6 +24,12 @@ export type PodAnalysis = {
     method: "openai_vision" | "openai_text" | "heuristic";
 };
 
+const POD_MANUAL_APPROVER_ROLES: Set<string> = new Set([
+    Roles.TeamLead,
+    Roles.Manager,
+    Roles.Accounting,
+]);
+
 function safeFileName(name: string): string {
     return (
         String(name || "pod")
@@ -229,7 +235,26 @@ export async function uploadPodFile(input: {
     tempPath: string;
     /** Broker override when AI cannot see signature (images preferred). */
     confirmSignature?: boolean;
+    actorRole?: string;
+    /** Restricted staff override when automated BOL/signature checks fail. */
+    manualApprove?: boolean;
+    manualApprovalReason?: string;
 }) {
+    const manualApproval = Boolean(input.manualApprove);
+    if (manualApproval && !POD_MANUAL_APPROVER_ROLES.has(String(input.actorRole || ""))) {
+        throw Object.assign(
+            new Error("Only Team Lead, Manager, or Accounting can manually approve POD"),
+            { status: 403, code: "POD_MANUAL_APPROVAL_FORBIDDEN" }
+        );
+    }
+    const manualApprovalReason = String(input.manualApprovalReason || "").trim();
+    if (manualApproval && !manualApprovalReason) {
+        throw Object.assign(new Error("Manual approval reason is required"), {
+            status: 422,
+            code: "POD_MANUAL_REASON_REQUIRED",
+        });
+    }
+
     const lead = await prisma.shipmentLead.findUnique({
         where: { shipmentLeadId: input.shipmentLeadId },
     });
@@ -321,6 +346,29 @@ export async function uploadPodFile(input: {
         }
     }
 
+    /*
+     * Scanned PDFs often expose no useful text to the model. If the current Load
+     * already has a BOL and the broker explicitly confirms the receiver mark,
+     * accept the uploaded PDF/image as the signed copy. Privileged staff may also
+     * approve manually with a required reason. Both paths are written to audit.
+     */
+    const brokerSignatureOverride =
+        Boolean(input.confirmSignature) && Boolean(bol.documentId);
+    if (!analysis.matchesBol && brokerSignatureOverride) {
+        analysis.matchesBol = true;
+        analysis.loadNumberFound = lead.loadNumber;
+        analysis.analysisNotes =
+            (analysis.analysisNotes || "") +
+            " Broker confirmed receiver mark on uploaded BOL/POD; scanned-document match override applied.";
+    }
+    if (!analysis.matchesBol && manualApproval) {
+        analysis.matchesBol = true;
+        analysis.loadNumberFound = lead.loadNumber;
+        analysis.analysisNotes =
+            (analysis.analysisNotes || "") +
+            ` Manually approved by ${input.actorRole}: ${manualApprovalReason}`;
+    }
+
     if (!analysis.matchesBol) {
         throw Object.assign(
             new Error(
@@ -331,10 +379,13 @@ export async function uploadPodFile(input: {
     }
 
     if (!analysis.hasReceiverSignature) {
-        if (input.confirmSignature) {
+        if (input.confirmSignature || manualApproval) {
             analysis.hasReceiverSignature = true;
             analysis.analysisNotes =
-                (analysis.analysisNotes || "") + " Broker confirmed receiver signature.";
+                (analysis.analysisNotes || "") +
+                (manualApproval
+                    ? ` Receiver signature manually approved by ${input.actorRole}.`
+                    : " Broker confirmed receiver mark in SIGNATURE box.");
         } else {
             throw Object.assign(
                 new Error(
@@ -380,6 +431,10 @@ export async function uploadPodFile(input: {
         hasExceptionNotes: analysis.hasExceptionNotes,
         exceptionSummary: analysis.exceptionSummary,
         analysis,
+        manuallyApproved: manualApproval,
+        manualApprovalRole: manualApproval ? input.actorRole || null : null,
+        manualApprovalReason: manualApproval ? manualApprovalReason : null,
+        brokerSignatureOverride,
         checksum,
     };
 
@@ -407,14 +462,20 @@ export async function uploadPodFile(input: {
         shipmentLeadId: input.shipmentLeadId,
         eventType: "POD_UPLOADED",
         title: `${title} uploaded`,
-        message: analysis.hasExceptionNotes
-            ? `POD uploaded with exceptions — Team Lead notified`
-            : `Signed POD verified against BOL ${lead.loadNumber}`,
+        message: manualApproval
+            ? `POD manually approved by ${input.actorRole}: ${manualApprovalReason}`
+            : analysis.hasExceptionNotes
+              ? `POD uploaded with exceptions — Team Lead notified`
+              : `Signed POD verified against BOL ${lead.loadNumber}`,
         actorUserId: input.actorUserId,
         payload: {
             documentId: row.documentId,
             analysis,
             bolDocumentId: bol.documentId,
+            manuallyApproved: manualApproval,
+            manualApprovalRole: manualApproval ? input.actorRole || null : null,
+            manualApprovalReason: manualApproval ? manualApprovalReason : null,
+            brokerSignatureOverride,
         },
     });
 
@@ -442,6 +503,7 @@ export async function uploadPodFile(input: {
     return {
         document: row,
         analysis,
+        manuallyApproved: manualApproval,
         teamLeadNotified: Boolean(teamLeadNotify),
         teamLeadNotify,
     };
