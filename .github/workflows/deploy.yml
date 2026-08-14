@@ -94,7 +94,12 @@ jobs:
           fi
 
           npm run build
-          pm2 restart greenos --update-env
+          # PM2 loses the process after a server reboot or manual delete — start it back up.
+          if ! pm2 restart greenos --update-env; then
+            echo "pm2 restart failed — starting greenos"
+            pm2 start dist/index.js --name greenos --update-env \
+              || pm2 start npm --name greenos -- start
+          fi
           pm2 save
           sleep 5
           curl --fail http://localhost:3847/api/health
