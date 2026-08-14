@@ -78,20 +78,31 @@ async function openaiAnalyzePod(input: {
 }): Promise<PodAnalysis | null> {
     if (!config.openai.apiKey) return null;
 
-    const system = `You verify Proof of Delivery (POD) uploads for Green Logistics freight brokerage.
-The POD must be the signed Bill of Lading (BOL) for THIS load — same load/BOL number — with the receiver's signature after delivery.
-Return ONLY compact JSON with keys:
+    const system = `You verify Proof of Delivery (POD) for Green Logistics.
+The POD is the same Bill of Lading (BOL) after delivery, with the RECEIVER signature filled in.
+
+Look specifically for the delivery receipt block with text like:
+"GOOD ORDER, COUNT AND CONDITION VERIFIED EXCEPT AS NOTED BELOW"
+and the box labeled "SIGNATURE" (often next to an empty "DATE" box).
+
+Rules for hasReceiverSignature:
+- true if that SIGNATURE box (or RECEIVER / CONSIGNEE signature area) contains ANY handwritten ink, scribble, mark, stamp, or digital pen stroke — even messy, red, incomplete, or illegible.
+- An ink scribble in SIGNATURE means the receiver signed that they received the cargo → treat as valid POD signature.
+- false ONLY if the SIGNATURE box is clearly empty / blank with no marks.
+
+hasExceptionNotes = true only if there are handwritten remarks, damage notes, shortages, or other notes beyond the signature itself (e.g. in exceptions area). A signature alone is NOT an exception.
+
+matchesBol = true if the document matches this load/BOL number or the described route/carrier.
+
+Return ONLY JSON:
 matchesBol (boolean), loadNumberFound (string|null), hasReceiverSignature (boolean),
-hasExceptionNotes (boolean), exceptionSummary (string|null), confidence (0-1 number), analysisNotes (string).
-hasReceiverSignature = true only if a handwritten/receiver signature (or clear signed name block) is visible or clearly present.
-hasExceptionNotes = true if there are handwritten remarks, exception notes, damage comments, or extra notes beyond a clean signature.
-matchesBol = true if the document clearly refers to this load/BOL number or matching route/carrier details.`;
+hasExceptionNotes (boolean), exceptionSummary (string|null), confidence (0-1), analysisNotes (string).`;
 
     const userText = `Expected Load/BOL #: ${input.loadNumber}
 BOL context:
 ${input.bolSummary}
 
-Analyze this uploaded POD file.`;
+Focus on the SIGNATURE box in the receiver delivery section. If there is any mark/scribble there, set hasReceiverSignature=true (POD is complete).`;
 
     const model = config.openai.model || "gpt-4o";
     const isImage = String(input.mimeType || "").startsWith("image/");
@@ -327,7 +338,7 @@ export async function uploadPodFile(input: {
         } else {
             throw Object.assign(
                 new Error(
-                    "Receiver signature not detected. Upload a clear signed POD, or confirm the receiver signature is present."
+                    "No mark found in the SIGNATURE box (receiver must sign that cargo was received). Upload a clearer photo, or confirm the signature is visible and retry."
                 ),
                 { status: 422, code: "POD_NO_SIGNATURE", analysis }
             );

@@ -659,7 +659,7 @@ export class LoadService {
         if (!shipment) throw Object.assign(new Error("Load not found"), { status: 404 });
         const documents = await prisma.loadDocument.findMany({
             where: { shipmentLeadId, isCurrent: true, status: { not: "ARCHIVED" } },
-            select: { docType: true },
+            select: { docType: true, contentJson: true },
         });
         assertQuickActionAllowed(action, {
             status: shipment.status,

@@ -2250,9 +2250,9 @@ window.GreenOSModules["dispatch"] = {
 
     box.innerHTML =
       "<h3>Upload Proof of Delivery (POD)</h3>" +
-      '<p class="gos-muted">Upload the <strong>same BOL</strong> for this load after the receiver signs it. GreenOS checks the file against BOL <strong>' +
+      '<p class="gos-muted">Upload the <strong>same BOL</strong> after the receiver signs the <strong>SIGNATURE</strong> box (cargo received). Any mark/scribble in SIGNATURE = POD complete → next step unlocks. Team Lead is alerted only if there are exception notes beyond the signature. Load <strong>' +
       self.esc(g.loadNumber || "") +
-      "</strong>, requires a receiver signature, and alerts the broker's Team Lead if exception notes are present.</p>" +
+      "</strong></p>" +
       '<div class="load-grid" style="margin:0.75rem 0">' +
       '<div class="load-field"><span>Load / BOL</span><strong>' +
       self.esc(g.loadNumber || "—") +
@@ -2273,7 +2273,7 @@ window.GreenOSModules["dispatch"] = {
       '<label class="full" style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.75rem">POD file (PDF or photo)' +
       '<input type="file" id="pod-file" accept=".pdf,image/*"></label>' +
       '<label style="display:flex;flex-direction:row;align-items:center;gap:0.5rem;margin-top:0.65rem">' +
-      '<input type="checkbox" id="pod-confirm-sig"> I confirm the receiver signature is visible on this POD' +
+      '<input type="checkbox" id="pod-confirm-sig"> I confirm there is a mark in the SIGNATURE box (receiver received cargo)' +
       "</label>" +
       '<div class="load-actions" style="margin-top:0.75rem">' +
       '<button type="button" class="btn-primary" id="pod-upload"' +
@@ -2342,8 +2342,9 @@ window.GreenOSModules["dispatch"] = {
           statusEl.className = a.hasExceptionNotes ? "error" : "gos-muted";
         }
         alert(
-          "POD verified and saved." +
-            (a.hasExceptionNotes ? "\nException notes found — Team Lead notified." : "")
+          "POD verified — receiver SIGNATURE accepted. Cargo marked received." +
+            (a.hasExceptionNotes ? "\nException notes found — Team Lead notified." : "") +
+            "\nNext step unlocked: Create Invoice."
         );
         var host =
           document.querySelector("#load-tms-body") ||

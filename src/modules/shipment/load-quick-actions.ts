@@ -42,7 +42,7 @@ function hasType(docs: Set<string>, type: string): boolean {
 export function buildLoadQuickActions(input: {
     status: string;
     carrierName?: string | null;
-    documents: Array<{ docType?: string | null }>;
+    documents: Array<{ docType?: string | null; contentJson?: string | null }>;
 }): LoadQuickAction[] {
     const statusIdx = flowIndex(input.status);
     const docs = new Set(
@@ -56,7 +56,32 @@ export function buildLoadQuickActions(input: {
     const rateConDone = hasType(docs, "RATE_CONFIRMATION") || statusIdx >= flowIndex("RATE_CON_GENERATED");
     const bolDone = hasType(docs, "BOL") || statusIdx >= flowIndex("CARRIER_ACCEPTED");
     const pickupDone = statusIdx >= flowIndex("PICKUP");
-    const podDone = hasType(docs, "POD") || statusIdx >= flowIndex("POD_UPLOADED");
+
+    /** POD is complete when a POD file exists with receiver SIGNATURE (or status already advanced). */
+    const podRow = (input.documents || []).find(
+        (d) => String(d.docType || "").toUpperCase() === "POD"
+    );
+    let podSigned = false;
+    if (podRow) {
+        podSigned = true;
+        if (podRow.contentJson) {
+            try {
+                const c = JSON.parse(podRow.contentJson) as {
+                    receiverSignatureDetected?: boolean;
+                    analysis?: { hasReceiverSignature?: boolean };
+                };
+                if (
+                    c.receiverSignatureDetected === false &&
+                    c.analysis?.hasReceiverSignature === false
+                ) {
+                    podSigned = false;
+                }
+            } catch {
+                /* keep podSigned */
+            }
+        }
+    }
+    const podDone = podSigned || statusIdx >= flowIndex("POD_UPLOADED");
     const customerInvDone =
         hasType(docs, "CUSTOMER_INVOICE") || statusIdx >= flowIndex("CUSTOMER_INVOICE");
     const carrierInvDone =
@@ -111,7 +136,7 @@ export function buildLoadQuickActions(input: {
             label: "Create Invoice",
             docType: "CUSTOMER_INVOICE",
             done: customerInvDone,
-            need: "Upload POD first",
+            need: "Upload POD with receiver SIGNATURE first",
         },
         {
             id: "carrier_invoice",

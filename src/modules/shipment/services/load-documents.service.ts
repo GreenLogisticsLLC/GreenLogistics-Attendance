@@ -212,7 +212,7 @@ export class LoadDocumentsService {
                 isCurrent: true,
                 status: { not: "ARCHIVED" },
             },
-            select: { docType: true },
+            select: { docType: true, contentJson: true },
         });
         const actionId = quickActionIdForDocType(docType);
         if (actionId) {
