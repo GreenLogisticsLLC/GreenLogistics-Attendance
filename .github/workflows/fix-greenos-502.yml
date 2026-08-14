@@ -30,14 +30,23 @@ jobs:
               || pm2 start npm --name greenos -- start
           fi
           pm2 save
-          sleep 4
           echo "=== HEAD ==="
           git rev-parse --short HEAD
           echo "=== pm2 ==="
           pm2 status
-          echo "=== health ==="
-          curl -sS -m 8 http://127.0.0.1:3847/api/health
-          echo
           echo "=== recent logs ==="
           pm2 logs greenos --lines 80 --nostream || true
+          echo "=== health ==="
+          # Boot takes longer than a few seconds — poll instead of failing on the first try.
+          for i in $(seq 1 30); do
+            if curl -sS -m 5 http://127.0.0.1:3847/api/health; then
+              echo
+              echo "health OK after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "health check never passed"
+          pm2 logs greenos --lines 120 --nostream || true
+          exit 1
           EOF

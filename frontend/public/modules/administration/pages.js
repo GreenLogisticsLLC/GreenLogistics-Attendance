@@ -240,7 +240,15 @@ window.GreenOSModules['administration'] = {
 
     async function load() {
       summary.textContent = 'Loading…';
-      var response = await api('/broker/accounts');
+      var response;
+      try {
+        response = await api('/broker/accounts');
+      } catch (err) {
+        // A restarting server returns an HTML error page — never leave the table on "Loading…".
+        summary.textContent = 'Server is not responding. Reload the page in a moment.';
+        tbody.innerHTML = '<tr><td colspan="5">Connection error — press Refresh to retry</td></tr>';
+        return;
+      }
       if (!response.success) {
         summary.textContent = response.message || 'Failed to load Gmail accounts';
         tbody.innerHTML = '<tr><td colspan="5">Unable to load accounts</td></tr>';

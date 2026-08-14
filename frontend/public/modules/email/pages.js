@@ -84,6 +84,7 @@ window.GreenOSModules.email = {
 
     async function loadShipments() {
       try {
+        body.innerHTML = '<tr><td colspan="10">Loading…</td></tr>';
         const data = await api("/shipments");
         if (!data.success) {
           body.innerHTML = '<tr><td colspan="10">' + esc(data.message || "Failed") + "</td></tr>";
@@ -155,7 +156,8 @@ window.GreenOSModules.email = {
           })
           .join("");
       } catch (err) {
-        body.innerHTML = '<tr><td colspan="10">Connection error</td></tr>';
+        body.innerHTML =
+          '<tr><td colspan="10">Connection error — server may be restarting. Reload in a moment.</td></tr>';
       }
     }
 
@@ -202,7 +204,8 @@ window.GreenOSModules.email = {
       }
     }
 
-    await loadStatus();
+    // Gmail status must never delay the shipment table.
+    void loadStatus();
     await loadShipments();
   },
 };
