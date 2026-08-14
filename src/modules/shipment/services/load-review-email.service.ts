@@ -1,6 +1,7 @@
-import { config } from "../../../config/env.js";
-import { sendMail } from "../../../services/email.service.js";
-import { brokerGmailOAuthService } from "../../email/gmail/broker-gmail-oauth.service.js";
+import { sendCorporateMail } from "../../../services/email.service.js";
+
+const REVIEW_SENDER_EMAIL = "accounting@greengrouplogistics.com";
+const REVIEW_SENDER = `Green Logistics Accounting <${REVIEW_SENDER_EMAIL}>`;
 
 export const REVIEW_LINKS = [
     {
@@ -132,40 +133,17 @@ export function buildReviewEmail(input: {
     return { subject, text, html };
 }
 
-/**
- * Send from the acting broker's Gmail when connected, otherwise the assigned
- * broker's Gmail, otherwise company mail — a thank-you note must never block
- * closing a load just because personal Gmail is not linked.
- */
+/** Send every review request from the Green Logistics accounting mailbox. */
 export async function sendLoadReviewEmail(input: {
-    senderUserIds: Array<string | null | undefined>;
     to: string;
     recipientKind: "customer" | "carrier";
     recipientName?: string | null;
     loadNumber?: string | null;
-}): Promise<{ from: string; via: "broker-gmail" | "system"; fallbackReason?: string }> {
+}): Promise<{ from: string; via: "system" }> {
     const mail = buildReviewEmail(input);
-    const candidates = Array.from(
-        new Set(input.senderUserIds.filter((id): id is string => Boolean(id)))
-    );
-
-    const failures: string[] = [];
-    for (const userId of candidates) {
-        try {
-            const sent = await brokerGmailOAuthService.sendMailAsBroker(userId, {
-                to: input.to,
-                subject: mail.subject,
-                text: mail.text,
-                html: mail.html,
-            });
-            return { from: sent.from, via: "broker-gmail" };
-        } catch (err) {
-            failures.push(err instanceof Error ? err.message : String(err));
-        }
-    }
-
     try {
-        await sendMail({
+        await sendCorporateMail({
+            from: REVIEW_SENDER,
             to: input.to,
             subject: mail.subject,
             text: mail.text,
@@ -175,15 +153,14 @@ export async function sendLoadReviewEmail(input: {
         const systemError = err instanceof Error ? err.message : String(err);
         throw Object.assign(
             new Error(
-                `Could not send the review email. Connect your Gmail in My Workspace (broker send), ` +
-                    `or connect Company Gmail in Email Imports. Details: ${failures[0] || "no broker Gmail"} / ${systemError}`
+                `Could not send the review email from ${REVIEW_SENDER_EMAIL}. ` +
+                    `Check the corporate SMTP settings. Details: ${systemError}`
             ),
             { status: 400, code: "REVIEW_MAIL_UNAVAILABLE" }
         );
     }
     return {
-        from: config.smtp.from || config.gmail.user || "Green Logistics",
+        from: REVIEW_SENDER_EMAIL,
         via: "system",
-        fallbackReason: failures[0],
     };
 }

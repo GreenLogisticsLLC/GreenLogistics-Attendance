@@ -60,6 +60,7 @@ function buildRawMime(options: {
 }
 
 async function sendViaSmtp(options: {
+    from?: string;
     to: string;
     subject: string;
     text: string;
@@ -80,12 +81,29 @@ async function sendViaSmtp(options: {
     });
 
     await transporter.sendMail({
-        from: config.smtp.from,
+        from: options.from || config.smtp.from,
         to: options.to,
         subject: options.subject,
         text: options.text,
         html: options.html,
     });
+}
+
+/** Send from a specific corporate mailbox through configured SMTP only. */
+export async function sendCorporateMail(options: {
+    from: string;
+    to: string;
+    subject: string;
+    text: string;
+    html: string;
+}): Promise<void> {
+    try {
+        await sendViaSmtp(options);
+        console.log(`[mail] Sent corporate SMTP mail from ${options.from} to ${options.to}`);
+    } catch (err) {
+        console.error("[mail] Corporate SMTP send failed:", err);
+        throw new Error(`Corporate email could not be sent. ${friendlySmtpError(err)}`);
+    }
 }
 
 /** Send using connected Gmail OAuth (effie) — no App Password required. */

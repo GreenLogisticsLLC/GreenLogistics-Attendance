@@ -2377,7 +2377,7 @@ window.GreenOSModules["dispatch"] = {
       '<div class="crm-modal-card load-review-card">' +
       '<div class="crm-modal-head">' +
       "<div><h2>Send Review Link</h2>" +
-      '<p class="gos-muted">Choose Customer, Carrier, or both. The thank-you email goes out from your connected Gmail, or from company mail if your Gmail is not linked.</p></div>' +
+      '<p class="gos-muted">Choose Customer, Carrier, or both. The thank-you email is always sent from accounting@greengrouplogistics.com.</p></div>' +
       '<button type="button" class="btn-secondary" id="review-close">Close</button>' +
       "</div>" +
       '<div class="load-review-choices">' +
@@ -2446,7 +2446,9 @@ window.GreenOSModules["dispatch"] = {
       }
       try {
         if (sendBtn) sendBtn.disabled = true;
-        if (statusEl) statusEl.textContent = "Sending thank-you email from your Gmail…";
+        if (statusEl)
+          statusEl.textContent =
+            "Sending from accounting@greengrouplogistics.com…";
         var result = await self.api(
           "/" + encodeURIComponent(id) + "/actions/send_review_link",
           {
@@ -2471,8 +2473,7 @@ window.GreenOSModules["dispatch"] = {
                   " → " +
                   r.to +
                   "\n   from " +
-                  r.from +
-                  (r.via === "system" ? " (company mail — your Gmail is not connected)" : "")
+                  r.from
                 );
               })
               .join("\n")

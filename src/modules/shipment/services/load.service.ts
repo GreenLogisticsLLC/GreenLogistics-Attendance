@@ -788,7 +788,6 @@ export class LoadService {
                 );
             }
 
-            const senderUserIds = [actorUserId, shipment.assignedBrokerId];
             const brokerUserId = shipment.assignedBrokerId || actorUserId;
 
             const customerEmail = String(body?.customerEmail || shipment.customerEmail || "")
@@ -815,13 +814,12 @@ export class LoadService {
                 kind: "customer" | "carrier";
                 to: string;
                 from: string;
-                via: "broker-gmail" | "system";
+                via: "system";
             }> = [];
             const errors: string[] = [];
             if (sendCustomer) {
                 try {
                     const result = await sendLoadReviewEmail({
-                        senderUserIds,
                         to: customerEmail,
                         recipientKind: "customer",
                         recipientName: shipment.customerName,
@@ -842,7 +840,6 @@ export class LoadService {
             if (sendCarrier) {
                 try {
                     const result = await sendLoadReviewEmail({
-                        senderUserIds,
                         to: carrierEmail,
                         recipientKind: "carrier",
                         recipientName: shipment.carrierName,
