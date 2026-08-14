@@ -8,21 +8,7 @@ export const REVIEW_LINKS = [
         label: "Google",
         icon: "⭐",
         url: "https://g.page/r/CYnYasDBg-hSEAE/review",
-    },
-    {
-        label: "LinkedIn",
-        icon: "💼",
-        url: "https://www.linkedin.com/company/greengrouplogisticsllc",
-    },
-    {
-        label: "Website",
-        icon: "🌐",
-        url: "https://greengrouplogistics.com",
-    },
-    {
-        label: "uShip",
-        icon: "🚚",
-        url: "https://www.uship.com/service-providers/789862666-green-logistics-llc",
+        cta: "Leave feedback on Google",
     },
 ] as const;
 
@@ -61,9 +47,9 @@ export function buildReviewEmail(input: {
         "",
         `This note is for ${loadLine}. If you were happy with our service, we would greatly appreciate it if you could take a moment to share your experience with us online. Your review helps our team grow and also helps other customers and transportation partners feel confident choosing Green Logistics.`,
         "",
-        "You can find us here:",
+        "Leave feedback on Google:",
         "",
-        ...REVIEW_LINKS.map((l) => `${l.icon} ${l.label}: ${l.url}`),
+        ...REVIEW_LINKS.map((l) => `${l.icon} ${l.cta}: ${l.url}`),
         "",
         "Thank you again for working with Green Logistics. We truly value our relationship with you and look forward to working together again in the future!",
         "",
@@ -76,7 +62,7 @@ export function buildReviewEmail(input: {
             `<tr>
               <td style="padding:8px 0;">
                 <a href="${esc(l.url)}" style="display:inline-block;background:#16325c;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 14px;font-weight:600;">
-                  ${l.icon} Leave a ${esc(l.label)} review
+                  ${l.icon} ${esc(l.cta)}
                 </a>
               </td>
             </tr>`
@@ -111,7 +97,7 @@ export function buildReviewEmail(input: {
                 appreciate it if you could take a moment to share your experience with us online. Your review helps our team
                 grow and also helps other ${esc(who)}s feel confident choosing Green Logistics.
               </p>
-              <p style="margin:18px 0 8px;font-weight:700;">You can find us here:</p>
+              <p style="margin:18px 0 8px;font-weight:700;">Leave feedback on Google:</p>
               <table role="presentation" cellspacing="0" cellpadding="0">${linkRows}</table>
               <p style="margin:22px 0 14px;line-height:1.6;">
                 Thank you again for working with Green Logistics. We truly value our relationship with you
