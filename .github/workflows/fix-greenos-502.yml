@@ -24,7 +24,12 @@ jobs:
           git reset --hard origin/main
           npx prisma generate
           npm run build
-          pm2 restart greenos --update-env
+          if ! pm2 restart greenos --update-env; then
+            echo "pm2 restart failed — starting greenos"
+            pm2 start dist/index.js --name greenos --update-env \
+              || pm2 start npm --name greenos -- start
+          fi
+          pm2 save
           sleep 4
           echo "=== HEAD ==="
           git rev-parse --short HEAD
@@ -33,4 +38,6 @@ jobs:
           echo "=== health ==="
           curl -sS -m 8 http://127.0.0.1:3847/api/health
           echo
+          echo "=== recent logs ==="
+          pm2 logs greenos --lines 80 --nostream || true
           EOF
