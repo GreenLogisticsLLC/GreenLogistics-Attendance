@@ -336,6 +336,12 @@ model ShipmentLead {
   podUrl                String?                 @map("pod_url")
   invoiceNumber         String?                 @map("invoice_number")
   paymentStatus         String?                 @map("payment_status")
+  /// Accounting confirms money received from customer.
+  customerPaidAt        DateTime?               @map("customer_paid_at")
+  customerPaidById      String?                 @map("customer_paid_by_id")
+  /// Accounting confirms carrier / factoring company was paid.
+  carrierPaidAt         DateTime?               @map("carrier_paid_at")
+  carrierPaidById       String?                 @map("carrier_paid_by_id")
   /// Pricing (broker never hand-calculates profit — derived in API).
   customerRate          Float?                  @map("customer_rate")
   carrierRate           Float?                  @map("carrier_rate")

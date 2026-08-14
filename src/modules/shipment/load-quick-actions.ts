@@ -7,6 +7,7 @@ export type LoadQuickAction = {
     label: string;
     status?: string;
     docType?: string;
+    kind?: "action" | "status";
     state: QuickActionState;
     blockedReason?: string;
 };
@@ -42,6 +43,8 @@ function hasType(docs: Set<string>, type: string): boolean {
 export function buildLoadQuickActions(input: {
     status: string;
     carrierName?: string | null;
+    customerPaidAt?: Date | string | null;
+    carrierPaidAt?: Date | string | null;
     documents: Array<{ docType?: string | null; contentJson?: string | null }>;
 }): LoadQuickAction[] {
     const statusIdx = flowIndex(input.status);
@@ -82,17 +85,18 @@ export function buildLoadQuickActions(input: {
         }
     }
     const podDone = podSigned || statusIdx >= flowIndex("POD_UPLOADED");
-    const customerInvDone =
-        hasType(docs, "CUSTOMER_INVOICE") || statusIdx >= flowIndex("CUSTOMER_INVOICE");
-    const carrierInvDone =
-        hasType(docs, "CARRIER_INVOICE") || statusIdx >= flowIndex("CARRIER_PAYMENT");
     const closedDone = statusIdx >= flowIndex("CLOSED") || normalizeStatus(input.status) === "CLOSED";
+    // Preserve legacy loads that already reached the old carrier-payment/closed stage.
+    const legacyPaid = statusIdx >= flowIndex("CARRIER_PAYMENT");
+    const customerPaid = Boolean(input.customerPaidAt) || legacyPaid || closedDone;
+    const carrierPaid = Boolean(input.carrierPaidAt) || legacyPaid || closedDone;
 
     const defs: Array<{
         id: string;
         label: string;
         status?: string;
         docType?: string;
+        kind?: "action" | "status";
         done: boolean;
         need: string;
     }> = [
@@ -132,25 +136,25 @@ export function buildLoadQuickActions(input: {
             need: "Mark Loaded / Pickup first",
         },
         {
-            id: "create_invoice",
-            label: "Create Invoice",
-            docType: "CUSTOMER_INVOICE",
-            done: customerInvDone,
-            need: "Upload POD with receiver SIGNATURE first",
+            id: "mark_customer_paid",
+            label: "Customer Paid",
+            kind: "status",
+            done: customerPaid,
+            need: "Accounting has not marked Payment Received",
         },
         {
-            id: "carrier_invoice",
-            label: "Carrier Invoice",
-            docType: "CARRIER_INVOICE",
-            done: carrierInvDone,
-            need: "Create Customer Invoice first",
+            id: "mark_carrier_paid",
+            label: "Carrier Paid",
+            kind: "status",
+            done: carrierPaid,
+            need: "Accounting has not marked Carrier Paid",
         },
         {
             id: "close_load",
             label: "Close Load",
             status: "CLOSED",
             done: closedDone,
-            need: "Create Carrier Invoice first",
+            need: "Customer Paid and Carrier Paid are required before closing",
         },
     ];
 
@@ -172,6 +176,7 @@ export function buildLoadQuickActions(input: {
             label: d.label,
             status: d.status,
             docType: d.docType,
+            kind: d.kind || "action",
             state,
             blockedReason,
         };
@@ -184,6 +189,8 @@ export function assertQuickActionAllowed(
     input: {
         status: string;
         carrierName?: string | null;
+        customerPaidAt?: Date | string | null;
+        carrierPaidAt?: Date | string | null;
         documents: Array<{ docType?: string | null }>;
     }
 ) {
@@ -214,7 +221,5 @@ export function quickActionIdForDocType(docType: string): string | null {
     if (t === "RATE_CONFIRMATION") return "generate_rate_con";
     if (t === "BOL") return "generate_bol";
     if (t === "POD") return "upload_pod";
-    if (t === "CUSTOMER_INVOICE") return "create_invoice";
-    if (t === "CARRIER_INVOICE") return "carrier_invoice";
     return null;
 }

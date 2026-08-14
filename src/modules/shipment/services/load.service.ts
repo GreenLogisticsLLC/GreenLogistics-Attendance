@@ -2,9 +2,11 @@ import { prisma } from "../../../config/database.js";
 import { domainEventEngine } from "./domain-event.engine.js";
 import { shipmentService } from "./shipment.service.js";
 import { loadDocumentsService } from "./load-documents.service.js";
+import { platformNotificationService } from "./platform-notification.service.js";
 import { TRACKING_STEPS } from "../load.constants.js";
 import { isLoadPhase, normalizeStatus, statusLabel } from "../shipment.lifecycle.js";
 import { allocateLoadNumber } from "../load-number.js";
+import { Roles } from "../../../auth/roles.js";
 import {
     assertQuickActionAllowed,
     buildLoadQuickActions,
@@ -475,6 +477,10 @@ export class LoadService {
                 customerInvoice: s.invoiceNumber,
                 carrierInvoice: documents.find((d) => d.docType === "CARRIER_INVOICE")?.title || null,
                 paymentStatus: s.paymentStatus,
+                customerPaidAt: s.customerPaidAt,
+                customerPaidById: s.customerPaidById,
+                carrierPaidAt: s.carrierPaidAt,
+                carrierPaidById: s.carrierPaidById,
                 factoring: s.factoringFee,
                 brokerProfit: pricing.brokerProfit,
                 companyProfit: pricing.companyProfit,
@@ -483,7 +489,9 @@ export class LoadService {
                 dueDate: s.invoiceDueDate,
                 paymentDate: s.paymentDate,
                 outstandingBalance:
-                    s.paymentStatus && /paid/i.test(s.paymentStatus) ? 0 : pricing.totalRevenue,
+                    s.customerPaidAt || (s.paymentStatus && /paid/i.test(s.paymentStatus))
+                        ? 0
+                        : pricing.totalRevenue,
             },
             communications: {
                 emails: mailbox,
@@ -495,6 +503,8 @@ export class LoadService {
             quickActions: buildLoadQuickActions({
                 status: s.status,
                 carrierName: s.carrierName,
+                customerPaidAt: s.customerPaidAt,
+                carrierPaidAt: s.carrierPaidAt,
                 documents,
             }),
             futureReady: [
@@ -650,11 +660,19 @@ export class LoadService {
         shipmentLeadId: string,
         action: string,
         actorUserId?: string,
-        body?: Record<string, unknown>
+        body?: Record<string, unknown>,
+        actorRole?: string
     ) {
         const shipment = await prisma.shipmentLead.findUnique({
             where: { shipmentLeadId },
-            select: { status: true, carrierName: true },
+            select: {
+                status: true,
+                carrierName: true,
+                customerPaidAt: true,
+                carrierPaidAt: true,
+                loadNumber: true,
+                assignedBrokerId: true,
+            },
         });
         if (!shipment) throw Object.assign(new Error("Load not found"), { status: 404 });
         const documents = await prisma.loadDocument.findMany({
@@ -664,8 +682,81 @@ export class LoadService {
         assertQuickActionAllowed(action, {
             status: shipment.status,
             carrierName: shipment.carrierName,
+            customerPaidAt: shipment.customerPaidAt,
+            carrierPaidAt: shipment.carrierPaidAt,
             documents,
         });
+
+        if (action === "mark_customer_paid" || action === "mark_carrier_paid") {
+            const paymentRoles: Set<string> = new Set([
+                Roles.Accounting,
+                Roles.Owner,
+                Roles.Administrator,
+            ]);
+            if (!paymentRoles.has(String(actorRole || ""))) {
+                throw Object.assign(
+                    new Error("Only Accounting can confirm customer or carrier payments"),
+                    { status: 403, code: "PAYMENT_ROLE_REQUIRED" }
+                );
+            }
+
+            const now = new Date();
+            const customerPayment = action === "mark_customer_paid";
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId },
+                data: customerPayment
+                    ? {
+                          customerPaidAt: now,
+                          customerPaidById: actorUserId || null,
+                          paymentStatus: "CUSTOMER_PAID",
+                          paymentDate: now,
+                      }
+                    : {
+                          carrierPaidAt: now,
+                          carrierPaidById: actorUserId || null,
+                          paymentStatus: "CUSTOMER_AND_CARRIER_PAID",
+                      },
+            });
+
+            await domainEventEngine.emit({
+                shipmentLeadId,
+                eventType: customerPayment ? "CUSTOMER_PAYMENT_RECEIVED" : "CARRIER_PAID",
+                title: customerPayment ? "Customer Paid" : "Carrier Paid",
+                message: customerPayment
+                    ? `Accounting marked Payment Received for Load ${shipment.loadNumber || ""}`
+                    : `Accounting marked Carrier / Factoring Paid for Load ${shipment.loadNumber || ""}`,
+                actorUserId,
+                payload: { paidAt: now.toISOString(), actorRole },
+            });
+
+            if (shipment.assignedBrokerId) {
+                await platformNotificationService.notifyUser({
+                    userId: shipment.assignedBrokerId,
+                    notificationType: customerPayment
+                        ? "CUSTOMER_PAYMENT_RECEIVED"
+                        : "CARRIER_PAID",
+                    title: customerPayment ? "Customer Paid" : "Carrier Paid",
+                    message: customerPayment
+                        ? `Payment Received for Load ${shipment.loadNumber || ""}`
+                        : `Carrier / factoring payment completed for Load ${shipment.loadNumber || ""}. Close Load is now available.`,
+                    shipmentLeadId,
+                    meta: { paidAt: now.toISOString() },
+                });
+            }
+
+            if (!customerPayment) {
+                try {
+                    await shipmentService.transitionStatus({
+                        shipmentLeadId,
+                        status: "CARRIER_PAYMENT",
+                        actorUserId,
+                    });
+                } catch {
+                    /* payment fields remain source of truth if lifecycle is already ahead */
+                }
+            }
+            return this.getLoadDetails(shipmentLeadId);
+        }
 
         const map: Record<string, string> = {
             assign_carrier: "CARRIER_ASSIGNED",

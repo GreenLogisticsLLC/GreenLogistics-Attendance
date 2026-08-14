@@ -523,8 +523,8 @@ window.GreenOSModules["dispatch"] = {
       IN_TRANSIT: "IN ROAD",
       DELIVERED: "DELIVERED",
       POD_UPLOADED: "POD UPLOADED",
-      CUSTOMER_INVOICE: "CUSTOMER INVOICE",
-      CARRIER_PAYMENT: "CARRIER PAYMENT",
+      CUSTOMER_INVOICE: "CUSTOMER PAID",
+      CARRIER_PAYMENT: "CARRIER PAID",
       CLOSED: "CLOSED",
     };
     var cur = String((data.identity && data.identity.status) || "").toUpperCase();
@@ -543,7 +543,9 @@ window.GreenOSModules["dispatch"] = {
     if (hasDocType("RATE_CONFIRMATION")) bumpLife("RATE_CON_GENERATED");
     if (hasDocType("BOL")) bumpLife("CARRIER_ACCEPTED");
     if (hasDocType("POD")) bumpLife("POD_UPLOADED");
-    if (hasDocType("CUSTOMER_INVOICE")) bumpLife("CUSTOMER_INVOICE");
+    var accounting = data.accounting || {};
+    if (accounting.customerPaidAt) bumpLife("CUSTOMER_INVOICE");
+    if (accounting.carrierPaidAt) bumpLife("CARRIER_PAYMENT");
     var lifeHtml = lifecycle
       .map(function (st, i) {
         var cls = i < curIdx ? "is-done" : i === curIdx ? "is-active" : "";
@@ -553,6 +555,7 @@ window.GreenOSModules["dispatch"] = {
 
     var actions = (data.quickActions || [])
       .map(function (a) {
+        if (a.kind === "status") return "";
         var state = a.state || "current";
         var cls =
           "load-action-btn" +
@@ -589,6 +592,37 @@ window.GreenOSModules["dispatch"] = {
       })
       .join("");
 
+    var podComplete = hasDocType("POD");
+    var paymentPanel = podComplete
+      ? '<h4>Payments</h4><div class="load-payment-statuses">' +
+        '<div class="load-payment-status' +
+        (accounting.customerPaidAt ? " is-paid" : "") +
+        '"><span>Customer Paid</span><strong>' +
+        (accounting.customerPaidAt
+          ? "✓ Payment Received"
+          : "Waiting for Accounting") +
+        "</strong>" +
+        (accounting.customerPaidAt
+          ? "<small>" +
+            self.esc(new Date(accounting.customerPaidAt).toLocaleString()) +
+            "</small>"
+          : "") +
+        "</div>" +
+        '<div class="load-payment-status' +
+        (accounting.carrierPaidAt ? " is-paid" : "") +
+        '"><span>Carrier Paid</span><strong>' +
+        (accounting.carrierPaidAt
+          ? "✓ Carrier / Factoring Paid"
+          : "Waiting for Accounting") +
+        "</strong>" +
+        (accounting.carrierPaidAt
+          ? "<small>" +
+            self.esc(new Date(accounting.carrierPaidAt).toLocaleString()) +
+            "</small>"
+          : "") +
+        "</div></div>"
+      : "";
+
     body.innerHTML =
       '<div class="load-layout">' +
       '<aside class="load-nav">' +
@@ -616,6 +650,7 @@ window.GreenOSModules["dispatch"] = {
       '<div class="load-actions">' +
       actions +
       "</div>" +
+      paymentPanel +
       "</aside>" +
       "</div>";
 
@@ -1343,8 +1378,54 @@ window.GreenOSModules["dispatch"] = {
 
     if (tab === "accounting") {
       var a = data.accounting || {};
+      var paymentRole = self.role();
+      var canManagePayments =
+        paymentRole === "Accounting" ||
+        paymentRole === "Owner" ||
+        paymentRole === "Administrator";
+      var paymentActions = data.quickActions || [];
+      var customerPaymentAction = paymentActions.find(function (x) {
+        return x.id === "mark_customer_paid";
+      });
+      var carrierPaymentAction = paymentActions.find(function (x) {
+        return x.id === "mark_carrier_paid";
+      });
       main.innerHTML =
         "<h2>Accounting</h2>" +
+        '<p class="gos-muted">Accounting confirms money received from the customer and payment sent to the carrier / factoring company. Brokers see these statuses automatically.</p>' +
+        '<div class="load-payment-statuses load-payment-statuses-wide">' +
+        '<div class="load-payment-status' +
+        (a.customerPaidAt ? " is-paid" : "") +
+        '"><span>Customer Paid</span><strong>' +
+        (a.customerPaidAt ? "✓ Payment Received" : "Pending") +
+        "</strong>" +
+        (a.customerPaidAt
+          ? "<small>" + self.esc(new Date(a.customerPaidAt).toLocaleString()) + "</small>"
+          : "") +
+        (canManagePayments && !a.customerPaidAt
+          ? '<button type="button" class="btn-primary" id="acc-customer-paid"' +
+            (customerPaymentAction && customerPaymentAction.state === "current"
+              ? ""
+              : " disabled") +
+            ">Payment Received</button>"
+          : "") +
+        "</div>" +
+        '<div class="load-payment-status' +
+        (a.carrierPaidAt ? " is-paid" : "") +
+        '"><span>Carrier Paid</span><strong>' +
+        (a.carrierPaidAt ? "✓ Carrier / Factoring Paid" : "Pending") +
+        "</strong>" +
+        (a.carrierPaidAt
+          ? "<small>" + self.esc(new Date(a.carrierPaidAt).toLocaleString()) + "</small>"
+          : "") +
+        (canManagePayments && !a.carrierPaidAt
+          ? '<button type="button" class="btn-primary" id="acc-carrier-paid"' +
+            (carrierPaymentAction && carrierPaymentAction.state === "current"
+              ? ""
+              : " disabled") +
+            ">Mark Carrier Paid</button>"
+          : "") +
+        "</div></div>" +
         '<div class="load-grid">' +
         field("Customer Invoice", a.customerInvoice) +
         field("Carrier Invoice", a.carrierInvoice) +
@@ -1357,7 +1438,40 @@ window.GreenOSModules["dispatch"] = {
         field("Due Date", a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "—") +
         field("Payment Date", a.paymentDate ? new Date(a.paymentDate).toLocaleDateString() : "—") +
         field("Outstanding Balance", self.money(a.outstandingBalance)) +
-        "</div>";
+        "</div>" +
+        '<p id="acc-payment-msg" class="gos-muted" style="margin-top:0.65rem"></p>';
+
+      async function confirmPayment(action, promptText) {
+        if (!confirm(promptText)) return;
+        var msg = main.querySelector("#acc-payment-msg");
+        try {
+          if (msg) msg.textContent = "Saving payment status…";
+          await self.api(
+            "/" + encodeURIComponent(id) + "/actions/" + encodeURIComponent(action),
+            { method: "POST", body: "{}" }
+          );
+          var host =
+            document.querySelector("#load-tms-body") ||
+            main.closest("[data-module]") ||
+            main.parentElement;
+          await self.openLoad(host, id, "accounting");
+        } catch (err) {
+          if (msg) msg.textContent = err.message || "Failed to update payment";
+        }
+      }
+
+      main.querySelector("#acc-customer-paid")?.addEventListener("click", function () {
+        confirmPayment(
+          "mark_customer_paid",
+          "Confirm that customer payment was received?"
+        );
+      });
+      main.querySelector("#acc-carrier-paid")?.addEventListener("click", function () {
+        confirmPayment(
+          "mark_carrier_paid",
+          "Confirm that the carrier / factoring company was paid?"
+        );
+      });
       return;
     }
 
@@ -1417,7 +1531,16 @@ window.GreenOSModules["dispatch"] = {
       ["DISPATCH_SHEET", "Generate Dispatch Sheet"],
       ["LOAD_SUMMARY", "Generate Load Summary"],
       ["POD", "Upload POD"],
-    ];
+    ].filter(function (t) {
+      // After POD, invoice/payment work belongs to Accounting—not the broker.
+      if (
+        self.role() === "Broker" &&
+        (t[0] === "CUSTOMER_INVOICE" || t[0] === "CARRIER_INVOICE")
+      ) {
+        return false;
+      }
+      return true;
+    });
 
     var genBtns = genTypes
       .map(function (t) {

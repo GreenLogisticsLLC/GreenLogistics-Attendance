@@ -1287,6 +1287,42 @@ html[data-theme="light"] {
 .load-actions .load-action-btn.is-current {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--gos-accent) 45%, transparent);
 }
+.load-payment-statuses {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.45rem 0 1rem;
+}
+.load-payment-statuses-wide {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 1rem;
+}
+.load-payment-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--gos-border);
+  border-radius: 10px;
+  background: var(--gos-surface2);
+  color: var(--gos-muted);
+}
+.load-payment-status span {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.load-payment-status strong { font-size: 0.82rem; }
+.load-payment-status small { font-size: 0.68rem; }
+.load-payment-status.is-paid {
+  border-color: color-mix(in srgb, var(--gos-accent) 55%, var(--gos-border));
+  background: var(--gos-accent-soft);
+  color: var(--gos-accent);
+}
+.load-payment-status button {
+  align-self: flex-start;
+  width: auto;
+  margin-top: 0.45rem;
+}
 .load-rail h4 { margin: 0.85rem 0 0.4rem; font-size: 0.8rem; color: var(--gos-muted); text-transform: uppercase; }
 .load-status-pill {
   display: inline-block;

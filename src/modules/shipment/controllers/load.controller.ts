@@ -13,6 +13,13 @@ function errStatus(err: unknown): number {
     return (err as { status?: number })?.status || 500;
 }
 
+function brokerInvoiceBlocked(role: string | undefined, docType: string): boolean {
+    return (
+        role === "Broker" &&
+        ["CUSTOMER_INVOICE", "CARRIER_INVOICE"].includes(String(docType || "").toUpperCase())
+    );
+}
+
 async function accessOr404(req: AuthRequest, res: Response, id: string) {
     return assertShipmentAccess(req, res, id);
 }
@@ -162,7 +169,13 @@ export const loadController = {
             const action = String(req.params.action || req.body?.action || "");
             const access = await accessOr404(req, res, id);
             if (!access.ok) return;
-            const data = await loadService.runAction(id, action, req.user?.userId, req.body || {});
+            const data = await loadService.runAction(
+                id,
+                action,
+                req.user?.userId,
+                req.body || {},
+                req.user?.role
+            );
             res.json({ success: true, data });
         } catch (err) {
             res.status(errStatus(err)).json({
@@ -209,6 +222,12 @@ export const loadController = {
             const docType = String(req.params.docType || req.body?.docType || "");
             const access = await accessOr404(req, res, id);
             if (!access.ok) return;
+            if (brokerInvoiceBlocked(req.user?.role, docType)) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Invoice and payment work is handled by Accounting after POD",
+                });
+            }
             const row = await loadDocumentsService.generate({
                 shipmentLeadId: id,
                 docType,
@@ -231,6 +250,12 @@ export const loadController = {
             const docType = String(req.params.docType || "");
             const access = await accessOr404(req, res, id);
             if (!access.ok) return;
+            if (brokerInvoiceBlocked(req.user?.role, docType)) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Invoice and payment work is handled by Accounting after POD",
+                });
+            }
             const row = await loadDocumentsService.edit({
                 shipmentLeadId: id,
                 docType,
