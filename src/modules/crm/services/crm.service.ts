@@ -309,7 +309,14 @@ export class CrmService {
             ? Promise.resolve(lead.greenOsShipmentId)
             : ensureGreenOsShipmentId(lead.shipmentLeadId).catch(() => lead.greenOsShipmentId);
 
-        const [greenOsShipmentId, brokers, pipeline, correspondence, mailboxEmails] =
+        const [
+            greenOsShipmentId,
+            brokers,
+            pipeline,
+            correspondence,
+            mailboxEmails,
+            trustedBrokerGmailMessageIds,
+        ] =
             await Promise.all([
                 greenOsPromise,
                 userMap(lead.assignedBrokerId ? [lead.assignedBrokerId] : []),
@@ -321,6 +328,7 @@ export class CrmService {
                     take: 80,
                     select: {
                         messageId: true,
+                        gmailMessageId: true,
                         subject: true,
                         fromAddress: true,
                         snippet: true,
@@ -329,7 +337,23 @@ export class CrmService {
                         userId: true,
                     },
                 }),
+                domainEventEngine.trustedBrokerGmailMessageIds(lead.shipmentLeadId),
             ]);
+        const cardMailboxEmails = mailboxEmails.filter((message) =>
+            trustedBrokerGmailMessageIds.has(message.gmailMessageId)
+        );
+        const cardTimeline = lead.timelineEvents.filter((event) =>
+            domainEventEngine.artifactBelongsToShipment(
+                event.metaJson,
+                trustedBrokerGmailMessageIds
+            )
+        );
+        const cardDomainEvents = lead.domainEvents.filter((event) =>
+            domainEventEngine.artifactBelongsToShipment(
+                event.payloadJson,
+                trustedBrokerGmailMessageIds
+            )
+        );
 
         const enriched = enrichLead(
             {
@@ -350,11 +374,11 @@ export class CrmService {
             ...enriched,
             documents,
             correspondence,
-            timeline: lead.timelineEvents,
+            timeline: cardTimeline,
             // Queried newest-first for speed; expose oldest→newest for the card UI.
-            domainEvents: [...lead.domainEvents].reverse(),
+            domainEvents: [...cardDomainEvents].reverse(),
             pipeline,
-            mailboxEmails,
+            mailboxEmails: cardMailboxEmails,
             email: lead.emailMessage
                 ? {
                       subject: lead.emailMessage.subject,

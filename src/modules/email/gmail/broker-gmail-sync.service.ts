@@ -109,6 +109,8 @@ function extractUshipRefs(text: string): { externalId?: string; viewUrl?: string
     };
 }
 
+const STRONG_MATCH_METHODS = ["viewUrl", "externalShipmentId", "greenOsShipmentId"];
+
 async function matchShipment(input: {
     userId: string;
     brokerGmailId: string;
@@ -174,6 +176,9 @@ async function matchShipment(input: {
                 brokerGmailId: input.brokerGmailId,
                 gmailThreadId: input.gmailThreadId,
                 shipmentLeadId: { not: null },
+                // A thread may continue a strong listing match, but it must never
+                // inherit an earlier title/city guess from an unrelated shipment.
+                matchMethod: { in: STRONG_MATCH_METHODS },
             },
             orderBy: { receivedAt: "desc" },
             select: {
@@ -184,45 +189,6 @@ async function matchShipment(input: {
         });
         candidate = prior?.shipmentLead || null;
         method = "gmailThreadId";
-    }
-
-    // Soft fallback: unique vehicle / title match among this broker's active loads.
-    if (!candidate) {
-        const hay = `${input.subject}\n${input.body}`.toLowerCase();
-        const active = await prisma.shipmentLead.findMany({
-            where: {
-                assignedBrokerId: input.userId,
-                status: {
-                    in: [
-                        "AWAITING_ACCEPTANCE",
-                        "AGENT_OPEN",
-                        "WORKING",
-                        "FOLLOW_UP",
-                        "BID_SUBMITTED",
-                        "CUSTOMER_REPLIED",
-                    ],
-                },
-            },
-            select: {
-                shipmentLeadId: true,
-                assignedBrokerId: true,
-                shipmentTitle: true,
-                vehicle: true,
-                pickupCity: true,
-                deliveryCity: true,
-            },
-            take: 40,
-        });
-        const hits = active.filter((row) => {
-            const tokens = [row.vehicle, row.shipmentTitle, row.pickupCity, row.deliveryCity]
-                .map((v) => String(v || "").trim().toLowerCase())
-                .filter((v) => v.length >= 4);
-            return tokens.some((t) => hay.includes(t));
-        });
-        if (hits.length === 1) {
-            candidate = hits[0];
-            method = "activeShipmentHeuristic";
-        }
     }
 
     // Hard routing boundary: a broker mailbox can update only that broker's assigned Shipment.

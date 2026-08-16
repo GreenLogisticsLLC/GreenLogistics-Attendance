@@ -20,6 +20,62 @@ export type EmitDomainEventInput = {
  * Timeline is projected from these events (Rule 7 / Rule 8).
  */
 export class DomainEventEngine {
+    /**
+     * Gmail events are card-specific only when the email was matched by a
+     * listing/GOS identifier, or belongs to a thread that has such a match.
+     * This excludes legacy title/city guesses that could leak between cards.
+     */
+    async trustedBrokerGmailMessageIds(shipmentLeadId: string): Promise<Set<string>> {
+        const messages = await prisma.brokerMailboxMessage.findMany({
+            where: { shipmentLeadId },
+            select: {
+                gmailMessageId: true,
+                gmailThreadId: true,
+                matchMethod: true,
+            },
+        });
+        const strongMethods = new Set(["viewUrl", "externalShipmentId", "greenOsShipmentId"]);
+        const trustedThreads = new Set(
+            messages
+                .filter((message) => strongMethods.has(String(message.matchMethod || "")))
+                .map((message) => message.gmailThreadId)
+                .filter((id): id is string => Boolean(id))
+        );
+        return new Set(
+            messages
+                .filter(
+                    (message) =>
+                        strongMethods.has(String(message.matchMethod || "")) ||
+                        (message.matchMethod === "gmailThreadId" &&
+                            Boolean(
+                                message.gmailThreadId &&
+                                    trustedThreads.has(message.gmailThreadId)
+                            ))
+                )
+                .map((message) => message.gmailMessageId)
+        );
+    }
+
+    artifactBelongsToShipment(
+        json: string | null,
+        trustedBrokerGmailMessageIds: Set<string>
+    ): boolean {
+        if (!json) return true;
+        try {
+            const payload = JSON.parse(json) as {
+                source?: string;
+                gmailMessageId?: string;
+            };
+            if (payload.source !== "broker_gmail") return true;
+            return Boolean(
+                payload.gmailMessageId &&
+                    trustedBrokerGmailMessageIds.has(payload.gmailMessageId)
+            );
+        } catch {
+            return true;
+        }
+    }
+
     async emit(input: EmitDomainEventInput) {
         const event = await prisma.domainEvent.create({
             data: {
@@ -87,17 +143,24 @@ export class DomainEventEngine {
 
     /** Pipeline stages for Shipment Card — derived from Domain Event types. */
     async buildLifecyclePipeline(shipmentLeadId: string) {
-        const [events, timeline] = await Promise.all([
+        const [rawEvents, rawTimeline, trustedMessageIds] = await Promise.all([
             prisma.domainEvent.findMany({
                 where: { shipmentLeadId },
-                select: { eventType: true, createdAt: true },
+                select: { eventType: true, createdAt: true, payloadJson: true },
                 orderBy: { createdAt: "asc" },
             }),
             prisma.shipmentTimelineEvent.findMany({
                 where: { shipmentLeadId },
-                select: { stage: true, createdAt: true },
+                select: { stage: true, createdAt: true, metaJson: true },
             }),
+            this.trustedBrokerGmailMessageIds(shipmentLeadId),
         ]);
+        const events = rawEvents.filter((event) =>
+            this.artifactBelongsToShipment(event.payloadJson, trustedMessageIds)
+        );
+        const timeline = rawTimeline.filter((event) =>
+            this.artifactBelongsToShipment(event.metaJson, trustedMessageIds)
+        );
         const occurred = new Set(events.map((e) => e.eventType));
         for (const t of timeline) occurred.add(t.stage);
 
@@ -173,16 +236,22 @@ export class DomainEventEngine {
             "CUSTOMER_QUESTION",
             "NEW_MESSAGE",
         ];
-        const [latestBroker, latestCustomer] = await Promise.all([
+        const [latestBroker, customerCandidates, trustedMessageIds] = await Promise.all([
             prisma.domainEvent.findFirst({
                 where: { shipmentLeadId, eventType: { in: brokerTypes } },
                 orderBy: { createdAt: "desc" },
             }),
-            prisma.domainEvent.findFirst({
+            prisma.domainEvent.findMany({
                 where: { shipmentLeadId, eventType: { in: customerTypes } },
                 orderBy: { createdAt: "desc" },
+                take: 30,
             }),
+            this.trustedBrokerGmailMessageIds(shipmentLeadId),
         ]);
+        const latestCustomer =
+            customerCandidates.find((event) =>
+                this.artifactBelongsToShipment(event.payloadJson, trustedMessageIds)
+            ) || null;
         const out: Array<{
             id: string;
             kind: string;
