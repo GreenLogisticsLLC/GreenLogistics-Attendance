@@ -46,6 +46,12 @@ loadRouter.post(
     podUpload.single("file"),
     (req, res) => loadController.uploadPod(req, res)
 );
+loadRouter.post(
+    "/:id/documents/:docType/upload",
+    roles,
+    podUpload.single("file"),
+    (req, res) => loadController.uploadPaymentProof(req, res)
+);
 loadRouter.post("/:id/documents/:docType/generate", roles, (req, res) =>
     loadController.generateDocument(req, res)
 );

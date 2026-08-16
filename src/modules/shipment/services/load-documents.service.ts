@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { prisma } from "../../../config/database.js";
 import { domainEventEngine } from "./domain-event.engine.js";
 import {
@@ -9,6 +11,7 @@ import {
 import {
     DEFAULT_RATE_CON_TERMS,
     generateLoadDocumentPdf,
+    LOAD_DOCS_ROOT,
     type LoadDocumentContent,
 } from "./load-pdf.service.js";
 import {
@@ -196,6 +199,12 @@ export class LoadDocumentsService {
         advanceStatus?: string | null;
     }) {
         const docType = assertDocType(input.docType);
+        if (docType === "CUSTOMER_PAID_PROOF" || docType === "CARRIER_PAID_PROOF") {
+            throw Object.assign(
+                new Error("Upload a payment document instead of generating a PDF"),
+                { status: 422 }
+            );
+        }
         const lead = await prisma.shipmentLead.findUnique({
             where: { shipmentLeadId: input.shipmentLeadId },
         });
@@ -431,6 +440,96 @@ export class LoadDocumentsService {
                 row.docType === "RATE_CONFIRMATION" ? "RATE_CONFIRMATION_GENERATED" : "LOAD_CREATED",
         });
         return updated;
+    }
+
+    /** Store an uploaded Customer Paid / Carrier Paid proof on the Load. */
+    async uploadProof(input: {
+        shipmentLeadId: string;
+        docType: string;
+        actorUserId?: string;
+        originalName: string;
+        mimeType: string;
+        tempPath: string;
+    }) {
+        const docType = assertDocType(input.docType);
+        if (docType !== "CUSTOMER_PAID_PROOF" && docType !== "CARRIER_PAID_PROOF") {
+            throw Object.assign(new Error("This upload is only for payment proof documents"), {
+                status: 422,
+            });
+        }
+        const lead = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId: input.shipmentLeadId },
+        });
+        if (!lead) throw Object.assign(new Error("Load not found"), { status: 404 });
+        if (!lead.loadNumber) {
+            throw Object.assign(new Error("Create Load first — documents belong only to a Load"), {
+                status: 422,
+            });
+        }
+        if (!input.tempPath || !fs.existsSync(input.tempPath)) {
+            throw Object.assign(new Error("Uploaded file is missing"), { status: 400 });
+        }
+
+        const last = await prisma.loadDocument.findFirst({
+            where: { shipmentLeadId: input.shipmentLeadId, docType },
+            orderBy: { version: "desc" },
+        });
+        const version = (last?.version || 0) + 1;
+        if (last?.isCurrent) {
+            await prisma.loadDocument.update({
+                where: { documentId: last.documentId },
+                data: { isCurrent: false },
+            });
+        }
+
+        const ext = path.extname(input.originalName || "").toLowerCase() || ".bin";
+        const storedName = `${docType}_v${version}_${Date.now()}${ext}`;
+        const dir = path.join(LOAD_DOCS_ROOT, input.shipmentLeadId);
+        fs.mkdirSync(dir, { recursive: true });
+        const dest = path.join(dir, storedName);
+        fs.copyFileSync(input.tempPath, dest);
+        try {
+            fs.unlinkSync(input.tempPath);
+        } catch {
+            /* ignore temp cleanup */
+        }
+        const stat = fs.statSync(dest);
+        const fileName = path.basename(input.originalName || storedName);
+        const title = `${LOAD_DOC_TYPE_LABELS[docType] || docType} v${version}`;
+
+        const row = await prisma.loadDocument.create({
+            data: {
+                shipmentLeadId: input.shipmentLeadId,
+                docType,
+                version,
+                changeReason: version === 1 ? "UPLOADED" : "REPLACED",
+                title,
+                status: "READY",
+                isCurrent: true,
+                fileName,
+                mimeType: input.mimeType || "application/octet-stream",
+                storedName,
+                fileUrl: `/api/loads/${input.shipmentLeadId}/documents/file/${storedName}`,
+                fileSize: stat.size,
+                createdById: input.actorUserId || null,
+            },
+        });
+
+        await domainEventEngine.emit({
+            shipmentLeadId: input.shipmentLeadId,
+            eventType: "DOCUMENT_GENERATED",
+            title: `${title} uploaded`,
+            message: `${title} saved on Load ${lead.loadNumber}`,
+            actorUserId: input.actorUserId,
+            payload: {
+                documentId: row.documentId,
+                docType,
+                version,
+                fileName,
+            },
+            timelineStage: "LOAD_CREATED",
+        });
+        return row;
     }
 }
 

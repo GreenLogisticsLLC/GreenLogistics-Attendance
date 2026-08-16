@@ -45,6 +45,20 @@ window.GreenOSModules["dispatch"] = {
     return json.data;
   },
 
+  async apiUpload(path, formData) {
+    var token = localStorage.getItem("gl_token") || "";
+    var res = await fetch("/api/loads" + path, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      body: formData,
+    });
+    var json = await res.json().catch(function () { return {}; });
+    if (!res.ok || json.success === false) {
+      throw new Error(json.message || ("Upload failed " + res.status));
+    }
+    return json.data;
+  },
+
   esc(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;")
@@ -107,6 +121,56 @@ window.GreenOSModules["dispatch"] = {
     if (raw == null || raw === "") return null;
     var n = parseFloat(String(raw).replace(/[$,\s]/g, ""));
     return Number.isFinite(n) ? String(n) : null;
+  },
+
+  paymentProofHtml(doc, opts) {
+    opts = opts || {};
+    var html = "";
+    if (doc && doc.fileUrl) {
+      html +=
+        '<div class="load-pay-doc">' +
+        "<small>" +
+        this.esc(doc.fileName || doc.title || "Document") +
+        "</small>" +
+        '<div class="load-doc-actions">' +
+        '<button type="button" class="btn-secondary load-pay-view" data-url="' +
+        this.esc(doc.fileUrl) +
+        '">View</button>' +
+        '<button type="button" class="btn-secondary load-pay-dl" data-url="' +
+        this.esc(doc.fileUrl) +
+        '">Download</button>' +
+        "</div></div>";
+    } else {
+      html += '<small class="gos-muted">No document uploaded</small>';
+    }
+    if (opts.canUpload) {
+      html +=
+        '<label class="load-pay-upload">' +
+        (doc && doc.fileUrl ? "Replace document" : "Upload document") +
+        '<input type="file" class="' +
+        this.esc(opts.inputClass || "") +
+        '" accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.doc,.docx,.xls,.xlsx"></label>';
+    }
+    return html;
+  },
+
+  bindPaymentDocButtons(root) {
+    var self = this;
+    if (!root) return;
+    root.querySelectorAll(".load-pay-view").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        self.openPdf(btn.getAttribute("data-url"), true).catch(function (err) {
+          alert(err.message || err);
+        });
+      });
+    });
+    root.querySelectorAll(".load-pay-dl").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        self.openPdf(btn.getAttribute("data-url"), false).catch(function (err) {
+          alert(err.message || err);
+        });
+      });
+    });
   },
 
   moneyFieldHtml(id, value, placeholder) {
@@ -471,7 +535,7 @@ window.GreenOSModules["dispatch"] = {
       "accounting",
       "communications",
     ].filter(function (t) {
-      if (!showMoney && (t === "pricing" || t === "accounting")) return false;
+      if (!showMoney && t === "pricing") return false;
       return true;
     });
     var tabLabels = {
@@ -485,7 +549,7 @@ window.GreenOSModules["dispatch"] = {
       communications: "Communications",
     };
     if (self._tab === "timeline") self._tab = "general";
-    if (!showMoney && (self._tab === "pricing" || self._tab === "accounting")) {
+    if (!showMoney && self._tab === "pricing") {
       self._tab = "general";
     }
 
@@ -611,6 +675,7 @@ window.GreenOSModules["dispatch"] = {
             self.esc(new Date(accounting.customerPaidAt).toLocaleString()) +
             "</small>"
           : "") +
+        self.paymentProofHtml(accounting.customerPaidDoc) +
         "</div>" +
         '<div class="load-payment-status' +
         (accounting.carrierPaidAt ? " is-paid" : "") +
@@ -624,6 +689,7 @@ window.GreenOSModules["dispatch"] = {
             self.esc(new Date(accounting.carrierPaidAt).toLocaleString()) +
             "</small>"
           : "") +
+        self.paymentProofHtml(accounting.carrierPaidDoc) +
         "</div></div>"
       : "";
 
@@ -657,6 +723,8 @@ window.GreenOSModules["dispatch"] = {
       paymentPanel +
       "</aside>" +
       "</div>";
+
+    self.bindPaymentDocButtons(body);
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
       self.clearOpenLoad();
@@ -1398,9 +1466,84 @@ window.GreenOSModules["dispatch"] = {
       var carrierPaymentAction = paymentActions.find(function (x) {
         return x.id === "mark_carrier_paid";
       });
+      function isoDate(value) {
+        if (!value) return "";
+        try {
+          return new Date(value).toISOString().slice(0, 10);
+        } catch (e) {
+          return "";
+        }
+      }
+      var moneyFields = canManagePayments
+        ? '<div class="load-form-grid">' +
+          "<label>Freight cost (customer)" +
+          self.moneyFieldHtml("acc-freight", a.customerRate || "", "0.00") +
+          "</label>" +
+          "<label>Carrier pay" +
+          self.moneyFieldHtml("acc-carrier-rate", a.carrierRate || "", "0.00") +
+          "</label>" +
+          "<label>Factoring" +
+          self.moneyFieldHtml("acc-factoring", a.factoring || "", "0.00") +
+          "</label>" +
+          "<label>Customer invoice #" +
+          '<input id="acc-invoice" type="text" value="' +
+          self.esc(a.customerInvoice || "") +
+          '"></label>' +
+          "<label>Payment status" +
+          '<select id="acc-pay-status">' +
+          ["", "Pending", "Invoiced", "Partial", "Paid", "Overdue"]
+            .map(function (opt) {
+              var selected =
+                String(a.paymentStatus || "") === opt ||
+                (!a.paymentStatus && opt === "")
+                  ? " selected"
+                  : "";
+              return (
+                '<option value="' +
+                self.esc(opt) +
+                '"' +
+                selected +
+                ">" +
+                (opt || "—") +
+                "</option>"
+              );
+            })
+            .join("") +
+          "</select></label>" +
+          "<label>Invoice date" +
+          '<input id="acc-invoice-date" type="date" value="' +
+          isoDate(a.invoiceDate) +
+          '"></label>' +
+          "<label>Due date" +
+          '<input id="acc-due-date" type="date" value="' +
+          isoDate(a.dueDate) +
+          '"></label>' +
+          "<label>Payment date" +
+          '<input id="acc-pay-date" type="date" value="' +
+          isoDate(a.paymentDate) +
+          '"></label>' +
+          "</div>" +
+          '<div class="load-grid" style="margin-top:0.75rem">' +
+          field("Broker Profit", self.money(a.brokerProfit)) +
+          field("Company Profit", self.money(a.companyProfit)) +
+          field("Margin", a.margin != null ? a.margin + "%" : "—") +
+          field("Outstanding Balance", self.money(a.outstandingBalance)) +
+          "</div>" +
+          '<button type="button" class="btn-primary" id="acc-save" style="width:auto;margin-top:0.85rem">Save accounting</button>'
+        : '<div class="load-grid">' +
+          field("Customer Invoice", a.customerInvoice) +
+          field("Payment Status", a.paymentStatus) +
+          field("Invoice Date", a.invoiceDate ? new Date(a.invoiceDate).toLocaleDateString() : "—") +
+          field("Due Date", a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "—") +
+          field("Payment Date", a.paymentDate ? new Date(a.paymentDate).toLocaleDateString() : "—") +
+          "</div>";
       main.innerHTML =
         "<h2>Accounting</h2>" +
-        '<p class="gos-muted">Accounting confirms money received from the customer and payment sent to the carrier / factoring company. Brokers see these statuses automatically.</p>' +
+        '<p class="gos-muted">' +
+        (canManagePayments
+          ? "Enter freight cost, invoices, and payment proofs. Brokers see payment status and uploaded documents."
+          : "Payment status and documents from Accounting. Money / profit stays with Accounting.") +
+        "</p>" +
         '<div class="load-payment-statuses load-payment-statuses-wide">' +
         '<div class="load-payment-status' +
         (a.customerPaidAt ? " is-paid" : "") +
@@ -1410,6 +1553,10 @@ window.GreenOSModules["dispatch"] = {
         (a.customerPaidAt
           ? "<small>" + self.esc(new Date(a.customerPaidAt).toLocaleString()) + "</small>"
           : "") +
+        self.paymentProofHtml(a.customerPaidDoc, {
+          canUpload: canManagePayments,
+          inputClass: "acc-upload-customer",
+        }) +
         (canManagePayments && !a.customerPaidAt
           ? '<button type="button" class="btn-primary" id="acc-customer-paid"' +
             (customerPaymentAction && customerPaymentAction.state === "current"
@@ -1426,6 +1573,10 @@ window.GreenOSModules["dispatch"] = {
         (a.carrierPaidAt
           ? "<small>" + self.esc(new Date(a.carrierPaidAt).toLocaleString()) + "</small>"
           : "") +
+        self.paymentProofHtml(a.carrierPaidDoc, {
+          canUpload: canManagePayments,
+          inputClass: "acc-upload-carrier",
+        }) +
         (canManagePayments && !a.carrierPaidAt
           ? '<button type="button" class="btn-primary" id="acc-carrier-paid"' +
             (carrierPaymentAction && carrierPaymentAction.state === "current"
@@ -1434,20 +1585,18 @@ window.GreenOSModules["dispatch"] = {
             ">Mark Carrier Paid</button>"
           : "") +
         "</div></div>" +
-        '<div class="load-grid">' +
-        field("Customer Invoice", a.customerInvoice) +
-        field("Carrier Invoice", a.carrierInvoice) +
-        field("Payment Status", a.paymentStatus) +
-        field("Factoring", self.money(a.factoring)) +
-        field("Broker Profit", self.money(a.brokerProfit)) +
-        field("Company Profit", self.money(a.companyProfit)) +
-        field("Margin", a.margin != null ? a.margin + "%" : "—") +
-        field("Invoice Date", a.invoiceDate ? new Date(a.invoiceDate).toLocaleDateString() : "—") +
-        field("Due Date", a.dueDate ? new Date(a.dueDate).toLocaleDateString() : "—") +
-        field("Payment Date", a.paymentDate ? new Date(a.paymentDate).toLocaleDateString() : "—") +
-        field("Outstanding Balance", self.money(a.outstandingBalance)) +
-        "</div>" +
+        moneyFields +
         '<p id="acc-payment-msg" class="gos-muted" style="margin-top:0.65rem"></p>';
+
+      self.bindPaymentDocButtons(main);
+
+      async function reloadAccounting() {
+        var host =
+          document.querySelector("#load-tms-body") ||
+          main.closest("[data-module]") ||
+          main.parentElement;
+        await self.openLoad(host, id, "accounting");
+      }
 
       async function confirmPayment(action, promptText) {
         if (!confirm(promptText)) return;
@@ -1458,13 +1607,26 @@ window.GreenOSModules["dispatch"] = {
             "/" + encodeURIComponent(id) + "/actions/" + encodeURIComponent(action),
             { method: "POST", body: "{}" }
           );
-          var host =
-            document.querySelector("#load-tms-body") ||
-            main.closest("[data-module]") ||
-            main.parentElement;
-          await self.openLoad(host, id, "accounting");
+          await reloadAccounting();
         } catch (err) {
           if (msg) msg.textContent = err.message || "Failed to update payment";
+        }
+      }
+
+      async function uploadProof(docType, file) {
+        var msg = main.querySelector("#acc-payment-msg");
+        if (!file) return;
+        try {
+          if (msg) msg.textContent = "Uploading document…";
+          var form = new FormData();
+          form.append("file", file);
+          await self.apiUpload(
+            "/" + encodeURIComponent(id) + "/documents/" + encodeURIComponent(docType) + "/upload",
+            form
+          );
+          await reloadAccounting();
+        } catch (err) {
+          if (msg) msg.textContent = err.message || "Upload failed";
         }
       }
 
@@ -1479,6 +1641,34 @@ window.GreenOSModules["dispatch"] = {
           "mark_carrier_paid",
           "Confirm that the carrier / factoring company was paid?"
         );
+      });
+      main.querySelector(".acc-upload-customer")?.addEventListener("change", function (ev) {
+        uploadProof("CUSTOMER_PAID_PROOF", ev.target.files && ev.target.files[0]);
+      });
+      main.querySelector(".acc-upload-carrier")?.addEventListener("change", function (ev) {
+        uploadProof("CARRIER_PAID_PROOF", ev.target.files && ev.target.files[0]);
+      });
+      main.querySelector("#acc-save")?.addEventListener("click", async function () {
+        var msg = main.querySelector("#acc-payment-msg");
+        try {
+          if (msg) msg.textContent = "Saving accounting…";
+          await self.api("/" + encodeURIComponent(id), {
+            method: "PATCH",
+            body: JSON.stringify({
+              customerRate: self.parseMoneyInput(main.querySelector("#acc-freight")?.value),
+              carrierRate: self.parseMoneyInput(main.querySelector("#acc-carrier-rate")?.value),
+              factoringFee: self.parseMoneyInput(main.querySelector("#acc-factoring")?.value),
+              invoiceNumber: main.querySelector("#acc-invoice")?.value || null,
+              paymentStatus: main.querySelector("#acc-pay-status")?.value || null,
+              invoiceDate: main.querySelector("#acc-invoice-date")?.value || null,
+              invoiceDueDate: main.querySelector("#acc-due-date")?.value || null,
+              paymentDate: main.querySelector("#acc-pay-date")?.value || null,
+            }),
+          });
+          await reloadAccounting();
+        } catch (err) {
+          if (msg) msg.textContent = err.message || "Failed to save accounting";
+        }
       });
       return;
     }

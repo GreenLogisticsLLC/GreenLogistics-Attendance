@@ -1323,6 +1323,27 @@ html[data-theme="light"] {
   width: auto;
   margin-top: 0.45rem;
 }
+.load-pay-doc {
+  margin-top: 0.45rem;
+}
+.load-pay-doc .load-doc-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+.load-pay-upload {
+  display: block;
+  margin-top: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--gos-muted);
+  cursor: pointer;
+}
+.load-pay-upload input {
+  display: block;
+  margin-top: 0.25rem;
+  width: 100%;
+}
 .load-review-card { width: min(680px, 100%); }
 .load-review-choices {
   display: grid;

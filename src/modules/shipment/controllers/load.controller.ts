@@ -321,6 +321,51 @@ export const loadController = {
         }
     },
 
+    async uploadPaymentProof(req: AuthRequest, res: Response) {
+        try {
+            const id = String(req.params.id || "");
+            const docType = String(req.params.docType || "");
+            const access = await accessOr404(req, res, id);
+            if (!access.ok) return;
+            if (!canViewLoadProfit(req.user?.role || "")) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Only Accounting and Owner can upload payment documents",
+                });
+            }
+            const file = req.file;
+            if (!file?.path) {
+                res.status(400).json({ success: false, message: "Payment document is required" });
+                return;
+            }
+            try {
+                const data = await loadDocumentsService.uploadProof({
+                    shipmentLeadId: id,
+                    docType,
+                    actorUserId: req.user?.userId,
+                    originalName: file.originalname,
+                    mimeType: file.mimetype,
+                    tempPath: file.path,
+                });
+                res.json({ success: true, data });
+            } catch (err) {
+                if (file.path && fs.existsSync(file.path)) {
+                    try {
+                        fs.unlinkSync(file.path);
+                    } catch {
+                        /* ignore */
+                    }
+                }
+                throw err;
+            }
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Payment document upload failed",
+            });
+        }
+    },
+
     async downloadDocument(req: AuthRequest, res: Response) {
         try {
             const id = String(req.params.id || "");

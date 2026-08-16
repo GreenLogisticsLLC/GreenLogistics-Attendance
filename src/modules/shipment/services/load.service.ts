@@ -373,6 +373,19 @@ export class LoadService {
 
         const pricing = computePricing(s);
         const tracking = trackingFromStatus(s.status, s.trackingStatus);
+        const mappedDocs = documents.map((d) => ({
+            documentId: d.documentId,
+            docType: d.docType,
+            version: d.version,
+            title: d.title,
+            status: d.status,
+            changeReason: d.changeReason,
+            fileUrl: d.fileUrl
+                ? `/api/loads/${shipmentLeadId}/documents/${d.documentId}/download`
+                : null,
+            fileName: d.fileName,
+            createdAt: d.createdAt,
+        }));
 
         return {
             identity: {
@@ -452,19 +465,7 @@ export class LoadService {
             pricing,
             tracking,
             gps,
-            documents: documents.map((d) => ({
-                documentId: d.documentId,
-                docType: d.docType,
-                version: d.version,
-                title: d.title,
-                status: d.status,
-                changeReason: d.changeReason,
-                fileUrl: d.fileUrl
-                    ? `/api/loads/${shipmentLeadId}/documents/${d.documentId}/download`
-                    : null,
-                fileName: d.fileName,
-                createdAt: d.createdAt,
-            })),
+            documents: mappedDocs,
             notes: {
                 internal: s.notes,
                 customer: s.customerNotes,
@@ -486,6 +487,8 @@ export class LoadService {
                 customerPaidById: s.customerPaidById,
                 carrierPaidAt: s.carrierPaidAt,
                 carrierPaidById: s.carrierPaidById,
+                customerRate: pricing.customerRate,
+                carrierRate: pricing.carrierRate,
                 factoring: s.factoringFee,
                 brokerProfit: pricing.brokerProfit,
                 companyProfit: pricing.companyProfit,
@@ -497,6 +500,10 @@ export class LoadService {
                     s.customerPaidAt || (s.paymentStatus && /paid/i.test(s.paymentStatus))
                         ? 0
                         : pricing.totalRevenue,
+                customerPaidDoc:
+                    mappedDocs.find((d) => d.docType === "CUSTOMER_PAID_PROOF") || null,
+                carrierPaidDoc:
+                    mappedDocs.find((d) => d.docType === "CARRIER_PAID_PROOF") || null,
             },
             reviews: {
                 customerSentAt: s.reviewCustomerSentAt,
