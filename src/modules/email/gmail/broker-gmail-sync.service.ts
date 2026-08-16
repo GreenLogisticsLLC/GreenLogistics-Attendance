@@ -81,35 +81,64 @@ function isUshipRelated(fromAddress: string, subject: string, body: string): boo
     return false;
 }
 
-function normalizeListingUrl(url: string): string {
-    const cleaned = url.replace(/[>,)\]]+$/, "").trim();
-    try {
-        const u = new URL(cleaned);
-        const m = u.pathname.match(/\/listing\/(\d+)/i);
-        if (m?.[1]) return `https://www.uship.com/listing/${m[1]}`;
-        return `${u.origin}${u.pathname}`.replace(/\/$/, "");
-    } catch {
-        return cleaned.split("?")[0].split("#")[0].replace(/\/$/, "");
+function collectListingIds(...blobs: Array<string | null | undefined>): string[] {
+    const ids = new Set<string>();
+    for (const blob of blobs) {
+        const text = String(blob || "");
+        for (const match of text.matchAll(/\/listing\/(\d{5,})(?:\/|[?#"'<\s>]|$)/gi)) {
+            if (match[1]) ids.add(match[1]);
+        }
+        for (const match of text.matchAll(
+            /(?:listing|shipment)\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/gi
+        )) {
+            if (match[1]) ids.add(match[1]);
+        }
     }
+    return [...ids];
 }
 
-/** Extract uShip listing id or view URL from email body/subject. */
-function extractUshipRefs(text: string): { externalId?: string; viewUrl?: string } {
-    const rawView =
-        text.match(/https?:\/\/(?:www\.)?uship\.com\/listing\/[^\s"'<>]+/i)?.[0] ||
-        text.match(/https?:\/\/(?:www\.)?uship\.com\/[^\s"'<>]*listing[^\s"'<>]*/i)?.[0];
-    const external =
-        text.match(/\/listing\/(\d{5,})/i)?.[1] ||
-        text.match(/listing\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/i)?.[1] ||
-        text.match(/shipment\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/i)?.[1];
-    const viewUrl = rawView ? normalizeListingUrl(rawView) : undefined;
+/**
+ * Prefer listing IDs from raw HTML href attributes — stripHtml() destroys them.
+ * If multiple distinct listing IDs appear, return none rather than guessing.
+ */
+function extractUshipRefs(input: {
+    subject?: string | null;
+    bodyText?: string | null;
+    bodyHtml?: string | null;
+    snippet?: string | null;
+}): { externalId?: string; viewUrl?: string } {
+    const ids = collectListingIds(input.subject, input.bodyHtml, input.bodyText, input.snippet);
+    if (ids.length !== 1) {
+        return {};
+    }
+    const externalId = ids[0];
     return {
-        viewUrl,
-        externalId: external || (viewUrl ? viewUrl.match(/\/listing\/(\d+)/i)?.[1] : undefined),
+        externalId,
+        viewUrl: `https://www.uship.com/listing/${externalId}`,
     };
 }
 
 const STRONG_MATCH_METHODS = ["viewUrl", "externalShipmentId", "greenOsShipmentId"];
+
+async function matchExactListing(
+    externalId: string,
+    userId: string
+): Promise<{ shipmentLeadId: string; assignedBrokerId: string | null } | null> {
+    const canonicalUrl = `https://www.uship.com/listing/${externalId}`;
+    const rows = await prisma.shipmentLead.findMany({
+        where: {
+            assignedBrokerId: userId,
+            OR: [
+                { viewUrl: canonicalUrl },
+                { source: "USHIP", externalShipmentId: externalId },
+            ],
+        },
+        select: { shipmentLeadId: true, assignedBrokerId: true },
+        take: 5,
+    });
+    if (rows.length !== 1) return null;
+    return rows[0];
+}
 
 async function matchShipment(input: {
     userId: string;
@@ -123,33 +152,12 @@ async function matchShipment(input: {
     let candidate: { shipmentLeadId: string; assignedBrokerId: string | null } | null = null;
     let method = "";
 
-    if (input.viewUrl) {
-        const normalized = normalizeListingUrl(input.viewUrl);
-        candidate = await prisma.shipmentLead.findFirst({
-            where: {
-                OR: [
-                    { viewUrl: normalized },
-                    { viewUrl: input.viewUrl },
-                    { viewUrl: { contains: `/listing/${normalized.match(/\/listing\/(\d+)/i)?.[1] || "__none__"}` } },
-                ],
-            },
-            select: { shipmentLeadId: true, assignedBrokerId: true },
-        });
-        method = "viewUrl";
-    }
-
-    if (!candidate && input.externalId) {
-        candidate = await prisma.shipmentLead.findFirst({
-            where: {
-                OR: [
-                    { source: "USHIP", externalShipmentId: input.externalId },
-                    { viewUrl: { contains: `/listing/${input.externalId}` } },
-                    { externalShipmentId: input.externalId },
-                ],
-            },
-            select: { shipmentLeadId: true, assignedBrokerId: true },
-        });
-        method = "externalShipmentId";
+    const listingId =
+        input.externalId ||
+        (input.viewUrl ? input.viewUrl.match(/\/listing\/(\d+)/i)?.[1] : undefined);
+    if (listingId) {
+        candidate = await matchExactListing(listingId, input.userId);
+        method = input.viewUrl ? "viewUrl" : "externalShipmentId";
     }
 
     const gosSeq = `${input.subject} ${input.body}`.match(/\bGOS(\d{7,})\b/i);
@@ -336,7 +344,11 @@ export class BrokerGmailSyncService {
             let method = row.matchMethod;
 
             if (!shipmentLeadId) {
-                const refs = extractUshipRefs(`${row.subject}\n${body}`);
+                const refs = extractUshipRefs({
+                    subject: row.subject,
+                    bodyText: body,
+                    snippet: row.snippet,
+                });
                 const match = await matchShipment({
                     userId: account.userId,
                     brokerGmailId: account.brokerGmailId,
@@ -408,7 +420,11 @@ export class BrokerGmailSyncService {
                         // Previously stored unmatched — try again with improved matcher/detector.
                         if (!existing.shipmentLeadId) {
                             const body = `${existing.bodyText || ""}\n${existing.snippet || ""}`;
-                            const refs = extractUshipRefs(`${existing.subject}\n${body}`);
+                            const refs = extractUshipRefs({
+                                subject: existing.subject,
+                                bodyText: body,
+                                snippet: existing.snippet,
+                            });
                             const match = await matchShipment({
                                 userId: account.userId,
                                 brokerGmailId: account.brokerGmailId,
@@ -442,15 +458,21 @@ export class BrokerGmailSyncService {
 
                     const raw = await this.fetchRaw(gmail, gmailMessageId);
                     const bodyText = raw.bodyText || "";
-                    const bodyHtml = raw.bodyHtml ? stripHtml(raw.bodyHtml) : "";
-                    const body = `${bodyText}\n${bodyHtml}\n${raw.snippet || ""}`;
+                    const bodyHtmlPlain = raw.bodyHtml ? stripHtml(raw.bodyHtml) : "";
+                    const body = `${bodyText}\n${bodyHtmlPlain}\n${raw.snippet || ""}`;
 
                     if (!isUshipRelated(raw.fromAddress, raw.subject, body)) {
                         ignored += 1;
                         continue;
                     }
 
-                    const refs = extractUshipRefs(`${raw.subject}\n${body}`);
+                    // Pull listing IDs from raw HTML hrefs before stripHtml removes them.
+                    const refs = extractUshipRefs({
+                        subject: raw.subject,
+                        bodyText,
+                        bodyHtml: raw.bodyHtml,
+                        snippet: raw.snippet,
+                    });
                     const match = await matchShipment({
                         userId: account.userId,
                         brokerGmailId: account.brokerGmailId,

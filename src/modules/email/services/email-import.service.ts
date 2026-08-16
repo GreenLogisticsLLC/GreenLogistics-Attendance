@@ -9,21 +9,44 @@ import { shipmentLeadService } from "./shipment-lead.service.js";
 import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
 import { prisma } from "../../../config/database.js";
 
-function extractUshipRefs(text: string): { externalId?: string; viewUrl?: string } {
-    const view =
-        text.match(/https?:\/\/(?:www\.)?uship\.com\/listing\/[^\s"'<>]+/i)?.[0] ||
-        text.match(/https?:\/\/(?:www\.)?uship\.com\/[^\s"'<>]*listing[^\s"'<>]*/i)?.[0];
-    const external =
-        text.match(/\/listing\/(\d+)/i)?.[1] ||
-        text.match(/shipment\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/i)?.[1];
+function collectListingIds(...blobs: Array<string | null | undefined>): string[] {
+    const ids = new Set<string>();
+    for (const blob of blobs) {
+        const text = String(blob || "");
+        for (const match of text.matchAll(/\/listing\/(\d{5,})(?:\/|[?#"'<\s>]|$)/gi)) {
+            if (match[1]) ids.add(match[1]);
+        }
+        for (const match of text.matchAll(
+            /(?:listing|shipment)\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/gi
+        )) {
+            if (match[1]) ids.add(match[1]);
+        }
+    }
+    return [...ids];
+}
+
+function extractUshipRefs(input: {
+    subject?: string | null;
+    bodyText?: string | null;
+    bodyHtml?: string | null;
+    snippet?: string | null;
+}): { externalId?: string; viewUrl?: string } {
+    const ids = collectListingIds(input.subject, input.bodyHtml, input.bodyText, input.snippet);
+    if (ids.length !== 1) return {};
+    const externalId = ids[0];
     return {
-        viewUrl: view ? view.replace(/[>,)\]]+$/, "") : undefined,
-        externalId: external,
+        externalId,
+        viewUrl: `https://www.uship.com/listing/${externalId}`,
     };
 }
 
-async function findShipmentForLifecycle(text: string) {
-    const refs = extractUshipRefs(text);
+async function findShipmentForLifecycle(input: {
+    subject?: string | null;
+    bodyText?: string | null;
+    bodyHtml?: string | null;
+    snippet?: string | null;
+}) {
+    const refs = extractUshipRefs(input);
     if (refs.viewUrl) {
         const byUrl = await shipmentLeadRepository.findByViewUrl(refs.viewUrl);
         if (byUrl) return byUrl;
@@ -32,6 +55,9 @@ async function findShipmentForLifecycle(text: string) {
         const byExt = await shipmentLeadRepository.findByExternalId("USHIP", refs.externalId);
         if (byExt) return byExt;
     }
+    const text = [input.subject, input.bodyText, input.bodyHtml, input.snippet]
+        .filter(Boolean)
+        .join("\n");
     const gosSeq = text.match(/\bGOS(\d{7,})\b/i);
     if (gosSeq) {
         return prisma.shipmentLead.findUnique({
@@ -102,8 +128,12 @@ export class EmailImportService {
                     // Sprint D — uShip lifecycle emails (bid/reply/accept/load) on company inbox
                     const from = (raw.fromAddress || "").toLowerCase();
                     if (from.includes("uship.com")) {
-                        const blob = `${raw.subject}\n${raw.bodyText || ""}\n${raw.bodyHtml || ""}\n${raw.snippet || ""}`;
-                        const existingShipment = await findShipmentForLifecycle(blob);
+                        const existingShipment = await findShipmentForLifecycle({
+                            subject: raw.subject,
+                            bodyText: raw.bodyText,
+                            bodyHtml: raw.bodyHtml,
+                            snippet: raw.snippet,
+                        });
                         if (existingShipment) {
                             if (existingShipment.assignedBrokerId) {
                                 await emailMessageRepository.markProcessed(
@@ -125,6 +155,7 @@ export class EmailImportService {
                                 continue;
                             }
 
+                            const blob = `${raw.subject}\n${raw.bodyText || ""}\n${raw.bodyHtml || ""}\n${raw.snippet || ""}`;
                             const lifecycle = await applyUshipLifecycleEvent({
                                 shipmentLeadId: existingShipment.shipmentLeadId,
                                 subject: raw.subject,

@@ -390,7 +390,8 @@ export async function applyUshipLifecycleEvent(input: {
         });
     }
 
-    // Q&A traffic light: keep only the latest Customer Respond on this card.
+    // Keep Q&A history intact — display already shows only the latest trusted items.
+    // Destructive prune/delete can erase the correct Customer Respond after a bad match.
     const customerKinds = new Set([
         "CUSTOMER_RESPOND",
         "NEW_MESSAGE",
@@ -401,29 +402,7 @@ export async function applyUshipLifecycleEvent(input: {
         customerKinds.has(detected.kind) ||
         customerKinds.has(String(detected.domainEventType || ""))
     ) {
-        const latest = await prisma.domainEvent.findFirst({
-            where: {
-                shipmentLeadId: input.shipmentLeadId,
-                eventType: {
-                    in: [
-                        "CUSTOMER_RESPOND",
-                        "CUSTOMER_REPLIED",
-                        "CUSTOMER_QUESTION",
-                        "NEW_MESSAGE",
-                    ],
-                },
-            },
-            orderBy: { createdAt: "desc" },
-            select: { eventId: true },
-        });
-        if (latest) {
-            await domainEventEngine.pruneOlderQa(
-                input.shipmentLeadId,
-                "customer",
-                latest.eventId
-            );
-        }
-        await domainEventEngine.listCorrespondence(input.shipmentLeadId);
+        await domainEventEngine.correspondenceForDisplay(input.shipmentLeadId);
     }
 
     if (NOTIFY_KINDS.has(detected.kind)) {

@@ -630,8 +630,8 @@ export class CrmService {
         });
 
         await domainEventEngine.pruneOlderQa(shipmentLeadId, "broker", event.eventId);
-        // Clean correspondence + timeline duplicates for this card
-        await domainEventEngine.listCorrespondence(shipmentLeadId);
+        // Display filters to the latest trusted items — do not delete Q&A history.
+        await domainEventEngine.correspondenceForDisplay(shipmentLeadId);
 
         if (
             ["WORKING", "BID_SUBMITTED", "AGENT_OPEN", "FOLLOW_UP"].includes(lead.status) ||

@@ -285,145 +285,16 @@ export class DomainEventEngine {
     }
 
     /**
-     * Q&A traffic-light: only the latest Broker Answer + latest Customer Respond.
-     * Older duplicates are deleted from domain_events and linked timeline rows.
+     * Read-only Q&A view — never deletes history.
+     * Display already keeps only the latest trusted Broker Answer / Customer Respond.
      */
     async listCorrespondence(shipmentLeadId: string) {
-        const events = await this.listForShipment(shipmentLeadId);
-        const qaTypes = new Set([
-            "BROKER_QUESTION",
-            "BROKER_ANSWER",
-            "CUSTOMER_RESPOND",
-            "CUSTOMER_REPLIED",
-            "CUSTOMER_QUESTION",
-            "NEW_MESSAGE",
-        ]);
-
-        const qa = events.filter((e: { eventType: string }) => qaTypes.has(e.eventType));
-        let latestBroker: (typeof qa)[number] | null = null;
-        let latestCustomer: (typeof qa)[number] | null = null;
-
-        for (const e of qa) {
-            const isBroker = e.eventType === "BROKER_QUESTION" || e.eventType === "BROKER_ANSWER";
-            if (isBroker) {
-                if (!latestBroker || e.createdAt >= latestBroker.createdAt) latestBroker = e;
-            } else {
-                if (!latestCustomer || e.createdAt >= latestCustomer.createdAt) latestCustomer = e;
-            }
-        }
-
-        const keepIds = new Set(
-            [latestBroker?.eventId, latestCustomer?.eventId].filter(Boolean) as string[]
-        );
-        const staleIds = qa
-            .filter((e: { eventId: string }) => !keepIds.has(e.eventId))
-            .map((e: { eventId: string }) => e.eventId);
-
-        if (staleIds.length) {
-            await prisma.domainEvent.deleteMany({ where: { eventId: { in: staleIds } } });
-        }
-
-        const timeline = await prisma.shipmentTimelineEvent.findMany({
-            where: {
-                shipmentLeadId,
-                stage: {
-                    in: [
-                        "BROKER_QUESTION",
-                        "BROKER_ANSWER",
-                        "CUSTOMER_RESPOND",
-                        "CUSTOMER_REPLIED",
-                        "CUSTOMER_QUESTION",
-                        "NEW_MESSAGE",
-                    ],
-                },
-            },
-            select: { eventId: true, metaJson: true, stage: true, createdAt: true },
-            orderBy: { createdAt: "desc" },
-        });
-
-        const keepTimelineIds = new Set<string>();
-        let keptBrokerTl = false;
-        let keptCustomerTl = false;
-        for (const t of timeline) {
-            let domainEventId: string | null = null;
-            try {
-                domainEventId = t.metaJson ? JSON.parse(t.metaJson)?.domainEventId || null : null;
-            } catch {
-                domainEventId = null;
-            }
-            const isBroker = t.stage === "BROKER_QUESTION" || t.stage === "BROKER_ANSWER";
-            if (domainEventId && keepIds.has(domainEventId)) {
-                keepTimelineIds.add(t.eventId);
-                if (isBroker) keptBrokerTl = true;
-                else keptCustomerTl = true;
-                continue;
-            }
-            if (!domainEventId) {
-                if (isBroker && !keptBrokerTl) {
-                    keepTimelineIds.add(t.eventId);
-                    keptBrokerTl = true;
-                } else if (!isBroker && !keptCustomerTl) {
-                    keepTimelineIds.add(t.eventId);
-                    keptCustomerTl = true;
-                }
-            }
-        }
-        const dropTl = timeline
-            .map((t) => t.eventId)
-            .filter((id) => !keepTimelineIds.has(id));
-        if (dropTl.length) {
-            await prisma.shipmentTimelineEvent.deleteMany({ where: { eventId: { in: dropTl } } });
-        }
-
-        const out: Array<{
-            id: string;
-            kind: string;
-            title: string;
-            message: string | null;
-            at: Date;
-            actorUserId: string | null;
-        }> = [];
-        if (latestBroker) {
-            out.push({
-                id: latestBroker.eventId,
-                kind: "BROKER_ANSWER",
-                title: "Broker Answer",
-                message: latestBroker.message || latestBroker.title,
-                at: latestBroker.createdAt,
-                actorUserId: latestBroker.actorUserId,
-            });
-        }
-        if (latestCustomer) {
-            out.push({
-                id: latestCustomer.eventId,
-                kind: "CUSTOMER_RESPOND",
-                title: "Customer Respond",
-                message: latestCustomer.message || latestCustomer.title,
-                at: latestCustomer.createdAt,
-                actorUserId: latestCustomer.actorUserId,
-            });
-        }
-        out.sort((a, b) => a.at.getTime() - b.at.getTime());
-        return out;
+        return this.correspondenceForDisplay(shipmentLeadId);
     }
 
-    /** Keep only the newest Q&A event of the given side (broker | customer). */
-    async pruneOlderQa(shipmentLeadId: string, side: "broker" | "customer", keepEventId: string) {
-        const brokerTypes = ["BROKER_QUESTION", "BROKER_ANSWER"];
-        const customerTypes = [
-            "CUSTOMER_RESPOND",
-            "CUSTOMER_REPLIED",
-            "CUSTOMER_QUESTION",
-            "NEW_MESSAGE",
-        ];
-        const types = side === "broker" ? brokerTypes : customerTypes;
-        await prisma.domainEvent.deleteMany({
-            where: {
-                shipmentLeadId,
-                eventType: { in: types },
-                eventId: { not: keepEventId },
-            },
-        });
+    /** @deprecated Prefer keeping history; display filters to the latest trusted items. */
+    async pruneOlderQa(_shipmentLeadId: string, _side: "broker" | "customer", _keepEventId: string) {
+        return;
     }
 }
 
