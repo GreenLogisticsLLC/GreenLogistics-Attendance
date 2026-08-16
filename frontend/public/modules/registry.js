@@ -52,7 +52,7 @@ window.GreenOSRegistry = [
     title: "Loads",
     icon: "📦",
     subtitle: "Load Details — central TMS object after Accept",
-    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead"],
+    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead", "Accounting"],
     children: [
       { id: "active-loads", title: "Active Loads" },
       { id: "completed-loads", title: "Completed Loads" },
@@ -81,7 +81,7 @@ window.GreenOSRegistry = [
     title: "Dispatch",
     icon: "🚛",
     subtitle: "Carriers, trucks, and tracking",
-    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead"],
+    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead", "Accounting"],
     children: [
       { id: "active-loads", title: "Active Loads" },
       { id: "completed-loads", title: "Completed Loads" },

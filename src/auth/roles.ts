@@ -22,6 +22,7 @@ export const SIGNUP_ROLE_NAMES = [
     Roles.Broker,
     Roles.TeamLead,
     Roles.Manager,
+    Roles.Accounting,
     Roles.Owner,
 ] as const;
 
@@ -35,7 +36,7 @@ export const ROLE_DESCRIPTIONS: Record<string, string> = {
     [Roles.Broker]: "Broker — only own shipments and personal workspace",
     [Roles.Dispatcher]: "Dispatcher — loads and carriers (future)",
     [Roles.HR]: "HR — employees and attendance (future)",
-    [Roles.Accounting]: "Accounting — Load money, invoices, and profit (Customer − Carrier)",
+    [Roles.Accounting]: "Accounting — invoices, customer/carrier payments, and profit",
     [Roles.Viewer]: "Read-only access",
 };
 
@@ -112,8 +113,8 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
     ],
     email: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
     assignment: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
-    dispatch: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
-    loads: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
+    dispatch: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead, Roles.Accounting],
+    loads: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead, Roles.Accounting],
     trucking: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
     carriers: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
     "car-transport": [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher],
@@ -161,6 +162,7 @@ export function canAccessModule(role: string, moduleId: string): boolean {
 export function defaultModuleForRole(role: string): ModuleId {
     if (role === Roles.Broker) return "broker";
     if (role === Roles.TeamLead) return "crm";
+    if (role === Roles.Accounting) return "accounting";
     return "dashboard";
 }
 

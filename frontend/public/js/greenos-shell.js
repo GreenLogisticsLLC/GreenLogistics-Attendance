@@ -45,7 +45,9 @@
           ? fromUrl.module
           : this.user && this.user.role === "Broker"
             ? "broker"
-            : "dashboard";
+            : this.user && this.user.role === "Accounting"
+              ? "accounting"
+              : "dashboard";
       this.navigate(start, fromUrl.sub, { replace: true });
     },
 
