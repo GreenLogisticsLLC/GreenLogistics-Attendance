@@ -17,7 +17,10 @@ Never invent confidential customer or financial data.`;
  */
 export class AiAssistantService {
     isConfigured(): boolean {
-        return Boolean(config.openai.apiKey);
+        const key = config.openai.apiKey;
+        if (!key) return false;
+        if (key.startsWith("sk-admin-")) return false;
+        return true;
     }
 
     getModel(): string {
@@ -29,12 +32,11 @@ export class AiAssistantService {
         history?: Array<{ role: "user" | "assistant"; content: string }>;
     }): Promise<{ reply: string; model: string }> {
         if (!this.isConfigured()) {
-            throw Object.assign(
-                new Error(
-                    "OPENAI_API_KEY is not configured. Add it to the server .env and restart GreenOS."
-                ),
-                { status: 503 }
-            );
+            const key = config.openai.apiKey;
+            const msg = key.startsWith("sk-admin-")
+                ? "OPENAI_API_KEY is an Admin key — use a Project API key (sk-proj-...) from GreenOS → API keys."
+                : "OPENAI_API_KEY is not configured. Add it to the server .env and restart GreenOS.";
+            throw Object.assign(new Error(msg), { status: 503 });
         }
 
         const message = String(input.message || "").trim();
