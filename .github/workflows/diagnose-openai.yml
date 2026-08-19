@@ -153,11 +153,7 @@ jobs:
               print("reply:", (reply or "")[:120])
           PY
 
-          echo "=== pm2 restart greenos --update-env (with .env sourced) ==="
-          set -a
-          # shellcheck disable=SC1091
-          . ./.env
-          set +a
+          echo "=== pm2 restart greenos --update-env ==="
           pm2 restart greenos --update-env
           sleep 4
           pm2 list
