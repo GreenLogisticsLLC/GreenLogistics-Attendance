@@ -5,6 +5,10 @@ import { aiChatController, aiStatusController } from "../controllers/ai.controll
 
 export const aiRouter = Router();
 
+aiRouter.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+});
 aiRouter.use(authMiddleware);
 
 const aiRoles = requireRole(

@@ -55,7 +55,11 @@ pm2_greenos_online() {
 }
 
 pm2_restart_or_start() {
-  log "STEP pm2 restart ${PM2_APP} --update-env"
+  log "STEP pm2 restart ${PM2_APP} --update-env (with OPENAI_* from .env)"
+  # shellcheck disable=SC1091
+  if [[ -f "${APP_DIR}/tools/pm2-greenos-env.sh" ]]; then
+    source "${APP_DIR}/tools/pm2-greenos-env.sh" "${APP_DIR}/.env"
+  fi
   if pm2 restart "$PM2_APP" --update-env >>"$LOG_FILE" 2>&1; then
     pm2 save >>"$LOG_FILE" 2>&1 || true
     return 0
@@ -63,7 +67,7 @@ pm2_restart_or_start() {
   log "WARN pm2 restart failed — trying pm2 start"
   # Prefer compiled entry used in production Contabo deploys.
   if [[ -f "${APP_DIR}/dist/index.js" ]]; then
-    pm2 start "${APP_DIR}/dist/index.js" --name "$PM2_APP" --update-env >>"$LOG_FILE" 2>&1 \
+    pm2 start "${APP_DIR}/dist/index.js" --name "$PM2_APP" --update-env --cwd "$APP_DIR" >>"$LOG_FILE" 2>&1 \
       || pm2 start npm --name "$PM2_APP" -- start >>"$LOG_FILE" 2>&1
   else
     pm2 start npm --name "$PM2_APP" -- start >>"$LOG_FILE" 2>&1
@@ -195,6 +199,10 @@ set +e
   npm run db:push >>"$LOG_FILE" 2>&1
   log "STEP npm run build"
   npm run build >>"$LOG_FILE" 2>&1
+  # shellcheck disable=SC1091
+  if [[ -f "${APP_DIR}/tools/pm2-greenos-env.sh" ]]; then
+    source "${APP_DIR}/tools/pm2-greenos-env.sh" "${APP_DIR}/.env"
+  fi
   log "STEP pm2 restart ${PM2_APP} --update-env"
   pm2 restart "$PM2_APP" --update-env >>"$LOG_FILE" 2>&1
   pm2 save >>"$LOG_FILE" 2>&1

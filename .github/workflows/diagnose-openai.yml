@@ -153,7 +153,8 @@ jobs:
               print("reply:", (reply or "")[:120])
           PY
 
-          echo "=== Node runtime config (dist/config/env.js) ==="
+          echo "=== GET /api/health (openai runtime) ==="
+          curl -sS http://localhost:3847/api/health | python3 -c "import json,sys; d=json.load(sys.stdin); o=d.get('openai') or {}; print('health_commit:', d.get('commit')); print('openai_model:', o.get('model')); print('openai_keySuffix:', o.get('keySuffix')); print('openai_keyType:', o.get('keyType'))"
           node << 'NODE'
           import crypto from "crypto";
           import { getOpenAiConfig } from "./dist/config/env.js";

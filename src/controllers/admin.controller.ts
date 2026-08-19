@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import { emailTablesExist, getResolvedDatabaseUrl, prisma } from "../config/database.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
@@ -10,13 +11,23 @@ import { cardRegistrationService } from "../services/card-registration.service.j
 import { attendanceService } from "../services/attendance.service.js";
 import { ensureFlexibleShiftId } from "../services/shift-default.service.js";
 import { apiResponse, normalizeCardToken, getWebhookUrls, getAllNetworkIps } from "../utils/helpers.js";
-import { config } from "../config/env.js";
+import { config, getOpenAiConfig } from "../config/env.js";
 import type { AuthRequest } from "../middlewares/auth.middleware.js";
 
 function getDeployedCommit(): string {
     if (process.env.GIT_COMMIT) return process.env.GIT_COMMIT.slice(0, 7);
+    const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
     try {
-        const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+        const head = execSync("git rev-parse --short HEAD", {
+            cwd: root,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        if (head) return head.slice(0, 7);
+    } catch {
+        /* fall through */
+    }
+    try {
         const versionFile = path.join(root, "deploy-version.txt");
         const raw = fs.readFileSync(versionFile, "utf8").trim();
         return raw && raw !== "local" ? raw.slice(0, 7) : "local";
@@ -324,11 +335,24 @@ export async function healthController(_req: Request, res: Response) {
         const emailSchemaOk = await emailTablesExist();
         const webhookUrls = getWebhookUrls(config.port);
         const commit = getDeployedCommit();
+        const openai = getOpenAiConfig();
+        const key = openai.apiKey;
         return res.json({
             status: emailSchemaOk ? "OK" : "DEGRADED",
             version: "1.0.0",
             commit,
             company: config.companyName,
+            openai: {
+                model: openai.model,
+                keySuffix: key ? key.slice(-4) : "",
+                keyType: key.startsWith("sk-proj-")
+                    ? "project"
+                    : key.startsWith("sk-admin-")
+                      ? "admin"
+                      : key
+                        ? "legacy"
+                        : "none",
+            },
             database: "ONLINE",
             databaseProvider: dbProvider,
             databaseUrlHint: dbProvider === "sqlite" ? resolvedDb.replace(/^file:/, "file:…/") : dbProvider,

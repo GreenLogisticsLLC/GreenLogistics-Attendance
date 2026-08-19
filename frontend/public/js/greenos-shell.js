@@ -451,6 +451,7 @@
           const res = await fetch("/api/ai" + path, {
             ...options,
             signal: ctrl.signal,
+            cache: "no-store",
             headers: {
               "Content-Type": "application/json",
               Authorization: token ? "Bearer " + token : "",
