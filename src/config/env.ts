@@ -1,10 +1,37 @@
 import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
 
-const dotenvResult = dotenv.config();
-// PM2 can keep stale OPENAI_* in process env; .env on disk is the source of truth after deploy.
-const openaiKeys = ["OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_PROJECT_ID", "OPENAI_ORG_ID"] as const;
-for (const key of openaiKeys) {
-    const fromFile = dotenvResult.parsed?.[key];
+const OPENAI_ENV_KEYS = ["OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_PROJECT_ID", "OPENAI_ORG_ID"] as const;
+
+function readEnvFile(filePath: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    if (!fs.existsSync(filePath)) return out;
+    const text = fs.readFileSync(filePath, "utf8");
+    for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const eq = trimmed.indexOf("=");
+        if (eq <= 0) continue;
+        const key = trimmed.slice(0, eq).trim();
+        let value = trimmed.slice(eq + 1).trim();
+        if (
+            (value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))
+        ) {
+            value = value.slice(1, -1);
+        }
+        out[key] = value;
+    }
+    return out;
+}
+
+dotenv.config();
+// PM2 can keep stale OPENAI_* in process env; .env on disk wins after deploy.
+const envFilePath = path.resolve(process.cwd(), ".env");
+const envFromFile = readEnvFile(envFilePath);
+for (const key of OPENAI_ENV_KEYS) {
+    const fromFile = envFromFile[key];
     if (fromFile != null && fromFile !== "") {
         process.env[key] = fromFile;
     }

@@ -190,4 +190,18 @@ jobs:
           print("pm2  key:", fp(pm2_key))
           print("env_key == pm2_key:", bool(env_key and pm2_key and env_key == pm2_key))
           PY2
+
+          echo "=== Node runtime config (dist/config/env.js) ==="
+          node << 'NODE'
+          import crypto from "crypto";
+          import { config } from "./dist/config/env.js";
+          const key = config.openai.apiKey || "";
+          const digest = key
+            ? crypto.createHash("sha256").update(key).digest("hex").slice(0, 12)
+            : "EMPTY";
+          console.log("runtime_model:", config.openai.model || "EMPTY");
+          console.log("runtime_key_type:", key.startsWith("sk-proj-") ? "project" : key ? "other" : "none");
+          console.log("runtime_key_sha256_12:", digest);
+          console.log("runtime_key_suffix:", key ? key.slice(-4) : "EMPTY");
+          NODE
           EOF

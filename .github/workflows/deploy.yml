@@ -129,9 +129,15 @@ jobs:
           fi
 
           npm run build
+          git rev-parse --short HEAD > frontend/public/deploy-version.txt
           # One PM2 process only — duplicate "greenos" entries caused stale env/code.
           pm2 delete greenos 2>/dev/null || true
-          pm2 start dist/index.js --name greenos --update-env --cwd "$(pwd)"
+          OPENAI_API_KEY="$(grep -m1 '^OPENAI_API_KEY=' .env | cut -d= -f2- | tr -d '\r' | sed 's/^["'"'"']//; s/["'"'"']$//')"
+          OPENAI_MODEL="$(grep -m1 '^OPENAI_MODEL=' .env | cut -d= -f2- | tr -d '\r' | sed 's/^["'"'"']//; s/["'"'"']$//')"
+          OPENAI_PROJECT_ID="$(grep -m1 '^OPENAI_PROJECT_ID=' .env | cut -d= -f2- | tr -d '\r' | sed 's/^["'"'"']//; s/["'"'"']$//')"
+          OPENAI_ORG_ID="$(grep -m1 '^OPENAI_ORG_ID=' .env | cut -d= -f2- | tr -d '\r' | sed 's/^["'"'"']//; s/["'"'"']$//')"
+          OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_MODEL="$OPENAI_MODEL" OPENAI_PROJECT_ID="$OPENAI_PROJECT_ID" OPENAI_ORG_ID="$OPENAI_ORG_ID" \
+            pm2 start dist/index.js --name greenos --update-env --cwd "$(pwd)"
           pm2 save
           sleep 5
           curl --fail http://localhost:3847/api/health
