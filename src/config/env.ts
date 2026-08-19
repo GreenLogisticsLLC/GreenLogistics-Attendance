@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 const OPENAI_ENV_KEYS = ["OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_PROJECT_ID", "OPENAI_ORG_ID"] as const;
 
@@ -26,16 +27,38 @@ function readEnvFile(filePath: string): Record<string, string> {
     return out;
 }
 
-dotenv.config();
-// PM2 can keep stale OPENAI_* in process env; .env on disk wins after deploy.
-const envFilePath = path.resolve(process.cwd(), ".env");
-const envFromFile = readEnvFile(envFilePath);
-for (const key of OPENAI_ENV_KEYS) {
-    const fromFile = envFromFile[key];
-    if (fromFile != null && fromFile !== "") {
-        process.env[key] = fromFile;
+function resolveEnvFilePath(): string {
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const candidates = [
+        path.resolve(process.cwd(), ".env"),
+        path.resolve(moduleDir, "..", "..", ".env"),
+    ];
+    return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
+}
+
+/** Re-read OPENAI_* from .env on disk (PM2 can keep stale process env). */
+export function applyOpenAiEnvFromFile(): void {
+    const envFromFile = readEnvFile(resolveEnvFilePath());
+    for (const key of OPENAI_ENV_KEYS) {
+        const fromFile = envFromFile[key];
+        if (fromFile != null && fromFile !== "") {
+            process.env[key] = fromFile;
+        }
     }
 }
+
+export function getOpenAiConfig() {
+    applyOpenAiEnvFromFile();
+    return {
+        apiKey: (process.env.OPENAI_API_KEY || "").trim(),
+        model: (process.env.OPENAI_MODEL || "gpt-5.5").trim(),
+        projectId: (process.env.OPENAI_PROJECT_ID || "").trim(),
+        organizationId: (process.env.OPENAI_ORG_ID || "").trim(),
+    };
+}
+
+dotenv.config();
+applyOpenAiEnvFromFile();
 
 function parseCorsOrigins(): string[] {
     const raw = process.env.CORS_ORIGINS || "";
@@ -115,12 +138,9 @@ export const config = {
             `${(process.env.PUBLIC_APP_URL || "http://localhost:3847").replace(/\/$/, "")}/api/email/callback`,
     },
     emailPollIntervalMs: parseInt(process.env.EMAIL_POLL_INTERVAL_MS || "15000", 10),
-    /** GreenOS AI Assistant (OpenAI). */
-    openai: {
-        apiKey: (process.env.OPENAI_API_KEY || "").trim(),
-        model: (process.env.OPENAI_MODEL || "gpt-5.5").trim(),
-        projectId: (process.env.OPENAI_PROJECT_ID || "").trim(),
-        organizationId: (process.env.OPENAI_ORG_ID || "").trim(),
+    /** GreenOS AI Assistant (OpenAI) — re-read from .env on each access. */
+    get openai() {
+        return getOpenAiConfig();
     },
     /** CarrierView GPS tracking — token never exposed to frontend. */
     carrierView: {

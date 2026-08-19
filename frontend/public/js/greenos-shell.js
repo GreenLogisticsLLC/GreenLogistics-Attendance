@@ -469,6 +469,7 @@
           if (data.success && data.data && data.data.configured) {
             var bits = ["Model: " + (data.data.model || "OpenAI") + " — ready"];
             if (data.data.keyType) bits.push("key: " + data.data.keyType);
+            if (data.data.keySuffix) bits.push("…" + data.data.keySuffix);
             statusLine.textContent = bits.join(" · ");
           } else {
             statusLine.textContent =

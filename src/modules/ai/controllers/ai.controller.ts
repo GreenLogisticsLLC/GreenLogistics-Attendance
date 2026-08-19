@@ -2,22 +2,25 @@ import type { Response } from "express";
 import type { AuthRequest } from "../../../middlewares/auth.middleware.js";
 import { apiResponse } from "../../../utils/helpers.js";
 import { aiAssistantService } from "../services/ai-assistant.service.js";
-import { config } from "../../../config/env.js";
+import { getOpenAiConfig } from "../../../config/env.js";
 
 export async function aiStatusController(_req: AuthRequest, res: Response) {
+    const openai = getOpenAiConfig();
+    const key = openai.apiKey;
     return res.json(
         apiResponse(true, "OK", {
             configured: aiAssistantService.isConfigured(),
-            model: config.openai.model,
-            keyType: config.openai.apiKey.startsWith("sk-proj-")
+            model: openai.model,
+            keySuffix: key ? key.slice(-4) : "",
+            keyType: key.startsWith("sk-proj-")
                 ? "project"
-                : config.openai.apiKey.startsWith("sk-admin-")
+                : key.startsWith("sk-admin-")
                   ? "admin"
-                  : config.openai.apiKey
+                  : key
                     ? "legacy"
                     : "none",
-            projectConfigured: Boolean(config.openai.projectId),
-            organizationConfigured: Boolean(config.openai.organizationId),
+            projectConfigured: Boolean(openai.projectId),
+            organizationConfigured: Boolean(openai.organizationId),
         })
     );
 }

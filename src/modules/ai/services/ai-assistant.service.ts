@@ -1,4 +1,4 @@
-import { config } from "../../../config/env.js";
+import { getOpenAiConfig } from "../../../config/env.js";
 
 export type AiChatMessage = {
     role: "system" | "user" | "assistant";
@@ -17,22 +17,23 @@ Never invent confidential customer or financial data.`;
  */
 export class AiAssistantService {
     isConfigured(): boolean {
-        const key = config.openai.apiKey;
+        const key = getOpenAiConfig().apiKey;
         if (!key) return false;
         if (key.startsWith("sk-admin-")) return false;
         return true;
     }
 
     getModel(): string {
-        return config.openai.model || "gpt-5.5";
+        return getOpenAiConfig().model || "gpt-5.5";
     }
 
     async chat(input: {
         message: string;
         history?: Array<{ role: "user" | "assistant"; content: string }>;
     }): Promise<{ reply: string; model: string }> {
+        const openai = getOpenAiConfig();
         if (!this.isConfigured()) {
-            const key = config.openai.apiKey;
+            const key = openai.apiKey;
             const msg = key.startsWith("sk-admin-")
                 ? "OPENAI_API_KEY is an Admin key — use a Project API key (sk-proj-...) from GreenOS → API keys."
                 : "OPENAI_API_KEY is not configured. Add it to the server .env and restart GreenOS.";
@@ -57,14 +58,14 @@ export class AiAssistantService {
 
         const model = this.getModel();
         const headers: Record<string, string> = {
-            Authorization: `Bearer ${config.openai.apiKey}`,
+            Authorization: `Bearer ${openai.apiKey}`,
             "Content-Type": "application/json",
         };
-        const key = config.openai.apiKey;
+        const key = openai.apiKey;
         // Project keys (sk-proj-...) are already scoped — extra headers can route billing wrong.
         if (!key.startsWith("sk-proj-")) {
-            if (config.openai.projectId) headers["OpenAI-Project"] = config.openai.projectId;
-            if (config.openai.organizationId) headers["OpenAI-Organization"] = config.openai.organizationId;
+            if (openai.projectId) headers["OpenAI-Project"] = openai.projectId;
+            if (openai.organizationId) headers["OpenAI-Organization"] = openai.organizationId;
         }
         const res = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
@@ -86,6 +87,10 @@ export class AiAssistantService {
         if (!res.ok) {
             const code = data?.error?.code || "";
             const detail = data?.error?.message || `OpenAI HTTP ${res.status}`;
+            const keySuffix = key ? key.slice(-4) : "none";
+            console.warn(
+                `[ai] OpenAI error model=${model} keySuffix=${keySuffix} http=${res.status} code=${code || "none"}`
+            );
             let friendly = detail;
             if (code === "insufficient_quota" || /no credits remaining/i.test(detail)) {
                 friendly =

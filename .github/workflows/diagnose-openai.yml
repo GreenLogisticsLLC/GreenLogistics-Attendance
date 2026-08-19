@@ -153,55 +153,25 @@ jobs:
               print("reply:", (reply or "")[:120])
           PY
 
-          echo "=== pm2 restart greenos --update-env ==="
-          pm2 restart greenos --update-env
-          sleep 4
-          pm2 list
-          curl -sS -o /dev/null -w "health_http=%{http_code}\n" http://localhost:3847/api/health || true
-
-          echo "=== Post-restart: env_key == pm2_key ==="
-          python3 << 'PY2'
-          import hashlib, json, subprocess
-          from pathlib import Path
-
-          def fp(value: str) -> str:
-              value = (value or "").strip().strip('"').strip("'")
-              if not value:
-                  return "EMPTY"
-              digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
-              return f"sha256_12={digest} suffix={value[-4:]}"
-
-          def read_env(path):
-              out = {}
-              for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-                  if not line or line.startswith("#") or "=" not in line:
-                      continue
-                  k, v = line.split("=", 1)
-                  out[k.strip()] = v.strip().strip('"').strip("'")
-              return out
-
-          env_key = read_env(Path("/root/GreenLogistics-Attendance/.env")).get("OPENAI_API_KEY", "")
-          env_dump = subprocess.run(["pm2", "env", "0"], capture_output=True, text=True)
-          pm2_key = ""
-          for line in (env_dump.stdout or "").splitlines():
-              if line.startswith("OPENAI_API_KEY:"):
-                  pm2_key = line.split(":", 1)[1].strip()
-          print(".env key:", fp(env_key))
-          print("pm2  key:", fp(pm2_key))
-          print("env_key == pm2_key:", bool(env_key and pm2_key and env_key == pm2_key))
-          PY2
-
           echo "=== Node runtime config (dist/config/env.js) ==="
           node << 'NODE'
           import crypto from "crypto";
-          import { config } from "./dist/config/env.js";
-          const key = config.openai.apiKey || "";
+          import { getOpenAiConfig } from "./dist/config/env.js";
+          import { aiAssistantService } from "./dist/modules/ai/services/ai-assistant.service.js";
+          const openai = getOpenAiConfig();
+          const key = openai.apiKey || "";
           const digest = key
             ? crypto.createHash("sha256").update(key).digest("hex").slice(0, 12)
             : "EMPTY";
-          console.log("runtime_model:", config.openai.model || "EMPTY");
+          console.log("runtime_model:", openai.model || "EMPTY");
           console.log("runtime_key_type:", key.startsWith("sk-proj-") ? "project" : key ? "other" : "none");
           console.log("runtime_key_sha256_12:", digest);
           console.log("runtime_key_suffix:", key ? key.slice(-4) : "EMPTY");
+          try {
+            const chat = await aiAssistantService.chat({ message: "hello" });
+            console.log("service_chat_ok:", (chat.reply || "").slice(0, 120));
+          } catch (err) {
+            console.log("service_chat_err:", err instanceof Error ? err.message : String(err));
+          }
           NODE
           EOF
