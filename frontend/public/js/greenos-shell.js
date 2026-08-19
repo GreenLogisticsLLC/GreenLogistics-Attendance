@@ -403,9 +403,8 @@
 
     renderAI(root) {
       root.innerHTML =
-        `<section class="gos-dash-hero">` +
+        `<section class="gos-dash-hero gos-ai-hero">` +
         `<h1>GreenOS AI Assistant</h1>` +
-        `<p id="gos-ai-status-line">Connecting to OpenAI…</p>` +
         `</section>` +
         `<div class="gos-ai-layout">` +
         `<section class="gos-ai-chat">` +
@@ -427,7 +426,6 @@
       const messages = root.querySelector("#gos-ai-messages");
       const form = root.querySelector("#gos-ai-form");
       const input = root.querySelector("#gos-ai-input");
-      const statusLine = root.querySelector("#gos-ai-status-line");
       const history = [];
 
       function append(role, text) {
@@ -460,23 +458,6 @@
           clearTimeout(timer);
         }
       }
-
-      api("/status")
-        .then(function (data) {
-          if (!statusLine) return;
-          if (data.success && data.data && data.data.configured) {
-            var bits = ["Model: " + (data.data.model || "OpenAI") + " — ready"];
-            if (data.data.keyType) bits.push("key: " + data.data.keyType);
-            if (data.data.keySuffix) bits.push("…" + data.data.keySuffix);
-            statusLine.textContent = bits.join(" · ");
-          } else {
-            statusLine.textContent =
-              "OPENAI_API_KEY not configured on server — add it to .env and restart";
-          }
-        })
-        .catch(function () {
-          if (statusLine) statusLine.textContent = "AI ready — type a message below";
-        });
 
       if (input) {
         input.disabled = false;
