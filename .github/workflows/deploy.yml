@@ -57,7 +57,11 @@ jobs:
           git reset --hard origin/main
           git rev-parse --short HEAD > deploy-version.txt
           rm -rf node_modules
-          npm ci
+          if ! npm ci; then
+            echo "WARN: npm ci failed — retrying with npm install"
+            rm -rf node_modules
+            npm install --no-audit --no-fund
+          fi
 
           # Sync schema to the canonical absolute SQLite path (or Postgres)
           npm run db:push
