@@ -1,0 +1,161 @@
+name: Diagnose OpenAI production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Inspect PM2, .env, OpenAI API responses
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+
+          python3 << 'PY'
+          import hashlib, json, os, re, subprocess, urllib.error, urllib.request
+          from pathlib import Path
+
+          def fp(value: str) -> str:
+              value = (value or "").strip().strip('"').strip("'")
+              if not value:
+                  return "EMPTY"
+              digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+              kind = "admin" if value.startswith("sk-admin-") else "project" if value.startswith("sk-proj-") else "legacy"
+              return f"type={kind} len={len(value)} sha256_12={digest} prefix={value[:10]}…suffix={value[-4:]}"
+
+          def read_env(path: Path) -> dict[str, str]:
+              out: dict[str, str] = {}
+              if not path.is_file():
+                  return out
+              for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                  if not line or line.startswith("#") or "=" not in line:
+                      continue
+                  k, v = line.split("=", 1)
+                  out[k.strip()] = v.strip().strip('"').strip("'")
+              return out
+
+          def openai_request(path: str, api_key: str, project: str = "", org: str = "") -> tuple[int, dict]:
+              headers = {
+                  "Authorization": f"Bearer {api_key}",
+                  "Content-Type": "application/json",
+              }
+              if api_key.startswith("sk-proj-"):
+                  pass
+              else:
+                  if project:
+                      headers["OpenAI-Project"] = project
+                  if org:
+                      headers["OpenAI-Organization"] = org
+              req = urllib.request.Request(
+                  f"https://api.openai.com{path}",
+                  headers=headers,
+                  method="GET" if path.endswith("/models") else "POST",
+                  data=None if path.endswith("/models") else json.dumps({
+                      "model": "gpt-4o-mini",
+                      "messages": [{"role": "user", "content": "ping"}],
+                      "max_completion_tokens": 8,
+                  }).encode("utf-8"),
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      body = resp.read().decode("utf-8", errors="replace")
+                      try:
+                          data = json.loads(body) if body else {}
+                      except json.JSONDecodeError:
+                          data = {"raw": body[:500]}
+                      return resp.status, data
+              except urllib.error.HTTPError as err:
+                  body = err.read().decode("utf-8", errors="replace")
+                  try:
+                      data = json.loads(body) if body else {}
+                  except json.JSONDecodeError:
+                      data = {"raw": body[:500]}
+                  return err.code, data
+
+          root = Path("/root/GreenLogistics-Attendance")
+          env = read_env(root / ".env")
+
+          print("=== PM2 greenos processes ===")
+          proc = subprocess.run(["pm2", "jlist"], capture_output=True, text=True)
+          if proc.returncode != 0:
+              print(proc.stderr or proc.stdout)
+          else:
+              items = json.loads(proc.stdout or "[]")
+              greenos = [x for x in items if x.get("name") == "greenos"]
+              print("count:", len(greenos))
+              for item in greenos:
+                  env_pm2 = item.get("pm2_env") or {}
+                  print(
+                      "id=", item.get("pm_id"),
+                      "status=", env_pm2.get("status"),
+                      "cwd=", env_pm2.get("pm_cwd"),
+                      "exec=", env_pm2.get("pm_exec_path"),
+                  )
+
+          print("=== .env OpenAI settings ===")
+          for key in ("OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_PROJECT_ID", "OPENAI_ORG_ID"):
+              val = env.get(key, "")
+              if key == "OPENAI_API_KEY":
+                  print(f"{key}:", fp(val))
+              else:
+                  print(f"{key}:", val or "EMPTY")
+
+          print("=== PM2 process env (pm2 env 0, masked) ===")
+          env_dump = subprocess.run(["pm2", "env", "0"], capture_output=True, text=True)
+          pm2_openai = ""
+          for line in (env_dump.stdout or "").splitlines():
+              if line.startswith("OPENAI_API_KEY:"):
+                  pm2_openai = line.split(":", 1)[1].strip()
+                  print("OPENAI_API_KEY:", fp(pm2_openai))
+              elif line.startswith("OPENAI_MODEL:") or line.startswith("OPENAI_PROJECT_ID:") or line.startswith("OPENAI_ORG_ID:"):
+                  print(line)
+
+          env_key = env.get("OPENAI_API_KEY", "")
+          print("env_key == pm2_key:", bool(env_key and pm2_openai and env_key == pm2_openai))
+
+          project = env.get("OPENAI_PROJECT_ID", "")
+          org = env.get("OPENAI_ORG_ID", "")
+
+          if not env_key:
+              print("ERROR: OPENAI_API_KEY missing in .env")
+              raise SystemExit(1)
+
+          print("=== OpenAI GET /v1/models ===")
+          status, data = openai_request("/v1/models", env_key, project, org)
+          err = (data.get("error") or {}) if isinstance(data, dict) else {}
+          print("http_status:", status)
+          print("error.type:", err.get("type"))
+          print("error.code:", err.get("code"))
+          print("error.message:", err.get("message"))
+          if status == 200 and isinstance(data, dict):
+              ids = [m.get("id") for m in (data.get("data") or [])[:5] if isinstance(m, dict)]
+              print("sample_models:", ids)
+
+          print("=== OpenAI POST /v1/chat/completions (gpt-4o-mini, ping) ===")
+          status2, data2 = openai_request("/v1/chat/completions", env_key, project, org)
+          err2 = (data2.get("error") or {}) if isinstance(data2, dict) else {}
+          print("http_status:", status2)
+          print("error.type:", err2.get("type"))
+          print("error.code:", err2.get("code"))
+          print("error.message:", err2.get("message"))
+          if status2 == 200 and isinstance(data2, dict):
+              reply = (((data2.get("choices") or [{}])[0]).get("message") or {}).get("content")
+              print("reply:", (reply or "")[:120])
+          PY
+
+          echo "=== pm2 restart greenos --update-env ==="
+          pm2 restart greenos --update-env
+          sleep 4
+          pm2 list
+          curl -sS -o /dev/null -w "health_http=%{http_code}\n" http://localhost:3847/api/health || true
+          EOF
