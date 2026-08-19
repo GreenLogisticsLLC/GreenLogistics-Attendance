@@ -54,12 +54,15 @@ export class AiAssistantService {
         ];
 
         const model = this.getModel();
+        const headers: Record<string, string> = {
+            Authorization: `Bearer ${config.openai.apiKey}`,
+            "Content-Type": "application/json",
+        };
+        if (config.openai.projectId) headers["OpenAI-Project"] = config.openai.projectId;
+        if (config.openai.organizationId) headers["OpenAI-Organization"] = config.openai.organizationId;
         const res = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
-            headers: {
-                Authorization: `Bearer ${config.openai.apiKey}`,
-                "Content-Type": "application/json",
-            },
+            headers,
             body: JSON.stringify({
                 model,
                 messages,

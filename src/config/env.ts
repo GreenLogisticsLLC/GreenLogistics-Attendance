@@ -84,6 +84,8 @@ export const config = {
     openai: {
         apiKey: (process.env.OPENAI_API_KEY || "").trim(),
         model: (process.env.OPENAI_MODEL || "gpt-5.5").trim(),
+        projectId: (process.env.OPENAI_PROJECT_ID || "").trim(),
+        organizationId: (process.env.OPENAI_ORG_ID || "").trim(),
     },
     /** CarrierView GPS tracking — token never exposed to frontend. */
     carrierView: {

@@ -29,6 +29,8 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          OPENAI_PROJECT_ID: ${{ secrets.OPENAI_PROJECT_ID }}
+          OPENAI_ORG_ID: ${{ secrets.OPENAI_ORG_ID }}
           GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
           GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
           PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
@@ -40,13 +42,15 @@ jobs:
         run: |
           OPENAI_KEY_B64="$(printf '%s' "${OPENAI_API_KEY:-}" | base64 -w0)"
           OPENAI_MODEL_SAFE="${OPENAI_MODEL:-gpt-5.5}"
+          OPENAI_PROJECT_SAFE="${OPENAI_PROJECT_ID:-}"
+          OPENAI_ORG_SAFE="${OPENAI_ORG_ID:-}"
           GMAIL_CLIENT_ID_B64="$(printf '%s' "${GMAIL_CLIENT_ID:-}" | base64 -w0)"
           GMAIL_CLIENT_SECRET_B64="$(printf '%s' "${GMAIL_CLIENT_SECRET:-}" | base64 -w0)"
           PUBLIC_APP_URL_B64="$(printf '%s' "${PUBLIC_APP_URL:-}" | base64 -w0)"
           SMTP_B64="$(printf '%s\n%s\n%s\n%s\n%s' "${SMTP_HOST:-}" "${SMTP_PORT:-587}" "${SMTP_USER:-}" "${SMTP_PASS:-}" "${SMTP_FROM:-}" | base64 -w0)"
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
-            "OPENAI_KEY_B64='${OPENAI_KEY_B64}' OPENAI_MODEL_SAFE='${OPENAI_MODEL_SAFE}' GMAIL_CLIENT_ID_B64='${GMAIL_CLIENT_ID_B64}' GMAIL_CLIENT_SECRET_B64='${GMAIL_CLIENT_SECRET_B64}' PUBLIC_APP_URL_B64='${PUBLIC_APP_URL_B64}' SMTP_B64='${SMTP_B64}' bash -s" << 'EOF'
+            "OPENAI_KEY_B64='${OPENAI_KEY_B64}' OPENAI_MODEL_SAFE='${OPENAI_MODEL_SAFE}' OPENAI_PROJECT_SAFE='${OPENAI_PROJECT_SAFE}' OPENAI_ORG_SAFE='${OPENAI_ORG_SAFE}' GMAIL_CLIENT_ID_B64='${GMAIL_CLIENT_ID_B64}' GMAIL_CLIENT_SECRET_B64='${GMAIL_CLIENT_SECRET_B64}' PUBLIC_APP_URL_B64='${PUBLIC_APP_URL_B64}' SMTP_B64='${SMTP_B64}' bash -s" << 'EOF'
           set -euo pipefail
           cd /root/GreenLogistics-Attendance
           git fetch origin
@@ -75,10 +79,13 @@ jobs:
           if [ -n "${OPENAI_KEY_B64:-}" ]; then
             OPENAI_API_KEY="$(printf '%s' "$OPENAI_KEY_B64" | base64 -d | tr -d '\r\n')"
             MODEL="$(printf '%s' "${OPENAI_MODEL_SAFE:-gpt-5.5}" | tr -d '\r\n')"
-            grep -vE '^(OPENAI_API_KEY|OPENAI_MODEL)=' .env > .env.openai.tmp || true
-            printf 'OPENAI_API_KEY=%s\nOPENAI_MODEL=%s\n' "$OPENAI_API_KEY" "$MODEL" >> .env.openai.tmp
+            PROJECT="$(printf '%s' "${OPENAI_PROJECT_SAFE:-}" | tr -d '\r\n')"
+            ORG="$(printf '%s' "${OPENAI_ORG_SAFE:-}" | tr -d '\r\n')"
+            grep -vE '^(OPENAI_API_KEY|OPENAI_MODEL|OPENAI_PROJECT_ID|OPENAI_ORG_ID)=' .env > .env.openai.tmp || true
+            printf 'OPENAI_API_KEY=%s\nOPENAI_MODEL=%s\nOPENAI_PROJECT_ID=%s\nOPENAI_ORG_ID=%s\n' \
+              "$OPENAI_API_KEY" "$MODEL" "$PROJECT" "$ORG" >> .env.openai.tmp
             mv .env.openai.tmp .env
-            echo "Synced OPENAI_API_KEY (len=${#OPENAI_API_KEY}) and OPENAI_MODEL to server .env"
+            echo "Synced OpenAI settings (key/model/project/org) to server .env"
           else
             echo "WARN: OPENAI_API_KEY GitHub secret is empty — AI Assistant will stay disabled"
           fi
