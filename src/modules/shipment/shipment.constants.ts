@@ -179,7 +179,7 @@ export const LIFECYCLE_PIPELINE = [
     { stage: "BID_SUBMITTED", title: "Bid Submitted", status: "BID_SUBMITTED" },
     /** Broker marks this after sending a question to the customer (traffic-light). */
     { stage: "BROKER_QUESTION", title: "Broker Question", status: "BID_SUBMITTED", interactive: true },
-    /** Lights from uShip/Gmail when the customer responds to that question. */
+    /** Red lamp — lights from uShip/Gmail when the customer writes back. */
     { stage: "CUSTOMER_RESPOND", title: "Customer Respond", status: "CUSTOMER_REPLIED" },
     { stage: "CUSTOMER_ACCEPTED", title: "Customer Accepted", status: "ACCEPTED" },
     { stage: "LOAD_CREATED", title: "Load Created", status: "LOAD_CREATED" },

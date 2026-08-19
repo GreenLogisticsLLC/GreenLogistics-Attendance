@@ -147,7 +147,7 @@ window.GreenOSModules.crm = {
       CLOSED: { cls: "crm-st-done", label: "⚫ Closed" },
       COMPLETED: { cls: "crm-st-done", label: "⚫ Completed" },
       BID_SUBMITTED: { cls: "crm-st-quote", label: "🔵 Bid Submitted" },
-      CUSTOMER_REPLIED: { cls: "crm-st-nego", label: "🟣 Customer Replied" },
+      CUSTOMER_REPLIED: { cls: "crm-st-replied", label: "🔴 Customer Replied" },
       ACCEPTED: { cls: "crm-st-won", label: "✅ Accepted" },
       LOAD_CREATED: { cls: "crm-st-quote", label: "🔵 Load Created" },
       DISPATCH: { cls: "crm-st-quote", label: "🔵 Dispatch" },
@@ -818,9 +818,11 @@ window.GreenOSModules.crm = {
           '" title="' +
           (interactive
             ? p.done
-              ? "Mark another Broker Question"
-              : "Click after you send a question to the customer"
-            : esc(p.title)) +
+              ? "Green: you asked. Click again after the next question"
+              : "Click after you send a question to the customer — lamp turns green"
+            : p.done
+              ? "Red: customer wrote back"
+              : "Turns red automatically when the customer writes to you") +
           '"' +
           (interactive ? "" : " tabindex=\"-1\"") +
           "></button>" +
@@ -829,9 +831,15 @@ window.GreenOSModules.crm = {
           "</strong>" +
           (interactive
             ? '<small class="crm-pipe-hint">' +
-              (p.done ? "Tap again after each new question" : "Tap the circle after you ask") +
+              (p.done
+                ? "Green lamp on — click again after each new question"
+                : "Click the circle after you ask — green lamp") +
               "</small>"
-            : '<small class="crm-pipe-hint">Lights from uShip email</small>') +
+            : '<small class="crm-pipe-hint">' +
+              (p.done
+                ? "Red lamp — customer replied (uShip email)"
+                : "Turns red when the customer writes back") +
+              "</small>") +
           (p.at ? "<small>" + window.GreenOSModules.crm.fmtDate(p.at) + "</small>" : "") +
           "</div></div>"
         );
@@ -909,7 +917,7 @@ window.GreenOSModules.crm = {
 
       var correspondenceHtml =
         '<h3>Q&amp;A traffic light</h3>' +
-        '<p class="gos-muted" style="font-size:0.8rem;margin:0 0 0.5rem">Green click → <strong>Broker Answer</strong> (latest only). Customer Respond updates from uShip email (latest only).</p>' +
+        '<p class="gos-muted" style="font-size:0.8rem;margin:0 0 0.5rem">Green lamp = you asked (click the circle). Red lamp = customer wrote back (from uShip/Gmail).</p>' +
         '<ul class="crm-correspondence">' +
         (corrShow.length
           ? corrShow
@@ -1205,6 +1213,11 @@ window.GreenOSModules.crm = {
           var host = btn.closest("[data-stage]");
           var stage = host && host.getAttribute("data-stage");
           if (stage !== "BROKER_QUESTION") return;
+          var node = btn.closest(".crm-qa-node");
+          if (node) {
+            node.classList.remove("is-pending");
+            node.classList.add("is-done");
+          }
           btn.disabled = true;
           try {
             await window.GreenOSModules.crm.api(

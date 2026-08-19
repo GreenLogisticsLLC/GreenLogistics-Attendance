@@ -163,14 +163,22 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
+    // Customer answered / asked — uShip often uses "Respond to Question - {title}".
     if (
         /customer\s+question|asked\s+a\s+question|new\s+question|question\s+from\s+(?:the\s+)?customer|you\s+have\s+a\s+new\s+question/.test(
             h
+        ) ||
+        /respond\s+to\s+(?:your\s+)?(?:question|code)|response\s+to\s+(?:your\s+)?(?:question|code)|question\s+answered|code\s+answered/.test(
+            h
         )
     ) {
+        const isQuestion =
+            /customer\s+question|asked\s+a\s+question|new\s+question|question\s+from\s+(?:the\s+)?customer|you\s+have\s+a\s+new\s+question/.test(
+                h
+            ) && !/respond\s+to|response\s+to|answered/.test(h);
         return {
-            kind: "CUSTOMER_QUESTION",
-            title: "Customer Question",
+            kind: isQuestion ? "CUSTOMER_QUESTION" : "CUSTOMER_RESPOND",
+            title: isQuestion ? "Customer Question" : "Customer Respond",
             domainEventType: "CUSTOMER_RESPOND",
             targetStatus: "CUSTOMER_REPLIED",
         };
@@ -339,6 +347,26 @@ export async function applyUshipLifecycleEvent(input: {
                 actorUserId: input.actorUserId,
                 skipLifecycleCheck: true,
             });
+            if (
+                detected.kind === "CUSTOMER_RESPOND" ||
+                detected.kind === "CUSTOMER_QUESTION" ||
+                detected.kind === "CUSTOMER_REPLIED" ||
+                detected.kind === "NEW_MESSAGE"
+            ) {
+                await domainEventEngine.emit({
+                    shipmentLeadId: input.shipmentLeadId,
+                    eventType: "CUSTOMER_RESPOND",
+                    title: detected.title,
+                    message: input.subject,
+                    actorUserId: input.actorUserId,
+                    payload: {
+                        source: input.source || "uship_email",
+                        gmailMessageId: input.gmailMessageId,
+                        kind: detected.kind,
+                    },
+                    timelineStage: "CUSTOMER_RESPOND",
+                });
+            }
         } else {
             await domainEventEngine.emit({
                 shipmentLeadId: input.shipmentLeadId,

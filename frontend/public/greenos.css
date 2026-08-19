@@ -690,6 +690,7 @@ html[data-theme="light"] {
 .crm-st-follow { background: rgba(249, 115, 22, 0.15); color: #fb923c; }
 .crm-st-quote { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
 .crm-st-nego { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+.crm-st-replied { background: rgba(239, 68, 68, 0.18); color: #fca5a5; }
 .crm-st-won { background: rgba(34, 197, 94, 0.2); color: #86efac; }
 .crm-st-lost { background: rgba(239, 68, 68, 0.15); color: #f87171; }
 .crm-st-deleted { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
@@ -879,7 +880,7 @@ html[data-theme="light"] {
   width: 2.4rem;
   height: 3px;
   border-radius: 2px;
-  background: linear-gradient(90deg, #34d399, #60a5fa);
+  background: linear-gradient(90deg, #22c55e, #ef4444);
   animation: crm-qa-flow 1.2s ease-in-out infinite;
 }
 .crm-qa-arrow-head {
@@ -894,36 +895,39 @@ html[data-theme="light"] {
   width: 1.55rem;
   height: 1.55rem;
   border-radius: 50%;
-  border: 3px solid #64748b;
-  background: #1e293b;
+  border: 3px solid #475569;
+  background: #0f172a;
   padding: 0;
   cursor: default;
-  box-shadow: 0 0 0 0 rgba(148, 163, 184, 0.35);
-  animation: crm-qa-pulse-idle 1.4s ease-in-out infinite;
+  box-shadow: none;
+  animation: none;
 }
 .crm-qa-node.is-interactive .crm-qa-lamp {
   cursor: pointer;
   border-color: #34d399;
 }
 .crm-qa-node.is-pending.is-broker .crm-qa-lamp {
+  background: #0f172a;
   border-color: #34d399;
-  animation: crm-qa-blink-green 1s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.2);
+  animation: none;
 }
 .crm-qa-node.is-pending.is-customer .crm-qa-lamp {
-  border-color: #60a5fa;
-  animation: crm-qa-blink-blue 1s ease-in-out infinite;
+  background: #0f172a;
+  border-color: #64748b;
+  animation: none;
 }
 .crm-qa-node.is-done.is-broker .crm-qa-lamp {
-  background: #34d399;
-  border-color: #6ee7b7;
-  box-shadow: 0 0 14px 4px rgba(52, 211, 153, 0.65);
+  background: #22c55e;
+  border-color: #86efac;
+  box-shadow: 0 0 16px 5px rgba(34, 197, 94, 0.75);
   animation: crm-qa-glow-green 1.2s ease-in-out infinite;
 }
 .crm-qa-node.is-done.is-customer .crm-qa-lamp {
-  background: #60a5fa;
-  border-color: #93c5fd;
-  box-shadow: 0 0 14px 4px rgba(96, 165, 250, 0.65);
-  animation: crm-qa-glow-blue 1.2s ease-in-out infinite;
+  background: #ef4444;
+  border-color: #fca5a5;
+  box-shadow: 0 0 16px 5px rgba(239, 68, 68, 0.8);
+  animation: crm-qa-glow-red 1.2s ease-in-out infinite;
 }
 .crm-qa-node.is-interactive .crm-qa-lamp:hover {
   transform: scale(1.12);
@@ -937,7 +941,7 @@ html[data-theme="light"] {
   font-size: 0.72rem;
 }
 .crm-qa-node.is-customer .crm-qa-label .crm-pipe-hint {
-  color: #93c5fd;
+  color: #fca5a5;
 }
 
 @keyframes crm-qa-blink-green {
@@ -952,9 +956,9 @@ html[data-theme="light"] {
   0%, 100% { box-shadow: 0 0 10px 2px rgba(52, 211, 153, 0.45); }
   50% { box-shadow: 0 0 22px 8px rgba(52, 211, 153, 0.85); }
 }
-@keyframes crm-qa-glow-blue {
-  0%, 100% { box-shadow: 0 0 10px 2px rgba(96, 165, 250, 0.45); }
-  50% { box-shadow: 0 0 22px 8px rgba(96, 165, 250, 0.85); }
+@keyframes crm-qa-glow-red {
+  0%, 100% { box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.5); }
+  50% { box-shadow: 0 0 22px 8px rgba(239, 68, 68, 0.9); }
 }
 @keyframes crm-qa-pulse-idle {
   0%, 100% { opacity: 0.75; }
@@ -1008,7 +1012,8 @@ html[data-theme="light"] {
   background: #34d399;
 }
 .crm-correspondence li.is-customer .crm-corr-dot {
-  background: #60a5fa;
+  background: #ef4444;
+  box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.55);
 }
 .gos-muted {
   color: var(--gos-muted);
