@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { authMiddleware } from "../../../middlewares/auth.middleware.js";
-import { apiResponse } from "../../../utils/helpers.js";
+import { authMiddleware } from "../../middlewares/auth.middleware.js";
+import { apiResponse } from "../../utils/helpers.js";
 
 const cache = new Map<string, { at: number; data: unknown }>();
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
