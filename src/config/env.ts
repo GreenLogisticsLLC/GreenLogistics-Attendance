@@ -1,6 +1,14 @@
 import dotenv from "dotenv";
 
-dotenv.config();
+const dotenvResult = dotenv.config();
+// PM2 can keep stale OPENAI_* in process env; .env on disk is the source of truth after deploy.
+const openaiKeys = ["OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_PROJECT_ID", "OPENAI_ORG_ID"] as const;
+for (const key of openaiKeys) {
+    const fromFile = dotenvResult.parsed?.[key];
+    if (fromFile != null && fromFile !== "") {
+        process.env[key] = fromFile;
+    }
+}
 
 function parseCorsOrigins(): string[] {
     const raw = process.env.CORS_ORIGINS || "";

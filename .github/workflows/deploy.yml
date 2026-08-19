@@ -131,6 +131,10 @@ jobs:
           npm run build
           # One PM2 process only — duplicate "greenos" entries caused stale env/code.
           pm2 delete greenos 2>/dev/null || true
+          set -a
+          # shellcheck disable=SC1091
+          . ./.env
+          set +a
           pm2 start dist/index.js --name greenos --update-env --cwd "$(pwd)"
           pm2 save
           sleep 5
