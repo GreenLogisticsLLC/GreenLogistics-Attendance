@@ -405,12 +405,6 @@
         `<p id="gos-ai-status-line">Connecting to OpenAI…</p>` +
         `</section>` +
         `<div class="gos-ai-layout">` +
-        `<aside class="gos-ai-history">` +
-        `<h3>Conversations</h3>` +
-        `<button type="button">Welcome overview</button>` +
-        `<button type="button">Dispatch help</button>` +
-        `<button type="button">Attendance summary</button>` +
-        `</aside>` +
         `<section class="gos-ai-chat">` +
         `<div class="gos-ai-messages" id="gos-ai-messages">` +
         `<div class="gos-ai-bubble bot">Welcome to GreenOS AI Assistant.\n\nAsk about attendance, shipments, assignment, or operations.</div>` +
