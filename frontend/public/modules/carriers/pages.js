@@ -193,9 +193,9 @@ window.GreenOSModules.carriers = {
       '<label>MC Number <input id="cr-mc"></label>' +
       '<label>DOT Number <input id="cr-dot"></label>' +
       '<label>Address <input id="cr-address"></label>' +
+      '<label>ZIP <input id="cr-zip"></label>' +
       '<label>City <input id="cr-city"></label>' +
       '<label>State <input id="cr-state" maxlength="2"></label>' +
-      '<label>ZIP <input id="cr-zip"></label>' +
       '<label>Link Shipment for RC (optional) <input id="cr-ship" placeholder="shipmentLeadId UUID"></label>' +
       '<label class="full">Assigned Broker <input id="cr-broker" value="' +
       self.esc(user.firstName ? user.firstName + " " + user.lastName + " (you)" : "Current user") +
@@ -206,6 +206,10 @@ window.GreenOSModules.carriers = {
       '<button type="button" class="btn-secondary" id="cr-cancel">Cancel</button>' +
       "</div>" +
       '<p id="cr-msg" class="gos-muted"></p></div>';
+
+    if (window.GreenOSZipLookup) {
+      window.GreenOSZipLookup.bind(main, "#cr-zip", "#cr-city", "#cr-state");
+    }
 
     main.querySelector("#cr-cancel")?.addEventListener("click", function () {
       self.showList(main);

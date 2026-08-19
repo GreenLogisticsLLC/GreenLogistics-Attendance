@@ -160,9 +160,9 @@ window.GreenOSModules.customers = {
       '<label>Contact <input id="cu-contact" value="' + self.esc(c.contactName || "") + '"></label>' +
       '<label>Email <input id="cu-email" type="email" value="' + self.esc(c.email || "") + '"></label>' +
       '<label>Phone <input id="cu-phone" type="tel" value="' + self.esc(c.phone || "") + '"></label>' +
-      '<label>City <input id="cu-city" value="' + self.esc(c.city || "") + '"></label>' +
-      '<label>State <input id="cu-state" value="' + self.esc(c.state || "") + '"></label>' +
       '<label>ZIP <input id="cu-zip" value="' + self.esc(c.zip || "") + '"></label>' +
+      '<label>City <input id="cu-city" value="' + self.esc(c.city || "") + '"></label>' +
+      '<label>State <input id="cu-state" value="' + self.esc(c.state || "") + '" maxlength="2"></label>' +
       '<label class="full">Billing address <input id="cu-addr" value="' + self.esc(c.billingAddress || "") + '"></label>' +
       '<label class="full">Notes <textarea id="cu-notes" rows="3">' + self.esc(c.notes || "") + "</textarea></label>" +
       "</div>"
@@ -194,6 +194,9 @@ window.GreenOSModules.customers = {
       self.customerFormHtml(existing) +
       '<div class="load-actions"><button type="button" class="btn-primary" id="cu-save">Save Customer</button>' +
       '<button type="button" class="btn-secondary" id="cu-cancel">Cancel</button></div></div>';
+    if (window.GreenOSZipLookup) {
+      window.GreenOSZipLookup.bind(body, "#cu-zip", "#cu-city", "#cu-state");
+    }
     body.querySelector("#cu-cancel")?.addEventListener("click", function () {
       self._customerId = existing && existing.customerId ? existing.customerId : null;
       if (self._customerId) self.renderDetail(body, root, self._customerId);
@@ -301,13 +304,13 @@ window.GreenOSModules.customers = {
       '<label>Title / commodity <input id="cl-title" placeholder="e.g. 6 pallets machinery"></label>' +
       "</div>" +
       '<h3>Load</h3><div class="load-form-grid">' +
-      '<label>Pickup city * <input id="cl-pcity"></label>' +
-      '<label>Pickup state <input id="cl-pstate"></label>' +
       '<label>Pickup ZIP <input id="cl-pzip"></label>' +
+      '<label>Pickup city * <input id="cl-pcity"></label>' +
+      '<label>Pickup state <input id="cl-pstate" maxlength="2"></label>' +
       '<label>Pickup date <input id="cl-pdate" type="date"></label>' +
-      '<label>Delivery city * <input id="cl-dcity"></label>' +
-      '<label>Delivery state <input id="cl-dstate"></label>' +
       '<label>Delivery ZIP <input id="cl-dzip"></label>' +
+      '<label>Delivery city * <input id="cl-dcity"></label>' +
+      '<label>Delivery state <input id="cl-dstate" maxlength="2"></label>' +
       '<label>Delivery date <input id="cl-ddate" type="date"></label>' +
       '<label>Equipment <input id="cl-equip" placeholder="Van, Flatbed…"></label>' +
       '<label>Weight <input id="cl-weight"></label>' +
@@ -323,6 +326,10 @@ window.GreenOSModules.customers = {
     }
     body.querySelector("#cl-back")?.addEventListener("click", back);
     body.querySelector("#cl-cancel")?.addEventListener("click", back);
+    if (window.GreenOSZipLookup) {
+      window.GreenOSZipLookup.bind(body, "#cl-pzip", "#cl-pcity", "#cl-pstate");
+      window.GreenOSZipLookup.bind(body, "#cl-dzip", "#cl-dcity", "#cl-dstate");
+    }
     body.querySelector("#cl-save")?.addEventListener("click", async function () {
       var pickupCity = (body.querySelector("#cl-pcity").value || "").trim();
       var deliveryCity = (body.querySelector("#cl-dcity").value || "").trim();
