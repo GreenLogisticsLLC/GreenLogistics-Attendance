@@ -134,10 +134,15 @@ jobs:
           install -m 755 tools/contabo-autodeploy/greenos-autodeploy.sh /usr/local/bin/greenos-autodeploy.sh 2>/dev/null || true
           # One PM2 process only — duplicate "greenos" entries caused stale env/code.
           pm2 delete greenos 2>/dev/null || true
+          fuser -k 3847/tcp 2>/dev/null || true
+          sleep 1
           # shellcheck disable=SC1091
           source ./tools/pm2-greenos-env.sh ./.env
           pm2 start dist/index.js --name greenos --update-env --cwd "$(pwd)"
           pm2 save
           sleep 5
+          HEALTH_JSON="$(curl -sS http://localhost:3847/api/health)"
+          echo "$HEALTH_JSON"
+          echo "$HEALTH_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); o=d.get('openai') or {}; assert o.get('model') and o.get('keySuffix'), f'health missing openai runtime: {d}'; print('openai_ok', o.get('model'), o.get('keySuffix'))"
           curl --fail http://localhost:3847/api/health
           EOF

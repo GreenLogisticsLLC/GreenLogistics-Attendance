@@ -1,0 +1,37 @@
+name: Force restart GreenOS PM2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Kill stale listeners and restart greenos with OPENAI env
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          npm run build
+          chmod +x tools/pm2-greenos-env.sh
+          install -m 755 tools/contabo-autodeploy/greenos-autodeploy.sh /usr/local/bin/greenos-autodeploy.sh 2>/dev/null || true
+          pm2 delete greenos 2>/dev/null || true
+          fuser -k 3847/tcp 2>/dev/null || true
+          sleep 1
+          # shellcheck disable=SC1091
+          source ./tools/pm2-greenos-env.sh ./.env
+          pm2 start dist/index.js --name greenos --update-env --cwd "$(pwd)"
+          pm2 save
+          sleep 5
+          curl -sS http://localhost:3847/api/health | python3 -c "import json,sys; d=json.load(sys.stdin); o=d.get('openai') or {}; print('commit', d.get('commit')); print('openai_model', o.get('model')); print('openai_keySuffix', o.get('keySuffix')); assert o.get('model') and o.get('keySuffix')"
+          EOF
