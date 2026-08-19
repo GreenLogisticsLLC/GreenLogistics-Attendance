@@ -22,6 +22,11 @@ jobs:
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
+          if ! npm ci; then
+            echo "WARN: npm ci failed — retrying with npm install"
+            rm -rf node_modules
+            npm install --no-audit --no-fund
+          fi
           npm run db:generate
           npm run build
           if ! pm2 restart greenos --update-env; then

@@ -140,9 +140,21 @@ jobs:
           source ./tools/pm2-greenos-env.sh ./.env
           pm2 start dist/index.js --name greenos --update-env --cwd "$(pwd)"
           pm2 save
-          sleep 5
-          HEALTH_JSON="$(curl -sS http://localhost:3847/api/health)"
-          echo "$HEALTH_JSON"
+          echo "=== health poll (up to 90s) ==="
+          HEALTH_JSON=""
+          for i in $(seq 1 30); do
+            if HEALTH_JSON="$(curl -sS -m 5 http://localhost:3847/api/health 2>/dev/null)"; then
+              echo "$HEALTH_JSON"
+              echo "health OK after ${i} attempt(s)"
+              break
+            fi
+            sleep 3
+          done
+          if [ -z "$HEALTH_JSON" ]; then
+            echo "health check never passed — recent pm2 logs:"
+            pm2 logs greenos --lines 80 --nostream || true
+            exit 1
+          fi
           echo "$HEALTH_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); o=d.get('openai') or {}; assert o.get('model') and o.get('keySuffix'), f'health missing openai runtime: {d}'; print('openai_ok', o.get('model'), o.get('keySuffix'))"
           curl --fail http://localhost:3847/api/health
           EOF

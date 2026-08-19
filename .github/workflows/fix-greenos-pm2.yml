@@ -22,6 +22,11 @@ jobs:
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
+          if ! npm ci; then
+            echo "WARN: npm ci failed — retrying with npm install"
+            rm -rf node_modules
+            npm install --no-audit --no-fund
+          fi
           npm run build
           chmod +x tools/pm2-greenos-env.sh
           install -m 755 tools/contabo-autodeploy/greenos-autodeploy.sh /usr/local/bin/greenos-autodeploy.sh 2>/dev/null || true
@@ -32,6 +37,17 @@ jobs:
           source ./tools/pm2-greenos-env.sh ./.env
           pm2 start dist/index.js --name greenos --update-env --cwd "$(pwd)"
           pm2 save
-          sleep 5
-          curl -sS http://localhost:3847/api/health | python3 -c "import json,sys; d=json.load(sys.stdin); o=d.get('openai') or {}; print('commit', d.get('commit')); print('openai_model', o.get('model')); print('openai_keySuffix', o.get('keySuffix')); assert o.get('model') and o.get('keySuffix')"
+          HEALTH_JSON=""
+          for i in $(seq 1 30); do
+            if HEALTH_JSON="$(curl -sS -m 5 http://localhost:3847/api/health 2>/dev/null)"; then
+              echo "health OK after ${i} attempt(s)"
+              break
+            fi
+            sleep 3
+          done
+          if [ -z "$HEALTH_JSON" ]; then
+            pm2 logs greenos --lines 80 --nostream || true
+            exit 1
+          fi
+          echo "$HEALTH_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); o=d.get('openai') or {}; print('commit', d.get('commit')); print('openai_model', o.get('model')); print('openai_keySuffix', o.get('keySuffix')); assert o.get('model') and o.get('keySuffix')"
           EOF
