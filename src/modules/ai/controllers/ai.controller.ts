@@ -9,6 +9,8 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
         apiResponse(true, "OK", {
             configured: aiAssistantService.isConfigured(),
             model: config.openai.model,
+            projectConfigured: Boolean(config.openai.projectId),
+            organizationConfigured: Boolean(config.openai.organizationId),
         })
     );
 }

@@ -72,14 +72,26 @@ export class AiAssistantService {
         });
 
         const data = (await res.json().catch(() => ({}))) as {
-            error?: { message?: string };
+            error?: { message?: string; code?: string; type?: string };
             choices?: Array<{ message?: { content?: string } }>;
             model?: string;
         };
 
         if (!res.ok) {
+            const code = data?.error?.code || "";
             const detail = data?.error?.message || `OpenAI HTTP ${res.status}`;
-            throw Object.assign(new Error(detail), { status: res.status >= 500 ? 502 : 400 });
+            let friendly = detail;
+            if (code === "insufficient_quota" || /no credits remaining/i.test(detail)) {
+                friendly =
+                    "OpenAI API billing: no credits on this organization/project. " +
+                    "Add API credits at platform.openai.com → Settings → Billing (same org as project GreenOS), " +
+                    "then create a Project API key in GreenOS → API keys.";
+            } else if (code === "invalid_api_key") {
+                friendly = "OpenAI API key is invalid or revoked. Create a new Project API key in GreenOS.";
+            } else if (code === "model_not_found") {
+                friendly = `OpenAI model "${model}" is not available on this account. Set OPENAI_MODEL to gpt-4o-mini.`;
+            }
+            throw Object.assign(new Error(friendly), { status: res.status >= 500 ? 502 : 400 });
         }
 
         const reply = data.choices?.[0]?.message?.content?.trim();
