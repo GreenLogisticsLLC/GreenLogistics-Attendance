@@ -321,6 +321,7 @@
       if (this.currentModule === "administration") return;
       // Carriers — manual Refresh only (avoid wiping open carrier detail / tabs).
       if (this.currentModule === "carriers") return;
+      if (this.currentModule === "customers") return;
       // Trucking has its own live timer.
       if (this.currentModule === "trucking") return;
       if (

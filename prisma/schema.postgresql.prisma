@@ -41,6 +41,7 @@ model User {
   brokerGmailAccount     BrokerGmailAccount?
   brokerMailboxMessages  BrokerMailboxMessage[]
   platformNotifications  PlatformNotification[]
+  directCustomers        DirectCustomer[]
 
   @@index([teamLeadId])
   @@map("users")
@@ -326,6 +327,7 @@ model ShipmentLead {
   opsPickupAt           DateTime?               @map("ops_pickup_at")
   opsDeliveryAt         DateTime?               @map("ops_delivery_at")
   assignedBrokerId      String?                 @map("assigned_broker_id")
+  directCustomerId      String?                 @map("direct_customer_id")
   assignedAt            DateTime?               @map("assigned_at")
   acceptedAt            DateTime?               @map("accepted_at")
   acceptanceDeadline    DateTime?               @map("acceptance_deadline")
@@ -341,15 +343,40 @@ model ShipmentLead {
   domainEvents          DomainEvent[]
   platformNotifications PlatformNotification[]
   brokerMailboxMessages BrokerMailboxMessage[]
+  directCustomer        DirectCustomer?         @relation(fields: [directCustomerId], references: [customerId], onDelete: SetNull)
 
   @@index([source])
   @@index([status])
   @@index([externalShipmentId])
   @@index([assignedBrokerId])
+  @@index([directCustomerId])
   @@index([priority])
   @@index([createdAt])
   @@index([loadNumber])
   @@map("shipment_leads")
+}
+
+/// Direct (non-uShip) customers — broker address book + Create Load.
+model DirectCustomer {
+  customerId        String         @id @default(uuid()) @map("customer_id")
+  companyName       String         @map("company_name")
+  contactName       String?        @map("contact_name")
+  email             String?
+  phone             String?
+  billingAddress    String?        @map("billing_address")
+  city              String?
+  state             String?
+  zip               String?
+  notes             String?
+  createdByUserId   String         @map("created_by_user_id")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  createdBy         User           @relation(fields: [createdByUserId], references: [userId], onDelete: Restrict)
+  shipments         ShipmentLead[]
+
+  @@index([createdByUserId])
+  @@index([companyName])
+  @@map("direct_customers")
 }
 
 /// Append-only Domain Events — source of truth for Timeline, Notifications, CRM, Analytics.

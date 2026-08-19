@@ -77,6 +77,17 @@ window.GreenOSRegistry = [
     ],
   },
   {
+    id: "customers",
+    title: "Customers",
+    icon: "🏢",
+    subtitle: "Direct customers and Create Load",
+    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead"],
+    children: [
+      { id: "list", title: "All Customers" },
+      { id: "add", title: "Add Customer" },
+    ],
+  },
+  {
     id: "dispatch",
     title: "Dispatch",
     icon: "📡",
