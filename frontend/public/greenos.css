@@ -556,13 +556,16 @@ html[data-theme="light"] {
 }
 
 .gos-kate-panel {
-  width: min(360px, calc(100vw - 2rem));
+  width: min(400px, calc(100vw - 2rem));
+  max-height: min(560px, calc(100vh - 6rem));
   background: var(--gos-surface);
   border: 1px solid var(--gos-border);
   border-radius: 16px;
   box-shadow: 0 14px 44px rgba(0, 0, 0, 0.28);
   overflow: hidden;
   animation: gos-kate-in 0.22s ease-out;
+  display: flex;
+  flex-direction: column;
 }
 
 @keyframes gos-kate-in {
@@ -606,14 +609,42 @@ html[data-theme="light"] {
 
 .gos-kate-title-wrap strong {
   display: block;
-  font-size: 0.95rem;
-  line-height: 1.2;
+  font-size: 0.82rem;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
 }
 
-.gos-kate-sub {
-  display: block;
-  font-size: 0.72rem;
-  color: var(--gos-muted);
+.gos-kate-messages {
+  flex: 1;
+  min-height: 280px;
+  max-height: 380px;
+  padding: 0.85rem 1rem;
+  overflow-y: auto;
+}
+
+.gos-kate-messages .gos-ai-bubble {
+  max-width: 92%;
+  font-size: 0.84rem;
+}
+
+.gos-kate-input-row {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--gos-border);
+  background: var(--gos-surface);
+}
+
+.gos-kate-input-row input {
+  flex: 1;
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.gos-kate-input-row button {
+  width: auto;
+  padding: 0.65rem 0.95rem;
+  white-space: nowrap;
 }
 
 .gos-kate-header-actions {
@@ -638,27 +669,10 @@ html[data-theme="light"] {
   color: var(--gos-text);
 }
 
-.gos-kate-body {
-  padding: 1rem 1rem 0.5rem;
-  font-size: 0.88rem;
-  line-height: 1.5;
-}
-
-.gos-kate-greeting {
-  margin-bottom: 0.55rem;
-  font-size: 0.95rem;
-}
-
-.gos-kate-body p {
-  margin: 0 0 0.65rem;
-}
-
-.gos-kate-footer {
-  padding: 0.75rem 1rem 1rem;
-}
-
-.gos-kate-open-ai {
-  width: 100%;
+.gos-kate-sub {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--gos-muted);
 }
 
 .gos-mobile-toggle {

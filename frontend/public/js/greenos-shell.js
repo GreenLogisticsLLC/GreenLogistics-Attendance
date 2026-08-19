@@ -50,7 +50,7 @@
               : "dashboard";
       this.navigate(start, fromUrl.sub, { replace: true });
       if (this.role() === "Broker") {
-        this.initKateWidget();
+        this.initAgentWidget();
       }
     },
 
@@ -401,6 +401,80 @@
         `</div></article>`;
     },
 
+    aiApi(path, options) {
+      const token = localStorage.getItem("gl_token");
+      const ctrl = new AbortController();
+      const timer = setTimeout(function () {
+        ctrl.abort();
+      }, 12000);
+      return fetch("/api/ai" + path, {
+        ...options,
+        signal: ctrl.signal,
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token ? "Bearer " + token : "",
+          ...(options && options.headers),
+        },
+      })
+        .then(function (res) {
+          return res.json();
+        })
+        .finally(function () {
+          clearTimeout(timer);
+        });
+    },
+
+    bindAiChat({ messagesEl, formEl, inputEl, history }) {
+      const self = this;
+
+      function append(role, text) {
+        const div = document.createElement("div");
+        div.className = `gos-ai-bubble ${role}`;
+        div.textContent = text;
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      if (inputEl) {
+        inputEl.disabled = false;
+      }
+
+      formEl.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const text = inputEl.value.trim();
+        if (!text) return;
+        append("user", text);
+        inputEl.value = "";
+        const sendBtn = formEl.querySelector("button[type=submit]");
+        if (sendBtn) sendBtn.disabled = true;
+        append("bot", "Thinking…");
+        const thinking = messagesEl.lastChild;
+        try {
+          const data = await self.aiApi("/chat", {
+            method: "POST",
+            body: JSON.stringify({ message: text, history }),
+          });
+          if (thinking && thinking.parentNode) thinking.remove();
+          if (!data.success) {
+            append("bot", data.message || "AI request failed");
+            return;
+          }
+          const reply = (data.data && data.data.reply) || "";
+          append("bot", reply);
+          history.push({ role: "user", content: text });
+          history.push({ role: "assistant", content: reply });
+          if (history.length > 16) history.splice(0, history.length - 16);
+        } catch {
+          if (thinking && thinking.parentNode) thinking.remove();
+          append("bot", "Connection error talking to GreenOS AI");
+        } finally {
+          if (sendBtn) sendBtn.disabled = false;
+          inputEl.focus();
+        }
+      });
+    },
+
     renderAI(root) {
       root.innerHTML =
         `<section class="gos-dash-hero gos-ai-hero">` +
@@ -428,74 +502,8 @@
       const input = root.querySelector("#gos-ai-input");
       const history = [];
 
-      function append(role, text) {
-        const div = document.createElement("div");
-        div.className = `gos-ai-bubble ${role}`;
-        div.textContent = text;
-        messages.appendChild(div);
-        messages.scrollTop = messages.scrollHeight;
-      }
-
-      async function api(path, options) {
-        const token = localStorage.getItem("gl_token");
-        const ctrl = new AbortController();
-        const timer = setTimeout(function () {
-          ctrl.abort();
-        }, 12000);
-        try {
-          const res = await fetch("/api/ai" + path, {
-            ...options,
-            signal: ctrl.signal,
-            cache: "no-store",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: token ? "Bearer " + token : "",
-              ...(options && options.headers),
-            },
-          });
-          return res.json();
-        } finally {
-          clearTimeout(timer);
-        }
-      }
-
-      if (input) {
-        input.disabled = false;
-        input.focus();
-      }
-
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const text = input.value.trim();
-        if (!text) return;
-        append("user", text);
-        input.value = "";
-        const sendBtn = form.querySelector("button[type=submit]");
-        if (sendBtn) sendBtn.disabled = true;
-        append("bot", "Thinking…");
-        const thinking = messages.lastChild;
-        try {
-          const data = await api("/chat", {
-            method: "POST",
-            body: JSON.stringify({ message: text, history }),
-          });
-          if (thinking && thinking.parentNode) thinking.remove();
-          if (!data.success) {
-            append("bot", data.message || "AI request failed");
-            return;
-          }
-          const reply = (data.data && data.data.reply) || "";
-          append("bot", reply);
-          history.push({ role: "user", content: text });
-          history.push({ role: "assistant", content: reply });
-          if (history.length > 16) history.splice(0, history.length - 16);
-        } catch {
-          if (thinking && thinking.parentNode) thinking.remove();
-          append("bot", "Connection error talking to GreenOS AI");
-        } finally {
-          if (sendBtn) sendBtn.disabled = false;
-        }
-      });
+      this.bindAiChat({ messagesEl: messages, formEl: form, inputEl: input, history });
+      if (input) input.focus();
 
       root.querySelectorAll("[data-prompt]").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -505,37 +513,56 @@
       });
     },
 
-    initKateWidget() {
+    initAgentWidget() {
       const self = this;
       const user = this.user || window.GreenOSUser || {};
-      const sessionKey = "gos-kate-welcome-dismissed";
+      const sessionKey = "gos-agent-widget-dismissed";
+      const firstName = String(user.firstName || "there").trim() || "there";
+      const welcomeText =
+        `Hi, ${firstName}! I'm the GREENOS AI AGENT, built specially for GreenOS. ` +
+        `I'm here to help you with shipments, customers, dispatch, and your daily broker workflow.\n\n` +
+        `Ask me anything — I'm glad to help.`;
+
       let root = document.getElementById("gos-kate-widget");
       if (!root) {
         root = document.createElement("div");
         root.id = "gos-kate-widget";
         root.className = "gos-kate-widget";
         root.innerHTML =
-          `<button type="button" class="gos-kate-fab hidden" id="gos-kate-fab" title="KATE — AI Assistant">🤖</button>` +
+          `<button type="button" class="gos-kate-fab hidden" id="gos-kate-fab" title="GREENOS AI Agent">🤖</button>` +
           `<div class="gos-kate-panel hidden" id="gos-kate-panel" role="dialog" aria-labelledby="gos-kate-title">` +
           `<header class="gos-kate-header">` +
           `<div class="gos-kate-title-wrap">` +
           `<span class="gos-kate-avatar" aria-hidden="true">🤖</span>` +
-          `<div><strong id="gos-kate-title">KATE</strong><span class="gos-kate-sub">GreenOS AI Assistant</span></div>` +
+          `<div><strong id="gos-kate-title">GREENOS AI AGENT</strong>` +
+          `<span class="gos-kate-sub">Your broker assistant</span></div>` +
           `</div>` +
           `<div class="gos-kate-header-actions">` +
           `<button type="button" class="gos-kate-icon-btn" id="gos-kate-minimize" title="Minimize">−</button>` +
           `<button type="button" class="gos-kate-icon-btn" id="gos-kate-close" title="Close">×</button>` +
           `</div>` +
           `</header>` +
-          `<div class="gos-kate-body" id="gos-kate-body"></div>` +
-          `<footer class="gos-kate-footer">` +
-          `<button type="button" class="btn-primary gos-kate-open-ai" id="gos-kate-open-ai">Open AI Assistant</button>` +
-          `</footer>` +
+          `<div class="gos-kate-messages" id="gos-kate-messages">` +
+          `<div class="gos-ai-bubble bot">${self.escHtml(welcomeText)}</div>` +
+          `</div>` +
+          `<form class="gos-kate-input-row" id="gos-kate-form">` +
+          `<input id="gos-kate-input" placeholder="Ask GREENOS AI Agent…" autocomplete="off" />` +
+          `<button type="submit" class="btn-primary">Send</button>` +
+          `</form>` +
           `</div>`;
         document.getElementById("app-screen")?.appendChild(root);
 
+        root._agentHistory = [];
+        self.bindAiChat({
+          messagesEl: document.getElementById("gos-kate-messages"),
+          formEl: document.getElementById("gos-kate-form"),
+          inputEl: document.getElementById("gos-kate-input"),
+          history: root._agentHistory,
+        });
+
         document.getElementById("gos-kate-fab")?.addEventListener("click", () => {
           self.showKatePanel();
+          document.getElementById("gos-kate-input")?.focus();
         });
         document.getElementById("gos-kate-minimize")?.addEventListener("click", () => {
           self.hideKatePanel(true);
@@ -544,20 +571,6 @@
           sessionStorage.setItem(sessionKey, "1");
           self.hideKatePanel(true);
         });
-        document.getElementById("gos-kate-open-ai")?.addEventListener("click", () => {
-          self.navigate("ai");
-          self.hideKatePanel(true);
-        });
-      }
-
-      const firstName = String(user.firstName || "there").trim() || "there";
-      const body = document.getElementById("gos-kate-body");
-      if (body) {
-        body.innerHTML =
-          `<p class="gos-kate-greeting">Hi, <strong>${self.escHtml(firstName)}</strong>!</p>` +
-          `<p>I'm <strong>KATE</strong>, an AI assistant built specially for <strong>GreenOS</strong>. ` +
-          `I'm here to help you with shipments, customers, dispatch, and your daily broker workflow.</p>` +
-          `<p class="gos-muted">Ask me anything — I'm glad to help.</p>`;
       }
 
       if (sessionStorage.getItem(sessionKey)) {
@@ -565,6 +578,9 @@
         return;
       }
       this.showKatePanel();
+      setTimeout(function () {
+        document.getElementById("gos-kate-input")?.focus();
+      }, 200);
     },
 
     escHtml(value) {
@@ -578,6 +594,7 @@
     showKatePanel() {
       document.getElementById("gos-kate-panel")?.classList.remove("hidden");
       document.getElementById("gos-kate-fab")?.classList.add("hidden");
+      document.getElementById("gos-kate-input")?.focus();
     },
 
     hideKatePanel(showFab) {

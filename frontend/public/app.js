@@ -75,6 +75,7 @@ window.bindGosThemeButtons = bindGosThemeButtons;
 bindGosThemeButtons();
 
 function showLogin() {
+    sessionStorage.removeItem("gos-agent-widget-dismissed");
     sessionStorage.removeItem("gos-kate-welcome-dismissed");
     document.getElementById("gos-kate-widget")?.remove();
     loginScreen.classList.remove("hidden");
