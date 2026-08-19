@@ -49,6 +49,9 @@
               ? "accounting"
               : "dashboard";
       this.navigate(start, fromUrl.sub, { replace: true });
+      if (this.role() === "Broker") {
+        this.initKateWidget();
+      }
     },
 
     /** Parse `#/module` or `#/module/sub` from the URL. */
@@ -519,6 +522,87 @@
           form.requestSubmit();
         });
       });
+    },
+
+    initKateWidget() {
+      const self = this;
+      const user = this.user || window.GreenOSUser || {};
+      const sessionKey = "gos-kate-welcome-dismissed";
+      let root = document.getElementById("gos-kate-widget");
+      if (!root) {
+        root = document.createElement("div");
+        root.id = "gos-kate-widget";
+        root.className = "gos-kate-widget";
+        root.innerHTML =
+          `<button type="button" class="gos-kate-fab hidden" id="gos-kate-fab" title="KATE — AI Assistant">🤖</button>` +
+          `<div class="gos-kate-panel hidden" id="gos-kate-panel" role="dialog" aria-labelledby="gos-kate-title">` +
+          `<header class="gos-kate-header">` +
+          `<div class="gos-kate-title-wrap">` +
+          `<span class="gos-kate-avatar" aria-hidden="true">🤖</span>` +
+          `<div><strong id="gos-kate-title">KATE</strong><span class="gos-kate-sub">GreenOS AI Assistant</span></div>` +
+          `</div>` +
+          `<div class="gos-kate-header-actions">` +
+          `<button type="button" class="gos-kate-icon-btn" id="gos-kate-minimize" title="Minimize">−</button>` +
+          `<button type="button" class="gos-kate-icon-btn" id="gos-kate-close" title="Close">×</button>` +
+          `</div>` +
+          `</header>` +
+          `<div class="gos-kate-body" id="gos-kate-body"></div>` +
+          `<footer class="gos-kate-footer">` +
+          `<button type="button" class="btn-primary gos-kate-open-ai" id="gos-kate-open-ai">Open AI Assistant</button>` +
+          `</footer>` +
+          `</div>`;
+        document.getElementById("app-screen")?.appendChild(root);
+
+        document.getElementById("gos-kate-fab")?.addEventListener("click", () => {
+          self.showKatePanel();
+        });
+        document.getElementById("gos-kate-minimize")?.addEventListener("click", () => {
+          self.hideKatePanel(true);
+        });
+        document.getElementById("gos-kate-close")?.addEventListener("click", () => {
+          sessionStorage.setItem(sessionKey, "1");
+          self.hideKatePanel(true);
+        });
+        document.getElementById("gos-kate-open-ai")?.addEventListener("click", () => {
+          self.navigate("ai");
+          self.hideKatePanel(true);
+        });
+      }
+
+      const firstName = String(user.firstName || "there").trim() || "there";
+      const body = document.getElementById("gos-kate-body");
+      if (body) {
+        body.innerHTML =
+          `<p class="gos-kate-greeting">Hi, <strong>${self.escHtml(firstName)}</strong>!</p>` +
+          `<p>I'm <strong>KATE</strong>, an AI assistant built specially for <strong>GreenOS</strong>. ` +
+          `I'm here to help you with shipments, customers, dispatch, and your daily broker workflow.</p>` +
+          `<p class="gos-muted">Ask me anything — I'm glad to help.</p>`;
+      }
+
+      if (sessionStorage.getItem(sessionKey)) {
+        this.hideKatePanel(true);
+        return;
+      }
+      this.showKatePanel();
+    },
+
+    escHtml(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    },
+
+    showKatePanel() {
+      document.getElementById("gos-kate-panel")?.classList.remove("hidden");
+      document.getElementById("gos-kate-fab")?.classList.add("hidden");
+    },
+
+    hideKatePanel(showFab) {
+      document.getElementById("gos-kate-panel")?.classList.add("hidden");
+      const fab = document.getElementById("gos-kate-fab");
+      if (fab && showFab) fab.classList.remove("hidden");
     },
   };
 

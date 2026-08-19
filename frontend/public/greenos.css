@@ -511,6 +511,144 @@ html[data-theme="light"] {
   padding: 0.75rem 1.1rem;
 }
 
+/* KATE — broker AI welcome widget (bottom-right) */
+.gos-kate-widget {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 1400;
+  pointer-events: none;
+}
+
+.gos-kate-widget > * {
+  pointer-events: auto;
+}
+
+.gos-kate-fab {
+  width: 3.5rem;
+  height: 3.5rem;
+  border: 1px solid var(--gos-border);
+  border-radius: 14px;
+  background: var(--gos-surface2);
+  color: var(--gos-text);
+  font-size: 1.45rem;
+  cursor: pointer;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gos-kate-fab:hover {
+  border-color: var(--gos-accent);
+}
+
+.gos-kate-panel {
+  width: min(360px, calc(100vw - 2rem));
+  background: var(--gos-surface);
+  border: 1px solid var(--gos-border);
+  border-radius: 16px;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  animation: gos-kate-in 0.22s ease-out;
+}
+
+@keyframes gos-kate-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.gos-kate-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--gos-border);
+  background: var(--gos-surface2);
+}
+
+.gos-kate-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.gos-kate-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+  background: var(--gos-accent-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.gos-kate-title-wrap strong {
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.2;
+}
+
+.gos-kate-sub {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--gos-muted);
+}
+
+.gos-kate-header-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.gos-kate-icon-btn {
+  width: 1.85rem;
+  height: 1.85rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gos-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.gos-kate-icon-btn:hover {
+  background: var(--gos-surface);
+  color: var(--gos-text);
+}
+
+.gos-kate-body {
+  padding: 1rem 1rem 0.5rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.gos-kate-greeting {
+  margin-bottom: 0.55rem;
+  font-size: 0.95rem;
+}
+
+.gos-kate-body p {
+  margin: 0 0 0.65rem;
+}
+
+.gos-kate-footer {
+  padding: 0.75rem 1rem 1rem;
+}
+
+.gos-kate-open-ai {
+  width: 100%;
+}
+
 .gos-mobile-toggle {
   display: none;
 }
