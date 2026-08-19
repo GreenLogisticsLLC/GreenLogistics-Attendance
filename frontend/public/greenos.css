@@ -1222,8 +1222,9 @@ html[data-theme="light"] {
   border-left: 2px solid var(--gos-border);
 }
 .load-life-mini li.is-done {
-  color: var(--gos-text);
-  border-left-color: var(--gos-accent);
+  color: #16a34a;
+  border-left-color: #22c55e;
+  font-weight: 600;
 }
 .load-life-mini li.is-active {
   color: var(--gos-accent);
@@ -1283,13 +1284,31 @@ html[data-theme="light"] {
 .load-field span { font-size: 0.72rem; color: var(--gos-muted); text-transform: uppercase; letter-spacing: 0.03em; }
 .load-field strong { font-size: 0.95rem; font-weight: 600; word-break: break-word; }
 .load-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 1rem; }
+.load-rail .load-actions {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+.load-rail .load-actions .load-action-btn {
+  width: 100%;
+  text-align: left;
+}
 .load-actions .btn-secondary,
 .load-actions .btn-primary { width: auto; font-size: 0.8rem; padding: 0.4rem 0.65rem; }
 .load-actions .load-action-btn.is-done {
-  opacity: 0.72;
-  cursor: default;
-  text-decoration: line-through;
-  text-decoration-thickness: 1px;
+  opacity: 1;
+  cursor: pointer;
+  text-decoration: none;
+  background: rgba(34, 197, 94, 0.18);
+  color: #166534;
+  border: 1px solid rgba(34, 197, 94, 0.5);
+}
+[data-theme="dark"] .load-actions .load-action-btn.is-done {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(52, 211, 153, 0.45);
+}
+.load-actions .load-action-btn.is-done:hover {
+  filter: brightness(1.08);
 }
 .load-actions .load-action-btn.is-locked {
   opacity: 0.45;

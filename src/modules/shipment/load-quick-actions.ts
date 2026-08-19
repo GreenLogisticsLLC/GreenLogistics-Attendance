@@ -37,8 +37,9 @@ function hasType(docs: Set<string>, type: string): boolean {
 }
 
 /**
- * Sequential Quick Actions: only the next incomplete step is current;
- * earlier steps are done; later steps stay locked until prior work is finished.
+ * Sequential Quick Actions: the next incomplete step is current (green primary);
+ * earlier steps stay done (green, still clickable to change data);
+ * later steps stay locked until prior work is finished.
  */
 export function buildLoadQuickActions(input: {
     status: string;
@@ -236,10 +237,15 @@ export function assertQuickActionAllowed(
         );
     }
     if (row.state === "done") {
-        // Allow document regenerations (new PDF versions) from wizards / actions.
+        // Allow revisiting completed steps to change carrier / regenerate documents.
         if (row.docType) return;
-        // Brokers may still send the remaining customer/carrier review email.
-        if (actionId === "send_review_link") return;
+        if (
+            actionId === "send_review_link" ||
+            actionId === "assign_carrier" ||
+            actionId === "mark_pickup"
+        ) {
+            return;
+        }
         throw Object.assign(new Error("This step is already completed"), {
             status: 422,
             code: "STEP_DONE",

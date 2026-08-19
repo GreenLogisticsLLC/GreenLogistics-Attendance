@@ -373,19 +373,30 @@ export class LoadService {
 
         const pricing = computePricing(s);
         const tracking = trackingFromStatus(s.status, s.trackingStatus);
-        const mappedDocs = documents.map((d) => ({
-            documentId: d.documentId,
-            docType: d.docType,
-            version: d.version,
-            title: d.title,
-            status: d.status,
-            changeReason: d.changeReason,
-            fileUrl: d.fileUrl
-                ? `/api/loads/${shipmentLeadId}/documents/${d.documentId}/download`
-                : null,
-            fileName: d.fileName,
-            createdAt: d.createdAt,
-        }));
+        const mappedDocs = documents.map((d) => {
+            let content: Record<string, unknown> | null = null;
+            if (d.contentJson) {
+                try {
+                    content = JSON.parse(d.contentJson) as Record<string, unknown>;
+                } catch {
+                    content = null;
+                }
+            }
+            return {
+                documentId: d.documentId,
+                docType: d.docType,
+                version: d.version,
+                title: d.title,
+                status: d.status,
+                changeReason: d.changeReason,
+                fileUrl: d.fileUrl
+                    ? `/api/loads/${shipmentLeadId}/documents/${d.documentId}/download`
+                    : null,
+                fileName: d.fileName,
+                createdAt: d.createdAt,
+                content,
+            };
+        });
 
         return {
             identity: {
@@ -641,11 +652,22 @@ export class LoadService {
         }
 
         if (body.status) {
-            await shipmentService.transitionStatus({
-                shipmentLeadId,
-                status: String(body.status),
-                actorUserId,
-            });
+            const next = normalizeStatus(String(body.status));
+            const cur = normalizeStatus(shipment.status);
+            if (next !== cur) {
+                try {
+                    await shipmentService.transitionStatus({
+                        shipmentLeadId,
+                        status: next,
+                        actorUserId,
+                    });
+                } catch (err) {
+                    const code = (err as { status?: number }).status;
+                    // Keep saved details when the broker edits a completed step
+                    // without rolling the load status backward.
+                    if (code !== 422) throw err;
+                }
+            }
         }
 
         // Assign carrier shortcut

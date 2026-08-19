@@ -30,6 +30,17 @@ window.GreenOSModules["dispatch"] = {
     return r === "Owner" || r === "Accounting" || r === "Administrator";
   },
 
+  currentDocContent(data, docType) {
+    var docs = (data && data.documents) || [];
+    var want = String(docType || "").toUpperCase();
+    for (var i = 0; i < docs.length; i++) {
+      if (String(docs[i].docType || "").toUpperCase() === want && docs[i].content) {
+        return docs[i].content;
+      }
+    }
+    return {};
+  },
+
   async api(path, opts) {
     var token = localStorage.getItem("gl_token") || "";
     var res = await fetch("/api/loads" + path, Object.assign({
@@ -628,10 +639,8 @@ window.GreenOSModules["dispatch"] = {
           (state === "locked" ? " is-locked" : "");
         var label =
           (state === "done" ? "✓ " : "") +
-          self.esc(a.label) +
-          (state === "locked" ? "" : "");
-        var disabled =
-          state === "locked" || (state === "done" && a.id !== "send_review_link");
+          self.esc(a.label);
+        var disabled = state === "locked" || (state === "done" && a.id === "close_load");
         return (
           '<button type="button" class="' +
           cls +
@@ -648,9 +657,9 @@ window.GreenOSModules["dispatch"] = {
             state === "locked"
               ? a.blockedReason || "Complete the previous step first"
               : state === "done"
-                ? a.id === "send_review_link"
-                  ? "Sent — click to send again or to the other party"
-                  : "Completed"
+                ? a.id === "close_load"
+                  ? "Load is closed"
+                  : "Done — click to view or change"
                 : a.label
           ) +
           '">' +
@@ -751,7 +760,7 @@ window.GreenOSModules["dispatch"] = {
           alert(btn.getAttribute("data-blocked") || "Complete the previous step first");
           return;
         }
-        if (state === "done" && action !== "send_review_link") {
+        if (state === "done" && action === "close_load") {
           return;
         }
         // Assign Carrier = go fill Carrier tab (do not jump status without data).
@@ -773,7 +782,7 @@ window.GreenOSModules["dispatch"] = {
           self.renderDetails(body, data);
           setTimeout(function () {
             var mainEl = body.querySelector("#load-main");
-            if (mainEl) self.showRateConWizard(mainEl, id, data, "GENERATED");
+            if (mainEl) self.showRateConWizard(mainEl, id, data, state === "done" ? "BROKER_EDITED" : "GENERATED");
           }, 40);
           return;
         }
@@ -782,7 +791,7 @@ window.GreenOSModules["dispatch"] = {
           self.renderDetails(body, data);
           setTimeout(function () {
             var mainEl = body.querySelector("#load-main");
-            if (mainEl) self.showBolWizard(mainEl, id, data, "GENERATED");
+            if (mainEl) self.showBolWizard(mainEl, id, data, state === "done" ? "BROKER_EDITED" : "GENERATED");
           }, 40);
           return;
         }
@@ -791,7 +800,7 @@ window.GreenOSModules["dispatch"] = {
           self.renderDetails(body, data);
           setTimeout(function () {
             var mainEl = body.querySelector("#load-main");
-            if (mainEl) self.showPodWizard(mainEl, id, data, "GENERATED");
+            if (mainEl) self.showPodWizard(mainEl, id, data, state === "done" ? "BROKER_EDITED" : "GENERATED");
           }, 40);
           return;
         }
@@ -803,6 +812,20 @@ window.GreenOSModules["dispatch"] = {
             if (mainEl) self.showInvoiceWizard(mainEl, id, data, "GENERATED");
           }, 40);
           return;
+        }
+        if (action === "mark_pickup") {
+          if (state === "done") {
+            self._tab = "general";
+            self.renderDetails(body, data);
+            setTimeout(function () {
+              var input = document.getElementById("ld-pickup-date");
+              if (input) {
+                input.focus();
+                input.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+            }, 50);
+            return;
+          }
         }
         if (action === "send_review_link") {
           self.showReviewLinkModal(body, id, data);
@@ -1125,8 +1148,14 @@ window.GreenOSModules["dispatch"] = {
         self.timeFieldHtml("ld-c-delivery-time", (g.delivery && (g.delivery.from || g.delivery.opsAt)) || "") +
         "</label>" +
         "</div>" +
-        '<button type="button" class="btn-primary" id="ld-save-carrier">Save &amp; Assign Carrier</button>' +
-        '<p class="gos-muted" style="margin-top:0.5rem">After save → status <strong>Carrier Assigned</strong>. Green OS emails the Agreement + MC/NOA/W-9 link from <strong>your Gmail</strong> to the carrier.</p>' +
+        '<button type="button" class="btn-primary" id="ld-save-carrier">' +
+        (c.carrierName ? "Save Carrier Changes" : "Save &amp; Assign Carrier") +
+        "</button>" +
+        '<p class="gos-muted" style="margin-top:0.5rem">' +
+        (c.carrierName
+          ? "You can change the carrier or details. Status stays where the load already is."
+          : "After save → status <strong>Carrier Assigned</strong>. Green OS emails the Agreement + MC/NOA/W-9 link from <strong>your Gmail</strong> to the carrier.") +
+        "</p>" +
         "</div>";
       self.bindUsPhoneInput(main.querySelector("#ld-carrier-phone"));
       self.bindUsPhoneInput(main.querySelector("#ld-driver-phone"));
@@ -1162,8 +1191,11 @@ window.GreenOSModules["dispatch"] = {
             deliveryFrom: deliveryIso,
             opsPickupAt: pickupIso,
             opsDeliveryAt: deliveryIso,
-            status: "CARRIER_ASSIGNED",
           };
+          var curStatus = String((data.identity && data.identity.status) || "").toUpperCase();
+          if (!c.carrierName || curStatus === "LOAD_CREATED" || curStatus === "DISPATCH") {
+            carrierPayload.status = "CARRIER_ASSIGNED";
+          }
           if (showMoney && main.querySelector("#ld-carr-price")) {
             carrierPayload.carrierRate = self.parseMoneyInput(main.querySelector("#ld-carr-price").value);
           }
@@ -1198,7 +1230,7 @@ window.GreenOSModules["dispatch"] = {
             inviteMsg =
               "\n\nCarrier saved, but onboarding email failed. Connect Broker Gmail and resend.";
           }
-          alert("Carrier assigned." + inviteMsg);
+          alert((c.carrierName ? "Carrier updated." : "Carrier assigned.") + inviteMsg);
           var host = document.querySelector("#load-tms-body");
           self.openLoad(host, id, "carrier");
         } catch (err) {
@@ -2107,6 +2139,12 @@ window.GreenOSModules["dispatch"] = {
 
     var pickupSrc = (g.pickup && (g.pickup.opsAt || g.pickup.from)) || null;
     var deliverySrc = (g.delivery && (g.delivery.opsAt || g.delivery.from)) || null;
+    var prev = self.currentDocContent(data, "RATE_CONFIRMATION");
+    function pick(key, fallback) {
+      var v = prev[key];
+      if (v == null || v === "") return fallback == null ? "" : fallback;
+      return v;
+    }
     var defaultTerms =
       "Payment of detention is determined on a load-by-load basis. Unauthorized charges will not be paid. Detention payment does not begin for at least 2 hours unless otherwise agreed to in writing. Each hour pays $25 after checking in, max is $250.\n\n" +
       "Layover starts to count if the total waiting time exceeds 12 hours after checking in. The standard rate applies for a total of $250.\n\n" +
@@ -2149,26 +2187,34 @@ window.GreenOSModules["dispatch"] = {
       "<label>Pickup time" +
       self.timeFieldHtml("rc-ptime", pickupSrc) +
       "</label>" +
-      '<label class="full">Pickup contact <input id="rc-pcontact" placeholder="Name / phone at shipper"></label>' +
-      '<label class="full">Final destination <input id="rc-dest" value="' + self.esc(place(g.delivery)) + '"></label>' +
+      '<label class="full">Pickup contact <input id="rc-pcontact" placeholder="Name / phone at shipper" value="' +
+      self.esc(pick("pickupContact", "")) +
+      '"></label>' +
+      '<label class="full">Final destination <input id="rc-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '"></label>' +
       '<label>Delivery date <input id="rc-ddate" type="date" value="' + self.esc(self.toInputDate(deliverySrc)) + '"></label>' +
       "<label>Delivery time" +
       self.timeFieldHtml("rc-dtime", deliverySrc) +
       "</label>" +
-      '<label class="full">Delivery contact <input id="rc-dcontact" placeholder="Name / phone at consignee"></label>' +
+      '<label class="full">Delivery contact <input id="rc-dcontact" placeholder="Name / phone at consignee" value="' +
+      self.esc(pick("deliveryContact", "")) +
+      '"></label>' +
       '<label>Driver name <input id="rc-driver" value="' + self.esc(c.driverName || "") + '"></label>' +
       '<label>Driver phone <input id="rc-dphone" type="tel" value="' +
       self.esc(self.formatUsPhone(c.driverPhone || "")) +
       '" placeholder="(XXX) XXX-XXXX"></label>' +
       '<label>Truck # <input id="rc-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
       '<label>Trailer # <input id="rc-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
-      '<label class="full">Payment option <input id="rc-pay" value="" placeholder="QuickPay / Factoring / Net 30…"></label>' +
-      '<label class="full">Delivery note <textarea id="rc-delnote" rows="2"></textarea></label>' +
+      '<label class="full">Payment option <input id="rc-pay" value="' +
+      self.esc(pick("paymentOption", "")) +
+      '" placeholder="QuickPay / Factoring / Net 30…"></label>' +
+      '<label class="full">Delivery note <textarea id="rc-delnote" rows="2">' +
+      self.esc(pick("deliveryNote", "")) +
+      "</textarea></label>" +
       '<label class="full">Special notes <textarea id="rc-notes" rows="3">' +
-      self.esc(g.specialInstructions || "") +
+      self.esc(pick("specialNotes", g.specialInstructions || "")) +
       "</textarea></label>" +
       '<label class="full">Terms (RC standard) <textarea id="rc-terms" rows="8">' +
-      self.esc(defaultTerms) +
+      self.esc(pick("terms", defaultTerms)) +
       "</textarea></label>" +
       "</div>" +
       '<div class="load-actions" style="margin-top:0.75rem">' +
@@ -2357,6 +2403,12 @@ window.GreenOSModules["dispatch"] = {
     }
     var pickupSrc = (g.pickup && (g.pickup.opsAt || g.pickup.from)) || null;
     var deliverySrc = (g.delivery && (g.delivery.opsAt || g.delivery.from)) || null;
+    var prev = self.currentDocContent(data, "BOL");
+    function pick(key, fallback) {
+      var v = prev[key];
+      if (v == null || v === "") return fallback == null ? "" : fallback;
+      return v;
+    }
 
     box.innerHTML =
       "<h3>Generate Bill of Lading</h3>" +
@@ -2374,26 +2426,26 @@ window.GreenOSModules["dispatch"] = {
       self.esc(c.carrierEmail || contacts.carrierEmail || "") +
       '"></label>' +
       '<label>Customer <input id="bol-customer" value="' + self.esc(g.customer || "") + '"></label>' +
-      '<label class="full">SHIPS FROM (origin) <input id="bol-origin" value="' + self.esc(place(g.pickup)) + '"></label>' +
-      '<label>Shipper ID No. <input id="bol-shipper-id" value=""></label>' +
-      '<label>Seal No. <input id="bol-seal" value=""></label>' +
-      '<label>FOB <input id="bol-fob" value=""></label>' +
+      '<label class="full">SHIPS FROM (origin) <input id="bol-origin" value="' + self.esc(pick("pickupAddress", place(g.pickup))) + '"></label>' +
+      '<label>Shipper ID No. <input id="bol-shipper-id" value="' + self.esc(pick("shipperIdNo", "")) + '"></label>' +
+      '<label>Seal No. <input id="bol-seal" value="' + self.esc(pick("sealNo", "")) + '"></label>' +
+      '<label>FOB <input id="bol-fob" value="' + self.esc(pick("fob", "")) + '"></label>' +
       '<label>Freight terms <select id="bol-terms">' +
       '<option value="PREPAID">PREPAID</option>' +
       '<option value="COLLECT">COLLECT</option>' +
       '<option value="3RD_PARTY">3RD PARTY</option>' +
       "</select></label>" +
-      '<label class="full">SHIPS TO (destination) <input id="bol-dest" value="' + self.esc(place(g.delivery)) + '"></label>' +
-      '<label>Consignee ID No. <input id="bol-consignee-id" value=""></label>' +
-      '<label>Delivery contact <input id="bol-dcontact" value=""></label>' +
+      '<label class="full">SHIPS TO (destination) <input id="bol-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '"></label>' +
+      '<label>Consignee ID No. <input id="bol-consignee-id" value="' + self.esc(pick("consigneeIdNo", "")) + '"></label>' +
+      '<label>Delivery contact <input id="bol-dcontact" value="' + self.esc(pick("deliveryContact", "")) + '"></label>' +
       '<label>Carrier <input id="bol-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
       '<label>MC# <input id="bol-mc" value="' + self.esc(c.mc || "") + '"></label>' +
       '<label>Truck <input id="bol-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
       '<label>Trailer# <input id="bol-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
-      '<label>VIN# <input id="bol-vin" value=""></label>' +
+      '<label>VIN# <input id="bol-vin" value="' + self.esc(pick("vinNumber", "")) + '"></label>' +
       '<label>Carrier / driver contact <input id="bol-cphone" value="' + self.esc(c.driverName || "") + '"></label>' +
       '<label class="full">Third party freight bills to <input id="bol-third" value="' + self.esc(g.customer || "") + '"></label>' +
-      '<label>Customer order no. <input id="bol-order" value=""></label>' +
+      '<label>Customer order no. <input id="bol-order" value="' + self.esc(pick("customerOrderNo", "")) + '"></label>' +
       '<label># Pkgs <input id="bol-pkgs" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
       '<label>Weight <input id="bol-weight" value="' + self.esc(g.weight || "") + '"></label>' +
       '<label>Pallet/Slip <select id="bol-pallet"><option value="N">N</option><option value="Y">Y</option></select></label>' +
@@ -2401,8 +2453,8 @@ window.GreenOSModules["dispatch"] = {
       '<label>Package type <input id="bol-ptype" value="PCS"></label>' +
       '<label>Hazmat <select id="bol-hm"><option value="">No</option><option value="X">Yes (X)</option></select></label>' +
       '<label class="full">Commodity description <input id="bol-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
-      '<label>COD amount $ <input id="bol-cod" value=""></label>' +
-      '<label>Remit COD to <input id="bol-cod-to" value=""></label>' +
+      '<label>COD amount $ <input id="bol-cod" value="' + self.esc(pick("codAmount", "")) + '"></label>' +
+      '<label>Remit COD to <input id="bol-cod-to" value="' + self.esc(pick("remittanceCodTo", "")) + '"></label>' +
       '<label>Trailer loaded by <select id="bol-loaded"><option value="">—</option><option value="SHIPPER">BY SHIPPER</option><option value="DRIVER">BY DRIVER</option></select></label>' +
       '<label>Freight counted by <select id="bol-counted"><option value="">—</option><option value="SHIPPER">BY SHIPPER</option><option value="DRIVER_PALLETS">BY DRIVER/PALLETS</option><option value="DRIVER_PIECES">BY DRIVER/PIECES</option></select></label>' +
       '<label class="full">Special instructions <textarea id="bol-notes" rows="3">' +
@@ -2417,6 +2469,27 @@ window.GreenOSModules["dispatch"] = {
       '<p id="bol-status" class="gos-muted" style="margin-top:0.5rem"></p>';
 
     box.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (box.querySelector("#bol-terms")) {
+      box.querySelector("#bol-terms").value = pick("freightTerms", "PREPAID") || "PREPAID";
+    }
+    if (box.querySelector("#bol-pallet")) {
+      box.querySelector("#bol-pallet").value = prev.palletSlip === true || prev.palletSlip === "Y" ? "Y" : "N";
+    }
+    if (box.querySelector("#bol-hm")) {
+      box.querySelector("#bol-hm").value = prev.hazmat === true || prev.hazmat === "X" ? "X" : "";
+    }
+    if (box.querySelector("#bol-loaded") && prev.trailerLoadedBy) {
+      box.querySelector("#bol-loaded").value = prev.trailerLoadedBy;
+    }
+    if (box.querySelector("#bol-counted") && prev.freightCountedBy) {
+      box.querySelector("#bol-counted").value = prev.freightCountedBy;
+    }
+    if (box.querySelector("#bol-htype") && prev.handlingType) {
+      box.querySelector("#bol-htype").value = prev.handlingType;
+    }
+    if (box.querySelector("#bol-ptype") && prev.packageType) {
+      box.querySelector("#bol-ptype").value = prev.packageType;
+    }
     box.querySelector("#bol-cancel")?.addEventListener("click", function () {
       box.classList.add("hidden");
       box.innerHTML = "";
