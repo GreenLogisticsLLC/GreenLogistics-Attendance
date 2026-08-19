@@ -76,14 +76,12 @@ window.GreenOSModules = window.GreenOSModules || {};
 
       root.innerHTML =
         '<div class="gos-module-placeholder load-tms" data-module="loads">' +
-        '<div class="load-module-hero">' +
+        '<div class="load-page-head">' +
         "<h2>Loads</h2>" +
-        '<p class="gos-muted">Single Load is the center of GreenOS TMS — Rate Con, BOL, POD, invoices, tracking and money never stand alone.</p>' +
-        '<p class="gos-muted" style="margin-top:0.35rem">After <strong>Customer Accepted</strong> → Create Load (auto GL#) → Assign Carrier → Rate Con → … → Closed.</p>' +
-        "</div>" +
-        '<nav class="gos-subnav" aria-label="Loads">' +
+        '<nav class="gos-subnav load-subnav" aria-label="Loads">' +
         navHtml +
         "</nav>" +
+        "</div>" +
         '<div class="gos-module-body load-tms-body" id="load-tms-body"></div>' +
         "</div>";
 

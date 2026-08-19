@@ -423,17 +423,31 @@ window.GreenOSModules["dispatch"] = {
 
   async renderList(body, phase) {
     var self = this;
+    self._listPhase = phase || "active";
     body.innerHTML = "<p class=\"gos-muted\">Loading loads…</p>";
     try {
       var rows = await self.api("/?phase=" + encodeURIComponent(phase));
+      var title = phase === "completed" ? "Completed Loads" : "Active Loads";
       if (!rows || !rows.length) {
         body.innerHTML =
-          "<h2>" + (phase === "completed" ? "Completed Loads" : "Active Loads") + "</h2>" +
-          "<p class=\"gos-muted\">No loads yet. Create a Load from an Accepted shipment — number is assigned automatically (GL100001…).</p>";
+          '<div class="load-empty">' +
+          "<h2>" +
+          title +
+          "</h2>" +
+          "<p>No loads yet. Open an Accepted shipment and create a Load — the number is assigned automatically.</p>" +
+          "</div>";
         return;
       }
       var html =
-        "<h2>" + (phase === "completed" ? "Completed Loads" : "Active Loads") + "</h2>" +
+        '<div class="load-list-bar">' +
+        "<h2>" +
+        title +
+        "</h2>" +
+        '<input type="search" class="load-list-search" id="load-list-search" placeholder="Search load, customer, lane, carrier…" autocomplete="off">' +
+        '<span class="load-list-count" id="load-list-count">' +
+        rows.length +
+        " loads</span>" +
+        "</div>" +
         '<div class="load-table-wrap"><table class="load-table"><thead><tr>' +
         "<th>Load #</th><th>Shipment</th><th>Customer</th><th>Lane</th><th>Carrier</th><th>Status</th>" +
         (self.canSeeMoney() ? "<th>Customer $</th><th>Carrier $</th><th>Profit</th>" : "") +
@@ -462,8 +476,17 @@ window.GreenOSModules["dispatch"] = {
             profitCell +
             "</td>";
         }
+        var hay =
+          [r.loadNumber, r.shipmentNumber, r.customerName, r.pickup, r.delivery, r.carrierName, r.statusLabel, r.status]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
         html +=
-          "<tr>" +
+          '<tr class="load-row" data-id="' +
+          self.esc(r.shipmentLeadId) +
+          '" data-hay="' +
+          self.esc(hay) +
+          '">' +
           "<td><strong>" + self.esc(r.loadNumber) + "</strong></td>" +
           "<td>" + self.esc(r.shipmentNumber || "—") + "</td>" +
           "<td>" + self.esc(r.customerName || "—") + "</td>" +
@@ -478,11 +501,34 @@ window.GreenOSModules["dispatch"] = {
       });
       html += "</tbody></table></div>";
       body.innerHTML = html;
+      function openLoadRow(id) {
+        if (id) self.openLoad(body, id);
+      }
       body.querySelectorAll(".load-open-btn").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-          self.openLoad(body, btn.getAttribute("data-id"));
+        btn.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          openLoadRow(btn.getAttribute("data-id"));
         });
       });
+      body.querySelectorAll("tr.load-row").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          openLoadRow(tr.getAttribute("data-id"));
+        });
+      });
+      var search = body.querySelector("#load-list-search");
+      var countEl = body.querySelector("#load-list-count");
+      if (search) {
+        search.addEventListener("input", function () {
+          var q = (search.value || "").trim().toLowerCase();
+          var shown = 0;
+          body.querySelectorAll("tr.load-row").forEach(function (tr) {
+            var ok = !q || (tr.getAttribute("data-hay") || "").indexOf(q) >= 0;
+            tr.style.display = ok ? "" : "none";
+            if (ok) shown += 1;
+          });
+          if (countEl) countEl.textContent = shown + " loads";
+        });
+      }
     } catch (err) {
       body.innerHTML = '<p class="gos-error">' + self.esc(err.message || err) + "</p>";
     }
@@ -576,57 +622,40 @@ window.GreenOSModules["dispatch"] = {
       );
     }).join("");
 
-    var lifecycle = [
-      "LOAD_CREATED",
-      "CARRIER_ASSIGNED",
-      "RATE_CON_GENERATED",
-      "CARRIER_ACCEPTED",
-      "PICKUP",
-      "IN_TRANSIT",
-      "DELIVERED",
-      "POD_UPLOADED",
-      "CUSTOMER_INVOICE",
-      "CARRIER_PAYMENT",
-      "CLOSED",
-    ];
-    var lifeLabels = {
-      LOAD_CREATED: "LOAD CREATED",
-      CARRIER_ASSIGNED: "CARRIER ASSIGNED",
-      RATE_CON_GENERATED: "RATE CON GENERATED",
-      CARRIER_ACCEPTED: "CARRIER ACCEPTED",
-      PICKUP: "PICKUP",
-      IN_TRANSIT: "IN ROAD",
-      DELIVERED: "DELIVERED",
-      POD_UPLOADED: "POD UPLOADED",
-      CUSTOMER_INVOICE: "CUSTOMER PAID",
-      CARRIER_PAYMENT: "CARRIER PAID",
-      CLOSED: "CLOSED",
-    };
-    var cur = String((data.identity && data.identity.status) || "").toUpperCase();
-    var curIdx = lifecycle.indexOf(cur);
-    // Also advance the rail from existing documents (covers loads stuck before status sync).
     var docs = data.documents || [];
     var hasDocType = function (t) {
       return docs.some(function (d) {
         return String(d.docType || "").toUpperCase() === t;
       });
     };
-    function bumpLife(st) {
-      var i = lifecycle.indexOf(st);
-      if (i > curIdx) curIdx = i;
-    }
-    if (hasDocType("RATE_CONFIRMATION")) bumpLife("RATE_CON_GENERATED");
-    if (hasDocType("BOL")) bumpLife("CARRIER_ACCEPTED");
-    if (hasDocType("POD")) bumpLife("POD_UPLOADED");
     var accounting = data.accounting || {};
-    if (accounting.customerPaidAt) bumpLife("CUSTOMER_INVOICE");
-    if (accounting.carrierPaidAt) bumpLife("CARRIER_PAYMENT");
-    var lifeHtml = lifecycle
-      .map(function (st, i) {
-        var cls = i < curIdx ? "is-done" : i === curIdx ? "is-active" : "";
-        return '<li class="' + cls + '">' + self.esc(lifeLabels[st] || st.replace(/_/g, " ")) + "</li>";
-      })
-      .join("");
+    var qaSteps = (data.quickActions || []).filter(function (a) {
+      return a.kind !== "status";
+    });
+    var qaDone = qaSteps.filter(function (a) {
+      return a.state === "done";
+    }).length;
+    var qaCurrent = qaSteps.find(function (a) {
+      return a.state === "current";
+    });
+    var qaPct = qaSteps.length ? Math.round((qaDone / qaSteps.length) * 100) : 0;
+    var progressHtml =
+      '<div class="load-progress">' +
+      '<div class="load-progress-bar" aria-hidden="true"><span style="width:' +
+      qaPct +
+      '%"></span></div>' +
+      "<p>" +
+      (qaCurrent
+        ? "Now: " + self.esc(qaCurrent.label)
+        : qaDone === qaSteps.length
+          ? "All steps complete"
+          : "In progress") +
+      " · " +
+      qaDone +
+      "/" +
+      qaSteps.length +
+      "</p>" +
+      "</div>";
 
     var actions = (data.quickActions || [])
       .map(function (a) {
@@ -705,16 +734,14 @@ window.GreenOSModules["dispatch"] = {
     body.innerHTML =
       '<div class="load-layout">' +
       '<aside class="load-nav">' +
-      '<button type="button" class="btn-secondary" id="load-back">← Loads</button>' +
+      '<button type="button" class="load-back-btn" id="load-back">← All loads</button>' +
       "<h3>" +
       self.esc(data.identity.loadNumber || "No Load #") +
       "</h3>" +
-      "<p class=\"gos-muted\">" +
+      "<p class=\"gos-muted load-nav-sub\">" +
       self.esc(data.identity.shipmentNumber || "") +
       "</p>" +
-      '<ol class="load-life-mini">' +
-      lifeHtml +
-      "</ol>" +
+      progressHtml +
       '<div class="load-tabs">' +
       tabNav +
       "</div>" +
@@ -737,7 +764,7 @@ window.GreenOSModules["dispatch"] = {
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
       self.clearOpenLoad();
-      self.renderList(body, "active");
+      self.renderList(body, self._listPhase || "active");
     });
 
     body.querySelectorAll(".load-tab").forEach(function (btn) {
