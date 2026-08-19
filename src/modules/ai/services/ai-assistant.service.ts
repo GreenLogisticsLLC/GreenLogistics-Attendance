@@ -60,8 +60,12 @@ export class AiAssistantService {
             Authorization: `Bearer ${config.openai.apiKey}`,
             "Content-Type": "application/json",
         };
-        if (config.openai.projectId) headers["OpenAI-Project"] = config.openai.projectId;
-        if (config.openai.organizationId) headers["OpenAI-Organization"] = config.openai.organizationId;
+        const key = config.openai.apiKey;
+        // Project keys (sk-proj-...) are already scoped — extra headers can route billing wrong.
+        if (!key.startsWith("sk-proj-")) {
+            if (config.openai.projectId) headers["OpenAI-Project"] = config.openai.projectId;
+            if (config.openai.organizationId) headers["OpenAI-Organization"] = config.openai.organizationId;
+        }
         const res = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers,

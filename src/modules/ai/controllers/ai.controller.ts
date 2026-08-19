@@ -9,6 +9,13 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
         apiResponse(true, "OK", {
             configured: aiAssistantService.isConfigured(),
             model: config.openai.model,
+            keyType: config.openai.apiKey.startsWith("sk-proj-")
+                ? "project"
+                : config.openai.apiKey.startsWith("sk-admin-")
+                  ? "admin"
+                  : config.openai.apiKey
+                    ? "legacy"
+                    : "none",
             projectConfigured: Boolean(config.openai.projectId),
             organizationConfigured: Boolean(config.openai.organizationId),
         })
