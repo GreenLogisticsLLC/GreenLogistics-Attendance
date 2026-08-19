@@ -79,8 +79,8 @@ window.GreenOSRegistry = [
   {
     id: "dispatch",
     title: "Dispatch",
-    icon: "🚛",
-    subtitle: "Carriers, trucks, and tracking",
+    icon: "📡",
+    subtitle: "Board, trucks, and tracking",
     roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead", "Accounting"],
     children: [
       { id: "active-loads", title: "Active Loads" },
