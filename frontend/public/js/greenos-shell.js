@@ -322,6 +322,8 @@
       // Carriers — manual Refresh only (avoid wiping open carrier detail / tabs).
       if (this.currentModule === "carriers") return;
       if (this.currentModule === "customers") return;
+      // AI chat — never auto-remount (destroys input and resets "Connecting…" status).
+      if (this.currentModule === "ai") return;
       // Trucking has its own live timer.
       if (this.currentModule === "trucking") return;
       if (
@@ -441,30 +443,46 @@
 
       async function api(path, options) {
         const token = localStorage.getItem("gl_token");
-        const res = await fetch("/api/ai" + path, {
-          ...options,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: token ? "Bearer " + token : "",
-            ...(options && options.headers),
-          },
-        });
-        return res.json();
+        const ctrl = new AbortController();
+        const timer = setTimeout(function () {
+          ctrl.abort();
+        }, 12000);
+        try {
+          const res = await fetch("/api/ai" + path, {
+            ...options,
+            signal: ctrl.signal,
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: token ? "Bearer " + token : "",
+              ...(options && options.headers),
+            },
+          });
+          return res.json();
+        } finally {
+          clearTimeout(timer);
+        }
       }
 
       api("/status")
-        .then((data) => {
+        .then(function (data) {
           if (!statusLine) return;
           if (data.success && data.data && data.data.configured) {
-            statusLine.textContent = "Model: " + (data.data.model || "OpenAI") + " — ready";
+            var bits = ["Model: " + (data.data.model || "OpenAI") + " — ready"];
+            if (data.data.keyType) bits.push("key: " + data.data.keyType);
+            statusLine.textContent = bits.join(" · ");
           } else {
             statusLine.textContent =
               "OPENAI_API_KEY not configured on server — add it to .env and restart";
           }
         })
-        .catch(() => {
-          if (statusLine) statusLine.textContent = "AI status unavailable";
+        .catch(function () {
+          if (statusLine) statusLine.textContent = "AI ready — type a message below";
         });
+
+      if (input) {
+        input.disabled = false;
+        input.focus();
+      }
 
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
