@@ -171,6 +171,7 @@ export const DOMAIN_EVENT_TYPES = [
 
 export type DomainEventType = (typeof DOMAIN_EVENT_TYPES)[number] | string;
 
+/** CRM shipment card pipeline — stops at Load Created. Later ops live in Loads (`LOAD_PIPELINE`). */
 export const LIFECYCLE_PIPELINE = [
     { stage: "SHIPMENT_IMPORTED", title: "Shipment Imported", status: "NEW" },
     { stage: "BROKER_ASSIGNED", title: "Awaiting Agent", status: "AWAITING_ACCEPTANCE" },
@@ -183,19 +184,6 @@ export const LIFECYCLE_PIPELINE = [
     { stage: "CUSTOMER_RESPOND", title: "Customer Respond", status: "CUSTOMER_REPLIED" },
     { stage: "CUSTOMER_ACCEPTED", title: "Customer Accepted", status: "ACCEPTED" },
     { stage: "LOAD_CREATED", title: "Load Created", status: "LOAD_CREATED" },
-    { stage: "CARRIER_ASSIGNED", title: "Carrier Assigned", status: "CARRIER_ASSIGNED" },
-    { stage: "RATE_CONFIRMATION_GENERATED", title: "Rate Confirmation Generated", status: "RATE_CON_GENERATED" },
-    { stage: "CARRIER_ACCEPTED", title: "Carrier Accepted", status: "CARRIER_ACCEPTED" },
-    { stage: "PICKUP_MARKED", title: "Pickup", status: "PICKUP" },
-    { stage: "IN_TRANSIT_MARKED", title: "In Road", status: "IN_TRANSIT" },
-    { stage: "DELIVERED_MARKED", title: "Delivered", status: "DELIVERED" },
-    { stage: "POD_UPLOADED", title: "POD Uploaded", status: "POD_UPLOADED" },
-    { stage: "CUSTOMER_INVOICE_GENERATED", title: "Customer Invoice", status: "CUSTOMER_INVOICE" },
-    { stage: "CARRIER_PAID", title: "Carrier Payment", status: "CARRIER_PAYMENT" },
-    { stage: "DISPATCH_STARTED", title: "Dispatch", status: "DISPATCH" },
-    { stage: "SHIPMENT_COMPLETED", title: "Completed", status: "COMPLETED" },
-    { stage: "SHIPMENT_CLOSED", title: "Closed", status: "CLOSED" },
-    { stage: "SHIPMENT_DELETED_BY_CUSTOMER", title: "Deleted from Customer", status: "DELETED_FROM_CUSTOMER" },
 ] as const;
 
 export const ACTIVE_STATUSES = [

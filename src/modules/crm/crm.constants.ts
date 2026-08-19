@@ -22,14 +22,6 @@ export const TIMELINE_STAGES = [
     { stage: "CUSTOMER_REPLIED", title: "Customer Replied" },
     { stage: "CUSTOMER_ACCEPTED", title: "Customer Accepted" },
     { stage: "LOAD_CREATED", title: "Load Created" },
-    { stage: "DISPATCH_STARTED", title: "Dispatch" },
-    { stage: "COMPLETED", title: "Completed" },
-    { stage: "SHIPMENT_CLOSED", title: "Closed" },
-    { stage: "QUOTE_SENT", title: "Quote Sent" },
-    { stage: "NEGOTIATION", title: "Negotiation" },
-    { stage: "BOOKED", title: "Booked" },
-    { stage: "PICKED_UP", title: "Picked Up" },
-    { stage: "DELIVERED", title: "Delivered" },
 ] as const;
 
 export type TimelineStage = (typeof TIMELINE_STAGES)[number]["stage"];

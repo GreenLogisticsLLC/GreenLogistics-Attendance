@@ -826,6 +826,13 @@ html[data-theme="light"] {
 .crm-pipeline li.is-done .crm-pipe-dot {
   background: var(--gos-accent);
 }
+.crm-pipe-loads-note {
+  color: var(--gos-muted) !important;
+}
+.crm-pipe-loads-note .crm-pipe-dot {
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2);
+}
 .crm-pipeline small {
   display: block;
   font-size: 0.72rem;

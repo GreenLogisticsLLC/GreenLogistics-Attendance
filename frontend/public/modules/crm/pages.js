@@ -847,7 +847,9 @@ window.GreenOSModules.crm = {
 
       var pipeline = "";
       var qaInserted = false;
+      var afterLoadCreated = false;
       pipeSteps.forEach(function (p) {
+        if (afterLoadCreated) return;
         if (p.stage === "BROKER_QUESTION" || p.stage === "CUSTOMER_RESPOND") {
           if (qaInserted) return;
           qaInserted = true;
@@ -880,7 +882,15 @@ window.GreenOSModules.crm = {
           "</strong>" +
           (p.at ? "<small>" + window.GreenOSModules.crm.fmtDate(p.at) + "</small>" : "") +
           "</div></li>";
+        if (p.stage === "LOAD_CREATED") afterLoadCreated = true;
       });
+      if (afterLoadCreated || s.loadNumber) {
+        pipeline +=
+          '<li class="crm-pipe-loads-note">' +
+          '<span class="crm-pipe-dot"></span>' +
+          "<div><strong>Continue in Loads</strong>" +
+          "<small>Carrier, Rate Con, Pickup, POD, Invoice — open the Loads section</small></div></li>";
+      }
       if (!qaInserted && (brokerQ || customerR)) {
         pipeline +=
           '<li class="crm-pipe-qa-row">' +
@@ -975,13 +985,8 @@ window.GreenOSModules.crm = {
       };
       var manualStatuses = [
         "FOLLOW_UP",
-        "DISPATCH",
-        "COMPLETED",
-        "CLOSED",
         "LOST",
         "DELETED_FROM_CUSTOMER",
-        "QUOTE_SENT",
-        "NEGOTIATION",
       ];
       var statusActions = "";
       if (autoStatuses[s.status] || !manualStatuses.includes(s.status)) {
@@ -1177,7 +1182,7 @@ window.GreenOSModules.crm = {
         '<label>Update status <select id="crm-status">' +
         statusActions +
         "</select>" +
-        '<small class="gos-muted" style="display:block;margin-top:0.25rem">Agent Open → Won update from uShip automatically</small></label>' +
+        '<small class="gos-muted" style="display:block;margin-top:0.25rem">Agent Open → Load Created update from uShip automatically. After Load Created use Loads.</small></label>' +
         '<button type="button" class="btn-secondary" id="crm-save-status">Save</button>' +
         "</div>" +
         "<h3>Timeline / Lifecycle</h3>" +
