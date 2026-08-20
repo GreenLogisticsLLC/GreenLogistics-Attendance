@@ -1723,6 +1723,29 @@ html[data-theme="light"] {
   color: var(--gos-muted);
 }
 .load-form-grid label.full { grid-column: 1 / -1; }
+.load-form-grid .cu-billing-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+}
+.load-form-grid .cu-same-addr-btn {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--gos-accent, #2563eb);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.load-form-grid .cu-same-addr-btn:hover {
+  color: var(--gos-text, #0f172a);
+}
 .load-form-grid input, .load-form-grid textarea, .load-form-grid select {
   background: var(--gos-surface2);
   border: 1px solid var(--gos-border);

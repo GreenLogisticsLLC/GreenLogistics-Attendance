@@ -163,10 +163,27 @@ window.GreenOSModules.customers = {
       '<label>ZIP <input id="cu-zip" value="' + self.esc(c.zip || "") + '"></label>' +
       '<label>City <input id="cu-city" value="' + self.esc(c.city || "") + '"></label>' +
       '<label>State <input id="cu-state" value="' + self.esc(c.state || "") + '" maxlength="2"></label>' +
-      '<label class="full">Billing address <input id="cu-addr" value="' + self.esc(c.billingAddress || "") + '"></label>' +
+      '<label class="full cu-billing-field">' +
+      '<span class="cu-billing-head">Billing address' +
+      '<button type="button" class="cu-same-addr-btn" id="cu-same-addr" title="Copy City, State, ZIP into Billing address">Same with contact address</button>' +
+      "</span>" +
+      '<input id="cu-addr" value="' + self.esc(c.billingAddress || "") + '">' +
+      "</label>" +
       '<label class="full">Notes <textarea id="cu-notes" rows="3">' + self.esc(c.notes || "") + "</textarea></label>" +
       "</div>"
     );
+  },
+
+  contactAddressLine(root) {
+    var city = (root.querySelector("#cu-city")?.value || "").trim();
+    var state = (root.querySelector("#cu-state")?.value || "").trim().toUpperCase();
+    var zip = (root.querySelector("#cu-zip")?.value || "").trim();
+    var parts = [];
+    if (city && state) parts.push(city + ", " + state);
+    else if (city) parts.push(city);
+    else if (state) parts.push(state);
+    if (zip) parts.push(zip);
+    return parts.join(" ").trim();
   },
 
   readCustomerForm(root) {
@@ -197,6 +214,18 @@ window.GreenOSModules.customers = {
     if (window.GreenOSZipLookup) {
       window.GreenOSZipLookup.bind(body, "#cu-zip", "#cu-city", "#cu-state");
     }
+    body.querySelector("#cu-same-addr")?.addEventListener("click", function () {
+      var line = self.contactAddressLine(body);
+      if (!line) {
+        alert("Fill ZIP, City, or State first.");
+        return;
+      }
+      var addr = body.querySelector("#cu-addr");
+      if (addr) {
+        addr.value = line;
+        addr.focus();
+      }
+    });
     body.querySelector("#cu-cancel")?.addEventListener("click", function () {
       self._customerId = existing && existing.customerId ? existing.customerId : null;
       if (self._customerId) self.renderDetail(body, root, self._customerId);
