@@ -1619,6 +1619,18 @@ html[data-theme="light"] {
   background: var(--gos-surface2);
   cursor: pointer;
 }
+button.load-review-choice {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  grid-template-columns: 1fr;
+}
+button.load-review-choice:hover {
+  border-color: var(--gos-accent);
+  background: var(--gos-accent-soft);
+}
 .load-review-choice.is-sent {
   border-color: color-mix(in srgb, var(--gos-accent) 55%, var(--gos-border));
   background: var(--gos-accent-soft);

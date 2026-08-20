@@ -778,7 +778,9 @@ export class LoadService {
                 customerPaidAt: true,
                 carrierPaidAt: true,
                 reviewCustomerSentAt: true,
+                reviewCustomerSentTo: true,
                 reviewCarrierSentAt: true,
+                reviewCarrierSentTo: true,
                 loadNumber: true,
                 assignedBrokerId: true,
             },
@@ -879,16 +881,55 @@ export class LoadService {
         }
 
         if (action === "send_review_link") {
+            const skipReview = Boolean(body?.skipReview || body?.skip || body?.dontSend);
+            const now = new Date();
+            const brokerUserId = shipment.assignedBrokerId || actorUserId;
+
+            if (skipReview) {
+                const keepCustomer =
+                    Boolean(shipment.reviewCustomerSentTo) &&
+                    shipment.reviewCustomerSentTo !== "SKIPPED" &&
+                    looksLikeEmail(String(shipment.reviewCustomerSentTo));
+                const keepCarrier =
+                    Boolean(shipment.reviewCarrierSentTo) &&
+                    shipment.reviewCarrierSentTo !== "SKIPPED" &&
+                    looksLikeEmail(String(shipment.reviewCarrierSentTo));
+                await prisma.shipmentLead.update({
+                    where: { shipmentLeadId },
+                    data: {
+                        reviewCustomerSentAt: shipment.reviewCustomerSentAt || now,
+                        reviewCustomerSentTo: keepCustomer
+                            ? shipment.reviewCustomerSentTo
+                            : "SKIPPED",
+                        reviewCarrierSentAt: shipment.reviewCarrierSentAt || now,
+                        reviewCarrierSentTo: keepCarrier ? shipment.reviewCarrierSentTo : "SKIPPED",
+                        reviewSentById: actorUserId || brokerUserId || null,
+                    },
+                });
+                await domainEventEngine.emit({
+                    shipmentLeadId,
+                    eventType: "REVIEW_LINK_SKIPPED",
+                    title: "Review Link Skipped",
+                    message: `Broker continued without sending a review link for Load ${
+                        shipment.loadNumber || ""
+                    }`,
+                    actorUserId,
+                    payload: { skipped: true },
+                });
+                return {
+                    ...(await this.getLoadDetails(shipmentLeadId)),
+                    reviewSkipped: true,
+                };
+            }
+
             const sendCustomer = Boolean(body?.sendCustomer ?? body?.customer);
             const sendCarrier = Boolean(body?.sendCarrier ?? body?.carrier);
             if (!sendCustomer && !sendCarrier) {
                 throw Object.assign(
-                    new Error("Choose Send Customer, Send Carrier, or both"),
+                    new Error("Choose Send Customer, Send Carrier, both, or Don't send link"),
                     { status: 422 }
                 );
             }
-
-            const brokerUserId = shipment.assignedBrokerId || actorUserId;
 
             const customerEmail = String(body?.customerEmail || shipment.customerEmail || "")
                 .trim()
@@ -909,7 +950,6 @@ export class LoadService {
                 );
             }
 
-            const now = new Date();
             const sent: Array<{
                 kind: "customer" | "carrier";
                 to: string;

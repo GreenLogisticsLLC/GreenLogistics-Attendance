@@ -2977,7 +2977,7 @@ window.GreenOSModules["dispatch"] = {
     });
   },
 
-  /** Thank-you / review link email: Send Customer, Send Carrier, or both. */
+    /** Thank-you / review link email: Send Customer, Send Carrier, both, or skip. */
   showReviewLinkModal(body, id, data) {
     var self = this;
     document.getElementById("load-review-modal")?.remove();
@@ -2987,8 +2987,15 @@ window.GreenOSModules["dispatch"] = {
     var c = data.carrier || {};
     var customerEmail = contacts.customerEmail || g.customerEmail || "";
     var carrierEmail = contacts.carrierEmail || (c && c.carrierEmail) || "";
-    var customerSent = Boolean(reviews.customerSentAt);
-    var carrierSent = Boolean(reviews.carrierSentAt);
+    var customerSkipped = String(reviews.customerSentTo || "").toUpperCase() === "SKIPPED";
+    var carrierSkipped = String(reviews.carrierSentTo || "").toUpperCase() === "SKIPPED";
+    var customerSent = Boolean(reviews.customerSentAt) && !customerSkipped;
+    var carrierSent = Boolean(reviews.carrierSentAt) && !carrierSkipped;
+    var alreadySkipped =
+      Boolean(reviews.customerSentAt || reviews.carrierSentAt) &&
+      (customerSkipped || carrierSkipped) &&
+      !customerSent &&
+      !carrierSent;
     var modal = document.createElement("div");
     modal.id = "load-review-modal";
     modal.className = "crm-modal";
@@ -2996,7 +3003,7 @@ window.GreenOSModules["dispatch"] = {
       '<div class="crm-modal-card load-review-card">' +
       '<div class="crm-modal-head">' +
       "<div><h2>Send Review Link</h2>" +
-      '<p class="gos-muted">Choose Customer, Carrier, or both. The thank-you email is always sent from accounting@greengrouplogistics.com.</p></div>' +
+      '<p class="gos-muted">Choose Customer, Carrier, both — or skip sending and continue. Thank-you emails are sent from accounting@greengrouplogistics.com.</p></div>' +
       '<button type="button" class="btn-secondary" id="review-close">Close</button>' +
       "</div>" +
       '<div class="load-review-choices">' +
@@ -3004,7 +3011,7 @@ window.GreenOSModules["dispatch"] = {
       (customerSent ? " is-sent" : "") +
       '">' +
       '<input type="checkbox" id="review-send-customer"' +
-      (customerEmail ? " checked" : "") +
+      (customerEmail && !alreadySkipped ? " checked" : "") +
       ">" +
       "<div><strong>Send Customer</strong>" +
       "<span>" +
@@ -3024,7 +3031,7 @@ window.GreenOSModules["dispatch"] = {
       (carrierSent ? " is-sent" : "") +
       '">' +
       '<input type="checkbox" id="review-send-carrier"' +
-      (carrierEmail ? " checked" : "") +
+      (carrierEmail && !alreadySkipped ? " checked" : "") +
       ">" +
       "<div><strong>Send Carrier</strong>" +
       "<span>" +
@@ -3040,27 +3047,64 @@ window.GreenOSModules["dispatch"] = {
           "</small>"
         : "") +
       "</div></label>" +
+      '<button type="button" class="load-review-choice load-review-skip' +
+      (alreadySkipped ? " is-sent" : "") +
+      '" id="review-skip">' +
+      "<div><strong>Don't send link</strong>" +
+      "<span>No thank-you email — continue to the next step</span>" +
+      (alreadySkipped
+        ? "<small>✓ Skipped " +
+          self.esc(
+            new Date(reviews.customerSentAt || reviews.carrierSentAt).toLocaleString()
+          ) +
+          "</small>"
+        : "<small>Use this if the broker decides nobody needs a review link</small>") +
+      "</div></button>" +
       "</div>" +
       '<p id="review-status" class="gos-muted"></p>' +
       '<div class="load-actions">' +
       '<button type="button" class="btn-primary" id="review-send">Send Review Email</button>' +
+      '<button type="button" class="btn-secondary" id="review-skip-btn">Don\'t send link</button>' +
       "</div></div>";
     document.body.appendChild(modal);
 
     function closeModal() {
       modal.remove();
     }
+    async function skipReview() {
+      var statusEl = modal.querySelector("#review-status");
+      var skipBtn = modal.querySelector("#review-skip-btn");
+      var skipCard = modal.querySelector("#review-skip");
+      try {
+        if (skipBtn) skipBtn.disabled = true;
+        if (skipCard) skipCard.disabled = true;
+        if (statusEl) statusEl.textContent = "Skipping review link…";
+        await self.api("/" + encodeURIComponent(id) + "/actions/send_review_link", {
+          method: "POST",
+          body: JSON.stringify({ skipReview: true }),
+        });
+        closeModal();
+        self.openLoad(body, id, self._tab || "general");
+      } catch (err) {
+        if (statusEl) statusEl.textContent = "";
+        if (skipBtn) skipBtn.disabled = false;
+        if (skipCard) skipCard.disabled = false;
+        alert(err.message || err);
+      }
+    }
     modal.addEventListener("click", function (ev) {
       if (ev.target === modal) closeModal();
     });
     modal.querySelector("#review-close")?.addEventListener("click", closeModal);
+    modal.querySelector("#review-skip")?.addEventListener("click", skipReview);
+    modal.querySelector("#review-skip-btn")?.addEventListener("click", skipReview);
     modal.querySelector("#review-send")?.addEventListener("click", async function () {
       var sendBtn = modal.querySelector("#review-send");
       var statusEl = modal.querySelector("#review-status");
       var sendCustomer = modal.querySelector("#review-send-customer").checked;
       var sendCarrier = modal.querySelector("#review-send-carrier").checked;
       if (!sendCustomer && !sendCarrier) {
-        alert("Choose Send Customer, Send Carrier, or both.");
+        alert("Choose Send Customer, Send Carrier, both — or Don't send link.");
         return;
       }
       try {
