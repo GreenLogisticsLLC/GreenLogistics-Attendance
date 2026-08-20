@@ -92,30 +92,32 @@ window.GreenOSModules["dispatch"] = {
     var self = this;
     var docs = (c && c.onboardingDocuments) || [];
     if (!docs.length) {
-      return '<p class="gos-muted" style="margin:0.5rem 0 0">No signed / uploaded carrier documents yet.</p>';
+      return (
+        '<p class="gos-muted ld-carrier-docs-empty">No documents from the carrier yet. ' +
+        "They will appear here as soon as the agreement is signed and files are uploaded.</p>"
+      );
     }
     return (
-      '<div class="load-table-wrap" style="margin-top:0.65rem"><table class="load-table"><thead><tr>' +
-      "<th>Document</th><th>File</th><th>Ver</th><th>Uploaded</th><th>Actions</th>" +
-      "</tr></thead><tbody>" +
+      '<div class="ld-carrier-doc-list">' +
       docs
         .map(function (d) {
           return (
-            "<tr>" +
-            "<td><strong>" +
+            '<article class="ld-carrier-doc-item">' +
+            '<div class="ld-carrier-doc-meta">' +
+            '<span class="ld-carrier-doc-type">' +
             self.esc(self.carrierDocTypeLabel(d.documentType)) +
-            "</strong></td>" +
-            "<td>" +
-            self.esc(d.originalFilename || "—") +
-            "</td>" +
-            "<td>v" +
+            "</span>" +
+            "<strong class=\"ld-carrier-doc-name\">" +
+            self.esc(d.originalFilename || "document.pdf") +
+            "</strong>" +
+            '<span class="ld-carrier-doc-sub">v' +
             self.esc(d.version) +
-            "</td>" +
-            "<td>" +
-            self.esc(d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "—") +
-            "</td>" +
-            '<td class="load-doc-actions">' +
-            '<button type="button" class="btn-secondary ld-carrier-doc-view" data-id="' +
+            (d.uploadedAt ? " · " + new Date(d.uploadedAt).toLocaleString() : "") +
+            (d.uploadedBy ? " · " + self.esc(d.uploadedBy) : "") +
+            "</span>" +
+            "</div>" +
+            '<div class="ld-carrier-doc-actions">' +
+            '<button type="button" class="btn-primary ld-carrier-doc-view" data-id="' +
             self.esc(d.documentId) +
             '" data-name="' +
             self.esc(d.originalFilename || "document.pdf") +
@@ -125,93 +127,90 @@ window.GreenOSModules["dispatch"] = {
             '" data-name="' +
             self.esc(d.originalFilename || "document.pdf") +
             '">Download</button>' +
-            "</td>" +
-            "</tr>"
+            "</div>" +
+            "</article>"
           );
         })
         .join("") +
-      "</tbody></table></div>"
+      "</div>"
     );
   },
 
-  carrierOnboardingPanelHtml(c) {
+  carrierOnboardingPanelHtml(c, fieldFn) {
     var self = this;
+    var field = fieldFn || function (label, value) {
+      return (
+        '<div class="load-field"><span>' +
+        self.esc(label) +
+        "</span><strong>" +
+        self.esc(value == null || value === "" ? "—" : value) +
+        "</strong></div>"
+      );
+    };
     var status = String(c.onboardingStatus || "").toUpperCase();
-    if (!c.carrierProfileId && !status) return "";
+    if (!c.carrierProfileId && !status && !(c.onboardingDocuments || []).length) return "";
 
     var signed = c.agreementSigned || (c.agreementSignature && c.agreementSignature.agreed);
-    var signMeta = c.agreementSignature
-      ? self.esc(c.agreementSignature.signerName || "") +
+    var signMeta = "—";
+    if (c.agreementSignature) {
+      signMeta =
+        (c.agreementSignature.signerName || "Signed") +
         (c.agreementSignature.signedAt
           ? " · " + new Date(c.agreementSignature.signedAt).toLocaleString()
-          : "")
-      : "";
+          : "");
+    } else if (signed) {
+      signMeta = "Signed";
+    }
     var docs = c.onboardingDocuments || [];
-    var readyStatuses = ["SUBMITTED", "UNDER_REVIEW", "APPROVED"];
-    var showPanel = readyStatuses.indexOf(status) >= 0 || (signed && docs.length > 0);
-    if (!showPanel && !status) return "";
-
-    var bannerClass = "ld-carrier-review";
-    var title = "Carrier onboarding";
-    var body = "";
+    var statusLabel = status || "—";
+    var headline = "Carrier documents";
+    var lead = "All files the carrier signs and sends back appear in this section for review.";
     var actions = "";
 
     if (status === "APPROVED") {
-      bannerClass += " is-approved";
-      title = "Carrier approved";
-      body =
-        "This carrier signed the Broker–Carrier Agreement, returned the packet, and is <strong>approved</strong> on our side. " +
-        "Open the documents below to double-check they still match your criteria.";
+      headline = "Carrier documents — approved";
+      lead =
+        "This carrier is approved on our side. Open any file below to re-check against your criteria.";
     } else if (status === "SUBMITTED" || status === "UNDER_REVIEW") {
-      bannerClass += " is-pending";
-      title = "Carrier package ready for review";
-      body =
-        "The carrier signed the agreement and sent all required documents. " +
-        "Open each file below, verify against your criteria, then approve this carrier.";
+      headline = "Carrier documents — ready for review";
+      lead =
+        "The carrier signed the agreement and returned the packet. Open each file, verify, then approve.";
       actions =
-        '<div class="load-actions" style="margin-top:0.75rem">' +
+        '<div class="load-actions">' +
         '<button type="button" class="btn-primary" id="ld-approve-carrier">Approve carrier</button>' +
         '<button type="button" class="btn-secondary" id="ld-open-carrier-record">Open full carrier record</button>' +
         "</div>";
     } else if (status === "REQUEST_CHANGES") {
-      bannerClass += " is-changes";
-      title = "Waiting for carrier corrections";
-      body = "You requested changes. Documents already on file stay available below until the carrier resubmits.";
+      headline = "Carrier documents — corrections requested";
+      lead = "Waiting for the carrier to resubmit. Files already received stay listed below.";
     } else if (signed || docs.length) {
-      bannerClass += " is-progress";
-      title = "Carrier documents in progress";
-      body =
-        "Onboarding status: <strong>" +
-        self.esc(status || "IN PROGRESS") +
-        "</strong>. Documents received so far are listed below.";
-    } else {
-      bannerClass += " is-progress";
-      title = "Waiting for carrier packet";
-      body =
-        "Invite sent. Status: <strong>" +
-        self.esc(status || "INVITED") +
-        "</strong>. After the carrier signs and uploads MC / NOA / W-9, the package will appear here for review.";
+      headline = "Carrier documents — in progress";
+      lead = "Documents received so far are listed below. More files will show here as the carrier uploads them.";
+    } else if (status) {
+      headline = "Carrier documents";
+      lead =
+        "Invite sent (status: " +
+        statusLabel +
+        "). After the carrier signs and uploads MC / NOA / W-9, every file will list here.";
     }
 
     return (
-      '<div class="' +
-      bannerClass +
-      '" id="ld-carrier-review">' +
-      "<h3>" +
-      title +
-      "</h3>" +
-      '<p class="gos-muted" style="margin:0.25rem 0 0">Onboarding: <strong>' +
-      self.esc(status || "—") +
-      "</strong>" +
-      (signed ? " · Agreement signed" + (signMeta ? " (" + signMeta + ")" : "") : "") +
+      '<section class="ld-carrier-docs" id="ld-carrier-review">' +
+      "<h2>" +
+      headline +
+      "</h2>" +
+      '<p class="gos-muted">' +
+      lead +
       "</p>" +
-      "<p style=\"margin:0.55rem 0 0\">" +
-      body +
-      "</p>" +
+      '<div class="load-grid">' +
+      field("Onboarding", statusLabel) +
+      field("Agreement", signMeta) +
+      field("Files received", String(docs.length)) +
+      field("Carrier status", c.carrierStatus || "—") +
+      "</div>" +
       actions +
-      "<h4 style=\"margin:1rem 0 0.35rem;font-size:0.9rem\">Signed &amp; returned documents</h4>" +
       self.carrierPacketDocsHtml(c) +
-      "</div>"
+      "</section>"
     );
   },
 
@@ -245,6 +244,54 @@ window.GreenOSModules["dispatch"] = {
           alert(e.message || e);
         }
       });
+    });
+  },
+
+  bindCarrierOnboardingActions(root, carrier, reloadTab) {
+    var self = this;
+    if (!root || !carrier || !carrier.carrierProfileId) return;
+    var carrierId = carrier.carrierProfileId;
+    self.bindCarrierPacketDocButtons(root, carrierId);
+    root.querySelector("#ld-open-carrier-record")?.addEventListener("click", function () {
+      if (window.GreenOSModules && window.GreenOSModules.carriers) {
+        window.GreenOSModules.carriers._carrierId = carrierId;
+        window.GreenOSModules.carriers._tab = "documents";
+      }
+      if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
+        window.GreenOS.navigate("carriers");
+      } else {
+        window.location.hash = "#/carriers";
+      }
+    });
+    root.querySelector("#ld-approve-carrier")?.addEventListener("click", async function () {
+      if (!confirm("Approve this carrier? They will be marked approved for Green OS.")) return;
+      try {
+        var token = localStorage.getItem("gl_token") || "";
+        var res = await fetch(
+          "/api/carriers/" + encodeURIComponent(carrierId) + "/onboarding/approve",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + token,
+            },
+            body: "{}",
+          }
+        );
+        var json = await res.json().catch(function () {
+          return {};
+        });
+        if (!res.ok || json.success === false) {
+          throw new Error(json.message || "Approve failed");
+        }
+        alert("Carrier approved.");
+        var host = document.querySelector("#load-tms-body");
+        var loadId = (reloadTab && reloadTab.loadId) || null;
+        var tab = (reloadTab && reloadTab.tab) || "carrier";
+        if (loadId) self.openLoad(host, loadId, tab);
+      } catch (err) {
+        alert(err.message || err);
+      }
     });
   },
 
@@ -1347,8 +1394,7 @@ window.GreenOSModules["dispatch"] = {
             : "—"
         ) +
         "</div>" +
-        self.carrierOnboardingPanelHtml(c) +
-        '<p class="gos-muted">Future: ' + self.esc((c.futureIntegrations || []).join(", ")) + "</p>" +
+        self.carrierOnboardingPanelHtml(c, field) +
         '<div class="load-edit-panel" id="ld-carrier-form">' +
         "<h3>Register carrier on this Load</h3>" +
         '<div class="load-form-grid">' +
@@ -1394,51 +1440,7 @@ window.GreenOSModules["dispatch"] = {
         "</div>";
       self.bindUsPhoneInput(main.querySelector("#ld-carrier-phone"));
       self.bindUsPhoneInput(main.querySelector("#ld-driver-phone"));
-      self.bindCarrierPacketDocButtons(main, c.carrierProfileId);
-      main.querySelector("#ld-open-carrier-record")?.addEventListener("click", function () {
-        if (!c.carrierProfileId) return;
-        if (window.GreenOSModules && window.GreenOSModules.carriers) {
-          window.GreenOSModules.carriers._carrierId = c.carrierProfileId;
-          window.GreenOSModules.carriers._tab = "documents";
-        }
-        if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
-          window.GreenOS.navigate("carriers");
-        } else {
-          window.location.hash = "#/carriers";
-        }
-      });
-      main.querySelector("#ld-approve-carrier")?.addEventListener("click", async function () {
-        if (!c.carrierProfileId) {
-          alert("No carrier profile linked to this load yet.");
-          return;
-        }
-        if (!confirm("Approve this carrier? They will be marked approved for Green OS.")) return;
-        try {
-          var token = localStorage.getItem("gl_token") || "";
-          var res = await fetch(
-            "/api/carriers/" + encodeURIComponent(c.carrierProfileId) + "/onboarding/approve",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: "Bearer " + token,
-              },
-              body: "{}",
-            }
-          );
-          var json = await res.json().catch(function () {
-            return {};
-          });
-          if (!res.ok || json.success === false) {
-            throw new Error(json.message || "Approve failed");
-          }
-          alert("Carrier approved.");
-          var host = document.querySelector("#load-tms-body");
-          self.openLoad(host, id, "carrier");
-        } catch (err) {
-          alert(err.message || err);
-        }
-      });
+      self.bindCarrierOnboardingActions(main, c, { loadId: id, tab: "carrier" });
       main.querySelector("#ld-save-carrier")?.addEventListener("click", async function () {
         var name = (main.querySelector("#ld-carrier").value || "").trim();
         if (!name) {
@@ -2121,25 +2123,12 @@ window.GreenOSModules["dispatch"] = {
 
     main.innerHTML =
       "<h2>Documents</h2>" +
-      '<p class="gos-muted">Every document belongs to this Load. Edits create a new version — never overwrite.</p>' +
+      '<p class="gos-muted">Load documents (Rate Con, BOL, POD, invoices) stay below. Carrier packet files are listed in the section above them.</p>' +
       (c.carrierProfileId || (c.onboardingDocuments && c.onboardingDocuments.length)
-        ? '<div class="ld-carrier-review' +
-          (String(c.onboardingStatus || "").toUpperCase() === "APPROVED"
-            ? " is-approved"
-            : String(c.onboardingStatus || "").toUpperCase() === "SUBMITTED" ||
-                String(c.onboardingStatus || "").toUpperCase() === "UNDER_REVIEW"
-              ? " is-pending"
-              : "") +
-          '" style="margin-bottom:1rem">' +
-          "<h3>Carrier packet (signed &amp; returned)</h3>" +
-          '<p class="gos-muted" style="margin:0.25rem 0 0">Onboarding: <strong>' +
-          self.esc(c.onboardingStatus || "—") +
-          "</strong>" +
-          (c.agreementSigned ? " · Agreement signed" : "") +
-          ". Open these to verify MC / NOA / W-9 and the signed Broker–Carrier Agreement.</p>" +
-          self.carrierPacketDocsHtml(c) +
-          "</div>"
+        ? self.carrierOnboardingPanelHtml(c)
         : "") +
+      "<h2 style=\"margin-top:1.5rem\">Load documents</h2>" +
+      '<p class="gos-muted">Every load document belongs to this Load. Edits create a new version — never overwrite.</p>' +
       '<div class="load-actions">' +
       genBtns +
       "</div>" +
@@ -2151,7 +2140,7 @@ window.GreenOSModules["dispatch"] = {
       '<div id="load-doc-editor" class="load-edit-panel hidden"></div>' +
       '<div id="load-doc-history" class="load-edit-panel hidden"></div>';
 
-    self.bindCarrierPacketDocButtons(main, c.carrierProfileId);
+    self.bindCarrierOnboardingActions(main, c, { loadId: id, tab: "documents" });
 
     main.querySelectorAll(".load-gen-doc").forEach(function (btn) {
       btn.addEventListener("click", async function () {
