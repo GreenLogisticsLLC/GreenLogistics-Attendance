@@ -1,6 +1,7 @@
 import { prisma } from "../../../config/database.js";
 import { assertShipmentAccessOrThrow } from "../../../auth/access.js";
 import { carrierService } from "../../carriers/services/carrier.service.js";
+import { extractMcDigits, mcSearchVariants } from "./ai-mc-normalize.js";
 
 export type AiActor = { userId: string; role: string };
 
@@ -114,12 +115,57 @@ export class AiTools {
     /**
      * Extra Phase-1 read-only tool: resolve carrier by name/MC/DOT under ACL.
      * Needed so natural-language questions can find real records.
+     *
+     * MC lookups normalize common prefixes (MC / MC- / spaces) so a DB value
+     * like "1234545" matches queries such as "MC1234545". ACL still applies.
      */
     async findCarriers(actor: AiActor, query: string): Promise<AiToolResult> {
         const q = String(query || "").trim();
         if (!q || q.length < 2) return notFound("findCarriers");
 
-        const rows = await carrierService.list(actor, { q });
+        const mcDigits = extractMcDigits(q);
+        let rows: Awaited<ReturnType<typeof carrierService.list>> = [];
+
+        if (mcDigits) {
+            // Narrow MC search: match stored mc_number against digit / prefixed variants.
+            const where: Record<string, unknown> = {
+                OR: mcSearchVariants(q).flatMap((v) => [
+                    { mcNumber: { equals: v } },
+                    { mcNumber: { contains: v } },
+                ]),
+            };
+            if (actor.role === "Broker") where.assignedBrokerId = actor.userId;
+            rows = await prisma.carrier.findMany({
+                where,
+                orderBy: { updatedAt: "desc" },
+                include: {
+                    assignedBroker: {
+                        select: { userId: true, firstName: true, lastName: true, email: true },
+                    },
+                },
+                take: 20,
+            });
+            // Prefer exact digit match when multiple fuzzy contains hits.
+            rows = rows
+                .filter((r) => {
+                    const stored = String(r.mcNumber || "").replace(/^MC[#\s-]*/i, "").trim();
+                    return stored === mcDigits || String(r.mcNumber || "").includes(mcDigits);
+                })
+                .sort((a, b) => {
+                    const aExact =
+                        String(a.mcNumber || "").replace(/^MC[#\s-]*/i, "").trim() === mcDigits
+                            ? 0
+                            : 1;
+                    const bExact =
+                        String(b.mcNumber || "").replace(/^MC[#\s-]*/i, "").trim() === mcDigits
+                            ? 0
+                            : 1;
+                    return aExact - bExact;
+                });
+        } else {
+            rows = await carrierService.list(actor, { q });
+        }
+
         if (!rows.length) return notFound("findCarriers");
 
         const slim = rows.slice(0, 5).map((r) => ({

@@ -86,13 +86,14 @@ function detectIntent(message: string): Intent {
     if (wantsDocs && (nameGuess || mcMatch || carrierCue)) {
         return {
             kind: "carrier_docs",
-            query: (mcMatch ? `MC${mcMatch[1]}` : nameGuess || text).trim(),
+            // Digits only — findCarriers normalizes MC prefixes against stored values.
+            query: (mcMatch ? mcMatch[1] : nameGuess || text).trim(),
         };
     }
     if (carrierCue || nameGuess || mcMatch) {
         return {
             kind: "carrier",
-            query: (mcMatch ? `MC${mcMatch[1]}` : nameGuess || text).trim(),
+            query: (mcMatch ? mcMatch[1] : nameGuess || text).trim(),
         };
     }
     if (shipmentCue && (nameGuess || uuidMatch)) {

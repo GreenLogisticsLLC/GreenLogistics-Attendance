@@ -140,3 +140,65 @@ test("ACL: Broker cannot read another broker's shipment (when present)", async (
     assert.equal(r.code, "FORBIDDEN");
     assert.equal(r.message, "Access denied.");
 });
+
+test("MC normalize extracts digits from common variants", async () => {
+    const { extractMcDigits, mcSearchVariants } = await import("./services/ai-mc-normalize.js");
+    for (const v of ["1234545", "MC 1234545", "MC-1234545", "mc1234545", "MC#1234545"]) {
+        assert.equal(extractMcDigits(v), "1234545", v);
+    }
+    const variants = mcSearchVariants("MC 1234545");
+    assert.ok(variants.includes("1234545"));
+    assert.ok(variants.includes("MC1234545"));
+});
+
+test("intent: MC in sentence uses digits-only carrier query", () => {
+    const intent = detectIntent(
+        "Tell me the name, MC 1234545 number and status of this carrier"
+    );
+    assert.equal(intent.kind, "carrier");
+    assert.equal(intent.query, "1234545");
+});
+
+test("findCarriers matches MC variants against digits-only stored mcNumber", async () => {
+    const { prisma } = await import("../../config/database.js");
+    const carrierId = "ai-mc-test-0000-4000-8000-000000000001";
+    const email = `ai-mc-test-${Date.now()}@example.invalid`;
+    await prisma.carrier.deleteMany({ where: { carrierId } }).catch(() => null);
+    await prisma.carrier.create({
+        data: {
+            carrierId,
+            legalName: "AI MC Lookup Test Carrier LLC",
+            email,
+            mcNumber: "1234545",
+            status: "ACTIVE",
+            onboardingStatus: "APPROVED",
+            assignedBrokerId: null,
+        },
+    });
+    try {
+        for (const q of ["1234545", "MC 1234545", "MC-1234545", "mc1234545", "MC1234545"]) {
+            const r = await aiTools.findCarriers(
+                { userId: "admin-test", role: "Administrator" },
+                q
+            );
+            assert.equal(r.ok, true, `expected hit for ${q}`);
+            assert.ok(Array.isArray(r.data) && r.data.length >= 1, q);
+            const hit = (r.data as Array<{ carrierId: string; mcNumber: string | null }>).find(
+                (c) => c.carrierId === carrierId
+            );
+            assert.ok(hit, `carrier not in results for ${q}`);
+            assert.equal(hit.mcNumber, "1234545");
+            assert.ok(r.sources.some((s) => s.id === carrierId));
+        }
+
+        // Broker list scope requires assignedBrokerId = broker — unassigned must not leak.
+        const denied = await aiTools.findCarriers(
+            { userId: "other-broker", role: "Broker" },
+            "1234545"
+        );
+        assert.equal(denied.ok, false);
+        assert.equal(denied.code, "NOT_FOUND");
+    } finally {
+        await prisma.carrier.deleteMany({ where: { carrierId } });
+    }
+});
