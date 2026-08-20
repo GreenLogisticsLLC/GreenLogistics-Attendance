@@ -12,6 +12,18 @@ export type LoadQuickAction = {
     blockedReason?: string;
 };
 
+export type LoadQuickActionInput = {
+    status: string;
+    carrierName?: string | null;
+    /** Carrier.onboardingStatus — Rate Con stays locked until APPROVED. */
+    carrierOnboardingStatus?: string | null;
+    customerPaidAt?: Date | string | null;
+    carrierPaidAt?: Date | string | null;
+    reviewCustomerSentAt?: Date | string | null;
+    reviewCarrierSentAt?: Date | string | null;
+    documents: Array<{ docType?: string | null; contentJson?: string | null }>;
+};
+
 const FLOW = [
     "LOAD_CREATED",
     "CARRIER_ASSIGNED",
@@ -36,20 +48,16 @@ function hasType(docs: Set<string>, type: string): boolean {
     return docs.has(String(type || "").toUpperCase());
 }
 
+export function isCarrierApprovedForRateCon(onboardingStatus?: string | null): boolean {
+    return String(onboardingStatus || "").toUpperCase() === "APPROVED";
+}
+
 /**
  * Sequential Quick Actions: the next incomplete step is current (green primary);
  * earlier steps stay done (green, still clickable to change data);
  * later steps stay locked until prior work is finished.
  */
-export function buildLoadQuickActions(input: {
-    status: string;
-    carrierName?: string | null;
-    customerPaidAt?: Date | string | null;
-    carrierPaidAt?: Date | string | null;
-    reviewCustomerSentAt?: Date | string | null;
-    reviewCarrierSentAt?: Date | string | null;
-    documents: Array<{ docType?: string | null; contentJson?: string | null }>;
-}): LoadQuickAction[] {
+export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAction[] {
     const statusIdx = flowIndex(input.status);
     const docs = new Set(
         (input.documents || [])
@@ -59,6 +67,7 @@ export function buildLoadQuickActions(input: {
 
     const carrierDone =
         Boolean(String(input.carrierName || "").trim()) || statusIdx >= flowIndex("CARRIER_ASSIGNED");
+    const carrierApproved = isCarrierApprovedForRateCon(input.carrierOnboardingStatus);
     const rateConDone = hasType(docs, "RATE_CONFIRMATION") || statusIdx >= flowIndex("RATE_CON_GENERATED");
     const bolDone = hasType(docs, "BOL") || statusIdx >= flowIndex("CARRIER_ACCEPTED");
     const pickupDone = statusIdx >= flowIndex("PICKUP");
@@ -98,6 +107,12 @@ export function buildLoadQuickActions(input: {
         Boolean(input.reviewCarrierSentAt) ||
         closedDone;
 
+    const rateConNeed = !carrierDone
+        ? "Assign Carrier first"
+        : !carrierApproved
+          ? "Approve the carrier package first (signed agreement + documents)"
+          : "Assign Carrier first";
+
     const defs: Array<{
         id: string;
         label: string;
@@ -119,7 +134,7 @@ export function buildLoadQuickActions(input: {
             label: "Generate Rate Confirmation",
             docType: "RATE_CONFIRMATION",
             done: rateConDone,
-            need: "Assign Carrier first",
+            need: rateConNeed,
         },
         {
             id: "generate_bol",
@@ -173,7 +188,12 @@ export function buildLoadQuickActions(input: {
         },
     ];
 
-    const firstOpenAction = defs.findIndex((d) => !d.done && d.kind !== "status");
+    const firstOpenAction = defs.findIndex((d) => {
+        if (d.done || d.kind === "status") return false;
+        // Rate Con is not eligible until the carrier package is approved.
+        if (d.id === "generate_rate_con" && !carrierApproved) return false;
+        return true;
+    });
     const firstOpenPayment = defs.findIndex((d) => !d.done && d.kind === "status");
 
     return defs.map((d, i) => {
@@ -194,6 +214,9 @@ export function buildLoadQuickActions(input: {
         ) {
             state = "locked";
             blockedReason = d.need;
+        } else if (d.id === "generate_rate_con" && !carrierApproved) {
+            state = "locked";
+            blockedReason = rateConNeed;
         } else if (i === firstOpenAction) {
             state = "current";
         } else {
@@ -213,18 +236,7 @@ export function buildLoadQuickActions(input: {
 }
 
 /** Throw 422 when an action is not the allowed next step. */
-export function assertQuickActionAllowed(
-    actionId: string,
-    input: {
-        status: string;
-        carrierName?: string | null;
-        customerPaidAt?: Date | string | null;
-        carrierPaidAt?: Date | string | null;
-        reviewCustomerSentAt?: Date | string | null;
-        reviewCarrierSentAt?: Date | string | null;
-        documents: Array<{ docType?: string | null }>;
-    }
-) {
+export function assertQuickActionAllowed(actionId: string, input: LoadQuickActionInput) {
     const actions = buildLoadQuickActions(input);
     const row = actions.find((a) => a.id === actionId);
     if (!row) {

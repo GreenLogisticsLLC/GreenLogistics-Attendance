@@ -586,6 +586,7 @@ export class LoadService {
             quickActions: buildLoadQuickActions({
                 status: s.status,
                 carrierName: s.carrierName,
+                carrierOnboardingStatus: carrierProfile?.onboardingStatus || null,
                 customerPaidAt: s.customerPaidAt,
                 carrierPaidAt: s.carrierPaidAt,
                 reviewCustomerSentAt: s.reviewCustomerSentAt,
@@ -764,6 +765,7 @@ export class LoadService {
             select: {
                 status: true,
                 carrierName: true,
+                carrierProfileId: true,
                 customerName: true,
                 customerEmail: true,
                 carrierEmail: true,
@@ -780,9 +782,18 @@ export class LoadService {
             where: { shipmentLeadId, isCurrent: true, status: { not: "ARCHIVED" } },
             select: { docType: true, contentJson: true },
         });
+        let carrierOnboardingStatus: string | null = null;
+        if (shipment.carrierProfileId) {
+            const profile = await prisma.carrier.findUnique({
+                where: { carrierId: shipment.carrierProfileId },
+                select: { onboardingStatus: true },
+            });
+            carrierOnboardingStatus = profile?.onboardingStatus || null;
+        }
         assertQuickActionAllowed(action, {
             status: shipment.status,
             carrierName: shipment.carrierName,
+            carrierOnboardingStatus,
             customerPaidAt: shipment.customerPaidAt,
             carrierPaidAt: shipment.carrierPaidAt,
             reviewCustomerSentAt: shipment.reviewCustomerSentAt,

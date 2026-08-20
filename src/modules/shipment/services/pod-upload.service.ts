@@ -274,6 +274,14 @@ export async function uploadPodFile(input: {
     assertQuickActionAllowed(quickActionIdForDocType("POD") || "upload_pod", {
         status: lead.status,
         carrierName: lead.carrierName,
+        carrierOnboardingStatus: lead.carrierProfileId
+            ? (
+                  await prisma.carrier.findUnique({
+                      where: { carrierId: lead.carrierProfileId },
+                      select: { onboardingStatus: true },
+                  })
+              )?.onboardingStatus || null
+            : null,
         documents: existingDocs,
     });
 

@@ -892,18 +892,28 @@ window.GreenOSModules["dispatch"] = {
     var qaCurrent = qaSteps.find(function (a) {
       return a.state === "current";
     });
+    var carrierOnboarding = String((data.carrier && data.carrier.onboardingStatus) || "").toUpperCase();
+    var waitingCarrierApproval =
+      Boolean(data.carrier && data.carrier.carrierName) &&
+      carrierOnboarding !== "APPROVED" &&
+      !qaSteps.some(function (a) {
+        return a.id === "generate_rate_con" && a.state === "done";
+      });
     var qaPct = qaSteps.length ? Math.round((qaDone / qaSteps.length) * 100) : 0;
+    var nowLabel = qaCurrent
+      ? "Now: " + self.esc(qaCurrent.label)
+      : waitingCarrierApproval
+        ? "Now: Approve carrier package"
+        : qaDone === qaSteps.length
+          ? "All steps complete"
+          : "In progress";
     var progressHtml =
       '<div class="load-progress">' +
       '<div class="load-progress-bar" aria-hidden="true"><span style="width:' +
       qaPct +
       '%"></span></div>' +
       "<p>" +
-      (qaCurrent
-        ? "Now: " + self.esc(qaCurrent.label)
-        : qaDone === qaSteps.length
-          ? "All steps complete"
-          : "In progress") +
+      nowLabel +
       " · " +
       qaDone +
       "/" +
@@ -1049,10 +1059,13 @@ window.GreenOSModules["dispatch"] = {
           self._tab = "carrier";
           self.renderDetails(body, data);
           setTimeout(function () {
+            var review = document.getElementById("ld-carrier-review");
+            var approve = document.getElementById("ld-approve-carrier");
             var input = document.getElementById("ld-carrier");
-            if (input) {
-              input.focus();
-              input.scrollIntoView({ behavior: "smooth", block: "center" });
+            var focusEl = approve || review || input;
+            if (focusEl) {
+              if (focusEl.focus) focusEl.focus();
+              focusEl.scrollIntoView({ behavior: "smooth", block: "center" });
             }
           }, 50);
           return;
@@ -1363,11 +1376,18 @@ window.GreenOSModules["dispatch"] = {
           ) +
           "</label>"
         : "";
+      var carrierApproved = String(c.onboardingStatus || "").toUpperCase() === "APPROVED";
+      var nextStepHint = !c.carrierName
+        ? "Next: assign carrier and send the agreement packet."
+        : !carrierApproved
+          ? "Next: review signed documents below, then <strong>Approve carrier</strong> — Rate Confirmation stays locked until then."
+          : "Next: Generate Rate Confirmation.";
       main.innerHTML =
         "<h2>Assign Carrier</h2>" +
         '<p class="gos-muted">Phase 2 — fill carrier details' +
         (showMoney ? ", then set Carrier price (Accounting). " : ". ") +
-        "Next: Generate Rate Confirmation.</p>" +
+        nextStepHint +
+        "</p>" +
         '<div class="load-grid">' +
         field("Carrier", c.carrierName) +
         field("Carrier Email", c.carrierEmail) +
@@ -2057,10 +2077,18 @@ window.GreenOSModules["dispatch"] = {
 
     var genBtns = genTypes
       .map(function (t) {
+        var qa = (data.quickActions || []).find(function (a) {
+          return a.docType === t[0];
+        });
+        var locked = qa && qa.state === "locked";
         return (
-          '<button type="button" class="btn-secondary load-gen-doc" data-type="' +
+          '<button type="button" class="btn-secondary load-gen-doc' +
+          (locked ? " is-locked" : "") +
+          '" data-type="' +
           t[0] +
-          '">' +
+          '"' +
+          (locked ? ' disabled title="' + self.esc(qa.blockedReason || "Complete the previous step first") + '"' : "") +
+          ">" +
           t[1] +
           "</button>"
         );

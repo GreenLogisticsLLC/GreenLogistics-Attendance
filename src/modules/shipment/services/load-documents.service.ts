@@ -225,9 +225,18 @@ export class LoadDocumentsService {
         });
         const actionId = quickActionIdForDocType(docType);
         if (actionId) {
+            let carrierOnboardingStatus: string | null = null;
+            if (lead.carrierProfileId) {
+                const profile = await prisma.carrier.findUnique({
+                    where: { carrierId: lead.carrierProfileId },
+                    select: { onboardingStatus: true },
+                });
+                carrierOnboardingStatus = profile?.onboardingStatus || null;
+            }
             assertQuickActionAllowed(actionId, {
                 status: lead.status,
                 carrierName: lead.carrierName,
+                carrierOnboardingStatus,
                 documents: existingDocs,
             });
         }
