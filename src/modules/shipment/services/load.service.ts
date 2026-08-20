@@ -409,7 +409,13 @@ export class LoadService {
 
         const pricing = computePricing(s);
         const tracking = trackingFromStatus(s.status, s.trackingStatus);
-        const mappedDocs = documents.map((d) => {
+        const mappedDocs = documents
+            .filter((d) => {
+                const t = String(d.docType || "").toUpperCase();
+                // Load UI only shows Rate Con / BOL / POD (+ payment proofs for Accounting).
+                return t !== "DISPATCH_SHEET" && t !== "LOAD_SUMMARY";
+            })
+            .map((d) => {
             let content: Record<string, unknown> | null = null;
             if (d.contentJson) {
                 try {
@@ -1026,8 +1032,6 @@ export class LoadService {
             create_invoice: "CUSTOMER_INVOICE",
             generate_carrier_invoice: "CARRIER_INVOICE",
             carrier_invoice: "CARRIER_INVOICE",
-            generate_dispatch_sheet: "DISPATCH_SHEET",
-            generate_load_summary: "LOAD_SUMMARY",
             upload_pod: "POD",
             generate_pod: "POD",
         };

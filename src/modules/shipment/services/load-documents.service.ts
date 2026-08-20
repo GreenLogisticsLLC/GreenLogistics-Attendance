@@ -199,6 +199,12 @@ export class LoadDocumentsService {
         advanceStatus?: string | null;
     }) {
         const docType = assertDocType(input.docType);
+        if (docType === "DISPATCH_SHEET" || docType === "LOAD_SUMMARY") {
+            throw Object.assign(
+                new Error("Dispatch Sheet and Load Summary are no longer used on Loads"),
+                { status: 422, code: "DOC_TYPE_REMOVED" }
+            );
+        }
         if (docType === "CUSTOMER_PAID_PROOF" || docType === "CARRIER_PAID_PROOF") {
             throw Object.assign(
                 new Error("Upload a payment document instead of generating a PDF"),
