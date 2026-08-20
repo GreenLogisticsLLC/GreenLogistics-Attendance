@@ -251,7 +251,7 @@ export class LoadService {
         const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!s) throw Object.assign(new Error("Load not found"), { status: 404 });
 
-        const [brokerUser, documents, mailbox] = await Promise.all([
+        const [brokerUser, documents, mailbox, carrierProfile] = await Promise.all([
             s.assignedBrokerId
                 ? prisma.user.findUnique({
                       where: { userId: s.assignedBrokerId },
@@ -271,6 +271,42 @@ export class LoadService {
                     receivedAt: true,
                 },
             }),
+            s.carrierProfileId
+                ? prisma.carrier.findUnique({
+                      where: { carrierId: s.carrierProfileId },
+                      select: {
+                          carrierId: true,
+                          legalName: true,
+                          onboardingStatus: true,
+                          status: true,
+                          documents: {
+                              where: { status: "CURRENT" },
+                              orderBy: [{ documentType: "asc" }, { version: "desc" }],
+                              select: {
+                                  documentId: true,
+                                  documentType: true,
+                                  originalFilename: true,
+                                  mimeType: true,
+                                  version: true,
+                                  status: true,
+                                  uploadedAt: true,
+                                  uploadedBy: true,
+                              },
+                          },
+                          agreementSigns: {
+                              orderBy: { signedAt: "desc" },
+                              take: 1,
+                              select: {
+                                  signatureId: true,
+                                  signerName: true,
+                                  signerEmail: true,
+                                  signedAt: true,
+                                  agreed: true,
+                              },
+                          },
+                      },
+                  })
+                : Promise.resolve(null),
         ]);
 
         let broker: { userId: string; name: string; email: string | null; gmail: string | null } | null =
@@ -465,6 +501,24 @@ export class LoadService {
                 driverPhone: s.driverPhone,
                 truckNumber: s.truckNumber,
                 trailerNumber: s.trailerNumber,
+                carrierProfileId: s.carrierProfileId || carrierProfile?.carrierId || null,
+                onboardingStatus: carrierProfile?.onboardingStatus || null,
+                carrierRecordStatus: carrierProfile?.status || null,
+                agreementSigned: Boolean(carrierProfile?.agreementSigns?.[0]?.agreed),
+                agreementSignature: carrierProfile?.agreementSigns?.[0] || null,
+                onboardingDocuments: (carrierProfile?.documents || []).map((d) => ({
+                    documentId: d.documentId,
+                    documentType: d.documentType,
+                    originalFilename: d.originalFilename,
+                    mimeType: d.mimeType,
+                    version: d.version,
+                    status: d.status,
+                    uploadedAt: d.uploadedAt,
+                    uploadedBy: d.uploadedBy,
+                    downloadUrl: `/api/carriers/${
+                        s.carrierProfileId || carrierProfile?.carrierId
+                    }/documents/${d.documentId}/download`,
+                })),
                 futureIntegrations: [
                     "Highway",
                     "Carrier411",

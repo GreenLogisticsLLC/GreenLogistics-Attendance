@@ -631,6 +631,10 @@ export class CarrierService {
             where: { carrierId },
             data: { onboardingStatus: "APPROVED", status: "ACTIVE" },
         });
+        await prisma.shipmentLead.updateMany({
+            where: { carrierProfileId: carrierId },
+            data: { carrierStatus: "Approved" },
+        });
         await this.emitEvent({
             carrierId,
             action: "CARRIER_APPROVED",
@@ -1582,6 +1586,10 @@ export class CarrierService {
             await tx.carrier.update({
                 where: { carrierId: session.carrierId },
                 data: { onboardingStatus: "SUBMITTED" },
+            });
+            await tx.shipmentLead.updateMany({
+                where: { carrierProfileId: session.carrierId },
+                data: { carrierStatus: "Pending review" },
             });
         });
 
