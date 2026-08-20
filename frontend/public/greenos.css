@@ -1778,6 +1778,12 @@ html[data-theme="light"] {
   font-size: 0.8rem;
   padding: 0.4rem 0.7rem;
 }
+.load-table tr.ld-doc-pending td {
+  color: var(--gos-muted);
+}
+.load-table tr.ld-doc-pending td strong {
+  color: var(--gos-text);
+}
 .load-form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

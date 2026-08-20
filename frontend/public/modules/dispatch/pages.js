@@ -2056,93 +2056,124 @@ window.GreenOSModules["dispatch"] = {
     var id = data.identity.shipmentLeadId;
     var c = data.carrier || {};
     var docs = data.documents || [];
-    var genTypes = [
-      ["RATE_CONFIRMATION", "Generate Rate Confirmation"],
-      ["BOL", "Generate BOL"],
-      ["CUSTOMER_INVOICE", "Generate Invoice"],
-      ["CARRIER_INVOICE", "Generate Carrier Invoice"],
-      ["DISPATCH_SHEET", "Generate Dispatch Sheet"],
-      ["LOAD_SUMMARY", "Generate Load Summary"],
-      ["POD", "Upload POD"],
-    ].filter(function (t) {
-      // After POD, invoice/payment work belongs to Accounting—not the broker.
-      if (
-        self.role() === "Broker" &&
-        (t[0] === "CUSTOMER_INVOICE" || t[0] === "CARRIER_INVOICE")
-      ) {
-        return false;
-      }
-      return true;
-    });
+    var pipeline = [
+      {
+        type: "RATE_CONFIRMATION",
+        label: "Rate Confirmation",
+        createLabel: "Generate",
+        hint: "Generate Rate Confirmation PDF",
+      },
+      {
+        type: "BOL",
+        label: "Bill of Lading (BOL)",
+        createLabel: "Generate",
+        hint: "Generate BOL PDF",
+      },
+      {
+        type: "POD",
+        label: "Proof of Delivery (POD)",
+        createLabel: "Upload",
+        hint: "Upload signed POD to Green OS",
+      },
+    ];
 
-    var genBtns = genTypes
-      .map(function (t) {
+    function findDoc(type) {
+      var want = String(type || "").toUpperCase();
+      for (var i = 0; i < docs.length; i++) {
+        if (String(docs[i].docType || "").toUpperCase() === want) return docs[i];
+      }
+      return null;
+    }
+
+    var rows = pipeline
+      .map(function (slot) {
+        var d = findDoc(slot.type);
         var qa = (data.quickActions || []).find(function (a) {
-          return a.docType === t[0];
+          return a.docType === slot.type;
         });
         var locked = qa && qa.state === "locked";
+        var blocked = (qa && qa.blockedReason) || "Complete the previous step first";
+        if (d) {
+          var dl = d.fileUrl || "";
+          return (
+            '<tr data-doc="' +
+            self.esc(d.documentId) +
+            '" data-type="' +
+            self.esc(slot.type) +
+            '">' +
+            "<td><strong>" +
+            self.esc(slot.label) +
+            "</strong>" +
+            (d.title && d.title !== slot.label
+              ? '<div class="gos-muted" style="font-size:0.75rem;margin-top:0.15rem">' +
+                self.esc(d.title) +
+                "</div>"
+              : "") +
+            "</td>" +
+            "<td>v" +
+            self.esc(d.version) +
+            "</td>" +
+            "<td>" +
+            self.esc(d.changeReason || "—") +
+            "</td>" +
+            "<td>" +
+            self.esc(d.status || "READY") +
+            "</td>" +
+            '<td class="load-doc-actions">' +
+            (dl
+              ? '<button type="button" class="btn-secondary load-preview-doc" data-url="' +
+                self.esc(dl) +
+                '">Preview</button>' +
+                '<button type="button" class="btn-secondary load-dl-doc" data-url="' +
+                self.esc(dl) +
+                '">Download</button>'
+              : "") +
+            (slot.type === "POD"
+              ? '<button type="button" class="btn-secondary load-gen-doc" data-type="POD">Replace / Upload</button>'
+              : '<button type="button" class="btn-secondary load-edit-doc" data-type="' +
+                self.esc(slot.type) +
+                '">Edit</button>' +
+                '<button type="button" class="btn-secondary load-replace-doc" data-type="' +
+                self.esc(slot.type) +
+                '">Replace</button>') +
+            '<button type="button" class="btn-secondary load-print-doc" data-url="' +
+            self.esc(dl || "") +
+            '">Print</button>' +
+            '<button type="button" class="btn-secondary load-hist-doc" data-type="' +
+            self.esc(slot.type) +
+            '">History</button>' +
+            (d.documentId
+              ? '<button type="button" class="btn-secondary load-sent-doc" data-id="' +
+                self.esc(d.documentId) +
+                '">Email / Sent</button>'
+              : "") +
+            "</td>" +
+            "</tr>"
+          );
+        }
         return (
-          '<button type="button" class="btn-secondary load-gen-doc' +
+          '<tr data-type="' +
+          self.esc(slot.type) +
+          '" class="ld-doc-pending">' +
+          "<td><strong>" +
+          self.esc(slot.label) +
+          "</strong>" +
+          '<div class="gos-muted" style="font-size:0.75rem;margin-top:0.15rem">' +
+          self.esc(slot.hint) +
+          "</div></td>" +
+          "<td>—</td>" +
+          "<td>—</td>" +
+          "<td>Not created</td>" +
+          '<td class="load-doc-actions">' +
+          '<button type="button" class="btn-primary load-gen-doc' +
           (locked ? " is-locked" : "") +
           '" data-type="' +
-          t[0] +
+          self.esc(slot.type) +
           '"' +
-          (locked ? ' disabled title="' + self.esc(qa.blockedReason || "Complete the previous step first") + '"' : "") +
+          (locked ? ' disabled title="' + self.esc(blocked) + '"' : "") +
           ">" +
-          t[1] +
-          "</button>"
-        );
-      })
-      .join("");
-
-    var rows = docs
-      .map(function (d) {
-        var dl = d.fileUrl || "";
-        return (
-          '<tr data-doc="' +
-          self.esc(d.documentId) +
-          '" data-type="' +
-          self.esc(d.docType) +
-          '">' +
-          "<td>" +
-          self.esc(d.title) +
-          "</td>" +
-          "<td>v" +
-          self.esc(d.version) +
-          "</td>" +
-          "<td>" +
-          self.esc(d.changeReason) +
-          "</td>" +
-          "<td>" +
-          self.esc(d.status) +
-          "</td>" +
-          "<td class=\"load-doc-actions\">" +
-          (dl
-            ? '<button type="button" class="btn-secondary load-preview-doc" data-url="' +
-              self.esc(dl) +
-              '">Preview</button>' +
-              '<button type="button" class="btn-secondary load-dl-doc" data-url="' +
-              self.esc(dl) +
-              '">Download</button>'
-            : "") +
-          '<button type="button" class="btn-secondary load-edit-doc" data-type="' +
-          self.esc(d.docType) +
-          '">Edit</button>' +
-          '<button type="button" class="btn-secondary load-replace-doc" data-type="' +
-          self.esc(d.docType) +
-          '">Replace</button>' +
-          '<button type="button" class="btn-secondary load-print-doc" data-url="' +
-          self.esc(dl || "") +
-          '">Print</button>' +
-          '<button type="button" class="btn-secondary load-hist-doc" data-type="' +
-          self.esc(d.docType) +
-          '">History</button>' +
-          '<button type="button" class="btn-secondary load-sent-doc" data-id="' +
-          self.esc(d.documentId) +
-          '">Email / Sent</button>' +
-          '<button type="button" class="btn-secondary load-arch-doc" data-id="' +
-          self.esc(d.documentId) +
-          '">Archive</button>' +
+          self.esc(slot.createLabel) +
+          "</button>" +
           "</td>" +
           "</tr>"
         );
@@ -2151,19 +2182,16 @@ window.GreenOSModules["dispatch"] = {
 
     main.innerHTML =
       "<h2>Documents</h2>" +
-      '<p class="gos-muted">Load documents (Rate Con, BOL, POD, invoices) stay below. Carrier packet files are listed in the section above them.</p>' +
+      '<p class="gos-muted">Load pipeline: Rate Confirmation → BOL → POD upload to Green OS. Carrier packet files (if any) are listed above.</p>' +
       (c.carrierProfileId || (c.onboardingDocuments && c.onboardingDocuments.length)
         ? self.carrierOnboardingPanelHtml(c)
         : "") +
-      "<h2 style=\"margin-top:1.5rem\">Load documents</h2>" +
-      '<p class="gos-muted">Every load document belongs to this Load. Edits create a new version — never overwrite.</p>' +
-      '<div class="load-actions">' +
-      genBtns +
-      "</div>" +
+      '<h2 style="margin-top:1.5rem">Load documents</h2>' +
+      '<p class="gos-muted">Rate Confirmation, BOL, and POD for this Load. Edits create a new version — never overwrite.</p>' +
       '<div class="load-table-wrap"><table class="load-table"><thead><tr>' +
       "<th>Document</th><th>Ver</th><th>Change</th><th>Status</th><th>Actions</th>" +
       "</tr></thead><tbody>" +
-      (rows || '<tr><td colspan="5" class="gos-muted">No documents yet</td></tr>') +
+      rows +
       "</tbody></table></div>" +
       '<div id="load-doc-editor" class="load-edit-panel hidden"></div>' +
       '<div id="load-doc-history" class="load-edit-panel hidden"></div>';
@@ -2172,6 +2200,10 @@ window.GreenOSModules["dispatch"] = {
 
     main.querySelectorAll(".load-gen-doc").forEach(function (btn) {
       btn.addEventListener("click", async function () {
+        if (btn.disabled || btn.classList.contains("is-locked")) {
+          alert(btn.getAttribute("title") || "Complete the previous step first");
+          return;
+        }
         var docType = btn.getAttribute("data-type");
         if (docType === "RATE_CONFIRMATION") {
           self.showRateConWizard(main, id, data, "GENERATED");
@@ -2184,29 +2216,6 @@ window.GreenOSModules["dispatch"] = {
         if (docType === "POD") {
           self.showPodWizard(main, id, data, "GENERATED");
           return;
-        }
-        if (docType === "CUSTOMER_INVOICE") {
-          self.showInvoiceWizard(main, id, data, "GENERATED");
-          return;
-        }
-        try {
-          btn.disabled = true;
-          var row = await self.api(
-            "/" + encodeURIComponent(id) + "/documents/" + encodeURIComponent(docType) + "/generate",
-            { method: "POST", body: JSON.stringify({ changeReason: "GENERATED" }) }
-          );
-          await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
-          if (row && row.documentId) {
-            try {
-              await self.openPdf(
-                "/api/loads/" + encodeURIComponent(id) + "/documents/" + encodeURIComponent(row.documentId) + "/download",
-                true
-              );
-            } catch (e) {}
-          }
-        } catch (err) {
-          alert(err.message || err);
-          btn.disabled = false;
         }
       });
     });
