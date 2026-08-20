@@ -2482,34 +2482,34 @@ window.GreenOSModules["dispatch"] = {
       '<label>Broker Gmail <input id="rc-broker-email" value="' +
       self.esc((data.contacts && data.contacts.brokerGmail) || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "") +
       '" readonly></label>' +
-      '<label>Customer email <input id="rc-customer-email" type="email" value="' +
+      '<label>Customer email * <input id="rc-customer-email" type="email" value="' +
       self.esc((data.contacts && data.contacts.customerEmail) || g.customerEmail || "") +
-      '" placeholder="customer@gmail.com"></label>' +
-      '<label>Carrier * <input id="rc-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
+      '" placeholder="customer@gmail.com" required></label>' +
+      '<label>Carrier * <input id="rc-carrier" value="' + self.esc(c.carrierName || "") + '" required></label>' +
       '<label>Carrier email * <input id="rc-carrier-email" type="email" value="' +
       self.esc(c.carrierEmail || (data.contacts && data.contacts.carrierEmail) || "") +
-      '" placeholder="dispatch@carrier.com"></label>' +
+      '" placeholder="dispatch@carrier.com" required></label>' +
       '<label>MC# <input id="rc-mc" value="' + self.esc(c.mc || "") + '"></label>' +
       '<label>DOT# <input id="rc-dot" value="' + self.esc(c.dot || "") + '"></label>' +
       '<label>Carrier phone <input id="rc-cphone" type="tel" value="' +
       self.esc(self.formatUsPhone(c.carrierPhone || "")) +
       '" placeholder="(XXX) XXX-XXXX"></label>' +
       '<label>Equipment <input id="rc-equip" value="' + self.esc(g.equipment || "") + '"></label>' +
-      '<label>Weight <input id="rc-weight" value="' + self.esc(g.weight || "") + '"></label>' +
-      '<label>Commodity <input id="rc-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
+      '<label>Weight * <input id="rc-weight" value="' + self.esc(g.weight || "") + '" required></label>' +
+      '<label>Commodity * <input id="rc-commodity" value="' + self.esc(g.commodity || "") + '" required></label>' +
       "<label>Flat Rate $USD *" +
       self.moneyFieldHtml("rc-rate", p.carrierRate || "", "1000.00") +
       "</label>" +
-      '<label class="full">Origin (pickup address) <input id="rc-origin" value="' + self.esc(place(g.pickup)) + '"></label>' +
-      '<label>Pickup date <input id="rc-pdate" type="date" value="' + self.esc(self.toInputDate(pickupSrc)) + '"></label>' +
+      '<label class="full">Origin (pickup address) * <input id="rc-origin" value="' + self.esc(place(g.pickup)) + '" required></label>' +
+      '<label>Pickup date * <input id="rc-pdate" type="date" value="' + self.esc(self.toInputDate(pickupSrc)) + '" required></label>' +
       "<label>Pickup time" +
       self.timeFieldHtml("rc-ptime", pickupSrc) +
       "</label>" +
       '<label class="full">Pickup contact <input id="rc-pcontact" placeholder="Name / phone at shipper" value="' +
       self.esc(pick("pickupContact", "")) +
       '"></label>' +
-      '<label class="full">Final destination <input id="rc-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '"></label>' +
-      '<label>Delivery date <input id="rc-ddate" type="date" value="' + self.esc(self.toInputDate(deliverySrc)) + '"></label>' +
+      '<label class="full">Final destination * <input id="rc-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '" required></label>' +
+      '<label>Delivery date * <input id="rc-ddate" type="date" value="' + self.esc(self.toInputDate(deliverySrc)) + '" required></label>' +
       "<label>Delivery time" +
       self.timeFieldHtml("rc-dtime", deliverySrc) +
       "</label>" +
@@ -2551,23 +2551,40 @@ window.GreenOSModules["dispatch"] = {
     });
 
     box.querySelector("#rc-generate")?.addEventListener("click", async function () {
+      var customerEmail = (box.querySelector("#rc-customer-email").value || "").trim();
       var carrier = (box.querySelector("#rc-carrier").value || "").trim();
-      var rate = self.parseMoneyInput(box.querySelector("#rc-rate").value);
       var carrierEmail = (box.querySelector("#rc-carrier-email").value || "").trim();
-      if (!carrier) {
-        alert("Carrier name is required for Rate Confirmation.");
-        box.querySelector("#rc-carrier").focus();
-        return;
-      }
-      if (!carrierEmail) {
-        alert("Carrier email is required for Rate Confirmation.");
-        box.querySelector("#rc-carrier-email").focus();
-        return;
-      }
-      if (!rate) {
-        alert("Flat Rate ($USD) is required.");
-        box.querySelector("#rc-rate").focus();
-        return;
+      var weight = (box.querySelector("#rc-weight").value || "").trim();
+      var commodity = (box.querySelector("#rc-commodity").value || "").trim();
+      var rate = self.parseMoneyInput(box.querySelector("#rc-rate").value);
+      var origin = (box.querySelector("#rc-origin").value || "").trim();
+      var pickupDate = (box.querySelector("#rc-pdate").value || "").trim();
+      var dest = (box.querySelector("#rc-dest").value || "").trim();
+      var deliveryDate = (box.querySelector("#rc-ddate").value || "").trim();
+      var emailOk = function (v) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+      };
+      var required = [
+        { ok: !!customerEmail, el: "#rc-customer-email", msg: "Customer email is required." },
+        { ok: customerEmail ? emailOk(customerEmail) : true, el: "#rc-customer-email", msg: "Enter a valid customer email." },
+        { ok: !!carrier, el: "#rc-carrier", msg: "Carrier name is required for Rate Confirmation." },
+        { ok: !!carrierEmail, el: "#rc-carrier-email", msg: "Carrier email is required for Rate Confirmation." },
+        { ok: carrierEmail ? emailOk(carrierEmail) : true, el: "#rc-carrier-email", msg: "Enter a valid carrier email." },
+        { ok: !!weight, el: "#rc-weight", msg: "Weight is required." },
+        { ok: !!commodity, el: "#rc-commodity", msg: "Commodity is required." },
+        { ok: !!rate, el: "#rc-rate", msg: "Flat Rate ($USD) is required." },
+        { ok: !!origin, el: "#rc-origin", msg: "Origin (pickup address) is required." },
+        { ok: !!pickupDate, el: "#rc-pdate", msg: "Pickup date is required." },
+        { ok: !!dest, el: "#rc-dest", msg: "Final destination is required." },
+        { ok: !!deliveryDate, el: "#rc-ddate", msg: "Delivery date is required." },
+      ];
+      for (var i = 0; i < required.length; i++) {
+        if (!required[i].ok) {
+          alert(required[i].msg);
+          var focusEl = box.querySelector(required[i].el);
+          if (focusEl) focusEl.focus();
+          return;
+        }
       }
       var statusEl = box.querySelector("#rc-status");
       var btnGen = box.querySelector("#rc-generate");
@@ -2583,7 +2600,7 @@ window.GreenOSModules["dispatch"] = {
                 carrierName: carrier,
                 carrierEmail: carrierEmail,
                 carrierPhone: self.formatUsPhone(box.querySelector("#rc-cphone").value) || null,
-                customerEmail: box.querySelector("#rc-customer-email").value || null,
+                customerEmail: customerEmail,
                 carrierMc: box.querySelector("#rc-mc").value || null,
                 carrierDot: box.querySelector("#rc-dot").value || null,
                 driverName: box.querySelector("#rc-driver").value || null,
@@ -2591,24 +2608,24 @@ window.GreenOSModules["dispatch"] = {
                 truckNumber: box.querySelector("#rc-truck").value || null,
                 trailerNumber: box.querySelector("#rc-trailer").value || null,
                 equipment: box.querySelector("#rc-equip").value || null,
-                weight: box.querySelector("#rc-weight").value || null,
-                commodity: box.querySelector("#rc-commodity").value || null,
+                weight: weight,
+                commodity: commodity,
                 specialInstructions: box.querySelector("#rc-notes").value || null,
                 carrierNotes: box.querySelector("#rc-delnote").value || null,
                 pickupFrom: self.combineDateTime(
-                  box.querySelector("#rc-pdate").value,
+                  pickupDate,
                   self.readAmPmTime(box, "rc-ptime")
                 ),
                 deliveryFrom: self.combineDateTime(
-                  box.querySelector("#rc-ddate").value,
+                  deliveryDate,
                   self.readAmPmTime(box, "rc-dtime")
                 ),
                 opsPickupAt: self.combineDateTime(
-                  box.querySelector("#rc-pdate").value,
+                  pickupDate,
                   self.readAmPmTime(box, "rc-ptime")
                 ),
                 opsDeliveryAt: self.combineDateTime(
-                  box.querySelector("#rc-ddate").value,
+                  deliveryDate,
                   self.readAmPmTime(box, "rc-dtime")
                 ),
               },

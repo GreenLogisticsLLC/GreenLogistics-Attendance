@@ -244,6 +244,30 @@ export class LoadDocumentsService {
         const base = await this.buildContentFromLoad(input.shipmentLeadId);
         const content: LoadDocumentContent = { ...base, ...(input.contentOverrides || {}) };
 
+        if (docType === "RATE_CONFIRMATION") {
+            const required: Array<[string, unknown]> = [
+                ["Customer email", content.customerEmail],
+                ["Carrier", content.carrierName],
+                ["Carrier email", content.carrierEmail],
+                ["Weight", content.weight],
+                ["Commodity", content.commodity],
+                ["Flat Rate", content.flatRate ?? content.carrierRate],
+                ["Origin (pickup address)", content.pickupAddress],
+                ["Pickup date", content.pickupDate],
+                ["Final destination", content.deliveryAddress],
+                ["Delivery date", content.deliveryDate],
+            ];
+            const missing = required
+                .filter(([, v]) => v == null || String(v).trim() === "")
+                .map(([label]) => label);
+            if (missing.length) {
+                throw Object.assign(
+                    new Error(`Rate Confirmation requires: ${missing.join(", ")}`),
+                    { status: 422, code: "RC_REQUIRED_FIELDS" }
+                );
+            }
+        }
+
         const last = await prisma.loadDocument.findFirst({
             where: { shipmentLeadId: input.shipmentLeadId, docType },
             orderBy: { version: "desc" },
