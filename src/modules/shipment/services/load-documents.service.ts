@@ -268,6 +268,23 @@ export class LoadDocumentsService {
             }
         }
 
+        if (docType === "BOL") {
+            const required: Array<[string, unknown]> = [
+                ["SHIPS FROM (origin)", content.pickupAddress],
+                ["SHIPS TO (destination)", content.deliveryAddress],
+                ["Weight", content.weight],
+            ];
+            const missing = required
+                .filter(([, v]) => v == null || String(v).trim() === "")
+                .map(([label]) => label);
+            if (missing.length) {
+                throw Object.assign(
+                    new Error(`BOL requires: ${missing.join(", ")}`),
+                    { status: 422, code: "BOL_REQUIRED_FIELDS" }
+                );
+            }
+        }
+
         const last = await prisma.loadDocument.findFirst({
             where: { shipmentLeadId: input.shipmentLeadId, docType },
             orderBy: { version: "desc" },

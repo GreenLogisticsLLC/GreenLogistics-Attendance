@@ -2770,7 +2770,7 @@ window.GreenOSModules["dispatch"] = {
       self.esc(c.carrierEmail || contacts.carrierEmail || "") +
       '"></label>' +
       '<label>Customer <input id="bol-customer" value="' + self.esc(g.customer || "") + '"></label>' +
-      '<label class="full">SHIPS FROM (origin) <input id="bol-origin" value="' + self.esc(pick("pickupAddress", place(g.pickup))) + '"></label>' +
+      '<label class="full">SHIPS FROM (origin) * <input id="bol-origin" value="' + self.esc(pick("pickupAddress", place(g.pickup))) + '" required></label>' +
       '<label>Shipper ID No. <input id="bol-shipper-id" value="' + self.esc(pick("shipperIdNo", "")) + '"></label>' +
       '<label>Seal No. <input id="bol-seal" value="' + self.esc(pick("sealNo", "")) + '"></label>' +
       '<label>FOB <input id="bol-fob" value="' + self.esc(pick("fob", "")) + '"></label>' +
@@ -2779,7 +2779,7 @@ window.GreenOSModules["dispatch"] = {
       '<option value="COLLECT">COLLECT</option>' +
       '<option value="3RD_PARTY">3RD PARTY</option>' +
       "</select></label>" +
-      '<label class="full">SHIPS TO (destination) <input id="bol-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '"></label>' +
+      '<label class="full">SHIPS TO (destination) * <input id="bol-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '" required></label>' +
       '<label>Consignee ID No. <input id="bol-consignee-id" value="' + self.esc(pick("consigneeIdNo", "")) + '"></label>' +
       '<label>Delivery contact <input id="bol-dcontact" value="' + self.esc(pick("deliveryContact", "")) + '"></label>' +
       '<label>Carrier <input id="bol-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
@@ -2791,7 +2791,7 @@ window.GreenOSModules["dispatch"] = {
       '<label class="full">Third party freight bills to <input id="bol-third" value="' + self.esc(g.customer || "") + '"></label>' +
       '<label>Customer order no. <input id="bol-order" value="' + self.esc(pick("customerOrderNo", "")) + '"></label>' +
       '<label># Pkgs <input id="bol-pkgs" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
-      '<label>Weight <input id="bol-weight" value="' + self.esc(g.weight || "") + '"></label>' +
+      '<label>Weight * <input id="bol-weight" value="' + self.esc(g.weight || "") + '" required></label>' +
       '<label>Pallet/Slip <select id="bol-pallet"><option value="N">N</option><option value="Y">Y</option></select></label>' +
       '<label>Handling type <input id="bol-htype" value="PLT"></label>' +
       '<label>Package type <input id="bol-ptype" value="PCS"></label>' +
@@ -2841,10 +2841,22 @@ window.GreenOSModules["dispatch"] = {
 
     box.querySelector("#bol-generate")?.addEventListener("click", async function () {
       var carrierEmail = (box.querySelector("#bol-carrier-email").value || "").trim();
-      if (!carrierEmail) {
-        alert("Carrier email is required on BOL.");
-        box.querySelector("#bol-carrier-email").focus();
-        return;
+      var origin = (box.querySelector("#bol-origin").value || "").trim();
+      var dest = (box.querySelector("#bol-dest").value || "").trim();
+      var weight = (box.querySelector("#bol-weight").value || "").trim();
+      var required = [
+        { ok: !!carrierEmail, el: "#bol-carrier-email", msg: "Carrier email is required on BOL." },
+        { ok: !!origin, el: "#bol-origin", msg: "SHIPS FROM (origin) is required." },
+        { ok: !!dest, el: "#bol-dest", msg: "SHIPS TO (destination) is required." },
+        { ok: !!weight, el: "#bol-weight", msg: "Weight is required." },
+      ];
+      for (var i = 0; i < required.length; i++) {
+        if (!required[i].ok) {
+          alert(required[i].msg);
+          var focusEl = box.querySelector(required[i].el);
+          if (focusEl) focusEl.focus();
+          return;
+        }
       }
       var statusEl = box.querySelector("#bol-status");
       var btnGen = box.querySelector("#bol-generate");
@@ -2862,7 +2874,7 @@ window.GreenOSModules["dispatch"] = {
             truckNumber: box.querySelector("#bol-truck").value || null,
             trailerNumber: box.querySelector("#bol-trailer").value || null,
             commodity: box.querySelector("#bol-commodity").value || null,
-            weight: box.querySelector("#bol-weight").value || null,
+            weight: weight,
             pieces: box.querySelector("#bol-pkgs").value || null,
             specialInstructions: box.querySelector("#bol-notes").value || null,
           }),
@@ -2885,8 +2897,8 @@ window.GreenOSModules["dispatch"] = {
           truckNumber: box.querySelector("#bol-truck").value,
           trailerNumber: box.querySelector("#bol-trailer").value,
           vinNumber: box.querySelector("#bol-vin").value,
-          pickupAddress: box.querySelector("#bol-origin").value,
-          deliveryAddress: box.querySelector("#bol-dest").value,
+          pickupAddress: origin,
+          deliveryAddress: dest,
           shipperIdNo: box.querySelector("#bol-shipper-id").value,
           consigneeIdNo: box.querySelector("#bol-consignee-id").value,
           sealNo: box.querySelector("#bol-seal").value,
@@ -2898,7 +2910,7 @@ window.GreenOSModules["dispatch"] = {
           pieces: box.querySelector("#bol-pkgs").value,
           packageQty: box.querySelector("#bol-pkgs").value,
           handlingQty: box.querySelector("#bol-pkgs").value,
-          weight: box.querySelector("#bol-weight").value,
+          weight: weight,
           palletSlip: box.querySelector("#bol-pallet").value === "Y",
           handlingType: box.querySelector("#bol-htype").value,
           packageType: box.querySelector("#bol-ptype").value,
