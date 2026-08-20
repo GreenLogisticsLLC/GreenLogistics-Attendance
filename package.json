@@ -13,7 +13,7 @@
     "db:verify:email": "node scripts/verify-email-schema.mjs",
     "db:seed": "tsx prisma/seed.ts",
     "setup": "npm run db:generate && npm run db:push && npm run db:seed",
-    "test": "tsx --test src/modules/tracking/providers/carrier-view/*.test.ts src/modules/carriers/*.test.ts",
+    "test": "tsx --test src/modules/tracking/providers/carrier-view/*.test.ts src/modules/carriers/*.test.ts src/modules/ai/*.test.ts",
     "test:tracking": "tsx --test src/modules/tracking/providers/carrier-view/*.test.ts",
     "db:generate:postgres": "prisma generate --schema=prisma/schema.postgresql.prisma",
     "db:push:postgres": "prisma db push --schema=prisma/schema.postgresql.prisma",

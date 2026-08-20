@@ -49,6 +49,45 @@ export async function assertShipmentAccess(
 }
 
 /**
+ * Same ACL as assertShipmentAccess, but throws { status } for service/tool callers
+ * (no Express Response).
+ */
+export async function assertShipmentAccessOrThrow(
+    actor: { userId: string; role: string },
+    shipmentLeadId: string
+): Promise<{ assignedBrokerId: string | null }> {
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId },
+        select: { shipmentLeadId: true, assignedBrokerId: true, status: true },
+    });
+    if (!lead) {
+        throw Object.assign(new Error("Shipment not found"), { status: 404, code: "NOT_FOUND" });
+    }
+
+    const role = actor.role || "";
+    const userId = actor.userId || "";
+
+    if (isDataScopedRole(role)) {
+        if (!lead.assignedBrokerId || lead.assignedBrokerId !== userId) {
+            throw Object.assign(new Error("Access denied"), { status: 403, code: "FORBIDDEN" });
+        }
+    } else if (isTeamScopedRole(role)) {
+        const unassigned =
+            !lead.assignedBrokerId ||
+            lead.status === "NEW" ||
+            lead.status === "UNASSIGNED";
+        if (!unassigned && lead.assignedBrokerId) {
+            const onTeam = await isBrokerOnTeam(userId, lead.assignedBrokerId);
+            if (!onTeam) {
+                throw Object.assign(new Error("Access denied"), { status: 403, code: "FORBIDDEN" });
+            }
+        }
+    }
+
+    return { assignedBrokerId: lead.assignedBrokerId };
+}
+
+/**
  * Resolve broker filter for list APIs.
  * - Broker → always self
  * - Team Lead → optional brokerId only if on their team; otherwise undefined (caller uses team ids)

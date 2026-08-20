@@ -434,6 +434,36 @@
         div.textContent = text;
         messagesEl.appendChild(div);
         messagesEl.scrollTop = messagesEl.scrollHeight;
+        return div;
+      }
+
+      function appendMeta(payload) {
+        if (!payload) return;
+        const parts = [];
+        if (payload.groundingLabel) parts.push(payload.groundingLabel);
+        else if (payload.answerMode === "grounded") parts.push("Based on GreenOS data");
+        else if (payload.answerMode === "general") parts.push("General AI answer (not GreenOS data)");
+        const sources = Array.isArray(payload.sources) ? payload.sources : [];
+        if (sources.length) {
+          parts.push(
+            "Sources: " +
+              sources
+                .slice(0, 8)
+                .map(function (s) {
+                  return (s.label || s.type || "record") + (s.id ? " (" + String(s.id).slice(0, 8) + "…)" : "");
+                })
+                .join("; ")
+          );
+        }
+        if (payload.runId) parts.push("runId: " + payload.runId);
+        if (!parts.length) return;
+        const meta = document.createElement("div");
+        meta.className = "gos-ai-bubble bot gos-ai-meta";
+        meta.style.opacity = "0.75";
+        meta.style.fontSize = "0.85em";
+        meta.textContent = parts.join(" · ");
+        messagesEl.appendChild(meta);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
       }
 
       if (inputEl) {
@@ -460,8 +490,10 @@
             append("bot", data.message || "AI request failed");
             return;
           }
-          const reply = (data.data && data.data.reply) || "";
+          const payload = data.data || {};
+          const reply = payload.reply || "";
           append("bot", reply);
+          appendMeta(payload);
           history.push({ role: "user", content: text });
           history.push({ role: "assistant", content: reply });
           if (history.length > 16) history.splice(0, history.length - 16);

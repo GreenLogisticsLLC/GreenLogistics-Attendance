@@ -1,116 +1,54 @@
-import { getOpenAiConfig } from "../../../config/env.js";
+/**
+ * Legacy thin wrapper — Phase 1 chat goes through AiOrchestrator + AiGateway.
+ * Kept so existing imports/tests keep working.
+ */
+import { aiGateway } from "./ai-gateway.js";
 
 export type AiChatMessage = {
     role: "system" | "user" | "assistant";
     content: string;
 };
 
-const SYSTEM_PROMPT = `You are GreenOS AI Assistant for Green Logistics (freight brokerage / car transport).
-Help with: attendance (In Office / Out of Office), shipment assignment, CRM shipment cards,
-uShip workflow (marketplace stays external), load numbers on the same shipment card, operations,
-and internal notifications.
-Be concise and practical. If data is missing, say what the user should check in GreenOS.
-Never invent confidential customer or financial data.`;
-
-/**
- * Call OpenAI Chat Completions for GreenOS AI Assistant.
- */
 export class AiAssistantService {
     isConfigured(): boolean {
-        const key = getOpenAiConfig().apiKey;
-        if (!key) return false;
-        if (key.startsWith("sk-admin-")) return false;
-        return true;
+        return aiGateway.isConfigured();
     }
 
     getModel(): string {
-        return getOpenAiConfig().model || "gpt-5.5";
+        return aiGateway.getModel();
     }
 
     async chat(input: {
         message: string;
         history?: Array<{ role: "user" | "assistant"; content: string }>;
     }): Promise<{ reply: string; model: string }> {
-        const openai = getOpenAiConfig();
-        if (!this.isConfigured()) {
-            const key = openai.apiKey;
-            const msg = key.startsWith("sk-admin-")
-                ? "OPENAI_API_KEY is an Admin key — use a Project API key (sk-proj-...) from GreenOS → API keys."
-                : "OPENAI_API_KEY is not configured. Add it to the server .env and restart GreenOS.";
-            throw Object.assign(new Error(msg), { status: 503 });
-        }
-
         const message = String(input.message || "").trim();
         if (!message) {
             throw Object.assign(new Error("message is required"), { status: 422 });
         }
-
         const history = (input.history || []).slice(-12).map((m) => ({
-            role: m.role,
+            role: m.role as "user" | "assistant",
             content: String(m.content || "").slice(0, 4000),
         }));
-
-        const messages: AiChatMessage[] = [
-            { role: "system", content: SYSTEM_PROMPT },
-            ...history,
-            { role: "user", content: message.slice(0, 8000) },
-        ];
-
-        const model = this.getModel();
-        const headers: Record<string, string> = {
-            Authorization: `Bearer ${openai.apiKey}`,
-            "Content-Type": "application/json",
-        };
-        const key = openai.apiKey;
-        // Project keys (sk-proj-...) are already scoped — extra headers can route billing wrong.
-        if (!key.startsWith("sk-proj-")) {
-            if (openai.projectId) headers["OpenAI-Project"] = openai.projectId;
-            if (openai.organizationId) headers["OpenAI-Organization"] = openai.organizationId;
-        }
-        const res = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-                model,
-                messages,
-                temperature: 0.4,
-                max_completion_tokens: 1200,
-            }),
+        const llm = await aiGateway.chatCompletions({
+            messages: [
+                {
+                    role: "system",
+                    content:
+                        "You are GreenOS AI Assistant for Green Logistics. Be concise. " +
+                        "Never invent confidential customer or financial data. " +
+                        'Prefix: "[General AI answer — not GreenOS data] "',
+                },
+                ...history,
+                { role: "user", content: message.slice(0, 8000) },
+            ],
+            temperature: 0.4,
         });
-
-        const data = (await res.json().catch(() => ({}))) as {
-            error?: { message?: string; code?: string; type?: string };
-            choices?: Array<{ message?: { content?: string } }>;
-            model?: string;
-        };
-
-        if (!res.ok) {
-            const code = data?.error?.code || "";
-            const detail = data?.error?.message || `OpenAI HTTP ${res.status}`;
-            const keySuffix = key ? key.slice(-4) : "none";
-            console.warn(
-                `[ai] OpenAI error model=${model} keySuffix=${keySuffix} http=${res.status} code=${code || "none"}`
-            );
-            let friendly = detail;
-            if (code === "insufficient_quota" || /no credits remaining/i.test(detail)) {
-                friendly =
-                    "OpenAI API billing: no credits on this organization/project. " +
-                    "Add API credits at platform.openai.com → Settings → Billing (same org as project GreenOS), " +
-                    "then create a Project API key in GreenOS → API keys.";
-            } else if (code === "invalid_api_key") {
-                friendly = "OpenAI API key is invalid or revoked. Create a new Project API key in GreenOS.";
-            } else if (code === "model_not_found") {
-                friendly = `OpenAI model "${model}" is not available on this account. Set OPENAI_MODEL to gpt-4o-mini.`;
-            }
-            throw Object.assign(new Error(friendly), { status: res.status >= 500 ? 502 : 400 });
+        let reply = llm.reply;
+        if (!reply.startsWith("[General AI answer")) {
+            reply = `[General AI answer — not GreenOS data] ${reply}`;
         }
-
-        const reply = data.choices?.[0]?.message?.content?.trim();
-        if (!reply) {
-            throw Object.assign(new Error("Empty response from OpenAI"), { status: 502 });
-        }
-
-        return { reply, model: data.model || model };
+        return { reply, model: llm.model };
     }
 }
 

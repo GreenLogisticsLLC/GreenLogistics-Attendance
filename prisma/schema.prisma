@@ -43,6 +43,7 @@ model User {
   platformNotifications  PlatformNotification[]
   assignedCarriers       Carrier[]              @relation("CarrierAssignedBroker")
   directCustomers        DirectCustomer[]
+  aiRuns                 AiRun[]
 
   @@index([teamLeadId])
   @@map("users")
@@ -893,4 +894,34 @@ model CarrierOnboardingEvent {
   @@index([action])
   @@index([createdAt])
   @@map("carrier_onboarding_events")
+}
+
+/// Phase 1 GreenOS AI — one row per /api/ai/chat request (no secrets).
+model AiRun {
+  runId            String    @id @default(uuid()) @map("run_id")
+  actorUserId      String    @map("actor_user_id")
+  model            String
+  /// Truncated user message (never secrets / API keys).
+  requestPreview   String    @map("request_preview")
+  intent           String?
+  answerMode       String?   @map("answer_mode")
+  /// JSON array of tool names invoked.
+  toolsJson        String?   @map("tools_json")
+  /// JSON array of sources (entity ids only).
+  sourcesJson      String?   @map("sources_json")
+  promptTokens     Int?      @map("prompt_tokens")
+  completionTokens Int?      @map("completion_tokens")
+  totalTokens      Int?      @map("total_tokens")
+  estimatedCostUsd Float?    @map("estimated_cost_usd")
+  /// PENDING | SUCCESS | ERROR | RATE_LIMITED
+  status           String    @default("PENDING")
+  errorMessage     String?   @map("error_message")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  completedAt      DateTime? @map("completed_at")
+  actor            User      @relation(fields: [actorUserId], references: [userId], onDelete: Cascade)
+
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@index([status])
+  @@map("ai_runs")
 }
