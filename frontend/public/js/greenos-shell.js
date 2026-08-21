@@ -425,6 +425,26 @@
         });
     },
 
+    aiSourceHref(source) {
+      if (!source || !source.id) return null;
+      const t = String(source.type || "").toLowerCase();
+      if (t === "carrier" || source.carrierId) {
+        const id = source.carrierId || source.id;
+        return "#/carriers/" + encodeURIComponent(id);
+      }
+      if (t === "shipment" || source.shipmentLeadId) {
+        const id = source.shipmentLeadId || source.id;
+        return "#/shipments/" + encodeURIComponent(id);
+      }
+      if (t === "carrier_document" && source.carrierId) {
+        return "#/carriers/" + encodeURIComponent(source.carrierId);
+      }
+      if (t === "load_document" && source.shipmentLeadId) {
+        return "#/shipments/" + encodeURIComponent(source.shipmentLeadId);
+      }
+      return null;
+    },
+
     bindAiChat({ messagesEl, formEl, inputEl, history }) {
       const self = this;
 
@@ -441,27 +461,63 @@
         if (!payload) return;
         const parts = [];
         if (payload.groundingLabel) parts.push(payload.groundingLabel);
-        else if (payload.answerMode === "grounded") parts.push("Based on GreenOS data");
+        else if (payload.answerMode === "grounded" || payload.answerMode === "not_found")
+          parts.push("Based on GreenOS data");
         else if (payload.answerMode === "general") parts.push("General AI answer (not GreenOS data)");
-        const sources = Array.isArray(payload.sources) ? payload.sources : [];
-        if (sources.length) {
-          parts.push(
-            "Sources: " +
-              sources
-                .slice(0, 8)
-                .map(function (s) {
-                  return (s.label || s.type || "record") + (s.id ? " (" + String(s.id).slice(0, 8) + "…)" : "");
-                })
-                .join("; ")
-          );
-        }
-        if (payload.runId) parts.push("runId: " + payload.runId);
-        if (!parts.length) return;
+        if (payload.searchMode) parts.push("Search: " + payload.searchMode);
+
         const meta = document.createElement("div");
         meta.className = "gos-ai-bubble bot gos-ai-meta";
-        meta.style.opacity = "0.75";
+        meta.style.opacity = "0.85";
         meta.style.fontSize = "0.85em";
-        meta.textContent = parts.join(" · ");
+
+        if (parts.length) {
+          const label = document.createElement("div");
+          label.textContent = parts.join(" · ");
+          meta.appendChild(label);
+        }
+
+        const sources = Array.isArray(payload.sources) ? payload.sources : [];
+        if (sources.length) {
+          const srcWrap = document.createElement("div");
+          srcWrap.style.marginTop = "6px";
+          srcWrap.appendChild(document.createTextNode("Sources: "));
+          sources.slice(0, 8).forEach(function (s, idx) {
+            if (idx) srcWrap.appendChild(document.createTextNode(" · "));
+            const href = self.aiSourceHref(s);
+            if (href) {
+              const a = document.createElement("a");
+              a.href = href;
+              a.textContent = s.label || s.type || "record";
+              a.style.color = "inherit";
+              a.style.textDecoration = "underline";
+              a.addEventListener("click", function (ev) {
+                ev.preventDefault();
+                if (typeof self.navigate === "function") self.navigate(href.replace(/^#/, ""));
+                else window.location.hash = href.replace(/^#/, "");
+              });
+              srcWrap.appendChild(a);
+            } else {
+              srcWrap.appendChild(
+                document.createTextNode(
+                  (s.label || s.type || "record") +
+                    (s.id ? " (" + String(s.id).slice(0, 8) + "…)" : "")
+                )
+              );
+            }
+          });
+          meta.appendChild(srcWrap);
+        }
+
+        if (payload.runId) {
+          const run = document.createElement("div");
+          run.style.marginTop = "4px";
+          run.style.opacity = "0.7";
+          run.textContent = "runId: " + payload.runId;
+          meta.appendChild(run);
+        }
+
+        if (!meta.childNodes.length) return;
         messagesEl.appendChild(meta);
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }

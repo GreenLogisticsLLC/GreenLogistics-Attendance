@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { authMiddleware, requireRole } from "../../../middlewares/auth.middleware.js";
 import { Roles } from "../../../auth/roles.js";
-import { aiChatController, aiStatusController } from "../controllers/ai.controller.js";
+import { aiChatController, aiSearchController, aiStatusController } from "../controllers/ai.controller.js";
 import {
     getDocumentJobController,
     getDocumentValidationController,
@@ -31,6 +31,7 @@ const aiRoles = requireRole(
 
 aiRouter.get("/status", aiRoles, aiStatusController);
 aiRouter.post("/chat", aiRoles, aiChatController);
+aiRouter.post("/search", aiRoles, aiSearchController);
 aiRouter.post("/documents/process", aiRoles, processDocumentController);
 aiRouter.get("/documents/jobs/:jobId", aiRoles, getDocumentJobController);
 aiRouter.get("/documents/:documentId/validation", aiRoles, getDocumentValidationController);

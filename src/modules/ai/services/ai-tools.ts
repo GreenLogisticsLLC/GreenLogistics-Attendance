@@ -2,6 +2,8 @@ import { prisma } from "../../../config/database.js";
 import { assertShipmentAccessOrThrow } from "../../../auth/access.js";
 import { carrierService } from "../../carriers/services/carrier.service.js";
 import { extractMcDigits, mcSearchVariants } from "./ai-mc-normalize.js";
+import { greenOsKnowledgeSearch } from "../knowledge/search.service.js";
+import type { KnowledgeSearchFilters } from "../knowledge/types.js";
 
 export type AiActor = { userId: string; role: string };
 
@@ -341,6 +343,53 @@ export class AiTools {
                 id: d.documentId,
                 label: d.documentType,
                 carrierId: id,
+            })),
+        };
+    }
+
+    /**
+     * Phase 3 — ACL-gated structured GreenOS knowledge search.
+     * Never exposes raw Prisma objects; never bypasses carrier/shipment ACL.
+     */
+    async searchGreenOS(
+        actor: AiActor,
+        query: string,
+        filters?: KnowledgeSearchFilters
+    ): Promise<AiToolResult> {
+        const q = String(query || "").trim();
+        if (!q || q.length < 2) return notFound("searchGreenOS");
+
+        const res = await greenOsKnowledgeSearch.search({
+            actor,
+            query: q,
+            filters: filters || {},
+            limit: 25,
+        });
+
+        if (!res.results.length) return notFound("searchGreenOS");
+
+        return {
+            ok: true,
+            tool: "searchGreenOS",
+            data: {
+                searchMode: res.searchMode,
+                resultCount: res.resultCount,
+                results: res.results.map((r) => ({
+                    type: r.type,
+                    id: r.id,
+                    title: r.title,
+                    snippet: r.snippet,
+                    matchedFields: r.matchedFields,
+                    score: r.score,
+                    metadata: r.metadata,
+                })),
+            },
+            sources: res.sources.map((s) => ({
+                type: s.type,
+                id: s.id,
+                label: s.label,
+                carrierId: s.carrierId,
+                shipmentLeadId: s.shipmentLeadId,
             })),
         };
     }
