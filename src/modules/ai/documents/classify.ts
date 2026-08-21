@@ -119,7 +119,12 @@ export function classifyDocumentText(input: {
     ]);
     if (w9Score >= 2 || declared === "W9") {
         reasons.push("w9_structure");
-        return { documentType: "W9", confidence: Math.min(0.98, 0.7 + w9Score * 0.08), reasons, requiresBoundaryReview: false };
+        return {
+            documentType: "W9",
+            confidence: Math.min(0.98, 0.7 + w9Score * 0.08),
+            reasons,
+            requiresBoundaryReview: w9Score < 2 || !text.trim(),
+        };
     }
 
     const coiScore = score(text, [
@@ -218,11 +223,18 @@ export function classifyDocumentText(input: {
     // Declared type fallback with low confidence → review
     if (declared && declared !== "OTHER") {
         reasons.push("declared_type_fallback");
-        const mapped = declared === "INSURANCE" ? "INSURANCE" : (declared as DocAiType);
+        const mapped =
+            declared === "INSURANCE"
+                ? "INSURANCE"
+                : declared === "COI"
+                  ? "COI"
+                  : (declared as DocAiType);
+        // Empty scan/image with declared W9/NOA/POD — trust declaration, require review/vision
+        const empty = !text.trim();
         return {
             documentType: mapped,
-            confidence: 0.55,
-            reasons,
+            confidence: empty ? 0.6 : 0.55,
+            reasons: empty ? [...reasons, "empty_text_declared"] : reasons,
             requiresBoundaryReview: true,
         };
     }

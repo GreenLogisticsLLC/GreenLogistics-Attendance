@@ -7,7 +7,7 @@ import { LOAD_DOCS_ROOT } from "../../shipment/services/load-pdf.service.js";
 import { classifyDocumentText, type DocAiType } from "./classify.js";
 import { extractFieldsForType } from "./extract.js";
 import { extractDocumentText } from "./text-extract.js";
-import { analyzeSignaturesFromText, type SignatureResult } from "./signature.js";
+import { analyzeSignaturesFromText, analyzeSignatureWithVision, type SignatureResult } from "./signature.js";
 import { validateDocument } from "./validate.js";
 import { aiGateway } from "../services/ai-gateway.js";
 
@@ -182,30 +182,67 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
             fileName: file.fileName,
         });
 
+        let fields = extractFieldsForType(classified.documentType as DocAiType, textResult.text);
         let signatures: SignatureResult[] = analyzeSignaturesFromText({
             text: textResult.text,
             documentType: classified.documentType,
         });
 
-        // Vision only when text inadequate or signature uncertain for critical types
+        // Vision when enabled — inspect image pages for signatures (never OCR-name alone).
         const needsVision =
             !textResult.adequate ||
-            (["POD", "W9", "BOL"].includes(classified.documentType) &&
+            (["POD", "W9", "BOL", "NOA"].includes(classified.documentType) &&
                 signatures.some((s) => s.status === "UNCERTAIN" || s.status === "MISSING"));
         if (needsVision && aiGateway.isConfigured() && process.env.DOC_AI_VISION === "true") {
-            // Optional — default off to control cost; heuristics + REVIEW cover Phase 2B safety.
             try {
-                signatures = signatures.map((s) =>
-                    s.status === "UNCERTAIN"
-                        ? { ...s, reason: s.reason + " (vision deferred/cost-controlled)" }
-                        : s
+                const ext = path.extname(file.absPath).toLowerCase();
+                if ([".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(ext)) {
+                    const buf = fs.readFileSync(file.absPath);
+                    const b64 = buf.toString("base64");
+                    const mime =
+                        ext === ".png"
+                            ? "image/png"
+                            : ext === ".webp"
+                              ? "image/webp"
+                              : ext === ".gif"
+                                ? "image/gif"
+                                : "image/jpeg";
+                    if (classified.documentType === "W9" && !textResult.adequate) {
+                        const { extractW9FieldsWithVision } = await import("./vision-extract.js");
+                        const visionFields = await extractW9FieldsWithVision({
+                            imageBase64: b64,
+                            mimeType: mime,
+                        });
+                        if (visionFields.length) fields = visionFields;
+                    }
+                    const role = signatures[0]?.role || (classified.documentType === "W9" ? "TAXPAYER" : "RECEIVER");
+                    const visionSig = await analyzeSignatureWithVision({
+                        role,
+                        imageBase64: b64,
+                        mimeType: mime,
+                        page: 1,
+                    });
+                    signatures = [visionSig, ...signatures.filter((s) => s.role !== role)];
+                } else {
+                    // PDF without rasterization: keep heuristic UNCERTAIN → REVIEW (safe).
+                    signatures = signatures.map((s) =>
+                        s.status === "UNCERTAIN" || s.method === "heuristic"
+                            ? {
+                                  ...s,
+                                  reason:
+                                      s.reason +
+                                      " (DOC_AI_VISION on, but PDF page rasterization not available — REVIEW)",
+                              }
+                            : s
+                    );
+                }
+            } catch (err) {
+                console.warn(
+                    "[doc-ai] vision signature failed:",
+                    err instanceof Error ? err.message : err
                 );
-            } catch {
-                /* keep heuristic signatures */
             }
         }
-
-        const fields = extractFieldsForType(classified.documentType as DocAiType, textResult.text);
         const greenOs = await loadGreenOsContext({
             carrierId: file.carrierId || job.carrierId,
             shipmentLeadId: file.shipmentLeadId || job.shipmentLeadId,

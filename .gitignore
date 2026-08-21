@@ -19,3 +19,7 @@ README.md.txt
 *.xlsx
 *.docx
 backend/
+
+# Phase 2B verification artifacts may contain sanitized-but-sensitive extraction
+docs/PHASE-2B-VERIFICATION-RESULT.json
+docs/PHASE-2B-VERIFICATION-CONSOLE.txt

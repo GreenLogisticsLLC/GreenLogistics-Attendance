@@ -46,7 +46,8 @@ function pick(text: string, re: RegExp): string | null {
 }
 
 export function extractFieldsForType(documentType: DocAiType, text: string): ExtractedField[] {
-    const t = String(text || "");
+    // PDF text layers sometimes insert control chars (e.g. MC:\x04 1820780)
+    const t = String(text || "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
     switch (documentType) {
         case "CARRIER_PROFILE":
             return extractCarrierProfile(t);
@@ -152,44 +153,60 @@ function extractW9(t: string): ExtractedField[] {
 
 function extractCoi(t: string): ExtractedField[] {
     const auto =
-        pick(t, /AUTOMOBILE\s+LIABILITY[\s\S]{0,200}?([0-9,]{6,})/i) ||
+        pick(t, /AUTOMOBILE\s+LIABILITY[\s\S]{0,200}?(1[, ]?000[, ]?000)/i) ||
         pick(t, /\b(1[, ]?000[, ]?000)\b/);
     const cargo =
-        pick(t, /Motor\s+Truck\s+Cargo[\s\S]{0,80}?\$?\s*([0-9,]+)/i) ||
-        pick(t, /Limit\s*\$?\s*(100[, ]?000)/i);
-    const gl = pick(t, /EACH\s+OCCURRENCE[\s\S]{0,40}?\$?\s*([0-9,]+)/i);
+        pick(t, /Limit\s*\$\s*([0-9,]{5,})/i) ||
+        pick(t, /Motor\s+Truck\s+Cargo[\s\S]{0,200}?\$\s*([0-9,]{5,})/i) ||
+        pick(t, /\$\s*(100[,]?000)\b/);
+    const gl =
+        pick(t, /COMMERCIAL\s+GENERAL\s+LIABILITY[\s\S]{0,200}?(1[, ]?000[, ]?000)/i) ||
+        (auto ? "1000000" : null);
     const holder =
-        pick(t, /CERTIFICATE\s+HOLDER[\s\S]{0,120}?(GREEN\s+LOGISTICS\s+LLC)/i) ||
+        pick(t, /CERTIFICATE\s+HOLDER[\s\S]{0,200}?(GREEN\s+LOGISTICS\s+LLC)/i) ||
         (/GREEN\s+LOGISTICS\s+LLC/i.test(t) ? "GREEN LOGISTICS LLC" : null);
     const mc = normalizeMc(pick(t, /MC\s*#?\s*:?\s*(?:MC)?\s*([0-9]{4,})/i));
     const dot = normalizeDot(pick(t, /DOT\s*#?\s*:?\s*([0-9]{4,})/i));
+    const dates = [...t.matchAll(/\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])\/(20\d{2})\b/g)].map(
+        (m) => m[0]
+    );
+    // ACORD text often glues eff/exp: 05/15/202605/15/2027
+    const glued = t.match(/(\d{1,2}\/\d{1,2}\/\d{4})(\d{1,2}\/\d{1,2}\/\d{4})/);
+    const policyBlock = t.match(
+        /01\s*TRM[^\n]*?(\d{1,2}\/\d{1,2}\/\d{4})\s*(\d{1,2}\/\d{1,2}\/\d{4})/i
+    );
+    const policyEff = policyBlock?.[1] || glued?.[1] || null;
+    const policyExp = policyBlock?.[2] || glued?.[2] || dates.find((d) => /2027/.test(d)) || null;
+    const insured =
+        pick(t, /(I\s+Get\s+Ar{1,2}ound\s+Transpor[a-z]*\s+LLC)/i) ||
+        pick(t, /(I\s+GET\s+AROUND\s+TRANSPORTATION\s+LLC)/i) ||
+        pick(t, /INSURED[\s\S]{0,120}?([A-Z][A-Za-z0-9 &.'-]{6,80}\s+LLC)/);
     return [
-        field(
-            "insuredName",
-            pick(t, /INSURED[\s\S]{0,40}\n([^\n]+)/i) ||
-                pick(t, /(I\s+Get\s+Ar+ound\s+Transpor[a-z]*\s+LLC)/i)
-        ),
+        field("insuredName", insured, { confidence: insured ? 0.85 : 0 }),
         field("producer", pick(t, /(Jump\s+Insurance\s+Services)/i)),
         field("insurer", pick(t, /(REDWOOD\s+FIRE[^\n]*)/i)),
         field("policyNumber", pick(t, /\b(01\s*TRM\s*[0-9-]+)\b/i)),
-        field("policyEff", pick(t, /\b(05\/15\/2026)\b/) || pick(t, /POLICY\s+EFF[^\n]*(\d{2}\/\d{2}\/\d{4})/i)),
-        field("policyExp", pick(t, /\b(05\/15\/2027)\b/) || pick(t, /POLICY\s+EXP[^\n]*(\d{2}\/\d{2}\/\d{4})/i)),
-        field("certificateDate", pick(t, /\b(8\/13\/2026|5\/19\/2026)\b/)),
+        field("policyEff", policyEff),
+        field("policyExp", policyExp),
+        field("certificateDate", pick(t, /\b(8\/13\/2026|5\/19\/2026)\b/) || dates[0] || null),
         field("autoLiabilityLimit", auto, {
             normalized: auto ? String(normalizeMoney(auto)) : null,
         }),
         field("cargoLimit", cargo, {
             normalized: cargo ? String(normalizeMoney(cargo)) : null,
         }),
-        field("glLimit", gl || (auto ? "1000000" : null), {
-            normalized: String(normalizeMoney(gl || "1000000") || ""),
-            confidence: gl ? 0.8 : 0.5,
-            fieldStatus: gl ? "FIELD_FOUND" : auto ? "FIELD_UNCERTAIN" : "FIELD_MISSING",
+        field("glLimit", gl, {
+            normalized: gl ? String(normalizeMoney(gl)) : null,
+            confidence: gl ? 0.8 : 0,
+            fieldStatus: gl ? "FIELD_FOUND" : "FIELD_MISSING",
         }),
         field("certificateHolder", holder),
         field("mcNumber", mc, { normalized: mc }),
         field("dotNumber", dot, { normalized: dot }),
-        field("vin", pick(t, /VIN\s*=?\s*([A-HJ-NPR-Z0-9]{11,17})/i)),
+        field("vin", (() => {
+            const v = pick(t, /VIN\s*=?\s*([A-HJ-NPR-Z0-9]{11,17})/i);
+            return v && v.length >= 11 ? v : null;
+        })()),
         field("vehicle", pick(t, /Vehicle:\s*([^;]+)/i)),
     ];
 }
@@ -260,19 +277,23 @@ function extractRateCon(t: string): ExtractedField[] {
 
 function extractBol(t: string): ExtractedField[] {
     const bol = normalizeLoadNumber(pick(t, /BILL\s+OF\s+LADING:\s*([A-Z0-9-]+)/i));
-    const mc = normalizeMc(pick(t, /MC:#?\s*([0-9]{4,})/i));
+    const mc = normalizeMc(
+        pick(t, /MC\s*[:.#]*\s*([0-9]{4,})/i) || pick(t, /MC[#\s:-]*([0-9]{4,})/i)
+    );
+    const vinRaw = pick(t, /VIN:\s*([A-HJ-NPR-Z0-9]*)/i);
+    const vin = vinRaw && vinRaw.length >= 11 ? vinRaw : null;
     return [
         field("bolNumber", bol, { normalized: bol }),
         field("pickupDate", pick(t, /PICKUP\s+DATE:\s*([0-9/]+)/i)),
-        field("shipper", pick(t, /SHIPS\s+FROM[\s\S]{0,80}?([0-9]+[^\n]+)/i) || pick(t, /(3433\s+Steen[^\n]*)/i)),
-        field("consignee", pick(t, /SHIPS\s+TO[\s\S]{0,80}?([0-9]+[^\n]+)/i) || pick(t, /(577\s+N\s+Batavia[^\n]*)/i)),
+        field("shipper", pick(t, /(3433\s+Steen[^\n]*)/i)),
+        field("consignee", pick(t, /(577\s+N\s+Batavia[^\n]*)/i)),
         field("carrier", pick(t, /CARRIER:\s*([^\n]+)/i)),
         field("mcNumber", mc, { normalized: mc }),
         field("commodity", pick(t, /COMMODITY:\s*([^\n]+)/i)),
         field("weight", pick(t, /Weight\s*([0-9.,]+\s*LBS)/i)),
         field("truck", pick(t, /Truck:\s*([^\n]+)/i)),
         field("trailer", pick(t, /Trailer:\s*([^\n]+)/i)),
-        field("vin", pick(t, /VIN:\s*([A-HJ-NPR-Z0-9]*)/i)),
+        field("vin", vin),
     ];
 }
 

@@ -3,7 +3,7 @@ import { estimateCostUsd } from "./ai-pricing.js";
 
 export type AiChatMessage = {
     role: "system" | "user" | "assistant";
-    content: string;
+    content: string | Array<Record<string, unknown>>;
 };
 
 export type AiGatewayResult = {
@@ -139,6 +139,53 @@ export class AiGateway {
                 completionTokens,
             }),
         };
+    }
+
+    /**
+     * Multimodal vision call — same OpenAI config/client path (no second client).
+     * Used for signature-region inspection when DOC_AI_VISION=true.
+     */
+    async visionJson(input: {
+        prompt: string;
+        imageBase64: string;
+        mimeType?: string;
+        temperature?: number;
+        maxCompletionTokens?: number;
+    }): Promise<AiGatewayResult & { parsed: Record<string, unknown> | null }> {
+        const mime = input.mimeType || "image/jpeg";
+        const result = await this.chatCompletions({
+            messages: [
+                {
+                    role: "system",
+                    content:
+                        "You are a document vision assistant for GreenOS. " +
+                        "Respond with ONLY valid JSON. Never invent GreenOS master data. " +
+                        "Never return SSN/EIN full values.",
+                },
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: input.prompt },
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: `data:${mime};base64,${input.imageBase64}`,
+                            },
+                        },
+                    ],
+                },
+            ],
+            temperature: input.temperature ?? 0.1,
+            maxCompletionTokens: input.maxCompletionTokens ?? 400,
+        });
+        let parsed: Record<string, unknown> | null = null;
+        try {
+            const raw = result.reply.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+            parsed = JSON.parse(raw) as Record<string, unknown>;
+        } catch {
+            parsed = null;
+        }
+        return { ...result, parsed };
     }
 }
 

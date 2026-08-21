@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { createRequire } from "module";
 
 export type TextExtractResult = {
     text: string;
@@ -8,8 +9,13 @@ export type TextExtractResult = {
     adequate: boolean;
 };
 
+const require = createRequire(import.meta.url);
+
 /**
  * Text-first extraction. Vision/OCR is a later step when inadequate.
+ *
+ * NOTE: pdf-parse's package root index.js executes a debug harness that
+ * crashes without its test PDF. Always load lib/pdf-parse.js directly.
  */
 export async function extractDocumentText(filePath: string): Promise<TextExtractResult> {
     const ext = path.extname(filePath).toLowerCase();
@@ -20,7 +26,9 @@ export async function extractDocumentText(filePath: string): Promise<TextExtract
     if (ext === ".pdf") {
         try {
             const buf = fs.readFileSync(filePath);
-            const pdfParse = (await import("pdf-parse")).default;
+            const pdfParse = require("pdf-parse/lib/pdf-parse.js") as (
+                b: Buffer
+            ) => Promise<{ text: string; numpages?: number }>;
             const data = await pdfParse(buf);
             const text = String(data.text || "").trim();
             return {

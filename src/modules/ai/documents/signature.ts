@@ -1,3 +1,5 @@
+import { aiGateway } from "../services/ai-gateway.js";
+
 /**
  * Multimodal-aware signature analysis.
  * Heuristics for text/PDF; optional vision override; injectable for tests.
@@ -227,6 +229,20 @@ export function analyzeSignaturesFromText(input: {
         });
     }
 
+    if (type === "NOA") {
+        out.push({
+            role: "ASSIGNOR",
+            signaturePresent: false,
+            signatureType: "UNKNOWN",
+            confidence: 0.35,
+            page: 1,
+            region: "signature",
+            status: "UNCERTAIN",
+            method: "heuristic",
+            reason: "NOA often image/DocuSign — vision required",
+        });
+    }
+
     return out;
 }
 
@@ -241,4 +257,108 @@ export function podOverallFromSignature(sig: SignatureResult): {
         return { overallHint: "UNSIGNED", neverValid: true };
     }
     return { overallHint: "REVIEW_REQUIRED", neverValid: true };
+}
+
+const VISION_PROMPT = `Inspect the document image for an ACTUAL signature mark in the signature area.
+
+Rules:
+- HANDWRITTEN ink/stylus mark = HANDWRITTEN / PRESENT
+- Clear DocuSign/Adobe-style electronic signature graphic = E_SIGN / PRESENT
+- Typed name only (keyboard text) = TYPED_ONLY (NOT a signature)
+- Printed name only = PRINTED_ONLY (NOT a signature)
+- Empty signature line/box = MISSING
+- Unclear / ambiguous = UNCERTAIN
+
+Do NOT treat OCR text of a name as a signature by itself.
+Do NOT invent signatures.
+
+Return JSON only:
+{
+  "signaturePresent": boolean,
+  "signatureType": "HANDWRITTEN"|"E_SIGN"|"TYPED"|"PRINTED"|"NONE"|"UNKNOWN",
+  "status": "PRESENT"|"MISSING"|"UNCERTAIN"|"TYPED_ONLY"|"PRINTED_ONLY",
+  "confidence": number,
+  "reason": string
+}`;
+
+/**
+ * Vision-based signature inspection. Never upgrades to PRESENT from OCR text alone.
+ */
+export async function analyzeSignatureWithVision(input: {
+    role: string;
+    imageBase64: string;
+    mimeType?: string;
+    page?: number | null;
+}): Promise<SignatureResult> {
+    if (!aiGateway.isConfigured()) {
+        return {
+            role: input.role,
+            signaturePresent: false,
+            signatureType: "UNKNOWN",
+            confidence: 0.3,
+            page: input.page ?? null,
+            region: "vision",
+            status: "UNCERTAIN",
+            method: "vision",
+            reason: "Vision requested but OpenAI not configured",
+        };
+    }
+    try {
+        const res = await aiGateway.visionJson({
+            prompt: VISION_PROMPT,
+            imageBase64: input.imageBase64,
+            mimeType: input.mimeType,
+        });
+        const p = res.parsed || {};
+        const statusRaw = String(p.status || "UNCERTAIN").toUpperCase();
+        const status = (
+            ["PRESENT", "MISSING", "UNCERTAIN", "TYPED_ONLY", "PRINTED_ONLY"].includes(statusRaw)
+                ? statusRaw
+                : "UNCERTAIN"
+        ) as SignatureStatus;
+        const typeRaw = String(p.signatureType || "UNKNOWN").toUpperCase();
+        const signatureType = (
+            ["HANDWRITTEN", "E_SIGN", "TYPED", "PRINTED", "NONE", "UNKNOWN"].includes(typeRaw)
+                ? typeRaw
+                : "UNKNOWN"
+        ) as SignatureType;
+        const confidence = Number(p.confidence);
+        const signaturePresent = Boolean(p.signaturePresent) && status === "PRESENT";
+        if (status !== "PRESENT") {
+            return {
+                role: input.role,
+                signaturePresent: false,
+                signatureType,
+                confidence: Number.isFinite(confidence) ? confidence : 0.5,
+                page: input.page ?? null,
+                region: "vision",
+                status,
+                method: "vision",
+                reason: String(p.reason || "Vision signature analysis"),
+            };
+        }
+        return {
+            role: input.role,
+            signaturePresent,
+            signatureType,
+            confidence: Number.isFinite(confidence) ? confidence : 0.8,
+            page: input.page ?? null,
+            region: "vision",
+            status: signaturePresent ? "PRESENT" : "UNCERTAIN",
+            method: "vision",
+            reason: String(p.reason || "Vision signature analysis"),
+        };
+    } catch (err) {
+        return {
+            role: input.role,
+            signaturePresent: false,
+            signatureType: "UNKNOWN",
+            confidence: 0.2,
+            page: input.page ?? null,
+            region: "vision",
+            status: "UNCERTAIN",
+            method: "vision",
+            reason: `Vision failed: ${err instanceof Error ? err.message : "error"}`,
+        };
+    }
 }
