@@ -6,6 +6,7 @@ import { aiGateway } from "../services/ai-gateway.js";
 import { aiOrchestrator } from "../services/ai-orchestrator.js";
 import { aiTools } from "../services/ai-tools.js";
 import { getOpenAiConfig } from "../../../config/env.js";
+import { operationalAiService } from "../operational/operational.service.js";
 
 export async function aiStatusController(_req: AuthRequest, res: Response) {
     const openai = getOpenAiConfig();
@@ -25,16 +26,20 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                     : "none",
             projectConfigured: Boolean(openai.projectId),
             organizationConfigured: Boolean(openai.organizationId),
-            phase: 3,
+            phase: 4,
             tools: [
                 "getCarrierById",
                 "getShipmentById",
                 "listCarrierDocuments",
                 "findCarriers",
                 "searchGreenOS",
+                "carrierOperationalSummary",
+                "shipmentOperationalSummary",
             ],
             searchMode: "STRUCTURED",
             knowledgeProvider: "StructuredKnowledgeSearchProvider",
+            operational: true,
+            actionsEnabled: false,
         })
     );
 }
@@ -134,6 +139,89 @@ export async function aiSearchController(req: AuthRequest, res: Response) {
         );
     } catch (err) {
         const message = err instanceof Error ? err.message : "AI search failed";
+        const status =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status: number }).status)
+                : 500;
+        return res.status(status || 500).json(apiResponse(false, message));
+    }
+}
+
+export async function aiCarrierSummaryController(req: AuthRequest, res: Response) {
+    try {
+        const userId = req.user?.userId;
+        const role = req.user?.role;
+        const id = String(req.params.id || "").trim();
+        if (!userId || !role) return res.status(401).json(apiResponse(false, "Unauthorized"));
+        if (!id) return res.status(422).json(apiResponse(false, "carrier id required"));
+
+        const started = Date.now();
+        const data = await operationalAiService.carrierSummary({ userId, role }, id);
+        await prisma.aiRun
+            .create({
+                data: {
+                    actorUserId: userId,
+                    model: "operational",
+                    requestPreview: `carrier-summary:${id}`.slice(0, 500),
+                    intent: "carrier_summary",
+                    answerMode: "operational",
+                    toolsJson: JSON.stringify({
+                        tools: ["carrierOperationalSummary"],
+                        readiness: data.readiness,
+                        compliance: data.compliance.light,
+                        latencyMs: Date.now() - started,
+                    }),
+                    sourcesJson: JSON.stringify(data.sources),
+                    status: "SUCCESS",
+                    completedAt: new Date(),
+                },
+            })
+            .catch((e) => console.warn("[ai] carrier summary audit failed", e));
+
+        return res.json(apiResponse(true, "OK", data));
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Carrier summary failed";
+        const status =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status: number }).status)
+                : 500;
+        return res.status(status || 500).json(apiResponse(false, message));
+    }
+}
+
+export async function aiShipmentSummaryController(req: AuthRequest, res: Response) {
+    try {
+        const userId = req.user?.userId;
+        const role = req.user?.role;
+        const id = String(req.params.id || "").trim();
+        if (!userId || !role) return res.status(401).json(apiResponse(false, "Unauthorized"));
+        if (!id) return res.status(422).json(apiResponse(false, "shipment id required"));
+
+        const started = Date.now();
+        const data = await operationalAiService.shipmentSummary({ userId, role }, id);
+        await prisma.aiRun
+            .create({
+                data: {
+                    actorUserId: userId,
+                    model: "operational",
+                    requestPreview: `shipment-summary:${id}`.slice(0, 500),
+                    intent: "shipment_summary",
+                    answerMode: "operational",
+                    toolsJson: JSON.stringify({
+                        tools: ["shipmentOperationalSummary"],
+                        readiness: data.readiness,
+                        latencyMs: Date.now() - started,
+                    }),
+                    sourcesJson: JSON.stringify(data.sources),
+                    status: "SUCCESS",
+                    completedAt: new Date(),
+                },
+            })
+            .catch((e) => console.warn("[ai] shipment summary audit failed", e));
+
+        return res.json(apiResponse(true, "OK", data));
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Shipment summary failed";
         const status =
             err && typeof err === "object" && "status" in err
                 ? Number((err as { status: number }).status)

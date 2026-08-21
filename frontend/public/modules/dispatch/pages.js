@@ -1016,6 +1016,11 @@ window.GreenOSModules["dispatch"] = {
       '<p class="load-status-pill">' +
       self.esc(data.identity.statusLabel || data.identity.status) +
       "</p>" +
+      '<div id="load-ai-ops" style="margin:0.75rem 0;padding:0.5rem 0;border-top:1px solid var(--gos-border,#ddd)">' +
+      "<h4>AI Ops</h4>" +
+      '<p class="gos-muted" id="load-ai-ops-status" style="font-size:0.85rem">Loading…</p>' +
+      '<pre id="load-ai-ops-body" style="font-size:0.8rem;white-space:pre-wrap;margin:0;font-family:inherit"></pre>' +
+      "</div>" +
       "<h4>Quick Actions</h4>" +
       '<div class="load-actions">' +
       actions +
@@ -1025,6 +1030,7 @@ window.GreenOSModules["dispatch"] = {
       "</div>";
 
     self.bindPaymentDocButtons(body);
+    self.loadShipmentAiOps(body, id);
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
       self.clearOpenLoad();
@@ -3509,5 +3515,41 @@ window.GreenOSModules["dispatch"] = {
         if (statusEl) statusEl.textContent = "";
       }
     });
+  },
+
+  async loadShipmentAiOps(body, id) {
+    var statusEl = body.querySelector("#load-ai-ops-status");
+    var bodyEl = body.querySelector("#load-ai-ops-body");
+    if (!statusEl || !bodyEl) return;
+    try {
+      var token = localStorage.getItem("gl_token");
+      var res = await fetch("/api/ai/shipments/" + encodeURIComponent(id) + "/summary", {
+        headers: { Authorization: token ? "Bearer " + token : "" },
+        cache: "no-store",
+      });
+      var json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || "AI summary failed");
+      var d = json.data || {};
+      statusEl.textContent = "Readiness: " + (d.readiness || "—");
+      var lines = [];
+      (d.documents || []).forEach(function (doc) {
+        lines.push(doc.slot + " — " + doc.status);
+      });
+      if ((d.reviewItems || []).length) {
+        lines.push("Problems:");
+        d.reviewItems.slice(0, 5).forEach(function (r) {
+          lines.push("- " + r);
+        });
+      }
+      if ((d.nextBestActions || []).length) {
+        lines.push("Next (RECOMMENDATION):");
+        d.nextBestActions.slice(0, 4).forEach(function (a) {
+          lines.push("- [" + a.priority + "] " + a.text);
+        });
+      }
+      bodyEl.textContent = lines.join("\n");
+    } catch (e) {
+      statusEl.textContent = e.message || "AI ops unavailable";
+    }
   },
 };

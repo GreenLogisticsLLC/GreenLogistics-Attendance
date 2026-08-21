@@ -15,7 +15,7 @@ test("Phase 3 intents: compliance / email / timeline / multi / general", () => {
     assert.equal(detectIntent("Find carriers with missing W9").kind, "compliance");
     assert.equal(detectIntent("What did the customer email us about load 75246?").kind, "email");
     assert.equal(detectIntent("What happened with load 75246 yesterday?").kind, "timeline");
-    assert.equal(detectIntent("Tell me everything about MC 1234545").kind, "greenos_search");
+    assert.equal(detectIntent("Tell me everything about MC 1234545").kind, "carrier_summary");
     assert.equal(detectIntent("What is a rate confirmation?").kind, "general");
     assert.equal(detectIntent("What is the status of ABC Trucking LLC?").kind, "carrier");
 });

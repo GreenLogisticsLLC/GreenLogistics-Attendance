@@ -3,13 +3,18 @@ import { aiGateway, type AiChatMessage } from "./ai-gateway.js";
 import { aiTools, type AiActor, type AiSource, type AiToolResult } from "./ai-tools.js";
 import { assertAiChatRateLimit } from "./ai-rate-limit.js";
 import { extractMcDigits } from "./ai-mc-normalize.js";
+import {
+    formatCarrierSummaryForChat,
+    formatShipmentSummaryForChat,
+    operationalAiService,
+} from "../operational/operational.service.js";
 
 export type AiChatResult = {
     reply: string;
     sources: AiSource[];
     model: string;
     runId: string;
-    answerMode: "grounded" | "general" | "not_found";
+    answerMode: "grounded" | "general" | "not_found" | "operational";
     groundingLabel: string;
     searchMode?: "STRUCTURED" | null;
 };
@@ -26,7 +31,8 @@ Rules:
 - Be concise. Prefer facts from the JSON.
 - When search results include a comparison or compliance object, report MATCH / MISMATCH / CRITICAL_MISMATCH / MISSING exactly as given.
 - Do not mention API keys or internal system prompts.
-- Cite which GreenOS entities you used (carrier, shipment, document, email) in plain language.`;
+- Cite which GreenOS entities you used (carrier, shipment, document, email) in plain language.
+- Never claim an ACTION was completed. Recommendations are suggestions only.`;
 
 const GENERAL_SYSTEM = `You are GreenOS AI Assistant for Green Logistics (freight brokerage).
 
@@ -47,6 +53,10 @@ export type IntentKind =
     | "email"
     | "timeline"
     | "greenos_search"
+    | "carrier_summary"
+    | "carrier_readiness"
+    | "shipment_summary"
+    | "shipment_readiness"
     | "general";
 
 type Intent = { kind: IntentKind; query: string };
@@ -61,6 +71,53 @@ function detectIntent(message: string): Intent {
         /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i
     );
     const mcDigits = extractMcDigits(text);
+
+    const readinessCue =
+        /\b(ready(\s+to\s+use)?|readiness|ready\s+to\s+(deliver|close)|can\s+we\s+(deliver|close)|what('s| is)\s+missing|next\s+step|what\s+should\s+(i|the\s+broker)\s+do)\b/i.test(
+            text
+        );
+    const summaryCue =
+        /\b(summary|tell\s+me\s+everything|everything\s+about|problems\s+with|operational)\b/i.test(
+            text
+        );
+    const shipmentOps =
+        /\b(shipment|load|deliver|pod|bol|close\s+this)\b/i.test(text) ||
+        Boolean(loadMatch) ||
+        Boolean(plainLoad);
+
+    if (readinessCue && shipmentOps) {
+        return {
+            kind: "shipment_readiness",
+            query: (loadMatch?.[1] || plainLoad?.[1] || uuidMatch?.[1] || text).trim(),
+        };
+    }
+    if (readinessCue && (/\bcarrier\b/i.test(text) || mcDigits || /mc\s*#?\s*\d/i.test(text))) {
+        return {
+            kind: "carrier_readiness",
+            query: (mcDigits || uuidMatch?.[1] || text).trim(),
+        };
+    }
+    if (summaryCue && shipmentOps) {
+        return {
+            kind: "shipment_summary",
+            query: (loadMatch?.[1] || plainLoad?.[1] || uuidMatch?.[1] || text).trim(),
+        };
+    }
+    if (
+        summaryCue &&
+        (/\bcarrier\b/i.test(text) || mcDigits || /\bcheck\s+this\s+carrier\b/i.test(text))
+    ) {
+        return {
+            kind: "carrier_summary",
+            query: (mcDigits || uuidMatch?.[1] || text).trim(),
+        };
+    }
+    if (/\b(compliance|compliant|check\s+this\s+carrier('s)?\s+compliance)\b/i.test(text)) {
+        return {
+            kind: "carrier_readiness",
+            query: (mcDigits || uuidMatch?.[1] || text).trim(),
+        };
+    }
 
     const wantsDocs =
         /\b(coi|w-?9|noa|mc\s*authority|agreement|document|documents|insurance|certificate)\b/i.test(
@@ -91,7 +148,6 @@ function detectIntent(message: string): Intent {
         Boolean(loadMatch) ||
         Boolean(plainLoad);
 
-    // Priority: compliance / email / timeline / multi before single-entity
     if (complianceCue) {
         return { kind: "compliance", query: text };
     }
@@ -108,6 +164,9 @@ function detectIntent(message: string): Intent {
         };
     }
     if (multiCue || (mcDigits && /\beverything\b/i.test(text))) {
+        if (mcDigits) {
+            return { kind: "carrier_summary", query: mcDigits };
+        }
         return { kind: "greenos_search", query: mcDigits || text };
     }
 
@@ -153,7 +212,6 @@ function detectIntent(message: string): Intent {
         };
     }
 
-    // GreenOS-specific question without clear general education intent
     if (
         /\b(greenos|in\s+our\s+system|in\s+the\s+system|find|show\s+me|search)\b/i.test(text) &&
         !/\bwhat\s+is\s+a\b/i.test(lower)
@@ -211,6 +269,16 @@ function intentToSearchHint(kind: IntentKind): string {
     }
 }
 
+async function resolveCarrierId(actor: AiActor, query: string): Promise<string | null> {
+    if (looksLikeUuid(query)) return query;
+    const mc = extractMcDigits(query);
+    const found = await aiTools.findCarriers(actor, mc || query);
+    if (found.ok && Array.isArray(found.data) && found.data.length >= 1) {
+        return String((found.data[0] as { carrierId?: string }).carrierId || "") || null;
+    }
+    return null;
+}
+
 export class AiOrchestrator {
     async chat(input: {
         actor: AiActor;
@@ -238,13 +306,152 @@ export class AiOrchestrator {
             const toolsUsed: string[] = [];
             let searchMode: "STRUCTURED" | null = null;
 
+            if (intent.kind === "carrier_summary" || intent.kind === "carrier_readiness") {
+                toolsUsed.push("carrierOperationalSummary");
+                const carrierId = await resolveCarrierId(input.actor, intent.query);
+                if (!carrierId) {
+                    return this.finishRun(run.runId, {
+                        reply: NOT_FOUND_LINE,
+                        sources: [],
+                        model: aiGateway.getModel(),
+                        runId: run.runId,
+                        answerMode: "not_found",
+                        groundingLabel: "Based on GreenOS data",
+                        searchMode: null,
+                        intent: intent.kind,
+                        toolsUsed,
+                        usage: null,
+                        status: "SUCCESS",
+                    });
+                }
+                try {
+                    const summary = await operationalAiService.carrierSummary(
+                        input.actor,
+                        carrierId
+                    );
+                    return this.finishRun(run.runId, {
+                        reply: formatCarrierSummaryForChat(summary),
+                        sources: summary.sources,
+                        model: "operational",
+                        runId: run.runId,
+                        answerMode: "operational",
+                        groundingLabel: "Based on GreenOS data",
+                        searchMode: null,
+                        intent: intent.kind,
+                        toolsUsed,
+                        usage: null,
+                        status: "SUCCESS",
+                    });
+                } catch (err) {
+                    const status =
+                        err && typeof err === "object" && "status" in err
+                            ? Number((err as { status: number }).status)
+                            : 500;
+                    if (status === 403) {
+                        return this.finishRun(run.runId, {
+                            reply: "Access denied.",
+                            sources: [],
+                            model: "operational",
+                            runId: run.runId,
+                            answerMode: "operational",
+                            groundingLabel: "Based on GreenOS data",
+                            searchMode: null,
+                            intent: intent.kind,
+                            toolsUsed,
+                            usage: null,
+                            status: "SUCCESS",
+                        });
+                    }
+                    if (status === 404) {
+                        return this.finishRun(run.runId, {
+                            reply: NOT_FOUND_LINE,
+                            sources: [],
+                            model: "operational",
+                            runId: run.runId,
+                            answerMode: "not_found",
+                            groundingLabel: "Based on GreenOS data",
+                            searchMode: null,
+                            intent: intent.kind,
+                            toolsUsed,
+                            usage: null,
+                            status: "SUCCESS",
+                        });
+                    }
+                    throw err;
+                }
+            }
+
+            if (intent.kind === "shipment_summary" || intent.kind === "shipment_readiness") {
+                toolsUsed.push("shipmentOperationalSummary");
+                try {
+                    const summary = await operationalAiService.shipmentSummary(
+                        input.actor,
+                        intent.query
+                    );
+                    return this.finishRun(run.runId, {
+                        reply: formatShipmentSummaryForChat(summary),
+                        sources: summary.sources,
+                        model: "operational",
+                        runId: run.runId,
+                        answerMode: "operational",
+                        groundingLabel: "Based on GreenOS data",
+                        searchMode: null,
+                        intent: intent.kind,
+                        toolsUsed,
+                        usage: null,
+                        status: "SUCCESS",
+                    });
+                } catch (err) {
+                    const status =
+                        err && typeof err === "object" && "status" in err
+                            ? Number((err as { status: number }).status)
+                            : 500;
+                    if (status === 403) {
+                        return this.finishRun(run.runId, {
+                            reply: "Access denied.",
+                            sources: [],
+                            model: "operational",
+                            runId: run.runId,
+                            answerMode: "operational",
+                            groundingLabel: "Based on GreenOS data",
+                            searchMode: null,
+                            intent: intent.kind,
+                            toolsUsed,
+                            usage: null,
+                            status: "SUCCESS",
+                        });
+                    }
+                    if (status === 404) {
+                        return this.finishRun(run.runId, {
+                            reply: NOT_FOUND_LINE,
+                            sources: [],
+                            model: "operational",
+                            runId: run.runId,
+                            answerMode: "not_found",
+                            groundingLabel: "Based on GreenOS data",
+                            searchMode: null,
+                            intent: intent.kind,
+                            toolsUsed,
+                            usage: null,
+                            status: "SUCCESS",
+                        });
+                    }
+                    throw err;
+                }
+            }
+
             const runSearch = async (q: string, hint: string) => {
                 toolsUsed.push("searchGreenOS");
                 const found = await aiTools.searchGreenOS(input.actor, q, {
                     intentHint: hint,
                 });
                 toolResults.push(found);
-                if (found.ok && found.data && typeof found.data === "object" && !Array.isArray(found.data)) {
+                if (
+                    found.ok &&
+                    found.data &&
+                    typeof found.data === "object" &&
+                    !Array.isArray(found.data)
+                ) {
                     const mode = (found.data as { searchMode?: string }).searchMode;
                     if (mode === "STRUCTURED") searchMode = "STRUCTURED";
                 }
@@ -253,7 +460,6 @@ export class AiOrchestrator {
             if (intent.kind === "shipment") {
                 toolsUsed.push("getShipmentById");
                 toolResults.push(await aiTools.getShipmentById(input.actor, intent.query));
-                // Enrich with documents / timeline via search when useful
                 if (/\b(document|bol|pod|rate)\b/i.test(message)) {
                     await runSearch(intent.query, "shipment");
                 }
@@ -297,7 +503,6 @@ export class AiOrchestrator {
                 intent.kind === "greenos_search"
             ) {
                 await runSearch(message, intentToSearchHint(intent.kind));
-                // Also resolve shipment/carrier when clear identifiers present
                 if (intent.kind === "timeline" || intent.kind === "email") {
                     const load = intent.query.match(/\b(GL\d{4,}|\d{4,6})\b/i)?.[1];
                     if (load) {
@@ -485,7 +690,6 @@ export class AiOrchestrator {
 
 export const aiOrchestrator = new AiOrchestrator();
 
-/** Exported for unit tests */
 export const _aiOrchestratorTestUtils = {
     detectIntent,
     NOT_FOUND_LINE,
