@@ -44,6 +44,7 @@ model User {
   assignedCarriers       Carrier[]              @relation("CarrierAssignedBroker")
   directCustomers        DirectCustomer[]
   aiRuns                 AiRun[]
+  aiDocumentJobs         AiDocumentJob[]
 
   @@index([teamLeadId])
   @@map("users")
@@ -924,4 +925,107 @@ model AiRun {
   @@index([createdAt])
   @@index([status])
   @@map("ai_runs")
+}
+
+/// Phase 2B — Document AI processing job (async; non-blocking HTTP).
+model AiDocumentJob {
+  jobId             String    @id @default(uuid()) @map("job_id")
+  /// CARRIER | LOAD
+  documentSource    String    @map("document_source")
+  documentId        String    @map("document_id")
+  carrierId         String?   @map("carrier_id")
+  shipmentLeadId    String?   @map("shipment_lead_id")
+  actorUserId       String    @map("actor_user_id")
+  checksum          String
+  /// Declared GreenOS doc type at upload time (may differ from classified).
+  declaredDocType   String?   @map("declared_doc_type")
+  classifiedDocType String?   @map("classified_doc_type")
+  /// QUEUED | PROCESSING | SUCCEEDED | FAILED | CACHED
+  status            String    @default("QUEUED")
+  attempts          Int       @default(0)
+  errorMessage      String?   @map("error_message")
+  providerModel     String?   @map("provider_model")
+  /// Prior successful job reused via checksum cache.
+  cachedFromJobId   String?   @map("cached_from_job_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  startedAt         DateTime? @map("started_at")
+  completedAt       DateTime? @map("completed_at")
+  actor             User      @relation(fields: [actorUserId], references: [userId], onDelete: Cascade)
+  extraction        AiDocumentExtraction?
+  validation        DocumentValidationResult?
+
+  @@index([documentId])
+  @@index([checksum])
+  @@index([status])
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@index([carrierId])
+  @@index([shipmentLeadId])
+  @@map("ai_document_jobs")
+}
+
+model AiDocumentExtraction {
+  extractionId      String   @id @default(uuid()) @map("extraction_id")
+  jobId             String   @unique @map("job_id")
+  documentType      String   @map("document_type")
+  pageCount         Int?     @map("page_count")
+  textCharCount     Int?     @map("text_char_count")
+  overallConfidence Float?   @map("overall_confidence")
+  /// JSON: signature objects
+  signaturesJson    String?  @map("signatures_json")
+  /// JSON: boundary / multi-doc notes
+  metaJson          String?  @map("meta_json")
+  createdAt         DateTime @default(now()) @map("created_at")
+  job               AiDocumentJob @relation(fields: [jobId], references: [jobId], onDelete: Cascade)
+  fields            DocumentExtractionField[]
+
+  @@index([documentType])
+  @@map("ai_document_extractions")
+}
+
+model DocumentExtractionField {
+  fieldId          String   @id @default(uuid()) @map("field_id")
+  extractionId     String   @map("extraction_id")
+  fieldKey         String   @map("field_key")
+  /// Display value — never full SSN/EIN.
+  valueText        String?  @map("value_text")
+  valueNormalized  String?  @map("value_normalized")
+  /// Optional protected hash/token for sensitive match (not plaintext TIN).
+  valueProtected   String?  @map("value_protected")
+  confidence       Float?
+  page             Int?
+  source           String?
+  method           String?
+  /// FIELD_FOUND | FIELD_MISSING | FIELD_UNCERTAIN | FIELD_MATCH | FIELD_MISMATCH | BELOW_REQUIREMENT | EXPIRED
+  fieldStatus      String   @default("FIELD_FOUND") @map("field_status")
+  extraction       AiDocumentExtraction @relation(fields: [extractionId], references: [extractionId], onDelete: Cascade)
+
+  @@index([extractionId])
+  @@index([fieldKey])
+  @@map("document_extraction_fields")
+}
+
+model DocumentValidationResult {
+  validationId   String    @id @default(uuid()) @map("validation_id")
+  jobId          String    @unique @map("job_id")
+  /// VALID | REVIEW_REQUIRED | INVALID | MISMATCH | EXPIRED | UNSIGNED | ...
+  overallStatus  String    @map("overall_status")
+  /// GREEN | YELLOW | RED
+  trafficLight   String    @map("traffic_light")
+  levelsJson     String?   @map("levels_json")
+  checksJson     String?   @map("checks_json")
+  matchesJson    String?   @map("matches_json")
+  warningsJson   String?   @map("warnings_json")
+  errorsJson     String?   @map("errors_json")
+  requiresReview Boolean   @default(false) @map("requires_review")
+  reviewerUserId String?   @map("reviewer_user_id")
+  reviewedAt     DateTime? @map("reviewed_at")
+  reviewDecision String?   @map("review_decision")
+  reviewNotes    String?   @map("review_notes")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  job            AiDocumentJob @relation(fields: [jobId], references: [jobId], onDelete: Cascade)
+
+  @@index([overallStatus])
+  @@index([requiresReview])
+  @@map("document_validation_results")
 }

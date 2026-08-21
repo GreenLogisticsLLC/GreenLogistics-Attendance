@@ -8,6 +8,7 @@ import { configureSqlite } from "./config/database.js";
 import { attendanceService } from "./services/attendance.service.js";
 import { startEmailImportScheduler } from "./modules/email/scheduler.js";
 import { startCarrierViewReconciliation } from "./modules/tracking/scheduler.js";
+import { startDocumentAiScheduler } from "./modules/ai/documents/scheduler.js";
 import { backfillMissingGreenOsShipmentIds, remigrateAllGreenOsShipmentIds } from "./modules/shipment/shipment.id.js";
 import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
 
@@ -46,6 +47,7 @@ setInterval(() => {
 
 startEmailImportScheduler(config.emailPollIntervalMs);
 startCarrierViewReconciliation();
+startDocumentAiScheduler(15_000);
 
 app.listen(config.port, config.host, async () => {
     await configureSqlite();

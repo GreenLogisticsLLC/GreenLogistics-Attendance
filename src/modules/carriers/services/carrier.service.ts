@@ -1493,7 +1493,10 @@ export class CarrierService {
             "INSURANCE",
             "COI",
             "BROKER_CARRIER_AGREEMENT",
+            "CARRIER_PROFILE",
             "RATE_CONFIRMATION",
+            "BOL",
+            "POD",
             "OTHER",
         ];
         if (!allowed.includes(documentType)) {

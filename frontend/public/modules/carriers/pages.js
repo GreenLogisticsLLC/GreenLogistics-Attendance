@@ -374,15 +374,16 @@ window.GreenOSModules.carriers = {
     }
     el.innerHTML =
       '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-      "<th>Type</th><th>File</th><th>Version</th><th>Status</th><th>Uploaded</th><th></th>" +
+      "<th>Type</th><th>File</th><th>Version</th><th>Status</th><th>AI</th><th>Uploaded</th><th></th>" +
       "</tr></thead><tbody>" +
       docs.map(function (d) {
         return (
-          "<tr>" +
+          "<tr data-doc-id=\"" + self.esc(d.documentId) + "\">" +
           "<td>" + self.esc(d.documentType) + "</td>" +
           "<td>" + self.esc(d.originalFilename) + "</td>" +
           "<td>" + d.version + "</td>" +
           "<td>" + self.esc(d.status) + "</td>" +
+          '<td class="cr-doc-ai" data-id="' + self.esc(d.documentId) + '"><span class="gos-muted">—</span></td>' +
           "<td>" + self.esc(d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "") + "</td>" +
           '<td style="white-space:nowrap">' +
           '<button type="button" class="btn-secondary cr-doc-view" data-id="' +
@@ -394,12 +395,16 @@ window.GreenOSModules.carriers = {
           self.esc(d.documentId) +
           '" data-name="' +
           self.esc(d.originalFilename) +
-          '">Download</button>' +
+          '">Download</button> ' +
+          '<button type="button" class="btn-secondary cr-doc-ai-run" data-id="' +
+          self.esc(d.documentId) +
+          '">Validate AI</button>' +
           "</td>" +
           "</tr>"
         );
       }).join("") +
-      "</tbody></table></div>";
+      "</tbody></table></div>" +
+      '<p class="gos-muted" style="margin-top:8px">Document AI: GREEN / REVIEW / RED — never auto-changes carrier master data.</p>';
     el.querySelectorAll(".cr-doc-view").forEach(function (btn) {
       btn.addEventListener("click", async function () {
         try {
@@ -428,6 +433,99 @@ window.GreenOSModules.carriers = {
         }
       });
     });
+    el.querySelectorAll(".cr-doc-ai-run").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        var docId = btn.getAttribute("data-id");
+        var cell = el.querySelector('.cr-doc-ai[data-id="' + docId + '"]');
+        if (cell) cell.innerHTML = '<span class="gos-muted">Queued…</span>';
+        try {
+          var token = localStorage.getItem("gl_token") || "";
+          var res = await fetch("/api/ai/documents/process", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: token ? "Bearer " + token : "",
+            },
+            body: JSON.stringify({ documentSource: "CARRIER", documentId: docId }),
+          });
+          var json = await res.json();
+          if (!json.success) throw new Error(json.message || "Queue failed");
+          var jobId = json.data && json.data.jobId;
+          await self.pollDocAiJob(jobId, cell);
+        } catch (e) {
+          if (cell) cell.innerHTML = '<span style="color:#b42318">Error</span>';
+          alert(e.message || "Document AI failed");
+        }
+      });
+    });
+    docs.forEach(function (d) {
+      self.loadDocAiStatus(d.documentId, el.querySelector('.cr-doc-ai[data-id="' + d.documentId + '"]'));
+    });
+  },
+
+  async loadDocAiStatus(documentId, cell) {
+    if (!cell) return;
+    try {
+      var token = localStorage.getItem("gl_token") || "";
+      var res = await fetch("/api/ai/documents/" + encodeURIComponent(documentId) + "/validation", {
+        headers: { Authorization: token ? "Bearer " + token : "" },
+        cache: "no-store",
+      });
+      var json = await res.json();
+      if (!json.success || !json.data || !json.data.validation) return;
+      cell.innerHTML = this.formatDocAiBadge(json.data);
+    } catch (_e) {
+      /* ignore */
+    }
+  },
+
+  async pollDocAiJob(jobId, cell) {
+    var self = this;
+    var token = localStorage.getItem("gl_token") || "";
+    for (var i = 0; i < 40; i++) {
+      await new Promise(function (r) { setTimeout(r, 1000); });
+      var res = await fetch("/api/ai/documents/jobs/" + encodeURIComponent(jobId), {
+        headers: { Authorization: token ? "Bearer " + token : "" },
+        cache: "no-store",
+      });
+      var json = await res.json();
+      if (!json.success) throw new Error(json.message || "Job failed");
+      var st = json.data && json.data.status;
+      if (st === "SUCCEEDED" || st === "CACHED" || st === "FAILED") {
+        if (cell) cell.innerHTML = self.formatDocAiBadge(json.data);
+        if (st === "FAILED") throw new Error((json.data && json.data.errorMessage) || "Processing failed");
+        return;
+      }
+      if (cell) cell.innerHTML = '<span class="gos-muted">' + self.esc(st || "…") + "</span>";
+    }
+    if (cell) cell.innerHTML = '<span class="gos-muted">Still running…</span>';
+  },
+
+  formatDocAiBadge(payload) {
+    var v = payload && payload.validation;
+    if (!v) return '<span class="gos-muted">—</span>';
+    var light = String(v.trafficLight || "").toUpperCase();
+    var color = light === "GREEN" ? "#067647" : light === "YELLOW" ? "#b54708" : "#b42318";
+    var label = light === "GREEN" ? "GREEN" : light === "YELLOW" ? "REVIEW" : "RED";
+    var status = v.overallStatus || "";
+    var sig = "";
+    var signs = payload.extraction && payload.extraction.signatures;
+    if (Array.isArray(signs) && signs[0] && signs[0].status) {
+      sig = " · sig:" + signs[0].status;
+    }
+    var tip = [status, payload.classifiedDocType || "", sig].filter(Boolean).join(" ");
+    return (
+      '<span title="' +
+      this.esc(tip) +
+      '" style="font-weight:600;color:' +
+      color +
+      '">' +
+      this.esc(label) +
+      "</span>" +
+      '<span class="gos-muted"> ' +
+      this.esc(status) +
+      "</span>"
+    );
   },
 
   renderAgreement(el, c) {

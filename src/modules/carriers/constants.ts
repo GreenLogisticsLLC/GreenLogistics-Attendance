@@ -13,6 +13,7 @@ export const CARRIER_ONBOARDING_STATUSES = [
 export type CarrierOnboardingStatus = (typeof CARRIER_ONBOARDING_STATUSES)[number];
 
 export const CARRIER_DOC_TYPES = {
+    CARRIER_PROFILE: "CARRIER_PROFILE",
     MC_AUTHORITY: "MC_AUTHORITY",
     NOA: "NOA",
     W9: "W9",
@@ -21,6 +22,7 @@ export const CARRIER_DOC_TYPES = {
     BROKER_CARRIER_AGREEMENT: "BROKER_CARRIER_AGREEMENT",
     RATE_CONFIRMATION: "RATE_CONFIRMATION",
     BOL: "BOL",
+    POD: "POD",
     OTHER: "OTHER",
 } as const;
 
