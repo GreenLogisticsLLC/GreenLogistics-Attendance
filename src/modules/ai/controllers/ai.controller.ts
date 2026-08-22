@@ -26,7 +26,7 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                     : "none",
             projectConfigured: Boolean(openai.projectId),
             organizationConfigured: Boolean(openai.organizationId),
-            phase: 4,
+            phase: 5,
             tools: [
                 "getCarrierById",
                 "getShipmentById",
@@ -35,10 +35,13 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                 "searchGreenOS",
                 "carrierOperationalSummary",
                 "shipmentOperationalSummary",
+                "marketRateQuote",
             ],
             searchMode: "STRUCTURED",
             knowledgeProvider: "StructuredKnowledgeSearchProvider",
             operational: true,
+            marketRate: true,
+            marketRateProvider: "InternalHistoricalRateProvider",
             actionsEnabled: false,
         })
     );

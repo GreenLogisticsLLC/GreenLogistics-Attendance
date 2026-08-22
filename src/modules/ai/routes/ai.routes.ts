@@ -8,6 +8,7 @@ import {
     aiShipmentSummaryController,
     aiStatusController,
 } from "../controllers/ai.controller.js";
+import { marketRateQuoteController } from "../rates/rates.controller.js";
 import {
     getDocumentJobController,
     getDocumentValidationController,
@@ -40,6 +41,7 @@ aiRouter.post("/chat", aiRoles, aiChatController);
 aiRouter.post("/search", aiRoles, aiSearchController);
 aiRouter.get("/carriers/:id/summary", aiRoles, aiCarrierSummaryController);
 aiRouter.get("/shipments/:id/summary", aiRoles, aiShipmentSummaryController);
+aiRouter.post("/rates/quote", aiRoles, marketRateQuoteController);
 aiRouter.post("/documents/process", aiRoles, processDocumentController);
 aiRouter.get("/documents/jobs/:jobId", aiRoles, getDocumentJobController);
 aiRouter.get("/documents/:documentId/validation", aiRoles, getDocumentValidationController);

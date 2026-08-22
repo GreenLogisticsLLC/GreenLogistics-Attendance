@@ -1021,6 +1021,12 @@ window.GreenOSModules["dispatch"] = {
       '<p class="gos-muted" id="load-ai-ops-status" style="font-size:0.85rem">Loading…</p>' +
       '<pre id="load-ai-ops-body" style="font-size:0.8rem;white-space:pre-wrap;margin:0;font-family:inherit"></pre>' +
       "</div>" +
+      '<div id="load-market-rate" style="margin:0.75rem 0;padding:0.5rem 0;border-top:1px solid var(--gos-border,#ddd)">' +
+      "<h4>Internal Market Rate</h4>" +
+      '<p class="gos-muted" id="load-market-rate-status" style="font-size:0.85rem">Loading…</p>' +
+      '<pre id="load-market-rate-body" style="font-size:0.8rem;white-space:pre-wrap;margin:0;font-family:inherit"></pre>' +
+      '<p class="gos-muted" id="load-market-rate-note" style="font-size:0.75rem;margin:0.25rem 0 0">Based on GreenOS historical shipment data — not a live market quote.</p>' +
+      "</div>" +
       "<h4>Quick Actions</h4>" +
       '<div class="load-actions">' +
       actions +
@@ -1031,6 +1037,7 @@ window.GreenOSModules["dispatch"] = {
 
     self.bindPaymentDocButtons(body);
     self.loadShipmentAiOps(body, id);
+    self.loadShipmentMarketRate(body, id);
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
       self.clearOpenLoad();
@@ -3550,6 +3557,79 @@ window.GreenOSModules["dispatch"] = {
       bodyEl.textContent = lines.join("\n");
     } catch (e) {
       statusEl.textContent = e.message || "AI ops unavailable";
+    }
+  },
+
+  async loadShipmentMarketRate(body, id) {
+    var statusEl = body.querySelector("#load-market-rate-status");
+    var bodyEl = body.querySelector("#load-market-rate-body");
+    if (!statusEl || !bodyEl) return;
+    try {
+      var token = localStorage.getItem("gl_token");
+      var res = await fetch("/api/ai/rates/quote", {
+        method: "POST",
+        headers: {
+          Authorization: token ? "Bearer " + token : "",
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+        body: JSON.stringify({ shipmentId: id }),
+      });
+      var json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || "Market rate failed");
+      var d = json.data || {};
+      if (d.status === "OK") {
+        statusEl.textContent =
+          "Confidence: " + (d.confidence || "—") + " · " + (d.comparisonLevel || "—");
+        var lines = [];
+        lines.push("Comparable shipments: " + (d.sampleSize || 0));
+        if (d.rpm) {
+          lines.push(
+            "RPM P25 " +
+              (d.rpm.p25 != null ? "$" + d.rpm.p25.toFixed(2) : "—") +
+              " · Med " +
+              (d.rpm.median != null ? "$" + d.rpm.median.toFixed(2) : "—") +
+              " · P75 " +
+              (d.rpm.p75 != null ? "$" + d.rpm.p75.toFixed(2) : "—")
+          );
+        }
+        if (d.rate) {
+          lines.push(
+            "Rate range $" +
+              Math.round(d.rate.p25).toLocaleString() +
+              " – $" +
+              Math.round(d.rate.p75).toLocaleString()
+          );
+        }
+        if (d.recommendedTarget != null) {
+          lines.push(
+            "Internal target: $" + Math.round(d.recommendedTarget).toLocaleString()
+          );
+        }
+        if (d.historicalDataDateRange && (d.historicalDataDateRange.earliest || d.historicalDataDateRange.latest)) {
+          lines.push(
+            "Data: " +
+              (d.historicalDataDateRange.earliest || "—") +
+              " → " +
+              (d.historicalDataDateRange.latest || "—")
+          );
+        }
+        if (d.carrierQuote != null) {
+          lines.push("Carrier quote: $" + Math.round(d.carrierQuote).toLocaleString());
+          if (d.carrierQuoteAssessment) lines.push("Assessment: " + d.carrierQuoteAssessment);
+        }
+        if ((d.sources || []).length) {
+          lines.push("Sources: " + d.sources.length + " shipment(s)");
+        }
+        bodyEl.textContent = lines.join("\n");
+      } else {
+        statusEl.textContent = d.status || "No data";
+        bodyEl.textContent =
+          d.message ||
+          "Insufficient GreenOS historical data to calculate a reliable estimate.";
+      }
+    } catch (e) {
+      statusEl.textContent = e.message || "Market rate unavailable";
     }
   },
 };

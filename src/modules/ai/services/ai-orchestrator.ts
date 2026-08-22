@@ -8,13 +8,15 @@ import {
     formatShipmentSummaryForChat,
     operationalAiService,
 } from "../operational/operational.service.js";
+import { formatMarketRateForChat, marketRateService } from "../rates/index.js";
+import { parseMoneyQuote } from "../rates/historical-record.js";
 
 export type AiChatResult = {
     reply: string;
     sources: AiSource[];
     model: string;
     runId: string;
-    answerMode: "grounded" | "general" | "not_found" | "operational";
+    answerMode: "grounded" | "general" | "not_found" | "operational" | "internal_market";
     groundingLabel: string;
     searchMode?: "STRUCTURED" | null;
 };
@@ -57,9 +59,30 @@ export type IntentKind =
     | "carrier_readiness"
     | "shipment_summary"
     | "shipment_readiness"
+    | "rate_analysis"
+    | "historical_rate"
+    | "lane_rate"
+    | "carrier_quote_comparison"
     | "general";
 
-type Intent = { kind: IntentKind; query: string };
+type RateIntentPayload = {
+    shipmentQuery?: string;
+    carrierQuote?: number;
+};
+
+type Intent = { kind: IntentKind; query: string; rate?: RateIntentPayload };
+
+function extractCarrierQuoteFromMessage(text: string): number | null {
+    const dollar = text.match(/\$\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/);
+    if (dollar) return parseMoneyQuote(dollar[1].replace(/,/g, ""));
+    const plain = text.match(
+        /\b(?:quoted?|quote|offer(?:ed)?|pay(?:ing)?)\s+\$?\s*([0-9]{3,6}(?:\.[0-9]{1,2})?)\b/i
+    );
+    if (plain) return parseMoneyQuote(plain[1]);
+    const isHighLow = text.match(/\b(?:is\s+)?\$?\s*([0-9]{3,6}(?:\.[0-9]{1,2})?)\s+(?:high|low)\b/i);
+    if (isHighLow) return parseMoneyQuote(isHighLow[1]);
+    return null;
+}
 
 function detectIntent(message: string): Intent {
     const text = String(message || "").trim();
@@ -84,6 +107,67 @@ function detectIntent(message: string): Intent {
         /\b(shipment|load|deliver|pod|bol|close\s+this)\b/i.test(text) ||
         Boolean(loadMatch) ||
         Boolean(plainLoad);
+
+    const carrierQuote = extractCarrierQuoteFromMessage(text);
+    const shipmentRef = (loadMatch?.[1] || plainLoad?.[1] || uuidMatch?.[1] || "").trim();
+
+    if (
+        carrierQuote != null &&
+        /\b(high|low)\b/i.test(text) &&
+        (/\b(load|shipment|lane|rate|this)\b/i.test(text) || Boolean(shipmentRef))
+    ) {
+        return {
+            kind: "carrier_quote_comparison",
+            query: shipmentRef || text,
+            rate: { shipmentQuery: shipmentRef || undefined, carrierQuote },
+        };
+    }
+
+    const rateCue =
+        /\b(rate|rpm|pay\s+for|should\s+we\s+pay|target\s+rate|market\s+rate|historical\w*|quoted?|what\s+have\s+we\s+paid|paid|reasonable\s+target|high\s+or\s+low|compared\s+with\s+our\s+history)\b/i.test(
+            text
+        );
+
+    if (rateCue) {
+        if (
+            carrierQuote != null &&
+            /\b(high|low|quoted?|offer(?:ed)?|compared|vs\.?|versus)\b/i.test(text)
+        ) {
+            return {
+                kind: "carrier_quote_comparison",
+                query: shipmentRef || text,
+                rate: { shipmentQuery: shipmentRef || undefined, carrierQuote },
+            };
+        }
+        if (/\b(historical\w*|what\s+have\s+we\s+\w*\s*paid|paid\s+carriers\s+on)\b/i.test(text)) {
+            return {
+                kind: "historical_rate",
+                query: shipmentRef || text,
+                rate: { shipmentQuery: shipmentRef || undefined, carrierQuote: carrierQuote ?? undefined },
+            };
+        }
+        if (/\b(lane\s+rate|market\s+rate\s+for\s+this\s+lane|this\s+lane)\b/i.test(text)) {
+            return {
+                kind: "lane_rate",
+                query: shipmentRef || text,
+                rate: { shipmentQuery: shipmentRef || undefined },
+            };
+        }
+        if (/\b(rpm|what\s+should\s+we\s+pay|target\s+rate|pay\s+for\s+this\s+load|reasonable\s+target)\b/i.test(text)) {
+            return {
+                kind: "rate_analysis",
+                query: shipmentRef || text,
+                rate: { shipmentQuery: shipmentRef || undefined, carrierQuote: carrierQuote ?? undefined },
+            };
+        }
+        if (rateCue && (shipmentRef || shipmentOps)) {
+            return {
+                kind: "rate_analysis",
+                query: shipmentRef || text,
+                rate: { shipmentQuery: shipmentRef || undefined, carrierQuote: carrierQuote ?? undefined },
+            };
+        }
+    }
 
     if (readinessCue && shipmentOps) {
         return {
@@ -224,6 +308,16 @@ function detectIntent(message: string): Intent {
 
 function looksLikeUuid(s: string): boolean {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+function looksLikeShipmentRef(s: string): boolean {
+    const t = String(s || "").trim();
+    if (!t) return false;
+    if (looksLikeUuid(t)) return true;
+    if (/^GL\d+/i.test(t)) return true;
+    if (/^GOS\d+/i.test(t)) return true;
+    if (/^\d{4,6}$/.test(t)) return true;
+    return false;
 }
 
 function mergeSources(results: AiToolResult[]): AiSource[] {
@@ -370,6 +464,65 @@ export class AiOrchestrator {
                             runId: run.runId,
                             answerMode: "not_found",
                             groundingLabel: "Based on GreenOS data",
+                            searchMode: null,
+                            intent: intent.kind,
+                            toolsUsed,
+                            usage: null,
+                            status: "SUCCESS",
+                        });
+                    }
+                    throw err;
+                }
+            }
+
+            if (
+                intent.kind === "rate_analysis" ||
+                intent.kind === "historical_rate" ||
+                intent.kind === "lane_rate" ||
+                intent.kind === "carrier_quote_comparison"
+            ) {
+                toolsUsed.push("marketRateQuote");
+                const shipmentRef = intent.rate?.shipmentQuery || intent.query;
+                const shipmentId = looksLikeShipmentRef(shipmentRef) ? shipmentRef : undefined;
+                try {
+                    const quote = await marketRateService.quote(input.actor, {
+                        shipmentId,
+                        currentCarrierQuote: intent.rate?.carrierQuote,
+                    });
+                    const sources = quote.sources.map((s) => ({
+                        type: "shipment" as const,
+                        id: s.id,
+                        label: s.label,
+                    }));
+                    const answerMode =
+                        quote.status === "OK" ? "internal_market" : quote.status === "NOT_FOUND" ? "not_found" : "internal_market";
+                    const groundingLabel = "Based on GreenOS historical shipment data";
+                    return this.finishRun(run.runId, {
+                        reply: formatMarketRateForChat(quote),
+                        sources,
+                        model: quote.provider,
+                        runId: run.runId,
+                        answerMode,
+                        groundingLabel,
+                        searchMode: null,
+                        intent: intent.kind,
+                        toolsUsed,
+                        usage: null,
+                        status: "SUCCESS",
+                    });
+                } catch (err) {
+                    const status =
+                        err && typeof err === "object" && "status" in err
+                            ? Number((err as { status: number }).status)
+                            : 500;
+                    if (status === 403) {
+                        return this.finishRun(run.runId, {
+                            reply: "Access denied.",
+                            sources: [],
+                            model: "InternalHistoricalRateProvider",
+                            runId: run.runId,
+                            answerMode: "internal_market",
+                            groundingLabel: "Based on GreenOS historical shipment data",
                             searchMode: null,
                             intent: intent.kind,
                             toolsUsed,
