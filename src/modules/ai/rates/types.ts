@@ -65,6 +65,7 @@ export type MarketRateRequest = {
     miles?: number;
     weight?: string;
     pickupDate?: string;
+    deliveryDate?: string;
     currentCarrierQuote?: number;
 };
 
@@ -94,7 +95,5 @@ export type MarketRateResult = {
     message: string | null;
 };
 
-export interface MarketRateProvider {
-    readonly name: string;
-    quote(actor: RateActor, request: MarketRateRequest): Promise<MarketRateResult>;
-}
+/** Alias — Phase 5A internal quote shape. */
+export type InternalMarketRateQuote = MarketRateResult;

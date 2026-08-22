@@ -3621,6 +3621,25 @@ window.GreenOSModules["dispatch"] = {
         if ((d.sources || []).length) {
           lines.push("Sources: " + d.sources.length + " shipment(s)");
         }
+        if (d.providerStatuses) {
+          lines.push("");
+          lines.push("Providers:");
+          lines.push(
+            "DAT: " +
+              (d.providerStatuses.DAT === "NOT_CONFIGURED"
+                ? "Not connected"
+                : d.providerStatuses.DAT || "—")
+          );
+          lines.push(
+            "Truckstop: " +
+              (d.providerStatuses.TRUCKSTOP === "NOT_CONFIGURED"
+                ? "Not connected"
+                : d.providerStatuses.TRUCKSTOP || "—")
+          );
+        }
+        if (d.retrievedAt) {
+          lines.push("Retrieved: " + d.retrievedAt);
+        }
         bodyEl.textContent = lines.join("\n");
       } else {
         statusEl.textContent = d.status || "No data";

@@ -26,7 +26,7 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                     : "none",
             projectConfigured: Boolean(openai.projectId),
             organizationConfigured: Boolean(openai.organizationId),
-            phase: 5,
+            phase: "5B",
             tools: [
                 "getCarrierById",
                 "getShipmentById",
@@ -42,6 +42,11 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
             operational: true,
             marketRate: true,
             marketRateProvider: "InternalHistoricalRateProvider",
+            marketRateProviders: {
+                internal: "AVAILABLE",
+                dat: "NOT_CONNECTED",
+                truckstop: "NOT_CONNECTED",
+            },
             actionsEnabled: false,
         })
     );

@@ -16,7 +16,7 @@ export type AiChatResult = {
     sources: AiSource[];
     model: string;
     runId: string;
-    answerMode: "grounded" | "general" | "not_found" | "operational" | "internal_market";
+    answerMode: "grounded" | "general" | "not_found" | "operational" | "internal_market" | "external_market" | "market_comparison";
     groundingLabel: string;
     searchMode?: "STRUCTURED" | null;
 };
@@ -495,8 +495,15 @@ export class AiOrchestrator {
                         label: s.label,
                     }));
                     const answerMode =
-                        quote.status === "OK" ? "internal_market" : quote.status === "NOT_FOUND" ? "not_found" : "internal_market";
-                    const groundingLabel = "Based on GreenOS historical shipment data";
+                        quote.status === "NOT_FOUND"
+                            ? "not_found"
+                            : quote.answerMode;
+                    const groundingLabel =
+                        answerMode === "market_comparison"
+                            ? "Based on GreenOS historical and external market provider data"
+                            : answerMode === "external_market"
+                              ? "Based on external market provider data"
+                              : "Based on GreenOS historical shipment data";
                     return this.finishRun(run.runId, {
                         reply: formatMarketRateForChat(quote),
                         sources,

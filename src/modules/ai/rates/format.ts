@@ -1,3 +1,4 @@
+import type { MarketRateCompositeResult } from "./provider-types.js";
 import type { MarketRateResult } from "./types.js";
 
 function fmtMoney(n: number | null | undefined): string {
@@ -36,7 +37,47 @@ function assessmentLabel(a: string | null): string {
     }
 }
 
-export function formatMarketRateForChat(result: MarketRateResult): string {
+function providerStatusLabel(status: string | undefined): string {
+    switch (status) {
+        case "NOT_CONFIGURED":
+            return "Not connected";
+        case "CONFIGURED":
+            return "Configured (not live)";
+        case "AVAILABLE":
+            return "Available";
+        case "UNAVAILABLE":
+            return "Unavailable";
+        case "ERROR":
+            return "Error";
+        case "TIMEOUT":
+            return "Timeout";
+        default:
+            return status || "—";
+    }
+}
+
+function formatInternalSection(result: MarketRateResult): string[] {
+    const lines: string[] = [];
+    lines.push("GreenOS Historical:");
+    lines.push(`Comparable shipments: ${result.sampleSize}`);
+    lines.push(`Comparison: ${comparisonLabel(result.comparisonLevel)}`);
+    if (result.rpm) {
+        lines.push(
+            `RPM P25 ${fmtRpm(result.rpm.p25)} · Med ${fmtRpm(result.rpm.median)} · P75 ${fmtRpm(result.rpm.p75)}`
+        );
+    }
+    if (result.rate) {
+        lines.push(`Rate range ${fmtMoney(result.rate.p25)} – ${fmtMoney(result.rate.p75)}`);
+    }
+    if (result.recommendedTarget != null) {
+        lines.push(`Internal historical target: ${fmtMoney(result.recommendedTarget)}`);
+    }
+    lines.push(`Confidence: ${result.confidence || "—"}`);
+    if (result.recencyNote) lines.push(result.recencyNote);
+    return lines;
+}
+
+export function formatMarketRateForChat(result: MarketRateCompositeResult): string {
     if (result.status === "FORBIDDEN") {
         return "Access denied.";
     }
@@ -47,76 +88,113 @@ export function formatMarketRateForChat(result: MarketRateResult): string {
         return "Missing miles — cannot calculate RPM from GreenOS data. No rate was invented.";
     }
     if (result.status === "INSUFFICIENT_DATA") {
-        return (
+        const providerNotes = result.providers
+            .filter((p) => p.providerId !== "INTERNAL_HISTORICAL")
+            .map((p) => `${p.source}: ${providerStatusLabel(p.lifecycleStatus)}`);
+        const lines = [
             result.message ||
-            "Insufficient GreenOS historical data to calculate a reliable estimate."
-        );
+                "Insufficient GreenOS historical data to calculate a reliable estimate.",
+        ];
+        if (providerNotes.length) {
+            lines.push("");
+            lines.push("External providers:");
+            providerNotes.forEach((n) => lines.push(`- ${n}`));
+        }
+        return lines.join("\n");
     }
 
     const lines: string[] = [];
-    lines.push("Internal GreenOS historical analysis:");
+    lines.push("Market rate analysis:");
     lines.push("");
-    lines.push(`Comparable shipments: ${result.sampleSize}`);
-    lines.push(`Comparison: ${comparisonLabel(result.comparisonLevel)}`);
+    lines.push(...formatInternalSection(result));
     lines.push("");
-    if (result.rpm) {
-        lines.push("Historical RPM:");
-        lines.push(`P25: ${fmtRpm(result.rpm.p25)}`);
-        lines.push(`Median: ${fmtRpm(result.rpm.median)}`);
-        lines.push(`P75: ${fmtRpm(result.rpm.p75)}`);
-        lines.push("");
-    }
-    if (result.rate) {
-        lines.push(`Historical rate range: ${fmtMoney(result.rate.p25)} – ${fmtMoney(result.rate.p75)}`);
-        lines.push("");
-    }
-    if (result.recommendedTarget != null) {
-        lines.push(`Internal historical target: ${fmtMoney(result.recommendedTarget)}`);
-        lines.push("");
-    }
-    lines.push(`Confidence: ${result.confidence || "—"}`);
-    if (result.recencyNote) lines.push(result.recencyNote);
+    lines.push("Important: GreenOS historical data is separate from external market providers.");
+
+    const dat = result.providers.find((p) => p.providerId === "DAT");
+    const truckstop = result.providers.find((p) => p.providerId === "TRUCKSTOP");
+
     lines.push("");
-    lines.push(
-        "Important: This is an INTERNAL HISTORICAL estimate, not a live market quote."
-    );
+    lines.push("Provider status:");
+    lines.push(`- DAT: ${providerStatusLabel(dat?.lifecycleStatus)}`);
+    lines.push(`- Truckstop: ${providerStatusLabel(truckstop?.lifecycleStatus)}`);
+
+    if (dat?.lifecycleStatus === "AVAILABLE" && dat.rate != null) {
+        lines.push(`DAT returned: ${fmtMoney(dat.rate)}`);
+    }
+    if (truckstop?.lifecycleStatus === "AVAILABLE" && truckstop.rate != null) {
+        lines.push(`Truckstop returned: ${fmtMoney(truckstop.rate)}`);
+    }
+
+    if (result.externalMarket?.rateRange) {
+        lines.push("");
+        lines.push(
+            `External market range: ${fmtMoney(result.externalMarket.rateRange.low)} – ${fmtMoney(result.externalMarket.rateRange.high)}`
+        );
+    }
+
     if (result.carrierQuote != null) {
         lines.push("");
         lines.push(`Carrier quote: ${fmtMoney(result.carrierQuote)}`);
-        if (result.carrierQuoteAssessment) {
+        if (result.comparison?.summary) {
+            lines.push(`Comparison: ${result.comparison.summary}`);
+        } else if (result.carrierQuoteAssessment) {
             lines.push(`Assessment: ${assessmentLabel(result.carrierQuoteAssessment)}`);
         }
     }
+
     if (result.sources.length) {
         lines.push("");
-        lines.push("Sources:");
+        lines.push("GreenOS sources:");
         result.sources.slice(0, 10).forEach((s) => lines.push(`- ${s.label}`));
-        if (result.sources.length > 10) {
-            lines.push(`… and ${result.sources.length - 10} more`);
-        }
     }
+
+    lines.push("");
+    lines.push(`Retrieved: ${result.retrievedAt}`);
     return lines.join("\n");
 }
 
-export function formatMarketRateForPanel(result: MarketRateResult): string {
-    if (result.status !== "OK") {
+export function formatMarketRateForPanel(result: MarketRateCompositeResult): string {
+    if (result.status !== "OK" && result.status !== "MISSING_MILES") {
         return result.message || result.status;
     }
     const parts: string[] = [];
-    parts.push(`Comparable: ${result.sampleSize} (${comparisonLabel(result.comparisonLevel)})`);
+    parts.push(`GreenOS Historical · ${result.sampleSize} comparables`);
     if (result.rpm) {
         parts.push(
-            `RPM P25 ${fmtRpm(result.rpm.p25)} · Med ${fmtRpm(result.rpm.median)} · P75 ${fmtRpm(result.rpm.p75)}`
+            `RPM ${fmtRpm(result.rpm.p25)}–${fmtRpm(result.rpm.p75)} (med ${fmtRpm(result.rpm.median)})`
         );
     }
-    if (result.rate) {
-        parts.push(`Rate ${fmtMoney(result.rate.p25)}–${fmtMoney(result.rate.p75)}`);
-    }
     if (result.recommendedTarget != null) {
-        parts.push(`Target ${fmtMoney(result.recommendedTarget)} (${result.confidence || "—"})`);
+        parts.push(`Target ${fmtMoney(result.recommendedTarget)}`);
     }
-    if (result.carrierQuote != null && result.carrierQuoteAssessment) {
-        parts.push(`Quote ${fmtMoney(result.carrierQuote)}: ${assessmentLabel(result.carrierQuoteAssessment)}`);
+
+    const dat = result.providers.find((p) => p.providerId === "DAT");
+    const truckstop = result.providers.find((p) => p.providerId === "TRUCKSTOP");
+    parts.push(`DAT: ${providerStatusLabel(dat?.lifecycleStatus)}`);
+    parts.push(`Truckstop: ${providerStatusLabel(truckstop?.lifecycleStatus)}`);
+
+    if (result.carrierQuote != null && result.comparison?.summary) {
+        parts.push(`Quote ${fmtMoney(result.carrierQuote)} · ${result.comparison.summary}`);
     }
     return parts.join("\n");
 }
+
+export function formatProviderStatusesForPanel(result: MarketRateCompositeResult): string {
+    return (result.providers || [])
+        .map((p) => {
+            if (p.lifecycleStatus === "NOT_CONFIGURED") {
+                return `${p.source}: Not connected`;
+            }
+            if (p.lifecycleStatus === "TIMEOUT") {
+                return `${p.source}: Timeout`;
+            }
+            if (p.lifecycleStatus === "AVAILABLE" && p.rate != null) {
+                return `${p.source}: ${fmtMoney(p.rate)}`;
+            }
+            return `${p.source}: ${providerStatusLabel(p.lifecycleStatus)}`;
+        })
+        .join("\n");
+}
+
+/** @deprecated alias — accepts composite or legacy internal shape */
+export type MarketRateFormatInput = MarketRateCompositeResult;

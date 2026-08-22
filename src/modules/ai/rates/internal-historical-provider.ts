@@ -16,12 +16,14 @@ import { mapToHistoricalRecord, parseMoneyQuote } from "./historical-record.js";
 import { computeRateStatistics, roundDisplay, roundRateStats } from "./statistics.js";
 import type {
     CarrierQuoteAssessment,
-    MarketRateProvider,
     MarketRateRequest,
     MarketRateResult,
     MarketRateSource,
     RateActor,
 } from "./types.js";
+import type { MarketRateProvider } from "./provider-interface.js";
+import type { ProviderLifecycleStatus, ProviderRunContext } from "./provider-types.js";
+import { mapInternalResultToNormalized } from "./internal-to-normalized.js";
 
 function assessCarrierQuote(
     quote: number,
@@ -132,8 +134,23 @@ function insufficient(message: string): MarketRateResult {
 }
 
 export class InternalHistoricalRateProvider implements MarketRateProvider {
+    readonly id = "INTERNAL_HISTORICAL" as const;
     readonly name = "InternalHistoricalRateProvider";
 
+    getLifecycleStatus(): ProviderLifecycleStatus {
+        return "AVAILABLE";
+    }
+
+    async getMarketRate(
+        actor: RateActor,
+        request: MarketRateRequest,
+        context: ProviderRunContext
+    ) {
+        const result = await this.quote(actor, request);
+        return mapInternalResultToNormalized(result, context.retrievedAt);
+    }
+
+    /** Phase 5A internal quote — unchanged logic. */
     async quote(actor: RateActor, request: MarketRateRequest): Promise<MarketRateResult> {
         let effective = { ...request };
         let excludeShipmentId: string | undefined;
