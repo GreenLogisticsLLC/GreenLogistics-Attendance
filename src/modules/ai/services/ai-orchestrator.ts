@@ -19,6 +19,8 @@ import {
 } from "../communications/index.js";
 import { commandCenterService } from "../command-center/service.js";
 import { attachCommandCenterActions } from "../command-center/command-center.controller.js";
+import { shipmentLifecycleService } from "../lifecycle/service.js";
+import { lifecycleRecommendations } from "../lifecycle/lifecycle.controller.js";
 
 export type AiChatResult = {
     reply: string;
@@ -73,6 +75,12 @@ export type IntentKind =
     | "carrier_readiness"
     | "shipment_summary"
     | "shipment_readiness"
+    | "shipment_lifecycle"
+    | "shipment_status"
+    | "shipment_progress"
+    | "shipment_blockers"
+    | "shipment_closeout"
+    | "shipment_next_action"
     | "rate_analysis"
     | "historical_rate"
     | "lane_rate"
@@ -112,6 +120,7 @@ async function proposeActionsFromSummary(
         }>;
         carrierEmail?: string | null;
         aiRunId: string;
+        allowedActionTypes?: string[];
     }
 ): Promise<AiActionPublicView[]> {
     if (actor.role === "Viewer") return [];
@@ -121,7 +130,10 @@ async function proposeActionsFromSummary(
         recommendations: input.recommendations,
         carrierEmail: input.carrierEmail,
         aiRunId: input.aiRunId,
-    });
+    }).filter(
+        (draft) =>
+            !input.allowedActionTypes || input.allowedActionTypes.includes(draft.actionType)
+    );
     const out: AiActionPublicView[] = [];
     for (const draft of drafts.slice(0, 3)) {
         try {
@@ -155,6 +167,23 @@ function detectIntent(message: string): Intent {
         /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i
     );
     const mcDigits = extractMcDigits(text);
+    const shipmentRef = (loadMatch?.[1] || plainLoad?.[1] || uuidMatch?.[1] || "").trim();
+
+    if (
+        shipmentRef &&
+        /\b(lifecycle|shipment\s+status|load\s+status|progress|blockers?|blocks?|blocking|closeout|ready\s+to\s+close|next\s+(?:best\s+)?action|what(?:'s| is)\s+next)\b/i.test(
+            text
+        )
+    ) {
+        let kind: IntentKind = "shipment_lifecycle";
+        if (/\b(blockers?|blocks?|blocking)\b/i.test(text)) kind = "shipment_blockers";
+        else if (/\b(closeout|ready\s+to\s+close)\b/i.test(text)) kind = "shipment_closeout";
+        else if (/\b(next\s+(?:best\s+)?action|what(?:'s| is)\s+next)\b/i.test(text)) {
+            kind = "shipment_next_action";
+        } else if (/\bprogress\b/i.test(text)) kind = "shipment_progress";
+        else if (/\b(?:shipment|load)\s+status\b/i.test(text)) kind = "shipment_status";
+        return { kind, query: shipmentRef };
+    }
 
     if (/\b(command\s+center|operations?\s+center)\b/i.test(text)) {
         return { kind: "command_center", query: text };
@@ -187,7 +216,6 @@ function detectIntent(message: string): Intent {
         Boolean(plainLoad);
 
     const carrierQuote = extractCarrierQuoteFromMessage(text);
-    const shipmentRef = (loadMatch?.[1] || plainLoad?.[1] || uuidMatch?.[1] || "").trim();
     const communicationCue =
         /\b(waiting\s+for|last\s+(?:contact|communicat)|follow[- ]?up|did\s+the\s+carrier\s+send|what\s+did\s+the\s+customer\s+say|communicat(?:ion|ions|e)|document\s+request\s+status|next\s+communication\s+action)\b/i.test(
             text
@@ -545,6 +573,68 @@ export class AiOrchestrator {
                         text: item.title,
                         reason: item.reason,
                         priority: item.priority,
+                    })),
+                    actions,
+                });
+            }
+
+            const lifecycleKinds: IntentKind[] = [
+                "shipment_lifecycle",
+                "shipment_status",
+                "shipment_progress",
+                "shipment_blockers",
+                "shipment_closeout",
+                "shipment_next_action",
+            ];
+            if (lifecycleKinds.includes(intent.kind)) {
+                toolsUsed.push("shipmentLifecycle");
+                const context = await shipmentLifecycleService.build(input.actor, intent.query);
+                const recommendations = lifecycleRecommendations(context);
+                const actions = await proposeActionsFromSummary(input.actor, {
+                    shipmentLeadId: context.shipmentId,
+                    recommendations,
+                    carrierEmail:
+                        context.nextBestAction === "FOLLOW_UP_CUSTOMER"
+                            ? typeof context.customer?.email === "string"
+                                ? context.customer.email
+                                : null
+                            : typeof context.carrier?.email === "string"
+                              ? context.carrier.email
+                              : null,
+                    aiRunId: run.runId,
+                    allowedActionTypes: ["REQUEST_DOCUMENT", "SEND_EMAIL"],
+                });
+                if (actions.length) toolsUsed.push("aiActionPropose");
+                return this.finishRun(run.runId, {
+                    reply:
+                        shipmentLifecycleService.formatForChat(context) +
+                        (actions.length
+                            ? `\n\nProposed actions (PENDING_CONFIRMATION — not executed):\n${actions
+                                  .map(
+                                      (action, index) =>
+                                          `${index + 1}. ${action.title} [${action.actionType}]`
+                                  )
+                                  .join("\n")}\nConfirm each action in the UI before execution.`
+                            : ""),
+                    sources: context.sources.map((source) => ({
+                        type: source.type,
+                        id: source.id,
+                        label: source.label,
+                    })),
+                    model: "deterministic-lifecycle",
+                    runId: run.runId,
+                    answerMode: "operational",
+                    groundingLabel: context.groundingLabel,
+                    searchMode: null,
+                    intent: intent.kind,
+                    toolsUsed,
+                    usage: null,
+                    status: "SUCCESS",
+                    recommendations: recommendations.map((recommendation) => ({
+                        id: recommendation.id,
+                        text: recommendation.text,
+                        reason: recommendation.reason,
+                        priority: recommendation.priority,
                     })),
                     actions,
                 });

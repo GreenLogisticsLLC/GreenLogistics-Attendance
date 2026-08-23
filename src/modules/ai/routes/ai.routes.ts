@@ -29,6 +29,7 @@ import {
     commandCenterGetController,
     commandCenterSummaryController,
 } from "../command-center/command-center.controller.js";
+import { aiShipmentLifecycleController } from "../lifecycle/lifecycle.controller.js";
 
 export const aiRouter = Router();
 
@@ -57,6 +58,7 @@ aiRouter.post("/chat", aiRoles, aiChatController);
 aiRouter.post("/search", aiRoles, aiSearchController);
 aiRouter.get("/carriers/:id/summary", aiRoles, aiCarrierSummaryController);
 aiRouter.get("/shipments/:id/summary", aiRoles, aiShipmentSummaryController);
+aiRouter.get("/shipments/:id/lifecycle", aiRoles, aiShipmentLifecycleController);
 aiRouter.get("/carriers/:id/communications", aiRoles, aiCarrierCommunicationsController);
 aiRouter.get("/shipments/:id/communications", aiRoles, aiShipmentCommunicationsController);
 aiRouter.post("/rates/quote", aiRoles, marketRateQuoteController);

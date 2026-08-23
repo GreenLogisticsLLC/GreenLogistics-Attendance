@@ -1021,6 +1021,11 @@ window.GreenOSModules["dispatch"] = {
       '<p class="gos-muted" id="load-ai-ops-status" style="font-size:0.85rem">Loading…</p>' +
       '<pre id="load-ai-ops-body" style="font-size:0.8rem;white-space:pre-wrap;margin:0;font-family:inherit"></pre>' +
       "</div>" +
+      '<div id="load-shipment-lifecycle" style="margin:0.75rem 0;padding:0.5rem 0;border-top:1px solid var(--gos-border,#ddd)">' +
+      "<h4>AI Shipment Lifecycle</h4>" +
+      '<p class="gos-muted" id="load-shipment-lifecycle-status" style="font-size:0.85rem">Loading…</p>' +
+      '<div id="load-shipment-lifecycle-body" style="font-size:0.8rem"></div>' +
+      "</div>" +
       '<div id="load-market-rate" style="margin:0.75rem 0;padding:0.5rem 0;border-top:1px solid var(--gos-border,#ddd)">' +
       "<h4>Internal Market Rate</h4>" +
       '<p class="gos-muted" id="load-market-rate-status" style="font-size:0.85rem">Loading…</p>' +
@@ -1037,6 +1042,7 @@ window.GreenOSModules["dispatch"] = {
 
     self.bindPaymentDocButtons(body);
     self.loadShipmentAiOps(body, id);
+    self.loadShipmentLifecycle(body, id);
     self.loadShipmentMarketRate(body, id);
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
@@ -3522,6 +3528,107 @@ window.GreenOSModules["dispatch"] = {
         if (statusEl) statusEl.textContent = "";
       }
     });
+  },
+
+  async loadShipmentLifecycle(body, id) {
+    var statusEl = body.querySelector("#load-shipment-lifecycle-status");
+    var bodyEl = body.querySelector("#load-shipment-lifecycle-body");
+    if (!statusEl || !bodyEl) return;
+    try {
+      var self = this;
+      var token = localStorage.getItem("gl_token");
+      var res = await fetch("/api/ai/shipments/" + encodeURIComponent(id) + "/lifecycle", {
+        headers: { Authorization: token ? "Bearer " + token : "" },
+        cache: "no-store",
+      });
+      var json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || "Lifecycle failed");
+      var d = json.data || {};
+      statusEl.textContent =
+        (d.currentStage || "—") +
+        " · " +
+        (d.lifecycleHealth || "—") +
+        " · Closeout " +
+        (d.closeoutReadiness || "—");
+      var html =
+        "<div><b>Next:</b> " +
+        self.esc(d.nextBestAction || "NO_ACTION") +
+        (d.nextBestAction === "CLOSE_SHIPMENT_MANUALLY"
+          ? " <span class='gos-muted'>(manual recommendation only)</span>"
+          : "") +
+        "</div>";
+      if ((d.blockers || []).length) {
+        html += "<div style='margin-top:.35rem'><b>Blockers</b><ul style='margin:.2rem 0;padding-left:1rem'>";
+        d.blockers.slice(0, 5).forEach(function (issue) {
+          html += "<li>" + self.esc(issue.message || issue.code) + "</li>";
+        });
+        html += "</ul></div>";
+      }
+      if ((d.warnings || []).length) {
+        html += "<div style='margin-top:.35rem'><b>Warnings</b><ul style='margin:.2rem 0;padding-left:1rem'>";
+        d.warnings.slice(0, 4).forEach(function (issue) {
+          html += "<li>" + self.esc(issue.message || issue.code) + "</li>";
+        });
+        html += "</ul></div>";
+      }
+      html +=
+        "<div style='display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.5rem'>" +
+        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-lifecycle-tab='documents'>Documents</button>" +
+        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-lifecycle-tab='communications'>Comms</button>" +
+        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-lifecycle-tab='carrier'>Carrier</button>" +
+        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-lifecycle-tab='tracking'>Tracking</button>" +
+        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-lifecycle-tab='pricing'>Market</button>" +
+        "</div>";
+      (d.proposedActions || []).forEach(function (action) {
+        html +=
+          "<div style='margin-top:.5rem;padding:.45rem;border:1px solid var(--gos-border,#ddd);border-radius:6px'>" +
+          "<b>" +
+          self.esc(action.title || action.actionType) +
+          "</b><div class='gos-muted'>" +
+          self.esc(action.status || "PENDING_CONFIRMATION") +
+          "</div><button type='button' class='gos-btn gos-btn-sm' data-lifecycle-confirm='" +
+          self.esc(action.actionId) +
+          "'>Confirm &amp; Execute</button></div>";
+      });
+      bodyEl.innerHTML = html;
+      bodyEl.querySelectorAll("[data-lifecycle-tab]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          self._tab = button.getAttribute("data-lifecycle-tab") || "general";
+          self.openLoad(body, id, self._tab);
+        });
+      });
+      bodyEl.querySelectorAll("[data-lifecycle-confirm]").forEach(function (button) {
+        button.addEventListener("click", async function () {
+          var actionId = button.getAttribute("data-lifecycle-confirm");
+          if (!actionId || !confirm("Confirm this AI action? It will execute now.")) return;
+          button.disabled = true;
+          try {
+            var actionRes = await fetch(
+              "/api/ai/actions/" + encodeURIComponent(actionId) + "/confirm",
+              {
+                method: "POST",
+                headers: {
+                  Authorization: token ? "Bearer " + token : "",
+                  "Content-Type": "application/json",
+                },
+                body: "{}",
+              }
+            );
+            var actionJson = await actionRes.json();
+            if (!actionRes.ok || !actionJson.success) {
+              throw new Error(actionJson.message || "Confirm failed");
+            }
+            self.loadShipmentLifecycle(body, id);
+          } catch (error) {
+            alert(error.message || error);
+            button.disabled = false;
+          }
+        });
+      });
+    } catch (error) {
+      statusEl.textContent = error.message || "Lifecycle unavailable";
+      bodyEl.innerHTML = "";
+    }
   },
 
   async loadShipmentAiOps(body, id) {

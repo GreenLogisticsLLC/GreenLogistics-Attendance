@@ -9,6 +9,8 @@ import type { CommunicationContext } from "../communications/types.js";
 import type { CommandCenterActor, AiOperationalItem } from "./types.js";
 import { determineOperationalPriority } from "./priority.js";
 import { documentDedupeKey } from "./dedupe.js";
+import { shipmentLifecycleService } from "../lifecycle/service.js";
+import type { ShipmentLifecycleContext } from "../lifecycle/types.js";
 
 const SHIPMENT_LIMIT = 35;
 const CARRIER_LIMIT = 20;
@@ -257,6 +259,67 @@ function shipmentReadinessItem(
     };
 }
 
+export function lifecycleItems(
+    row: ShipmentRow,
+    context: ShipmentLifecycleContext
+): AiOperationalItem[] {
+    const label = shipmentLabel(row);
+    return [...context.blockers, ...context.warnings].map((issue) => {
+        const key = issue.documentSlot
+            ? documentDedupeKey("shipment", row.shipmentLeadId, issue.documentSlot)
+            : issue.code === "MARKET_ABOVE_P75"
+              ? `shipment:${row.shipmentLeadId}:market:ABOVE_HISTORICAL_P75`
+              : issue.code === "MARKET_BELOW_P25"
+                ? `shipment:${row.shipmentLeadId}:market:BELOW_HISTORICAL_P25`
+            : `shipment:${row.shipmentLeadId}:lifecycle:${issue.code}`;
+        const nextBestAction =
+            context.nextBestAction === "FOLLOW_UP_CARRIER" ||
+            context.nextBestAction === "FOLLOW_UP_CUSTOMER"
+                ? "FOLLOW_UP"
+                : context.nextBestAction === "REVIEW_RATE"
+                  ? "REVIEW_MARKET_RATE"
+                  : context.nextBestAction === "REVIEW_POD"
+                    ? "REVIEW_DOCUMENT"
+                    : context.nextBestAction === "CHECK_TRACKING" ||
+                        context.nextBestAction === "CLOSE_SHIPMENT_MANUALLY"
+                      ? "REVIEW_SHIPMENT"
+                      : context.nextBestAction;
+        return {
+            id: idFor(key),
+            category: "SHIPMENT",
+            priority: issue.critical ? "CRITICAL" : "MEDIUM",
+            severity: issue.code,
+            title: `Lifecycle: ${issue.code.toLowerCase().replace(/_/g, " ")}`,
+            summary: `${label} lifecycle requires attention.`,
+            entityType: "shipment",
+            entityId: row.shipmentLeadId,
+            entityLabel: label,
+            status: context.lifecycleHealth,
+            reason: issue.message,
+            nextBestAction:
+                nextBestAction === "REVIEW_DOCUMENT" ||
+                nextBestAction === "REQUEST_DOCUMENT" ||
+                nextBestAction === "FOLLOW_UP" ||
+                nextBestAction === "REVIEW_COMPLIANCE" ||
+                nextBestAction === "REVIEW_MARKET_RATE" ||
+                nextBestAction === "REVIEW_SHIPMENT" ||
+                nextBestAction === "NO_ACTION"
+                    ? nextBestAction
+                    : "REVIEW_SHIPMENT",
+            sources: [
+                source(
+                    "ShipmentLifecycle",
+                    row.shipmentLeadId,
+                    `${context.currentStage} · ${context.lifecycleHealth}`
+                ),
+            ],
+            blocking: issue.critical,
+            updatedAt: row.updatedAt.toISOString(),
+            dedupeKey: key,
+        };
+    });
+}
+
 export async function collectCommandCenterCandidates(
     actor: CommandCenterActor,
     myWork = false
@@ -269,7 +332,7 @@ export async function collectCommandCenterCandidates(
     await Promise.all(
         shipments.map(async (row) => {
             const label = shipmentLabel(row);
-            const [operational, communications, market] = await Promise.allSettled([
+            const [operational, communications, market, lifecycle] = await Promise.allSettled([
                 operationalAiService.shipmentSummary(actor, row.shipmentLeadId),
                 communicationService.shipmentCommunications(actor, row.shipmentLeadId),
                 row.carrierRate != null || row.customerRate != null
@@ -277,6 +340,10 @@ export async function collectCommandCenterCandidates(
                           shipmentId: row.shipmentLeadId,
                           currentCarrierQuote: row.carrierRate ?? row.customerRate ?? undefined,
                       })
+                    : Promise.resolve(null),
+                String(process.env.AI_SHIPMENT_LIFECYCLE_ENABLED ?? "true").toLowerCase() !==
+                "false"
+                    ? shipmentLifecycleService.build(actor, row.shipmentLeadId)
                     : Promise.resolve(null),
             ]);
             if (operational.status === "fulfilled") {
@@ -334,6 +401,17 @@ export async function collectCommandCenterCandidates(
                 }
             } else if (market.status === "rejected") {
                 incomplete.push(`shipment:${row.shipmentLeadId}:market`);
+            }
+            if (lifecycle.status === "fulfilled" && lifecycle.value) {
+                items.push(...lifecycleItems(row, lifecycle.value));
+                incomplete.push(
+                    ...lifecycle.value.incompleteSubsystems.map(
+                        (subsystem) =>
+                            `shipment:${row.shipmentLeadId}:lifecycle:${subsystem}`
+                    )
+                );
+            } else if (lifecycle.status === "rejected") {
+                incomplete.push(`shipment:${row.shipmentLeadId}:lifecycle`);
             }
         })
     );
