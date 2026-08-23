@@ -60,6 +60,7 @@ export type ModuleId =
     | "communications"
     | "reports"
     | "ai"
+    | "command-center"
     | "administration"
     | "carriers"
     | "customers";
@@ -85,6 +86,7 @@ const ALL_MODULES: ModuleId[] = [
     "communications",
     "reports",
     "ai",
+    "command-center",
     "administration",
 ];
 
@@ -138,6 +140,16 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
         Roles.Dispatcher,
         Roles.HR,
         Roles.Accounting,
+    ],
+    "command-center": [
+        Roles.Administrator,
+        Roles.Owner,
+        Roles.Manager,
+        Roles.TeamLead,
+        Roles.Broker,
+        Roles.Dispatcher,
+        Roles.Accounting,
+        Roles.Viewer,
     ],
     administration: [Roles.Administrator, Roles.Owner],
 };

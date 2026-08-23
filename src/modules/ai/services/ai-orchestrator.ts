@@ -17,6 +17,8 @@ import {
     communicationService,
     formatCommunicationForChat,
 } from "../communications/index.js";
+import { commandCenterService } from "../command-center/service.js";
+import { attachCommandCenterActions } from "../command-center/command-center.controller.js";
 
 export type AiChatResult = {
     reply: string;
@@ -83,6 +85,10 @@ export type IntentKind =
     | "document_request_status"
     | "next_communication_action"
     | "communication_summary"
+    | "command_center"
+    | "my_attention"
+    | "today_priority"
+    | "next_best_action"
     | "general";
 
 type RateIntentPayload = {
@@ -149,6 +155,23 @@ function detectIntent(message: string): Intent {
         /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i
     );
     const mcDigits = extractMcDigits(text);
+
+    if (/\b(command\s+center|operations?\s+center)\b/i.test(text)) {
+        return { kind: "command_center", query: text };
+    }
+    if (/\b(what\s+needs\s+my\s+attention|my\s+attention|attention\s+queue)\b/i.test(text)) {
+        return { kind: "my_attention", query: text };
+    }
+    if (/\b(today'?s?\s+(?:top\s+)?priorit(?:y|ies)|priorit(?:y|ies)\s+today)\b/i.test(text)) {
+        return { kind: "today_priority", query: text };
+    }
+    if (
+        /\b(next\s+best\s+action|what\s+should\s+i\s+work\s+on\s+next|what\s+should\s+i\s+do\s+next)\b/i.test(
+            text
+        )
+    ) {
+        return { kind: "next_best_action", query: text };
+    }
 
     const readinessCue =
         /\b(ready(\s+to\s+use)?|readiness|ready\s+to\s+(deliver|close)|can\s+we\s+(deliver|close)|what('s| is)\s+missing|next\s+step|what\s+should\s+(i|the\s+broker)\s+do)\b/i.test(
@@ -478,6 +501,54 @@ export class AiOrchestrator {
             const toolResults: AiToolResult[] = [];
             const toolsUsed: string[] = [];
             let searchMode: "STRUCTURED" | null = null;
+
+            const commandCenterKinds: IntentKind[] = [
+                "command_center",
+                "my_attention",
+                "today_priority",
+                "next_best_action",
+            ];
+            if (commandCenterKinds.includes(intent.kind)) {
+                toolsUsed.push("commandCenter");
+                const result = await commandCenterService.getAttention(input.actor, {
+                    limit: intent.kind === "next_best_action" ? 5 : 10,
+                    myWork: intent.kind === "my_attention",
+                });
+                await attachCommandCenterActions(input.actor, result, run.runId);
+                const actions = result.items
+                    .map((item) => item.action)
+                    .filter((action): action is AiActionPublicView => Boolean(action));
+                if (actions.length) toolsUsed.push("aiActionPropose");
+                return this.finishRun(run.runId, {
+                    reply:
+                        commandCenterService.formatForChat(result) +
+                        (actions.length
+                            ? `\n\nProposed actions (PENDING_CONFIRMATION — not executed):\n${actions
+                                  .map(
+                                      (action, index) =>
+                                          `${index + 1}. ${action.title} [${action.actionType}]`
+                                  )
+                                  .join("\n")}\nConfirm each action in the UI before execution.`
+                            : ""),
+                    sources: result.sources || [],
+                    model: "deterministic-command-center",
+                    runId: run.runId,
+                    answerMode: "operational",
+                    groundingLabel: "Based on ACL-scoped GreenOS operational data",
+                    searchMode: null,
+                    intent: intent.kind,
+                    toolsUsed,
+                    usage: null,
+                    status: "SUCCESS",
+                    recommendations: result.items.slice(0, 10).map((item) => ({
+                        id: item.id,
+                        text: item.title,
+                        reason: item.reason,
+                        priority: item.priority,
+                    })),
+                    actions,
+                });
+            }
 
             const communicationKinds: IntentKind[] = [
                 "waiting_for",

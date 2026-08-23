@@ -222,6 +222,22 @@ window.GreenOSRegistry = [
     ],
   },
   {
+    id: "command-center",
+    title: "AI Command Center",
+    icon: "⚡",
+    subtitle: "Operational priorities and next best actions",
+    roles: [
+      "Administrator",
+      "Owner",
+      "Manager",
+      "Team Lead",
+      "Broker",
+      "Dispatcher",
+      "Accounting",
+      "Viewer",
+    ],
+  },
+  {
     id: "ai",
     title: "AI Assistant",
     icon: "🤖",

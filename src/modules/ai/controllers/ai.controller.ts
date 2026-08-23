@@ -28,7 +28,9 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                     : "none",
             projectConfigured: Boolean(openai.projectId),
             organizationConfigured: Boolean(openai.organizationId),
-            phase: "7",
+            phase: "8",
+            commandCenterEnabled:
+                String(process.env.AI_COMMAND_CENTER_ENABLED ?? "true").toLowerCase() !== "false",
             tools: [
                 "getCarrierById",
                 "getShipmentById",
@@ -39,6 +41,7 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                 "shipmentOperationalSummary",
                 "carrierCommunicationContext",
                 "shipmentCommunicationContext",
+                "commandCenter",
                 "marketRateQuote",
                 "aiActionPropose",
                 "aiActionConfirm",

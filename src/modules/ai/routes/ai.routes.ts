@@ -25,6 +25,10 @@ import {
     aiCarrierCommunicationsController,
     aiShipmentCommunicationsController,
 } from "../communications/communications.controller.js";
+import {
+    commandCenterGetController,
+    commandCenterSummaryController,
+} from "../command-center/command-center.controller.js";
 
 export const aiRouter = Router();
 
@@ -47,6 +51,8 @@ const aiRoles = requireRole(
 );
 
 aiRouter.get("/status", aiRoles, aiStatusController);
+aiRouter.get("/command-center", aiRoles, commandCenterGetController);
+aiRouter.post("/command-center/summary", aiRoles, commandCenterSummaryController);
 aiRouter.post("/chat", aiRoles, aiChatController);
 aiRouter.post("/search", aiRoles, aiSearchController);
 aiRouter.get("/carriers/:id/summary", aiRoles, aiCarrierSummaryController);
