@@ -69,6 +69,14 @@ export type LifecycleHistoryEntry = {
     id: string;
 };
 
+export type CloseoutChecklistItem = {
+    id: string;
+    label: string;
+    ok: boolean;
+    required: boolean;
+    detail?: string;
+};
+
 export type LifecycleTracking = {
     trackingId?: string;
     status?: string;
@@ -89,6 +97,7 @@ export type ShipmentLifecycleContext = {
     progress: StageProgress;
     lifecycleHealth: LifecycleHealth;
     closeoutReadiness: CloseoutReadiness;
+    closeoutChecklist: CloseoutChecklistItem[];
     stageHistory: LifecycleHistoryEntry[];
     stages: LifecycleStageEntry[];
     blockers: LifecycleIssue[];

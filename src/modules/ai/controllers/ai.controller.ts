@@ -28,7 +28,7 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                     : "none",
             projectConfigured: Boolean(openai.projectId),
             organizationConfigured: Boolean(openai.organizationId),
-            phase: "9",
+            phase: "10",
             commandCenterEnabled:
                 String(process.env.AI_COMMAND_CENTER_ENABLED ?? "true").toLowerCase() !== "false",
             shipmentLifecycleEnabled:

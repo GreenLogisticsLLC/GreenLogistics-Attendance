@@ -7,6 +7,7 @@ import { Roles } from "../../../auth/roles.js";
 import { domainEventEngine } from "./domain-event.engine.js";
 import { platformNotificationService } from "./platform-notification.service.js";
 import { shipmentService } from "./shipment.service.js";
+import { documentAiJobService } from "../../ai/documents/job.service.js";
 import { LOAD_DOCS_ROOT } from "./load-pdf.service.js";
 import {
     assertQuickActionAllowed,
@@ -486,6 +487,21 @@ export async function uploadPodFile(input: {
             brokerSignatureOverride,
         },
     });
+
+    if (input.actorUserId || lead.assignedBrokerId) {
+        documentAiJobService
+            .enqueue({
+                actor: {
+                    userId: input.actorUserId || lead.assignedBrokerId!,
+                    role: input.actorRole || "Broker",
+                },
+                documentSource: "LOAD",
+                documentId: row.documentId,
+            })
+            .catch((err) =>
+                console.warn(`[doc-ai] enqueue failed for POD ${row.documentId}`, err)
+            );
+    }
 
     try {
         await shipmentService.transitionStatus({

@@ -264,7 +264,7 @@ export function lifecycleItems(
     context: ShipmentLifecycleContext
 ): AiOperationalItem[] {
     const label = shipmentLabel(row);
-    return [...context.blockers, ...context.warnings].map((issue) => {
+    const items: AiOperationalItem[] = [...context.blockers, ...context.warnings].map((issue) => {
         const key = issue.documentSlot
             ? documentDedupeKey("shipment", row.shipmentLeadId, issue.documentSlot)
             : issue.code === "MARKET_ABOVE_P75"
@@ -289,7 +289,10 @@ export function lifecycleItems(
             category: "SHIPMENT",
             priority: issue.critical ? "CRITICAL" : "MEDIUM",
             severity: issue.code,
-            title: `Lifecycle: ${issue.code.toLowerCase().replace(/_/g, " ")}`,
+            title:
+                issue.documentSlot === "POD"
+                    ? "POD review required"
+                    : `Lifecycle: ${issue.code.toLowerCase().replace(/_/g, " ")}`,
             summary: `${label} lifecycle requires attention.`,
             entityType: "shipment",
             entityId: row.shipmentLeadId,
@@ -318,6 +321,33 @@ export function lifecycleItems(
             dedupeKey: key,
         };
     });
+    if (
+        context.closeoutReadiness === "READY_TO_CLOSE" &&
+        context.currentStage !== "CLOSED"
+    ) {
+        const key = `shipment:${row.shipmentLeadId}:lifecycle:ready-to-close`;
+        items.push({
+            id: idFor(key),
+            category: "SHIPMENT",
+            priority: "LOW",
+            severity: "READY_TO_CLOSE",
+            title: "Ready to close",
+            summary: `${label} passed the closeout checklist.`,
+            entityType: "shipment",
+            entityId: row.shipmentLeadId,
+            entityLabel: label,
+            status: "READY_TO_CLOSE",
+            reason: "All required closeout checks passed. Final close remains a manual action.",
+            nextBestAction: "REVIEW_SHIPMENT",
+            sources: [
+                source("ShipmentLifecycle", row.shipmentLeadId, "Closeout checklist"),
+            ],
+            blocking: false,
+            updatedAt: row.updatedAt.toISOString(),
+            dedupeKey: key,
+        });
+    }
+    return items;
 }
 
 export async function collectCommandCenterCandidates(

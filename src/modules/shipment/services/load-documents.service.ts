@@ -18,6 +18,41 @@ import {
     assertQuickActionAllowed,
     quickActionIdForDocType,
 } from "../load-quick-actions.js";
+import { buildCarrierOperationalSummary } from "../../ai/operational/carrier-context.js";
+import { documentAiJobService } from "../../ai/documents/job.service.js";
+import type { CarrierOperationalSummary } from "../../ai/operational/types.js";
+
+export function assertRateConfirmationCompliance(
+    summary: Pick<CarrierOperationalSummary, "readiness" | "compliance">,
+    acknowledged: boolean
+) {
+    if (summary.readiness === "NOT_READY" || summary.compliance.light === "RED") {
+        throw Object.assign(
+            new Error(
+                `Cannot generate Rate Confirmation: carrier compliance is ${summary.compliance.light} (${summary.readiness}).`
+            ),
+            { status: 422, code: "RC_COMPLIANCE_BLOCKED" }
+        );
+    }
+    if (summary.readiness === "REVIEW_REQUIRED" && !acknowledged) {
+        throw Object.assign(
+            new Error(
+                "Carrier compliance requires review. Acknowledge the compliance review before generating the Rate Confirmation."
+            ),
+            { status: 422, code: "RC_COMPLIANCE_ACK_REQUIRED" }
+        );
+    }
+}
+
+export function enqueueLoadDocumentAi(
+    input: Parameters<typeof documentAiJobService.enqueue>[0],
+    enqueue: (value: Parameters<typeof documentAiJobService.enqueue>[0]) => Promise<unknown> =
+        (value) => documentAiJobService.enqueue(value)
+) {
+    void enqueue(input).catch((err) =>
+        console.warn(`[doc-ai] enqueue failed for ${input.documentId}`, err)
+    );
+}
 
 function fmtDate(d?: Date | null) {
     if (!d) return null;
@@ -194,6 +229,8 @@ export class LoadDocumentsService {
         shipmentLeadId: string;
         docType: string;
         actorUserId?: string;
+        actorRole?: string;
+        acknowledgeComplianceReview?: boolean;
         contentOverrides?: Partial<LoadDocumentContent>;
         changeReason?: string;
         advanceStatus?: string | null;
@@ -219,6 +256,24 @@ export class LoadDocumentsService {
             throw Object.assign(new Error("Create Load first — documents belong only to a Load"), {
                 status: 422,
             });
+        }
+
+        if (docType === "RATE_CONFIRMATION" && lead.carrierProfileId) {
+            const actorUserId = input.actorUserId || lead.assignedBrokerId;
+            if (!actorUserId) {
+                throw Object.assign(
+                    new Error("Cannot verify carrier compliance without an assigned broker"),
+                    { status: 422, code: "RC_COMPLIANCE_ACTOR_REQUIRED" }
+                );
+            }
+            const summary = await buildCarrierOperationalSummary(
+                { userId: actorUserId, role: input.actorRole || "Broker" },
+                lead.carrierProfileId
+            );
+            assertRateConfirmationCompliance(
+                summary,
+                input.acknowledgeComplianceReview === true
+            );
         }
 
         const existingDocs = await prisma.loadDocument.findMany({
@@ -375,6 +430,20 @@ export class LoadDocumentsService {
                         : "LOAD_CREATED",
         });
 
+        if (
+            (docType === "RATE_CONFIRMATION" || docType === "BOL") &&
+            (input.actorUserId || lead.assignedBrokerId)
+        ) {
+            enqueueLoadDocumentAi({
+                actor: {
+                    userId: input.actorUserId || lead.assignedBrokerId!,
+                    role: input.actorRole || "Broker",
+                },
+                documentSource: "LOAD",
+                documentId: row.documentId,
+            });
+        }
+
         if (input.advanceStatus) {
             const { shipmentService } = await import("./shipment.service.js");
             await shipmentService.transitionStatus({
@@ -400,8 +469,6 @@ export class LoadDocumentsService {
             // Keep the left rail in sync with real docs (Rate Con / POD / Invoice).
             if (docType === "RATE_CONFIRMATION" && version === 1) {
                 await tryAdvance("RATE_CON_GENERATED");
-            } else if (docType === "BOL" && version === 1) {
-                await tryAdvance("CARRIER_ACCEPTED");
             } else if (docType === "POD") {
                 await tryAdvance("POD_UPLOADED");
             } else if (docType === "CUSTOMER_INVOICE") {
@@ -445,11 +512,15 @@ export class LoadDocumentsService {
         content: Partial<LoadDocumentContent>;
         changeReason?: string;
         actorUserId?: string;
+        actorRole?: string;
+        acknowledgeComplianceReview?: boolean;
     }) {
         return this.generate({
             shipmentLeadId: input.shipmentLeadId,
             docType: input.docType,
             actorUserId: input.actorUserId,
+            actorRole: input.actorRole,
+            acknowledgeComplianceReview: input.acknowledgeComplianceReview,
             contentOverrides: input.content,
             changeReason: input.changeReason || "BROKER_EDITED",
         });

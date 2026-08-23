@@ -8,11 +8,14 @@ import { formatShipmentLifecycleForChat } from "./format.js";
 import { deriveLifecycleHealth } from "./health.js";
 import { deriveNextBestAction } from "./next-action.js";
 import { buildStageChecklist, buildStageHistory, deriveCurrentStage } from "./stages.js";
+import { normalizeStatus } from "../../shipment/shipment.lifecycle.js";
 import type {
+    CloseoutChecklistItem,
     LifecycleEvidence,
     LifecycleTracking,
     ShipmentLifecycleContext,
 } from "./types.js";
+import type { DocumentChecklistItem } from "../operational/types.js";
 
 export type LifecycleActor = { userId: string; role: string };
 
@@ -71,6 +74,129 @@ function trackingView(
     };
 }
 
+export function buildCloseoutChecklist(input: {
+    status: string;
+    carrierCompliance?: { readiness?: string | null; light?: string | null } | null;
+    documents?: DocumentChecklistItem[];
+    loadDocuments?: Array<{ docType: string; contentJson?: string | null }>;
+    customerPaidAt?: Date | string | null;
+    carrierPaidAt?: Date | string | null;
+    reviewCustomerSentAt?: Date | string | null;
+    reviewCarrierSentAt?: Date | string | null;
+    reviewCustomerSentTo?: string | null;
+    reviewCarrierSentTo?: string | null;
+}): CloseoutChecklistItem[] {
+    const documents = input.documents || [];
+    const loadDocuments = input.loadDocuments || [];
+    const bySlot = (slot: string) => documents.find((document) => document.slot === slot);
+    const present = (slot: string) => {
+        const document = bySlot(slot);
+        if (document) {
+            return !["MISSING", "INVALID", "EXPIRED"].includes(document.status);
+        }
+        return loadDocuments.some((row) => String(row.docType).toUpperCase() === slot);
+    };
+    const pod = bySlot("POD");
+    const podRow = loadDocuments.find((row) => String(row.docType).toUpperCase() === "POD");
+    let podContent: {
+        receiverSignatureDetected?: boolean;
+        manuallyApproved?: boolean;
+        analysis?: { hasReceiverSignature?: boolean; signatureType?: string };
+    } = {};
+    try {
+        podContent = podRow?.contentJson ? JSON.parse(podRow.contentJson) : {};
+    } catch {
+        podContent = {};
+    }
+    const signature = String(
+        pod?.signatureStatus || podContent.analysis?.signatureType || ""
+    ).toUpperCase();
+    const badSignature = ["UNSIGNED", "TYPED_ONLY", "MISSING"].some((value) =>
+        signature.includes(value)
+    );
+    const signatureDetected =
+        podContent.manuallyApproved === true ||
+        podContent.receiverSignatureDetected === true ||
+        podContent.analysis?.hasReceiverSignature === true ||
+        (Boolean(signature) && !badSignature);
+    const status = normalizeStatus(input.status);
+    const delivered = [
+        "DELIVERED",
+        "POD_UPLOADED",
+        "CUSTOMER_INVOICE",
+        "CARRIER_PAYMENT",
+        "COMPLETED",
+        "CLOSED",
+    ].includes(status);
+    const reviewRecorded = Boolean(
+        input.reviewCustomerSentAt ||
+            input.reviewCarrierSentAt ||
+            input.reviewCustomerSentTo === "SKIPPED" ||
+            input.reviewCarrierSentTo === "SKIPPED"
+    );
+    const complianceOk =
+        Boolean(input.carrierCompliance) &&
+        input.carrierCompliance?.readiness !== "NOT_READY" &&
+        input.carrierCompliance?.light !== "RED";
+
+    return [
+        {
+            id: "carrier_compliance",
+            label: "Carrier compliance is not RED",
+            ok: complianceOk,
+            required: true,
+            detail: input.carrierCompliance?.light || "Compliance unavailable",
+        },
+        {
+            id: "rate_confirmation",
+            label: "Rate Confirmation present",
+            ok: present("RATE_CONFIRMATION"),
+            required: true,
+            detail: bySlot("RATE_CONFIRMATION")?.reason,
+        },
+        {
+            id: "bol",
+            label: "BOL present",
+            ok: present("BOL"),
+            required: true,
+            detail: bySlot("BOL")?.reason,
+        },
+        { id: "delivery", label: "Delivery marked done", ok: delivered, required: true },
+        {
+            id: "pod",
+            label: "POD present",
+            ok: present("POD"),
+            required: true,
+            detail: pod?.reason,
+        },
+        {
+            id: "pod_signature",
+            label: "POD receiver signature valid",
+            ok: present("POD") && signatureDetected && !badSignature,
+            required: true,
+            detail: signature || (present("POD") ? "Signature not verified" : "POD missing"),
+        },
+        {
+            id: "customer_paid",
+            label: "Customer paid",
+            ok: Boolean(input.customerPaidAt),
+            required: true,
+        },
+        {
+            id: "carrier_paid",
+            label: "Carrier paid",
+            ok: Boolean(input.carrierPaidAt),
+            required: true,
+        },
+        {
+            id: "review",
+            label: "Review sent or skipped",
+            ok: reviewRecorded,
+            required: true,
+        },
+    ];
+}
+
 export class ShipmentLifecycleService {
     async build(actor: LifecycleActor, shipmentIdOrLoadNumber: string): Promise<ShipmentLifecycleContext> {
         if (!enabled()) {
@@ -95,6 +221,12 @@ export class ShipmentLifecycleService {
                 carrierProfileId: true,
                 carrierRate: true,
                 customerRate: true,
+                customerPaidAt: true,
+                carrierPaidAt: true,
+                reviewCustomerSentAt: true,
+                reviewCarrierSentAt: true,
+                reviewCustomerSentTo: true,
+                reviewCarrierSentTo: true,
                 updatedAt: true,
             },
         });
@@ -182,7 +314,35 @@ export class ShipmentLifecycleService {
                 : [];
 
         const documents = ops?.documents || [];
-        const closeoutReadiness = ops?.readiness || "INCOMPLETE";
+        const loadDocuments = await prisma.loadDocument.findMany({
+            where: { shipmentLeadId: shipmentId, isCurrent: true, status: { not: "ARCHIVED" } },
+            select: { docType: true, contentJson: true },
+        });
+        const closeoutChecklist = buildCloseoutChecklist({
+            status: lead.status,
+            carrierCompliance: carrierOps
+                ? {
+                      readiness: carrierOps.readiness,
+                      light: carrierOps.compliance.light,
+                  }
+                : null,
+            documents,
+            loadDocuments,
+            customerPaidAt: lead.customerPaidAt,
+            carrierPaidAt: lead.carrierPaidAt,
+            reviewCustomerSentAt: lead.reviewCustomerSentAt,
+            reviewCarrierSentAt: lead.reviewCarrierSentAt,
+            reviewCustomerSentTo: lead.reviewCustomerSentTo,
+            reviewCarrierSentTo: lead.reviewCarrierSentTo,
+        });
+        const checklistReady = closeoutChecklist
+            .filter((item) => item.required)
+            .every((item) => item.ok);
+        const closeoutReadiness = checklistReady
+            ? "READY_TO_CLOSE"
+            : ops?.readiness === "INCOMPLETE"
+              ? "INCOMPLETE"
+              : "NOT_READY";
         const evidence: LifecycleEvidence = {
             status: lead.status,
             documents,
@@ -248,6 +408,7 @@ export class ShipmentLifecycleService {
                 stages.find((stage) => stage.stage === currentStage)?.progress || "INCOMPLETE",
             lifecycleHealth,
             closeoutReadiness,
+            closeoutChecklist,
             stageHistory: buildStageHistory(timelineRows),
             stages,
             blockers: issues.blockers,
@@ -316,4 +477,5 @@ export const _lifecycleTestUtils = {
     deriveLifecycleHealth,
     deriveNextBestAction,
     trackingView,
+    buildCloseoutChecklist,
 };

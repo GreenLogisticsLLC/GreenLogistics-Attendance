@@ -1146,9 +1146,22 @@ window.GreenOSModules["dispatch"] = {
         }
         try {
           btn.disabled = true;
+          var actionBody = {};
+          if (action === "close_load") {
+            var lifecycleEl = body.querySelector("#load-shipment-lifecycle-body");
+            var readiness = lifecycleEl ? lifecycleEl.getAttribute("data-closeout-readiness") : "";
+            if (
+              readiness === "REVIEW_REQUIRED" &&
+              !confirm("Closeout has warnings. Confirm that you reviewed them and want to close this load manually.")
+            ) {
+              btn.disabled = false;
+              return;
+            }
+            actionBody.acknowledgeCloseoutWarnings = readiness === "REVIEW_REQUIRED";
+          }
           await self.api("/" + encodeURIComponent(id) + "/actions/" + encodeURIComponent(action), {
             method: "POST",
-            body: JSON.stringify({}),
+            body: JSON.stringify(actionBody),
           });
           self.openLoad(body, id, self._tab);
         } catch (err) {
@@ -2563,6 +2576,7 @@ window.GreenOSModules["dispatch"] = {
       self.esc(pick("terms", defaultTerms)) +
       "</textarea></label>" +
       "</div>" +
+      '<label class="full" style="display:block;margin-top:.75rem"><input type="checkbox" id="rc-compliance-ack"> I reviewed and acknowledge any carrier compliance items marked REVIEW_REQUIRED. This does not approve the carrier.</label>' +
       '<div class="load-actions" style="margin-top:0.75rem">' +
       '<button type="button" class="btn-primary" id="rc-generate">Save Load &amp; Generate Rate Con PDF</button>' +
       '<button type="button" class="btn-secondary" id="rc-cancel">Cancel</button>' +
@@ -2712,6 +2726,10 @@ window.GreenOSModules["dispatch"] = {
           body: JSON.stringify({
             changeReason: changeReason || "GENERATED",
             content: content,
+            acknowledgeComplianceReview: Boolean(
+              box.querySelector("#rc-compliance-ack") &&
+                box.querySelector("#rc-compliance-ack").checked
+            ),
           }),
         });
 
@@ -3544,6 +3562,7 @@ window.GreenOSModules["dispatch"] = {
       var json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.message || "Lifecycle failed");
       var d = json.data || {};
+      bodyEl.setAttribute("data-closeout-readiness", d.closeoutReadiness || "");
       statusEl.textContent =
         (d.currentStage || "—") +
         " · " +
@@ -3557,6 +3576,19 @@ window.GreenOSModules["dispatch"] = {
           ? " <span class='gos-muted'>(manual recommendation only)</span>"
           : "") +
         "</div>";
+      if ((d.closeoutChecklist || []).length) {
+        html += "<div style='margin-top:.45rem'><b>CLOSEOUT</b><ul style='list-style:none;margin:.25rem 0;padding:0'>";
+        d.closeoutChecklist.forEach(function (item) {
+          html +=
+            "<li style='margin:.15rem 0'>" +
+            (item.ok ? "✓ " : "○ ") +
+            self.esc(item.label) +
+            (!item.ok && item.required ? " <span class='gos-muted'>— blocker</span>" : "") +
+            (item.detail ? "<div class='gos-muted' style='padding-left:1rem'>" + self.esc(item.detail) + "</div>" : "") +
+            "</li>";
+        });
+        html += "</ul><div class='gos-muted'>Closing remains a manual broker action; GreenOS never auto-closes a load.</div></div>";
+      }
       if ((d.blockers || []).length) {
         html += "<div style='margin-top:.35rem'><b>Blockers</b><ul style='margin:.2rem 0;padding-left:1rem'>";
         d.blockers.slice(0, 5).forEach(function (issue) {

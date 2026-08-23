@@ -71,6 +71,8 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
     const rateConDone = hasType(docs, "RATE_CONFIRMATION") || statusIdx >= flowIndex("RATE_CON_GENERATED");
     const bolDone = hasType(docs, "BOL") || statusIdx >= flowIndex("CARRIER_ACCEPTED");
     const pickupDone = statusIdx >= flowIndex("PICKUP");
+    const transitDone = statusIdx >= flowIndex("IN_TRANSIT");
+    const deliveredDone = statusIdx >= flowIndex("DELIVERED");
 
     /** POD is complete when a POD file exists with receiver SIGNATURE (or status already advanced). */
     const podRow = (input.documents || []).find(
@@ -151,11 +153,25 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
             need: "Generate BOL first",
         },
         {
+            id: "mark_transit",
+            label: "Mark In Transit",
+            status: "IN_TRANSIT",
+            done: transitDone,
+            need: "Mark Loaded / Pickup first",
+        },
+        {
+            id: "mark_delivered",
+            label: "Mark Delivered",
+            status: "DELIVERED",
+            done: deliveredDone,
+            need: "Mark In Transit first",
+        },
+        {
             id: "upload_pod",
             label: "Upload POD",
             docType: "POD",
             done: podDone,
-            need: "Mark Loaded / Pickup first",
+            need: "Mark Delivered first",
         },
         {
             id: "mark_customer_paid",

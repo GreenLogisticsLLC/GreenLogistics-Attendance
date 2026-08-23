@@ -232,6 +232,9 @@ export const loadController = {
                 shipmentLeadId: id,
                 docType,
                 actorUserId: req.user?.userId,
+                actorRole: req.user?.role,
+                acknowledgeComplianceReview:
+                    req.body?.acknowledgeComplianceReview === true,
                 contentOverrides: req.body?.content,
                 changeReason: req.body?.changeReason || "GENERATED",
             });
@@ -262,6 +265,9 @@ export const loadController = {
                 content: req.body?.content || req.body || {},
                 changeReason: req.body?.changeReason || "BROKER_EDITED",
                 actorUserId: req.user?.userId,
+                actorRole: req.user?.role,
+                acknowledgeComplianceReview:
+                    req.body?.acknowledgeComplianceReview === true,
             });
             res.json({ success: true, data: row });
         } catch (err) {

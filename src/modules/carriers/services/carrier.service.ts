@@ -17,6 +17,8 @@ import {
 import { carrierEmailService } from "./carrier-email.service.js";
 import { carrierStorageService } from "./carrier-storage.service.js";
 import { storeCarrierAgreementPdf } from "./carrier-agreement-pdf.service.js";
+import { shipmentService } from "../../shipment/services/shipment.service.js";
+import { normalizeStatus } from "../../shipment/shipment.lifecycle.js";
 
 type Actor = { userId?: string; role?: string; ip?: string; userAgent?: string };
 
@@ -1360,6 +1362,13 @@ export class CarrierService {
             userAgent: meta.userAgent,
             metadata: { documentHash, ...archived },
         });
+        const shipmentStatus = normalizeStatus(lead.status);
+        if (["CARRIER_ASSIGNED", "RATE_CON_GENERATED"].includes(shipmentStatus)) {
+            await shipmentService.transitionStatus({
+                shipmentLeadId: session.shipmentLeadId,
+                status: "CARRIER_ACCEPTED",
+            });
+        }
         return { ...row, ...archived };
     }
 

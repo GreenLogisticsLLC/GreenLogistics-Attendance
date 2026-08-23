@@ -12,6 +12,7 @@ import {
     buildLoadQuickActions,
 } from "../load-quick-actions.js";
 import { sendLoadReviewEmail } from "./load-review-email.service.js";
+import { shipmentLifecycleService } from "../../ai/lifecycle/service.js";
 
 function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
@@ -809,6 +810,46 @@ export class LoadService {
             documents,
         });
 
+        if (action === "close_load") {
+            const lifecycleActorId = actorUserId || shipment.assignedBrokerId;
+            if (!lifecycleActorId) {
+                throw Object.assign(new Error("Closeout review requires an assigned broker"), {
+                    status: 422,
+                    code: "CLOSEOUT_ACTOR_REQUIRED",
+                });
+            }
+            const lifecycle = await shipmentLifecycleService.build(
+                { userId: lifecycleActorId, role: actorRole || "Broker" },
+                shipmentLeadId
+            );
+            if (
+                lifecycle.closeoutReadiness === "NOT_READY" ||
+                lifecycle.closeoutReadiness === "INCOMPLETE" ||
+                lifecycle.blockers.some((blocker) => blocker.critical)
+            ) {
+                const missing = lifecycle.closeoutChecklist
+                    .filter((item) => item.required && !item.ok)
+                    .map((item) => item.label);
+                throw Object.assign(
+                    new Error(
+                        `Load cannot be closed yet. Complete: ${missing.join(", ") || "critical lifecycle blockers"}.`
+                    ),
+                    { status: 422, code: "CLOSEOUT_NOT_READY" }
+                );
+            }
+            if (
+                lifecycle.closeoutReadiness === "REVIEW_REQUIRED" &&
+                body?.acknowledgeCloseoutWarnings !== true
+            ) {
+                throw Object.assign(
+                    new Error(
+                        "Closeout has warnings. Review them and explicitly acknowledge before closing."
+                    ),
+                    { status: 422, code: "CLOSEOUT_ACK_REQUIRED" }
+                );
+            }
+        }
+
         if (action === "mark_customer_paid" || action === "mark_carrier_paid") {
             const paymentRoles: Set<string> = new Set([
                 Roles.Accounting,
@@ -1081,6 +1122,9 @@ export class LoadService {
                 shipmentLeadId,
                 docType: docMap[action],
                 actorUserId,
+                actorRole,
+                acknowledgeComplianceReview:
+                    body?.acknowledgeComplianceReview === true,
                 contentOverrides: body?.content as Partial<import("./load-pdf.service.js").LoadDocumentContent> | undefined,
             });
             return this.getLoadDetails(shipmentLeadId);
