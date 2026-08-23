@@ -1016,16 +1016,7 @@ window.GreenOSModules["dispatch"] = {
       '<p class="load-status-pill">' +
       self.esc(data.identity.statusLabel || data.identity.status) +
       "</p>" +
-      '<div id="load-ai-ops" style="margin:0.75rem 0;padding:0.5rem 0;border-top:1px solid var(--gos-border,#ddd)">' +
-      "<h4>AI Ops</h4>" +
-      '<p class="gos-muted" id="load-ai-ops-status" style="font-size:0.85rem">Loading…</p>' +
-      '<pre id="load-ai-ops-body" style="font-size:0.8rem;white-space:pre-wrap;margin:0;font-family:inherit"></pre>' +
-      "</div>" +
-      '<div id="load-shipment-lifecycle" style="margin:0.75rem 0;padding:0.5rem 0;border-top:1px solid var(--gos-border,#ddd)">' +
-      "<h4>AI Shipment Lifecycle</h4>" +
-      '<p class="gos-muted" id="load-shipment-lifecycle-status" style="font-size:0.85rem">Loading…</p>' +
-      '<div id="load-shipment-lifecycle-body" style="font-size:0.8rem"></div>' +
-      "</div>" +
+      '<div id="load-ai-alert" hidden style="display:none;margin:0.75rem 0;padding:0.55rem 0.65rem;border:1px solid #c9a227;border-radius:6px;background:#fff8e6;font-size:0.82rem"></div>' +
       '<div id="load-market-rate" style="margin:0.75rem 0;padding:0.5rem 0;border-top:1px solid var(--gos-border,#ddd)">' +
       "<h4>Internal Market Rate</h4>" +
       '<p class="gos-muted" id="load-market-rate-status" style="font-size:0.85rem">Loading…</p>' +
@@ -1041,8 +1032,7 @@ window.GreenOSModules["dispatch"] = {
       "</div>";
 
     self.bindPaymentDocButtons(body);
-    self.loadShipmentAiOps(body, id);
-    self.loadShipmentLifecycle(body, id);
+    self.watchShipmentAiSilent(body, id);
     self.loadShipmentMarketRate(body, id);
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
@@ -1148,8 +1138,8 @@ window.GreenOSModules["dispatch"] = {
           btn.disabled = true;
           var actionBody = {};
           if (action === "close_load") {
-            var lifecycleEl = body.querySelector("#load-shipment-lifecycle-body");
-            var readiness = lifecycleEl ? lifecycleEl.getAttribute("data-closeout-readiness") : "";
+            var aiAlert = body.querySelector("#load-ai-alert");
+            var readiness = aiAlert ? aiAlert.getAttribute("data-closeout-readiness") : "";
             if (
               readiness === "REVIEW_REQUIRED" &&
               !confirm("Closeout has warnings. Confirm that you reviewed them and want to close this load manually.")
@@ -3548,90 +3538,107 @@ window.GreenOSModules["dispatch"] = {
     });
   },
 
-  async loadShipmentLifecycle(body, id) {
-    var statusEl = body.querySelector("#load-shipment-lifecycle-status");
-    var bodyEl = body.querySelector("#load-shipment-lifecycle-body");
-    if (!statusEl || !bodyEl) return;
+  /**
+   * Background AI watch: no consultant rail. Only surfaces when something is
+   * actually blocked or a broker-confirm action is pending — not routine
+   * missing docs on a freshly created load.
+   */
+  async watchShipmentAiSilent(body, id) {
+    var alertEl = body.querySelector("#load-ai-alert");
+    if (!alertEl) return;
+    var self = this;
     try {
-      var self = this;
       var token = localStorage.getItem("gl_token");
-      var res = await fetch("/api/ai/shipments/" + encodeURIComponent(id) + "/lifecycle", {
-        headers: { Authorization: token ? "Bearer " + token : "" },
-        cache: "no-store",
+      var headers = { Authorization: token ? "Bearer " + token : "" };
+      var [lifeRes, summaryRes] = await Promise.all([
+        fetch("/api/ai/shipments/" + encodeURIComponent(id) + "/lifecycle", {
+          headers: headers,
+          cache: "no-store",
+        }),
+        fetch("/api/ai/shipments/" + encodeURIComponent(id) + "/summary", {
+          headers: headers,
+          cache: "no-store",
+        }),
+      ]);
+      var lifeJson = await lifeRes.json();
+      var summaryJson = summaryRes.ok ? await summaryRes.json() : { success: false };
+      if (!lifeRes.ok || !lifeJson.success) return;
+
+      var d = lifeJson.data || {};
+      var summary = (summaryJson && summaryJson.success && summaryJson.data) || {};
+      alertEl.setAttribute("data-closeout-readiness", d.closeoutReadiness || "");
+
+      var noiseCodes = {
+        CLOSEOUT_NOT_READY: true,
+      };
+      var criticalBlockers = (d.blockers || []).filter(function (issue) {
+        return issue && issue.critical && !noiseCodes[issue.code];
       });
-      var json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.message || "Lifecycle failed");
-      var d = json.data || {};
-      bodyEl.setAttribute("data-closeout-readiness", d.closeoutReadiness || "");
-      statusEl.textContent =
-        (d.currentStage || "—") +
-        " · " +
-        (d.lifecycleHealth || "—") +
-        " · Closeout " +
-        (d.closeoutReadiness || "—");
+      var health = d.lifecycleHealth || "";
+      var proposed = (d.proposedActions || [])
+        .concat(summary.proposedActions || [])
+        .filter(function (a) {
+          return a && a.actionId;
+        });
+      var seen = {};
+      proposed = proposed.filter(function (a) {
+        if (seen[a.actionId]) return false;
+        seen[a.actionId] = true;
+        return true;
+      });
+
+      /* BLOCKED only from real problems — not "docs not uploaded yet" / normal incomplete closeout */
+      var shouldNotify = criticalBlockers.length > 0 || proposed.length > 0;
+      if (!shouldNotify) {
+        alertEl.hidden = true;
+        alertEl.style.display = "none";
+        alertEl.innerHTML = "";
+        return;
+      }
+
       var html =
-        "<div><b>Next:</b> " +
-        self.esc(d.nextBestAction || "NO_ACTION") +
-        (d.nextBestAction === "CLOSE_SHIPMENT_MANUALLY"
-          ? " <span class='gos-muted'>(manual recommendation only)</span>"
-          : "") +
+        "<div style='font-weight:600;margin-bottom:0.25rem'>AI flagged an issue</div>" +
+        "<div class='gos-muted' style='margin-bottom:0.35rem'>" +
+        self.esc(d.currentStage || "—") +
+        " · " +
+        self.esc(health || "—") +
         "</div>";
-      if ((d.closeoutChecklist || []).length) {
-        html += "<div style='margin-top:.45rem'><b>CLOSEOUT</b><ul style='list-style:none;margin:.25rem 0;padding:0'>";
-        d.closeoutChecklist.forEach(function (item) {
-          html +=
-            "<li style='margin:.15rem 0'>" +
-            (item.ok ? "✓ " : "○ ") +
-            self.esc(item.label) +
-            (!item.ok && item.required ? " <span class='gos-muted'>— blocker</span>" : "") +
-            (item.detail ? "<div class='gos-muted' style='padding-left:1rem'>" + self.esc(item.detail) + "</div>" : "") +
-            "</li>";
-        });
-        html += "</ul><div class='gos-muted'>Closing remains a manual broker action; GreenOS never auto-closes a load.</div></div>";
-      }
-      if ((d.blockers || []).length) {
-        html += "<div style='margin-top:.35rem'><b>Blockers</b><ul style='margin:.2rem 0;padding-left:1rem'>";
-        d.blockers.slice(0, 5).forEach(function (issue) {
+      if (criticalBlockers.length) {
+        html += "<ul style='margin:0.2rem 0 0.35rem;padding-left:1.1rem'>";
+        criticalBlockers.slice(0, 4).forEach(function (issue) {
           html += "<li>" + self.esc(issue.message || issue.code) + "</li>";
         });
-        html += "</ul></div>";
-      }
-      if ((d.warnings || []).length) {
-        html += "<div style='margin-top:.35rem'><b>Warnings</b><ul style='margin:.2rem 0;padding-left:1rem'>";
-        d.warnings.slice(0, 4).forEach(function (issue) {
-          html += "<li>" + self.esc(issue.message || issue.code) + "</li>";
-        });
-        html += "</ul></div>";
+        html += "</ul>";
       }
       html +=
-        "<div style='display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.5rem'>" +
-        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-lifecycle-tab='documents'>Documents</button>" +
-        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-lifecycle-tab='communications'>Comms</button>" +
-        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-lifecycle-tab='carrier'>Carrier</button>" +
-        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-lifecycle-tab='tracking'>Tracking</button>" +
-        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-lifecycle-tab='pricing'>Market</button>" +
-        "</div>";
-      (d.proposedActions || []).forEach(function (action) {
+        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-ai-goto='documents'>Open Documents</button> ";
+      proposed.forEach(function (action) {
         html +=
-          "<div style='margin-top:.5rem;padding:.45rem;border:1px solid var(--gos-border,#ddd);border-radius:6px'>" +
+          "<div style='margin-top:0.45rem;padding:0.4rem;border:1px solid var(--gos-border,#ddd);border-radius:6px;background:#fff'>" +
           "<b>" +
           self.esc(action.title || action.actionType) +
-          "</b><div class='gos-muted'>" +
-          self.esc(action.status || "PENDING_CONFIRMATION") +
-          "</div><button type='button' class='gos-btn gos-btn-sm' data-lifecycle-confirm='" +
+          "</b>" +
+          "<div class='gos-muted' style='font-size:0.78rem'>" +
+          self.esc(action.reason || action.status || "") +
+          "</div>" +
+          "<button type='button' class='gos-btn gos-btn-sm' style='margin-top:0.3rem' data-ai-confirm='" +
           self.esc(action.actionId) +
           "'>Confirm &amp; Execute</button></div>";
       });
-      bodyEl.innerHTML = html;
-      bodyEl.querySelectorAll("[data-lifecycle-tab]").forEach(function (button) {
+
+      alertEl.innerHTML = html;
+      alertEl.hidden = false;
+      alertEl.style.display = "block";
+
+      alertEl.querySelectorAll("[data-ai-goto]").forEach(function (button) {
         button.addEventListener("click", function () {
-          self._tab = button.getAttribute("data-lifecycle-tab") || "general";
+          self._tab = button.getAttribute("data-ai-goto") || "documents";
           self.openLoad(body, id, self._tab);
         });
       });
-      bodyEl.querySelectorAll("[data-lifecycle-confirm]").forEach(function (button) {
+      alertEl.querySelectorAll("[data-ai-confirm]").forEach(function (button) {
         button.addEventListener("click", async function () {
-          var actionId = button.getAttribute("data-lifecycle-confirm");
+          var actionId = button.getAttribute("data-ai-confirm");
           if (!actionId || !confirm("Confirm this AI action? It will execute now.")) return;
           button.disabled = true;
           try {
@@ -3650,171 +3657,15 @@ window.GreenOSModules["dispatch"] = {
             if (!actionRes.ok || !actionJson.success) {
               throw new Error(actionJson.message || "Confirm failed");
             }
-            self.loadShipmentLifecycle(body, id);
+            self.watchShipmentAiSilent(body, id);
           } catch (error) {
             alert(error.message || error);
             button.disabled = false;
           }
         });
       });
-    } catch (error) {
-      statusEl.textContent = error.message || "Lifecycle unavailable";
-      bodyEl.innerHTML = "";
-    }
-  },
-
-  async loadShipmentAiOps(body, id) {
-    var statusEl = body.querySelector("#load-ai-ops-status");
-    var bodyEl = body.querySelector("#load-ai-ops-body");
-    if (!statusEl || !bodyEl) return;
-    try {
-      var token = localStorage.getItem("gl_token");
-      var res = await fetch("/api/ai/shipments/" + encodeURIComponent(id) + "/summary", {
-        headers: { Authorization: token ? "Bearer " + token : "" },
-        cache: "no-store",
-      });
-      var json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.message || "AI summary failed");
-      var d = json.data || {};
-      var commRes = await fetch("/api/ai/shipments/" + encodeURIComponent(id) + "/communications", {
-        headers: { Authorization: token ? "Bearer " + token : "" },
-        cache: "no-store",
-      });
-      var commJson = await commRes.json();
-      if (!commRes.ok || !commJson.success) {
-        throw new Error(commJson.message || "Communication status failed");
-      }
-      var comm = commJson.data || {};
-      statusEl.textContent = "Readiness: " + (d.readiness || "—") + " · Waiting: " + (comm.waitingFor || "—");
-      var lines = [];
-      (d.documents || []).forEach(function (doc) {
-        lines.push(doc.slot + " — " + doc.status);
-      });
-      if ((d.reviewItems || []).length) {
-        lines.push("Problems:");
-        d.reviewItems.slice(0, 5).forEach(function (r) {
-          lines.push("- " + r);
-        });
-      }
-      if ((d.nextBestActions || []).length) {
-        lines.push("Next (RECOMMENDATION — not executed):");
-        d.nextBestActions.slice(0, 4).forEach(function (a) {
-          lines.push("- [" + a.priority + "] " + a.text);
-        });
-      }
-      lines.push("COMMUNICATION STATUS");
-      lines.push("Waiting For: " + (comm.waitingFor || "—") + (comm.waitingSince ? " since " + comm.waitingSince : ""));
-      lines.push("Last Contact: " + (comm.lastContact ? comm.lastContact.at + " · " + comm.lastContact.direction + " · " + comm.lastContact.subject : "No linked contact"));
-      lines.push("Open Requests: " + ((comm.openRequests || []).length || 0));
-      if ((comm.recommendations || []).length) {
-        lines.push("Recommendation: [" + comm.recommendations[0].priority + "] " + comm.recommendations[0].text);
-      }
-      bodyEl.innerHTML = "";
-      var pre = document.createElement("pre");
-      pre.style.cssText = "font-size:0.9rem;white-space:pre-wrap;margin:0;font-family:inherit";
-      pre.textContent = lines.join("\n");
-      bodyEl.appendChild(pre);
-
-      var actions = (d.proposedActions || []).concat(comm.proposedActions || []);
-      if (actions.length) {
-        var wrap = document.createElement("div");
-        wrap.style.marginTop = "0.75rem";
-        wrap.innerHTML = "<strong>AI Actions (require confirmation)</strong>";
-        var self = this;
-        actions.forEach(function (act) {
-          var card = document.createElement("div");
-          card.style.cssText =
-            "margin:0.5rem 0;padding:0.6rem;border:1px solid var(--gos-border,#ddd);border-radius:6px;font-size:0.85rem";
-          var payload = act.payload || {};
-          var detail = "";
-          if (act.actionType === "SEND_EMAIL" || act.actionType === "REQUEST_DOCUMENT") {
-            detail =
-              "<div><b>To:</b> " +
-              self.esc(payload.to || "(GreenOS contact)") +
-              "</div>" +
-              "<div><b>Subject:</b> " +
-              self.esc(payload.subject || "—") +
-              "</div>" +
-              "<div style='white-space:pre-wrap;margin-top:0.35rem'>" +
-              self.esc(payload.bodyText || payload.body || "") +
-              "</div>";
-          } else {
-            detail =
-              "<div style='white-space:pre-wrap'>" +
-              self.esc(payload.noteText || payload.notes || act.reason || act.description || "") +
-              "</div>";
-          }
-          card.innerHTML =
-            "<div><b>" +
-            self.esc(act.title || act.actionType) +
-            "</b> · " +
-            self.esc(act.status) +
-            "</div>" +
-            "<div class='gos-muted' style='font-size:0.8rem;margin:0.25rem 0'>" +
-            self.esc(act.reason || "") +
-            "</div>" +
-            detail +
-            "<div style='margin-top:0.5rem'>" +
-            "<button type='button' class='gos-btn gos-btn-sm' data-ai-confirm='" +
-            self.esc(act.actionId) +
-            "'>Confirm &amp; Execute</button> " +
-            "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-ai-cancel='" +
-            self.esc(act.actionId) +
-            "'>Cancel</button>" +
-            "</div>";
-          wrap.appendChild(card);
-        });
-        bodyEl.appendChild(wrap);
-        wrap.querySelectorAll("[data-ai-confirm]").forEach(function (btn) {
-          btn.addEventListener("click", async function () {
-            var actionId = btn.getAttribute("data-ai-confirm");
-            if (!actionId || !confirm("Confirm this AI action? It will execute now.")) return;
-            btn.disabled = true;
-            try {
-              var r = await fetch("/api/ai/actions/" + encodeURIComponent(actionId) + "/confirm", {
-                method: "POST",
-                headers: {
-                  Authorization: token ? "Bearer " + token : "",
-                  "Content-Type": "application/json",
-                },
-                body: "{}",
-              });
-              var j = await r.json();
-              if (!r.ok || !j.success) throw new Error(j.message || "Confirm failed");
-              alert("Action " + ((j.data && j.data.status) || "EXECUTED"));
-              self.loadShipmentAiOps(body, id);
-            } catch (e) {
-              alert(e.message || e);
-              btn.disabled = false;
-            }
-          });
-        });
-        wrap.querySelectorAll("[data-ai-cancel]").forEach(function (btn) {
-          btn.addEventListener("click", async function () {
-            var actionId = btn.getAttribute("data-ai-cancel");
-            if (!actionId) return;
-            btn.disabled = true;
-            try {
-              var r = await fetch("/api/ai/actions/" + encodeURIComponent(actionId) + "/cancel", {
-                method: "POST",
-                headers: {
-                  Authorization: token ? "Bearer " + token : "",
-                  "Content-Type": "application/json",
-                },
-                body: "{}",
-              });
-              var j = await r.json();
-              if (!r.ok || !j.success) throw new Error(j.message || "Cancel failed");
-              self.loadShipmentAiOps(body, id);
-            } catch (e) {
-              alert(e.message || e);
-              btn.disabled = false;
-            }
-          });
-        });
-      }
-    } catch (e) {
-      statusEl.textContent = e.message || "AI ops unavailable";
+    } catch (_err) {
+      /* silent — AI stays behind the scenes */
     }
   },
 
