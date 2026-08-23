@@ -7,6 +7,8 @@ import { aiOrchestrator } from "../services/ai-orchestrator.js";
 import { aiTools } from "../services/ai-tools.js";
 import { getOpenAiConfig } from "../../../config/env.js";
 import { operationalAiService } from "../operational/operational.service.js";
+import { aiActionService } from "../actions/action.service.js";
+import { proposalsFromOperationalRecommendations } from "../actions/proposals.js";
 
 export async function aiStatusController(_req: AuthRequest, res: Response) {
     const openai = getOpenAiConfig();
@@ -26,7 +28,7 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                     : "none",
             projectConfigured: Boolean(openai.projectId),
             organizationConfigured: Boolean(openai.organizationId),
-            phase: "5B",
+            phase: "6",
             tools: [
                 "getCarrierById",
                 "getShipmentById",
@@ -36,6 +38,8 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                 "carrierOperationalSummary",
                 "shipmentOperationalSummary",
                 "marketRateQuote",
+                "aiActionPropose",
+                "aiActionConfirm",
             ],
             searchMode: "STRUCTURED",
             knowledgeProvider: "StructuredKnowledgeSearchProvider",
@@ -47,7 +51,24 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                 dat: "NOT_CONNECTED",
                 truckstop: "NOT_CONNECTED",
             },
-            actionsEnabled: false,
+            actionsEnabled: true,
+            actionTypes: [
+                "SEND_EMAIL",
+                "CREATE_INTERNAL_NOTE",
+                "CREATE_FOLLOW_UP",
+                "REQUEST_DOCUMENT",
+                "MARK_REVIEW_REQUIRED",
+            ],
+            blockedActionTypes: [
+                "APPROVE_CARRIER",
+                "REJECT_CARRIER",
+                "CLOSE_SHIPMENT",
+                "CHANGE_RATE",
+                "DELETE_DOCUMENT",
+                "PAY_CARRIER",
+                "BOOK_LOAD",
+                "NEGOTIATE_RATE",
+            ],
         })
     );
 }
@@ -165,6 +186,32 @@ export async function aiCarrierSummaryController(req: AuthRequest, res: Response
 
         const started = Date.now();
         const data = await operationalAiService.carrierSummary({ userId, role }, id);
+
+        const proposedActions = [];
+        if (role !== "Viewer") {
+            const drafts = proposalsFromOperationalRecommendations({
+                carrierId: id,
+                recommendations: (data.nextBestActions || []).map((a) => ({
+                    id: a.id,
+                    text: a.text,
+                    reason: a.reason,
+                    priority: a.priority,
+                    source: a.source,
+                })),
+                carrierEmail:
+                    typeof data.carrier?.email === "string" ? data.carrier.email : null,
+            });
+            for (const draft of drafts.slice(0, 3)) {
+                try {
+                    proposedActions.push(
+                        await aiActionService.propose({ userId, role }, draft)
+                    );
+                } catch {
+                    // Skip proposals that fail ACL/validation — summary still returns.
+                }
+            }
+        }
+
         await prisma.aiRun
             .create({
                 data: {
@@ -174,9 +221,10 @@ export async function aiCarrierSummaryController(req: AuthRequest, res: Response
                     intent: "carrier_summary",
                     answerMode: "operational",
                     toolsJson: JSON.stringify({
-                        tools: ["carrierOperationalSummary"],
+                        tools: ["carrierOperationalSummary", "aiActionPropose"],
                         readiness: data.readiness,
                         compliance: data.compliance.light,
+                        proposedActionCount: proposedActions.length,
                         latencyMs: Date.now() - started,
                     }),
                     sourcesJson: JSON.stringify(data.sources),
@@ -186,7 +234,13 @@ export async function aiCarrierSummaryController(req: AuthRequest, res: Response
             })
             .catch((e) => console.warn("[ai] carrier summary audit failed", e));
 
-        return res.json(apiResponse(true, "OK", data));
+        return res.json(
+            apiResponse(true, "OK", {
+                ...data,
+                proposedActions,
+                actionsRequireConfirmation: true,
+            })
+        );
     } catch (err) {
         const message = err instanceof Error ? err.message : "Carrier summary failed";
         const status =
@@ -207,6 +261,31 @@ export async function aiShipmentSummaryController(req: AuthRequest, res: Respons
 
         const started = Date.now();
         const data = await operationalAiService.shipmentSummary({ userId, role }, id);
+
+        const proposedActions = [];
+        if (role !== "Viewer") {
+            const drafts = proposalsFromOperationalRecommendations({
+                shipmentLeadId: id,
+                recommendations: (data.nextBestActions || []).map((a) => ({
+                    id: a.id,
+                    text: a.text,
+                    reason: a.reason,
+                    priority: a.priority,
+                    source: a.source,
+                })),
+                carrierEmail: null,
+            });
+            for (const draft of drafts.slice(0, 3)) {
+                try {
+                    proposedActions.push(
+                        await aiActionService.propose({ userId, role }, draft)
+                    );
+                } catch {
+                    // Skip proposals that fail ACL/validation — summary still returns.
+                }
+            }
+        }
+
         await prisma.aiRun
             .create({
                 data: {
@@ -216,8 +295,9 @@ export async function aiShipmentSummaryController(req: AuthRequest, res: Respons
                     intent: "shipment_summary",
                     answerMode: "operational",
                     toolsJson: JSON.stringify({
-                        tools: ["shipmentOperationalSummary"],
+                        tools: ["shipmentOperationalSummary", "aiActionPropose"],
                         readiness: data.readiness,
+                        proposedActionCount: proposedActions.length,
                         latencyMs: Date.now() - started,
                     }),
                     sourcesJson: JSON.stringify(data.sources),
@@ -227,7 +307,13 @@ export async function aiShipmentSummaryController(req: AuthRequest, res: Respons
             })
             .catch((e) => console.warn("[ai] shipment summary audit failed", e));
 
-        return res.json(apiResponse(true, "OK", data));
+        return res.json(
+            apiResponse(true, "OK", {
+                ...data,
+                proposedActions,
+                actionsRequireConfirmation: true,
+            })
+        );
     } catch (err) {
         const message = err instanceof Error ? err.message : "Shipment summary failed";
         const status =

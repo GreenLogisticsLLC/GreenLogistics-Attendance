@@ -15,6 +15,12 @@ import {
     processDocumentController,
     reviewDocumentJobController,
 } from "../controllers/documents.controller.js";
+import {
+    cancelAiActionController,
+    confirmAiActionController,
+    getAiActionController,
+    proposeAiActionController,
+} from "../actions/actions.controller.js";
 
 export const aiRouter = Router();
 
@@ -46,3 +52,9 @@ aiRouter.post("/documents/process", aiRoles, processDocumentController);
 aiRouter.get("/documents/jobs/:jobId", aiRoles, getDocumentJobController);
 aiRouter.get("/documents/:documentId/validation", aiRoles, getDocumentValidationController);
 aiRouter.post("/documents/jobs/:jobId/review", aiRoles, reviewDocumentJobController);
+
+aiRouter.post("/actions/propose", aiRoles, proposeAiActionController);
+aiRouter.post("/actions/preview", aiRoles, proposeAiActionController);
+aiRouter.get("/actions/:actionId", aiRoles, getAiActionController);
+aiRouter.post("/actions/:actionId/confirm", aiRoles, confirmAiActionController);
+aiRouter.post("/actions/:actionId/cancel", aiRoles, cancelAiActionController);

@@ -3549,12 +3549,115 @@ window.GreenOSModules["dispatch"] = {
         });
       }
       if ((d.nextBestActions || []).length) {
-        lines.push("Next (RECOMMENDATION):");
+        lines.push("Next (RECOMMENDATION — not executed):");
         d.nextBestActions.slice(0, 4).forEach(function (a) {
           lines.push("- [" + a.priority + "] " + a.text);
         });
       }
-      bodyEl.textContent = lines.join("\n");
+      bodyEl.innerHTML = "";
+      var pre = document.createElement("pre");
+      pre.style.cssText = "font-size:0.9rem;white-space:pre-wrap;margin:0;font-family:inherit";
+      pre.textContent = lines.join("\n");
+      bodyEl.appendChild(pre);
+
+      var actions = d.proposedActions || [];
+      if (actions.length) {
+        var wrap = document.createElement("div");
+        wrap.style.marginTop = "0.75rem";
+        wrap.innerHTML = "<strong>AI Actions (require confirmation)</strong>";
+        var self = this;
+        actions.forEach(function (act) {
+          var card = document.createElement("div");
+          card.style.cssText =
+            "margin:0.5rem 0;padding:0.6rem;border:1px solid var(--gos-border,#ddd);border-radius:6px;font-size:0.85rem";
+          var payload = act.payload || {};
+          var detail = "";
+          if (act.actionType === "SEND_EMAIL" || act.actionType === "REQUEST_DOCUMENT") {
+            detail =
+              "<div><b>To:</b> " +
+              self.esc(payload.to || "(GreenOS contact)") +
+              "</div>" +
+              "<div><b>Subject:</b> " +
+              self.esc(payload.subject || "—") +
+              "</div>" +
+              "<div style='white-space:pre-wrap;margin-top:0.35rem'>" +
+              self.esc(payload.bodyText || payload.body || "") +
+              "</div>";
+          } else {
+            detail =
+              "<div style='white-space:pre-wrap'>" +
+              self.esc(payload.noteText || payload.notes || act.reason || act.description || "") +
+              "</div>";
+          }
+          card.innerHTML =
+            "<div><b>" +
+            self.esc(act.title || act.actionType) +
+            "</b> · " +
+            self.esc(act.status) +
+            "</div>" +
+            "<div class='gos-muted' style='font-size:0.8rem;margin:0.25rem 0'>" +
+            self.esc(act.reason || "") +
+            "</div>" +
+            detail +
+            "<div style='margin-top:0.5rem'>" +
+            "<button type='button' class='gos-btn gos-btn-sm' data-ai-confirm='" +
+            self.esc(act.actionId) +
+            "'>Confirm &amp; Execute</button> " +
+            "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-ai-cancel='" +
+            self.esc(act.actionId) +
+            "'>Cancel</button>" +
+            "</div>";
+          wrap.appendChild(card);
+        });
+        bodyEl.appendChild(wrap);
+        wrap.querySelectorAll("[data-ai-confirm]").forEach(function (btn) {
+          btn.addEventListener("click", async function () {
+            var actionId = btn.getAttribute("data-ai-confirm");
+            if (!actionId || !confirm("Confirm this AI action? It will execute now.")) return;
+            btn.disabled = true;
+            try {
+              var r = await fetch("/api/ai/actions/" + encodeURIComponent(actionId) + "/confirm", {
+                method: "POST",
+                headers: {
+                  Authorization: token ? "Bearer " + token : "",
+                  "Content-Type": "application/json",
+                },
+                body: "{}",
+              });
+              var j = await r.json();
+              if (!r.ok || !j.success) throw new Error(j.message || "Confirm failed");
+              alert("Action " + ((j.data && j.data.status) || "EXECUTED"));
+              self.loadShipmentAiOps(body, id);
+            } catch (e) {
+              alert(e.message || e);
+              btn.disabled = false;
+            }
+          });
+        });
+        wrap.querySelectorAll("[data-ai-cancel]").forEach(function (btn) {
+          btn.addEventListener("click", async function () {
+            var actionId = btn.getAttribute("data-ai-cancel");
+            if (!actionId) return;
+            btn.disabled = true;
+            try {
+              var r = await fetch("/api/ai/actions/" + encodeURIComponent(actionId) + "/cancel", {
+                method: "POST",
+                headers: {
+                  Authorization: token ? "Bearer " + token : "",
+                  "Content-Type": "application/json",
+                },
+                body: "{}",
+              });
+              var j = await r.json();
+              if (!r.ok || !j.success) throw new Error(j.message || "Cancel failed");
+              self.loadShipmentAiOps(body, id);
+            } catch (e) {
+              alert(e.message || e);
+              btn.disabled = false;
+            }
+          });
+        });
+      }
     } catch (e) {
       statusEl.textContent = e.message || "AI ops unavailable";
     }

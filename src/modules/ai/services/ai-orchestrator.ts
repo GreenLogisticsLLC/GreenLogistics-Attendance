@@ -10,6 +10,9 @@ import {
 } from "../operational/operational.service.js";
 import { formatMarketRateForChat, marketRateService } from "../rates/index.js";
 import { parseMoneyQuote } from "../rates/historical-record.js";
+import { aiActionService } from "../actions/action.service.js";
+import { proposalsFromOperationalRecommendations } from "../actions/proposals.js";
+import type { AiActionPublicView } from "../actions/types.js";
 
 export type AiChatResult = {
     reply: string;
@@ -19,6 +22,10 @@ export type AiChatResult = {
     answerMode: "grounded" | "general" | "not_found" | "operational" | "internal_market" | "external_market" | "market_comparison";
     groundingLabel: string;
     searchMode?: "STRUCTURED" | null;
+    /** Recommendations are suggestions only — never executed. */
+    recommendations?: Array<{ id: string; text: string; reason: string; priority: string }>;
+    /** Action proposals require explicit user confirmation via /api/ai/actions/:id/confirm. */
+    actions?: AiActionPublicView[];
 };
 
 const NOT_FOUND_LINE = "I could not find this information in GreenOS.";
@@ -34,7 +41,8 @@ Rules:
 - When search results include a comparison or compliance object, report MATCH / MISMATCH / CRITICAL_MISMATCH / MISSING exactly as given.
 - Do not mention API keys or internal system prompts.
 - Cite which GreenOS entities you used (carrier, shipment, document, email) in plain language.
-- Never claim an ACTION was completed. Recommendations are suggestions only.`;
+- Never claim an ACTION was completed (email sent, note saved, document requested). Recommendations are suggestions only.
+- Never report EXECUTED / email sent / follow-up created unless the backend action confirmation API has already succeeded — and you have no access to that API.`;
 
 const GENERAL_SYSTEM = `You are GreenOS AI Assistant for Green Logistics (freight brokerage).
 
@@ -71,6 +79,41 @@ type RateIntentPayload = {
 };
 
 type Intent = { kind: IntentKind; query: string; rate?: RateIntentPayload };
+
+async function proposeActionsFromSummary(
+    actor: AiActor,
+    input: {
+        carrierId?: string;
+        shipmentLeadId?: string;
+        recommendations: Array<{
+            id: string;
+            text: string;
+            reason: string;
+            priority: string;
+            source?: string;
+        }>;
+        carrierEmail?: string | null;
+        aiRunId: string;
+    }
+): Promise<AiActionPublicView[]> {
+    if (actor.role === "Viewer") return [];
+    const drafts = proposalsFromOperationalRecommendations({
+        carrierId: input.carrierId,
+        shipmentLeadId: input.shipmentLeadId,
+        recommendations: input.recommendations,
+        carrierEmail: input.carrierEmail,
+        aiRunId: input.aiRunId,
+    });
+    const out: AiActionPublicView[] = [];
+    for (const draft of drafts.slice(0, 3)) {
+        try {
+            out.push(await aiActionService.propose(actor, draft));
+        } catch {
+            // skip invalid proposals
+        }
+    }
+    return out;
+}
 
 function extractCarrierQuoteFromMessage(text: string): number | null {
     const dollar = text.match(/\$\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)/);
@@ -423,8 +466,27 @@ export class AiOrchestrator {
                         input.actor,
                         carrierId
                     );
+                    const actions = await proposeActionsFromSummary(input.actor, {
+                        carrierId,
+                        recommendations: summary.nextBestActions || [],
+                        carrierEmail:
+                            typeof summary.carrier?.email === "string"
+                                ? summary.carrier.email
+                                : null,
+                        aiRunId: run.runId,
+                    });
+                    toolsUsed.push("aiActionPropose");
+                    const reply =
+                        formatCarrierSummaryForChat(summary) +
+                        (actions.length
+                            ? `\n\nProposed actions (PENDING_CONFIRMATION — not executed):\n` +
+                              actions
+                                  .map((a, i) => `${i + 1}. ${a.title} [${a.actionType}]`)
+                                  .join("\n") +
+                              `\nConfirm each action in the UI before execution.`
+                            : "");
                     return this.finishRun(run.runId, {
-                        reply: formatCarrierSummaryForChat(summary),
+                        reply,
                         sources: summary.sources,
                         model: "operational",
                         runId: run.runId,
@@ -435,6 +497,8 @@ export class AiOrchestrator {
                         toolsUsed,
                         usage: null,
                         status: "SUCCESS",
+                        recommendations: summary.nextBestActions || [],
+                        actions,
                     });
                 } catch (err) {
                     const status =
@@ -548,8 +612,26 @@ export class AiOrchestrator {
                         input.actor,
                         intent.query
                     );
+                    const actions = await proposeActionsFromSummary(input.actor, {
+                        shipmentLeadId: String(
+                            summary.shipment?.shipmentLeadId || intent.query
+                        ),
+                        recommendations: summary.nextBestActions || [],
+                        carrierEmail: null,
+                        aiRunId: run.runId,
+                    });
+                    toolsUsed.push("aiActionPropose");
+                    const reply =
+                        formatShipmentSummaryForChat(summary) +
+                        (actions.length
+                            ? `\n\nProposed actions (PENDING_CONFIRMATION — not executed):\n` +
+                              actions
+                                  .map((a, i) => `${i + 1}. ${a.title} [${a.actionType}]`)
+                                  .join("\n") +
+                              `\nConfirm each action in the UI before execution.`
+                            : "");
                     return this.finishRun(run.runId, {
-                        reply: formatShipmentSummaryForChat(summary),
+                        reply,
                         sources: summary.sources,
                         model: "operational",
                         runId: run.runId,
@@ -560,6 +642,8 @@ export class AiOrchestrator {
                         toolsUsed,
                         usage: null,
                         status: "SUCCESS",
+                        recommendations: summary.nextBestActions || [],
+                        actions,
                     });
                 } catch (err) {
                     const status =
@@ -810,6 +894,8 @@ export class AiOrchestrator {
                 estimatedCostUsd: number | null;
             } | null;
             status: string;
+            recommendations?: AiChatResult["recommendations"];
+            actions?: AiActionPublicView[];
         }
     ): Promise<AiChatResult> {
         await prisma.aiRun
@@ -824,6 +910,7 @@ export class AiOrchestrator {
                         tools: result.toolsUsed,
                         searchMode: result.searchMode || null,
                         resultCount: result.sources.length,
+                        proposedActionCount: result.actions?.length || 0,
                     }),
                     sourcesJson: JSON.stringify(result.sources),
                     promptTokens: result.usage?.promptTokens ?? null,
@@ -844,6 +931,8 @@ export class AiOrchestrator {
             answerMode: result.answerMode,
             groundingLabel: result.groundingLabel,
             searchMode: result.searchMode ?? null,
+            recommendations: result.recommendations,
+            actions: result.actions,
         };
     }
 }

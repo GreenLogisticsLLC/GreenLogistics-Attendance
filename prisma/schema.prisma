@@ -45,6 +45,7 @@ model User {
   directCustomers        DirectCustomer[]
   aiRuns                 AiRun[]
   aiDocumentJobs         AiDocumentJob[]
+  aiActions              AiAction[]
 
   @@index([teamLeadId])
   @@map("users")
@@ -1028,4 +1029,47 @@ model DocumentValidationResult {
   @@index([overallStatus])
   @@index([requiresReview])
   @@map("document_validation_results")
+}
+
+/// Phase 6 — AI action proposal (propose → confirm → execute). Never auto-executed.
+model AiAction {
+  actionId         String    @id @default(uuid()) @map("action_id")
+  actorUserId      String    @map("actor_user_id")
+  /// SEND_EMAIL | CREATE_INTERNAL_NOTE | CREATE_FOLLOW_UP | REQUEST_DOCUMENT | MARK_REVIEW_REQUIRED
+  actionType       String    @map("action_type")
+  /// DRAFT | PENDING_CONFIRMATION | CONFIRMED | EXECUTING | EXECUTED | FAILED | CANCELLED | EXPIRED | ALREADY_EXECUTED
+  status           String    @default("PENDING_CONFIRMATION")
+  title            String
+  description      String?
+  reason           String?
+  /// carrier | shipment | document_job | none
+  targetType       String    @map("target_type")
+  targetId         String?   @map("target_id")
+  /// JSON payload (recipients, subject, body, note text, doc type, etc.) — validated again at confirm.
+  payloadJson      String    @map("payload_json")
+  /// JSON array of source refs (entity ids / labels only — no document bodies).
+  sourcesJson      String?   @map("sources_json")
+  aiRunId          String?   @map("ai_run_id")
+  idempotencyKey   String    @unique @map("idempotency_key")
+  /// SHA-256 of canonical payload at proposal time (detect client tampering).
+  payloadHash      String    @map("payload_hash")
+  /// Optional fingerprint of grounding state for stale-action detection.
+  groundingHash    String?   @map("grounding_hash")
+  expiresAt        DateTime  @map("expires_at")
+  confirmedAt      DateTime? @map("confirmed_at")
+  executedAt       DateTime? @map("executed_at")
+  cancelledAt      DateTime? @map("cancelled_at")
+  resultJson       String?   @map("result_json")
+  errorMessage     String?   @map("error_message")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  actor            User      @relation(fields: [actorUserId], references: [userId], onDelete: Cascade)
+
+  @@index([actorUserId])
+  @@index([status])
+  @@index([actionType])
+  @@index([targetType, targetId])
+  @@index([expiresAt])
+  @@index([createdAt])
+  @@map("ai_actions")
 }
