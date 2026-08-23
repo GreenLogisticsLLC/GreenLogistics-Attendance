@@ -28,7 +28,7 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                     : "none",
             projectConfigured: Boolean(openai.projectId),
             organizationConfigured: Boolean(openai.organizationId),
-            phase: "6",
+            phase: "7",
             tools: [
                 "getCarrierById",
                 "getShipmentById",
@@ -37,6 +37,8 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                 "searchGreenOS",
                 "carrierOperationalSummary",
                 "shipmentOperationalSummary",
+                "carrierCommunicationContext",
+                "shipmentCommunicationContext",
                 "marketRateQuote",
                 "aiActionPropose",
                 "aiActionConfirm",
@@ -52,6 +54,7 @@ export async function aiStatusController(_req: AuthRequest, res: Response) {
                 truckstop: "NOT_CONNECTED",
             },
             actionsEnabled: true,
+            communicationsEnabled: true,
             actionTypes: [
                 "SEND_EMAIL",
                 "CREATE_INTERNAL_NOTE",

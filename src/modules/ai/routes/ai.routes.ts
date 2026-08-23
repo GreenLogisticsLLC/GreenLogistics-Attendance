@@ -21,6 +21,10 @@ import {
     getAiActionController,
     proposeAiActionController,
 } from "../actions/actions.controller.js";
+import {
+    aiCarrierCommunicationsController,
+    aiShipmentCommunicationsController,
+} from "../communications/communications.controller.js";
 
 export const aiRouter = Router();
 
@@ -47,6 +51,8 @@ aiRouter.post("/chat", aiRoles, aiChatController);
 aiRouter.post("/search", aiRoles, aiSearchController);
 aiRouter.get("/carriers/:id/summary", aiRoles, aiCarrierSummaryController);
 aiRouter.get("/shipments/:id/summary", aiRoles, aiShipmentSummaryController);
+aiRouter.get("/carriers/:id/communications", aiRoles, aiCarrierCommunicationsController);
+aiRouter.get("/shipments/:id/communications", aiRoles, aiShipmentCommunicationsController);
 aiRouter.post("/rates/quote", aiRoles, marketRateQuoteController);
 aiRouter.post("/documents/process", aiRoles, processDocumentController);
 aiRouter.get("/documents/jobs/:jobId", aiRoles, getDocumentJobController);

@@ -13,6 +13,10 @@ import { parseMoneyQuote } from "../rates/historical-record.js";
 import { aiActionService } from "../actions/action.service.js";
 import { proposalsFromOperationalRecommendations } from "../actions/proposals.js";
 import type { AiActionPublicView } from "../actions/types.js";
+import {
+    communicationService,
+    formatCommunicationForChat,
+} from "../communications/index.js";
 
 export type AiChatResult = {
     reply: string;
@@ -71,6 +75,14 @@ export type IntentKind =
     | "historical_rate"
     | "lane_rate"
     | "carrier_quote_comparison"
+    | "waiting_for"
+    | "last_contact"
+    | "carrier_communication"
+    | "shipment_communication"
+    | "follow_up_status"
+    | "document_request_status"
+    | "next_communication_action"
+    | "communication_summary"
     | "general";
 
 type RateIntentPayload = {
@@ -153,6 +165,30 @@ function detectIntent(message: string): Intent {
 
     const carrierQuote = extractCarrierQuoteFromMessage(text);
     const shipmentRef = (loadMatch?.[1] || plainLoad?.[1] || uuidMatch?.[1] || "").trim();
+    const communicationCue =
+        /\b(waiting\s+for|last\s+(?:contact|communicat)|follow[- ]?up|did\s+the\s+carrier\s+send|what\s+did\s+the\s+customer\s+say|communicat(?:ion|ions|e)|document\s+request\s+status|next\s+communication\s+action)\b/i.test(
+            text
+        );
+    if (communicationCue) {
+        let kind: IntentKind = shipmentOps ? "shipment_communication" : "carrier_communication";
+        if (/\bwaiting\s+for\b/i.test(text)) kind = "waiting_for";
+        else if (/\blast\s+(?:contact|communicat)/i.test(text)) kind = "last_contact";
+        else if (/\bfollow[- ]?up\b/i.test(text)) kind = "follow_up_status";
+        else if (/\bdid\s+the\s+carrier\s+send|document\s+request\s+status\b/i.test(text)) {
+            kind = "document_request_status";
+        } else if (/\bnext\s+communication\s+action\b/i.test(text)) {
+            kind = "next_communication_action";
+        } else if (/\bsummary\b/i.test(text)) kind = "communication_summary";
+        return {
+            kind,
+            query: (
+                shipmentRef ||
+                mcDigits ||
+                uuidMatch?.[1] ||
+                text
+            ).trim(),
+        };
+    }
 
     if (
         carrierQuote != null &&
@@ -442,6 +478,107 @@ export class AiOrchestrator {
             const toolResults: AiToolResult[] = [];
             const toolsUsed: string[] = [];
             let searchMode: "STRUCTURED" | null = null;
+
+            const communicationKinds: IntentKind[] = [
+                "waiting_for",
+                "last_contact",
+                "carrier_communication",
+                "shipment_communication",
+                "follow_up_status",
+                "document_request_status",
+                "next_communication_action",
+                "communication_summary",
+            ];
+            if (communicationKinds.includes(intent.kind)) {
+                const shipmentTarget =
+                    intent.kind === "shipment_communication" ||
+                    /\b(shipment|load|customer|delivery|pickup|pod|bol)\b/i.test(message) ||
+                    /^GL\d+|^GOS\d+|^\d{4,6}$/i.test(intent.query);
+                toolsUsed.push(
+                    shipmentTarget ? "shipmentCommunicationContext" : "carrierCommunicationContext"
+                );
+                let context;
+                if (shipmentTarget) {
+                    context = await communicationService.shipmentCommunications(
+                        input.actor,
+                        intent.query
+                    );
+                } else {
+                    const carrierId = await resolveCarrierId(input.actor, intent.query);
+                    if (!carrierId) {
+                        return this.finishRun(run.runId, {
+                            reply: NOT_FOUND_LINE,
+                            sources: [],
+                            model: "communication-intelligence",
+                            runId: run.runId,
+                            answerMode: "not_found",
+                            groundingLabel: "Based on GreenOS communication records",
+                            searchMode: null,
+                            intent: intent.kind,
+                            toolsUsed,
+                            usage: null,
+                            status: "SUCCESS",
+                        });
+                    }
+                    context = await communicationService.carrierCommunications(
+                        input.actor,
+                        carrierId
+                    );
+                }
+                let communicationCarrierEmail: string | null = null;
+                if (context.carrierId) {
+                    communicationCarrierEmail =
+                        (
+                            await prisma.carrier.findUnique({
+                                where: { carrierId: context.carrierId },
+                                select: { email: true },
+                            })
+                        )?.email || null;
+                } else if (context.entityType === "shipment") {
+                    communicationCarrierEmail =
+                        (
+                            await prisma.shipmentLead.findUnique({
+                                where: { shipmentLeadId: context.entityId },
+                                select: { carrierEmail: true },
+                            })
+                        )?.carrierEmail || null;
+                }
+                const actions = await proposeActionsFromSummary(input.actor, {
+                    carrierId: context.entityType === "carrier" ? context.entityId : undefined,
+                    shipmentLeadId:
+                        context.entityType === "shipment" ? context.entityId : undefined,
+                    recommendations: context.recommendations,
+                    carrierEmail: communicationCarrierEmail,
+                    aiRunId: run.runId,
+                });
+                toolsUsed.push("aiActionPropose");
+                const reply =
+                    formatCommunicationForChat(context) +
+                    (actions.length
+                        ? `\n\nProposed actions (PENDING_CONFIRMATION — not executed):\n${actions
+                              .map((action, index) => `${index + 1}. ${action.title} [${action.actionType}]`)
+                              .join("\n")}\nConfirm each action in the UI before execution.`
+                        : "");
+                return this.finishRun(run.runId, {
+                    reply,
+                    sources: context.sources.map((source) => ({
+                        type: source.type,
+                        id: source.id,
+                        label: source.label,
+                    })),
+                    model: "communication-intelligence",
+                    runId: run.runId,
+                    answerMode: "operational",
+                    groundingLabel: context.groundingLabel,
+                    searchMode: null,
+                    intent: intent.kind,
+                    toolsUsed,
+                    usage: null,
+                    status: "SUCCESS",
+                    recommendations: context.recommendations,
+                    actions,
+                });
+            }
 
             if (intent.kind === "carrier_summary" || intent.kind === "carrier_readiness") {
                 toolsUsed.push("carrierOperationalSummary");

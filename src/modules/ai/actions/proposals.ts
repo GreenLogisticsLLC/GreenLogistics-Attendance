@@ -33,7 +33,21 @@ export function proposalsFromOperationalRecommendations(input: {
             noteText: `${rec.text} — ${rec.reason}`,
         };
 
-        if (
+        if (id.startsWith("comm-followup")) {
+            if (input.carrierEmail) {
+                actionType = "SEND_EMAIL";
+                title = rec.text;
+                payload = {
+                    to: input.carrierEmail,
+                    subject: "Follow-up — Green Logistics",
+                    bodyText: `Hello,\n\n${rec.text}. ${rec.reason}\n\nPlease reply when available.\n\nThank you,\nGreen Logistics`,
+                };
+            } else {
+                actionType = "CREATE_FOLLOW_UP";
+                title = rec.text;
+                payload = { noteText: rec.reason || rec.text };
+            }
+        } else if (
             id.startsWith("req-") ||
             id.startsWith("exp-") ||
             /request (updated |\/ upload )?(coi|noa|w-?9|agreement|mc|insurance|authority)/i.test(

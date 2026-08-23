@@ -3537,7 +3537,16 @@ window.GreenOSModules["dispatch"] = {
       var json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.message || "AI summary failed");
       var d = json.data || {};
-      statusEl.textContent = "Readiness: " + (d.readiness || "—");
+      var commRes = await fetch("/api/ai/shipments/" + encodeURIComponent(id) + "/communications", {
+        headers: { Authorization: token ? "Bearer " + token : "" },
+        cache: "no-store",
+      });
+      var commJson = await commRes.json();
+      if (!commRes.ok || !commJson.success) {
+        throw new Error(commJson.message || "Communication status failed");
+      }
+      var comm = commJson.data || {};
+      statusEl.textContent = "Readiness: " + (d.readiness || "—") + " · Waiting: " + (comm.waitingFor || "—");
       var lines = [];
       (d.documents || []).forEach(function (doc) {
         lines.push(doc.slot + " — " + doc.status);
@@ -3554,13 +3563,20 @@ window.GreenOSModules["dispatch"] = {
           lines.push("- [" + a.priority + "] " + a.text);
         });
       }
+      lines.push("COMMUNICATION STATUS");
+      lines.push("Waiting For: " + (comm.waitingFor || "—") + (comm.waitingSince ? " since " + comm.waitingSince : ""));
+      lines.push("Last Contact: " + (comm.lastContact ? comm.lastContact.at + " · " + comm.lastContact.direction + " · " + comm.lastContact.subject : "No linked contact"));
+      lines.push("Open Requests: " + ((comm.openRequests || []).length || 0));
+      if ((comm.recommendations || []).length) {
+        lines.push("Recommendation: [" + comm.recommendations[0].priority + "] " + comm.recommendations[0].text);
+      }
       bodyEl.innerHTML = "";
       var pre = document.createElement("pre");
       pre.style.cssText = "font-size:0.9rem;white-space:pre-wrap;margin:0;font-family:inherit";
       pre.textContent = lines.join("\n");
       bodyEl.appendChild(pre);
 
-      var actions = d.proposedActions || [];
+      var actions = (d.proposedActions || []).concat(comm.proposedActions || []);
       if (actions.length) {
         var wrap = document.createElement("div");
         wrap.style.marginTop = "0.75rem";
