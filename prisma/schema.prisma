@@ -375,6 +375,10 @@ model ShipmentLead {
   directCustomerId      String?                 @map("direct_customer_id")
   /// Optional link to master Carrier profile (onboarding / compliance).
   carrierProfileId      String?                 @map("carrier_profile_id")
+  /// Broker reviewed packet/prior-load docs on THIS load (not a copy onto load documents).
+  loadCarrierApprovedAt DateTime?               @map("load_carrier_approved_at")
+  loadCarrierApprovedById String?               @map("load_carrier_approved_by_id")
+  loadCarrierApprovedProfileId String?          @map("load_carrier_approved_profile_id")
   assignedAt            DateTime?               @map("assigned_at")
   acceptedAt            DateTime?               @map("accepted_at")
   acceptanceDeadline    DateTime?               @map("acceptance_deadline")

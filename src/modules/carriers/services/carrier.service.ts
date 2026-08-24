@@ -386,6 +386,22 @@ export class CarrierService {
             data: { carrierProfileId: carrier.carrierId },
         });
 
+        if (String(carrier.onboardingStatus || "").toUpperCase() === "APPROVED") {
+            return {
+                carrier,
+                invite: {
+                    sent: false,
+                    skipped: true,
+                    reason: "already_registered",
+                    warning: null,
+                    session: null,
+                    onboardingUrl: "",
+                    purpose: ONBOARDING_PURPOSE.AGREEMENT_PACKET,
+                    sentVia: "none",
+                },
+            };
+        }
+
         const invite = await this.createSessionAndSendInvite(carrier.carrierId, {
             ...actor,
             shipmentLeadId,

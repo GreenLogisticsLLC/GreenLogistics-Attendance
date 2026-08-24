@@ -61,6 +61,9 @@ loadRouter.post("/:id/documents/:docType/edit", roles, (req, res) =>
 loadRouter.get("/:id/documents/:documentId/download", roles, (req, res) =>
     loadController.downloadDocument(req, res)
 );
+loadRouter.get("/:id/reference-documents/:documentId", roles, (req, res) =>
+    loadController.downloadReferenceDocument(req, res)
+);
 loadRouter.post("/:id/documents/:documentId/archive", roles, (req, res) =>
     loadController.archiveDocument(req, res)
 );

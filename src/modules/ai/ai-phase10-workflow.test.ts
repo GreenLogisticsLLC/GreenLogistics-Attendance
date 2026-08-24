@@ -97,7 +97,7 @@ test("READY_TO_CLOSE remains a manual recommendation and never mutates status", 
 test("transit and delivery quick actions unlock sequentially", () => {
     const base = {
         carrierName: "Test Carrier",
-        carrierOnboardingStatus: "APPROVED",
+        loadCarrierApproved: true,
         documents: [{ docType: "RATE_CONFIRMATION" }, { docType: "BOL" }],
     };
     const afterPickup = buildLoadQuickActions({ ...base, status: "PICKUP" });

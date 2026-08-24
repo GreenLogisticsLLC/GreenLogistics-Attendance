@@ -11,6 +11,11 @@ import {
     assertQuickActionAllowed,
     buildLoadQuickActions,
 } from "../load-quick-actions.js";
+import { isLoadCarrierApproved } from "../load-carrier-review.js";
+import {
+    buildLoadCarrierReviewPacket,
+    getReferenceLoadDocument,
+} from "./load-carrier-review.service.js";
 import { sendLoadReviewEmail } from "./load-review-email.service.js";
 import { shipmentLifecycleService } from "../../ai/lifecycle/service.js";
 
@@ -361,6 +366,23 @@ export class LoadService {
             }
         }
 
+        const packetDocs = (carrierProfile?.documents || []).map((d) => ({
+            documentId: d.documentId,
+            documentType: d.documentType,
+            originalFilename: d.originalFilename,
+            uploadedAt: d.uploadedAt,
+        }));
+        const reviewSlots =
+            s.carrierProfileId || s.carrierMc
+                ? await buildLoadCarrierReviewPacket({
+                      currentShipmentLeadId: shipmentLeadId,
+                      carrierProfileId: s.carrierProfileId,
+                      carrierMc: s.carrierMc,
+                      packetDocs,
+                  })
+                : [];
+        const loadCarrierApproved = isLoadCarrierApproved(s);
+
         // Lifecycle catch-up is optional — do not block the Load Details paint path.
         if (opts?.syncLifecycle !== false) {
             void (async () => {
@@ -510,6 +532,8 @@ export class LoadService {
                 trailerNumber: s.trailerNumber,
                 carrierProfileId: s.carrierProfileId || carrierProfile?.carrierId || null,
                 onboardingStatus: carrierProfile?.onboardingStatus || null,
+                loadCarrierApproved: isLoadCarrierApproved(s),
+                loadCarrierApprovedAt: s.loadCarrierApprovedAt,
                 carrierRecordStatus: carrierProfile?.status || null,
                 agreementSigned: Boolean(carrierProfile?.agreementSigns?.[0]?.agreed),
                 agreementSignature: carrierProfile?.agreementSigns?.[0] || null,
@@ -525,6 +549,16 @@ export class LoadService {
                     downloadUrl: `/api/carriers/${
                         s.carrierProfileId || carrierProfile?.carrierId
                     }/documents/${d.documentId}/download`,
+                })),
+                reviewSlots: reviewSlots.map((slot) => ({
+                    ...slot,
+                    downloadUrl: slot.document
+                        ? slot.source === "prior_load"
+                            ? `/api/loads/${shipmentLeadId}/reference-documents/${slot.document.documentId}`
+                            : `/api/carriers/${
+                                  s.carrierProfileId || carrierProfile?.carrierId
+                              }/documents/${slot.document.documentId}/download`
+                        : null,
                 })),
                 futureIntegrations: [
                     "Highway",
@@ -593,7 +627,7 @@ export class LoadService {
             quickActions: buildLoadQuickActions({
                 status: s.status,
                 carrierName: s.carrierName,
-                carrierOnboardingStatus: carrierProfile?.onboardingStatus || null,
+                loadCarrierApproved,
                 customerPaidAt: s.customerPaidAt,
                 carrierPaidAt: s.carrierPaidAt,
                 reviewCustomerSentAt: s.reviewCustomerSentAt,
@@ -700,6 +734,19 @@ export class LoadService {
         dateField("invoiceDueDate");
         dateField("paymentDate");
 
+        const identityChanged =
+            (body.carrierName !== undefined &&
+                String(body.carrierName || "") !== String(shipment.carrierName || "")) ||
+            (body.carrierEmail !== undefined &&
+                String(body.carrierEmail || "") !== String(shipment.carrierEmail || "")) ||
+            (body.carrierMc !== undefined &&
+                String(body.carrierMc || "") !== String(shipment.carrierMc || ""));
+        if (identityChanged) {
+            data.loadCarrierApprovedAt = null;
+            data.loadCarrierApprovedById = null;
+            data.loadCarrierApprovedProfileId = null;
+        }
+
         if (Object.keys(data).length) {
             await prisma.shipmentLead.update({ where: { shipmentLeadId }, data });
             await domainEventEngine.emit({
@@ -773,6 +820,7 @@ export class LoadService {
                 status: true,
                 carrierName: true,
                 carrierProfileId: true,
+                carrierMc: true,
                 customerName: true,
                 customerEmail: true,
                 carrierEmail: true,
@@ -784,6 +832,8 @@ export class LoadService {
                 reviewCarrierSentTo: true,
                 loadNumber: true,
                 assignedBrokerId: true,
+                loadCarrierApprovedAt: true,
+                loadCarrierApprovedProfileId: true,
             },
         });
         if (!shipment) throw Object.assign(new Error("Load not found"), { status: 404 });
@@ -791,18 +841,11 @@ export class LoadService {
             where: { shipmentLeadId, isCurrent: true, status: { not: "ARCHIVED" } },
             select: { docType: true, contentJson: true },
         });
-        let carrierOnboardingStatus: string | null = null;
-        if (shipment.carrierProfileId) {
-            const profile = await prisma.carrier.findUnique({
-                where: { carrierId: shipment.carrierProfileId },
-                select: { onboardingStatus: true },
-            });
-            carrierOnboardingStatus = profile?.onboardingStatus || null;
-        }
+        const loadCarrierApproved = isLoadCarrierApproved(shipment);
         assertQuickActionAllowed(action, {
             status: shipment.status,
             carrierName: shipment.carrierName,
-            carrierOnboardingStatus,
+            loadCarrierApproved,
             customerPaidAt: shipment.customerPaidAt,
             carrierPaidAt: shipment.carrierPaidAt,
             reviewCustomerSentAt: shipment.reviewCustomerSentAt,
@@ -848,6 +891,83 @@ export class LoadService {
                     { status: 422, code: "CLOSEOUT_ACK_REQUIRED" }
                 );
             }
+        }
+
+        if (action === "approve_carrier") {
+            if (!String(shipment.carrierName || "").trim()) {
+                throw Object.assign(new Error("Assign a carrier before Approved Carrier"), {
+                    status: 422,
+                });
+            }
+            let profileId = shipment.carrierProfileId;
+            if (!profileId) {
+                throw Object.assign(
+                    new Error("Save the carrier on this load first, then review documents and click Approved Carrier"),
+                    { status: 422, code: "CARRIER_PROFILE_REQUIRED" }
+                );
+            }
+            const profile = await prisma.carrier.findUnique({
+                where: { carrierId: profileId },
+                select: { onboardingStatus: true },
+            });
+            const onboarding = String(profile?.onboardingStatus || "").toUpperCase();
+            const reviewSlots = await buildLoadCarrierReviewPacket({
+                currentShipmentLeadId: shipmentLeadId,
+                carrierProfileId: profileId,
+                carrierMc: shipment.carrierMc || null,
+                packetDocs: (
+                    await prisma.carrierDocument.findMany({
+                        where: { carrierId: profileId, status: "CURRENT" },
+                        orderBy: [{ documentType: "asc" }, { version: "desc" }],
+                        select: {
+                            documentId: true,
+                            documentType: true,
+                            originalFilename: true,
+                            uploadedAt: true,
+                        },
+                    })
+                ).map((d) => ({
+                    documentId: d.documentId,
+                    documentType: d.documentType,
+                    originalFilename: d.originalFilename,
+                    uploadedAt: d.uploadedAt,
+                })),
+            });
+            const hasReviewMaterial = reviewSlots.some((slot) => slot.present);
+            if (!hasReviewMaterial && onboarding !== "APPROVED") {
+                throw Object.assign(
+                    new Error(
+                        "No carrier packet or previous-load RC/BOL found yet. Wait for documents, then click Approved Carrier."
+                    ),
+                    { status: 422, code: "CARRIER_REVIEW_DOCS_REQUIRED" }
+                );
+            }
+            if (["SUBMITTED", "UNDER_REVIEW"].includes(onboarding)) {
+                await prisma.carrier.update({
+                    where: { carrierId: profileId },
+                    data: { onboardingStatus: "APPROVED", status: "ACTIVE" },
+                });
+            }
+            const now = new Date();
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId },
+                data: {
+                    loadCarrierApprovedAt: now,
+                    loadCarrierApprovedById: actorUserId || null,
+                    loadCarrierApprovedProfileId: profileId,
+                    carrierStatus: "Approved",
+                },
+            });
+            await domainEventEngine.emit({
+                shipmentLeadId,
+                eventType: "LOAD_CARRIER_APPROVED",
+                title: "Approved Carrier",
+                message: `Broker approved carrier documents for Load ${shipment.loadNumber || ""}`,
+                actorUserId,
+                payload: { carrierProfileId: profileId },
+                timelineStage: "CARRIER_ASSIGNED",
+            });
+            return this.getLoadDetails(shipmentLeadId);
         }
 
         if (action === "mark_customer_paid" || action === "mark_carrier_paid") {
@@ -1131,6 +1251,20 @@ export class LoadService {
         }
 
         throw Object.assign(new Error(`Unknown load action: ${action}`), { status: 422 });
+    }
+
+    async getReferenceLoadDocument(shipmentLeadId: string, documentId: string) {
+        const lead = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+            select: { carrierProfileId: true, carrierMc: true },
+        });
+        if (!lead) throw Object.assign(new Error("Load not found"), { status: 404 });
+        return getReferenceLoadDocument({
+            currentShipmentLeadId: shipmentLeadId,
+            documentId,
+            carrierProfileId: lead.carrierProfileId,
+            carrierMc: lead.carrierMc,
+        });
     }
 }
 

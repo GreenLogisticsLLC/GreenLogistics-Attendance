@@ -148,7 +148,15 @@ window.GreenOSModules["dispatch"] = {
       );
     };
     var status = String(c.onboardingStatus || "").toUpperCase();
-    if (!c.carrierProfileId && !status && !(c.onboardingDocuments || []).length) return "";
+    var reviewSlots = c.reviewSlots || [];
+    if (
+      !c.carrierProfileId &&
+      !status &&
+      !(c.onboardingDocuments || []).length &&
+      !reviewSlots.length
+    ) {
+      return "";
+    }
 
     var signed = c.agreementSigned || (c.agreementSignature && c.agreementSignature.agreed);
     var signMeta = "—";
@@ -161,37 +169,76 @@ window.GreenOSModules["dispatch"] = {
     } else if (signed) {
       signMeta = "Signed";
     }
-    var docs = c.onboardingDocuments || [];
-    var statusLabel = status || "—";
-    var headline = "Carrier documents";
-    var lead = "All files the carrier signs and sends back appear in this section for review.";
+    var loadApproved = c.loadCarrierApproved === true;
+    var headline = loadApproved
+      ? "Carrier documents — approved for this load"
+      : "Review carrier documents for this load";
+    var lead = loadApproved
+      ? "Broker already approved this carrier for the current load. Rate Confirmation is unlocked."
+      : "Open each file below (packet + previous-load RC/BOL). These are for review only — they are not attached as documents on this new load. Then click <strong>Approved Carrier</strong>.";
     var actions = "";
-
-    if (status === "APPROVED") {
-      headline = "Carrier documents — approved";
-      lead =
-        "This carrier is approved on our side. Open any file below to re-check against your criteria.";
-    } else if (status === "SUBMITTED" || status === "UNDER_REVIEW") {
-      headline = "Carrier documents — ready for review";
-      lead =
-        "The carrier signed the agreement and returned the packet. Open each file, verify, then approve.";
+    if (!loadApproved && c.carrierProfileId) {
       actions =
-        '<div class="load-actions">' +
-        '<button type="button" class="btn-primary" id="ld-approve-carrier">Approve carrier</button>' +
+        '<div class="load-actions" style="margin:0.75rem 0">' +
+        '<button type="button" class="btn-primary" id="ld-approve-carrier">Approved Carrier</button>' +
+        (c.carrierProfileId
+          ? '<button type="button" class="btn-secondary" id="ld-open-carrier-record">Open full carrier record</button>'
+          : "") +
+        "</div>";
+    } else if (c.carrierProfileId) {
+      actions =
+        '<div class="load-actions" style="margin:0.75rem 0">' +
         '<button type="button" class="btn-secondary" id="ld-open-carrier-record">Open full carrier record</button>' +
         "</div>";
-    } else if (status === "REQUEST_CHANGES") {
-      headline = "Carrier documents — corrections requested";
-      lead = "Waiting for the carrier to resubmit. Files already received stay listed below.";
-    } else if (signed || docs.length) {
-      headline = "Carrier documents — in progress";
-      lead = "Documents received so far are listed below. More files will show here as the carrier uploads them.";
-    } else if (status) {
-      headline = "Carrier documents";
-      lead =
-        "Invite sent (status: " +
-        statusLabel +
-        "). After the carrier signs and uploads MC / NOA / W-9, every file will list here.";
+    }
+
+    var slotsHtml = "";
+    if (reviewSlots.length) {
+      slotsHtml =
+        '<div class="ld-carrier-doc-list">' +
+        reviewSlots
+          .map(function (slot) {
+            var doc = slot.document || null;
+            var from =
+              slot.source === "prior_load"
+                ? doc && doc.sourceLoadNumber
+                  ? "Previous load " + doc.sourceLoadNumber + " — review only"
+                  : "Previous load — review only"
+                : "Carrier packet — review only";
+            var actionsCell = doc
+              ? '<div class="ld-carrier-doc-actions">' +
+                '<button type="button" class="btn-primary ld-review-doc-open" data-source="' +
+                self.esc(slot.source) +
+                '" data-id="' +
+                self.esc(doc.documentId) +
+                '" data-name="' +
+                self.esc(doc.originalFilename || slot.label + ".pdf") +
+                '">Open</button></div>'
+              : '<span class="gos-muted">Not on file</span>';
+            return (
+              '<article class="ld-carrier-doc-item">' +
+              '<div class="ld-carrier-doc-meta">' +
+              '<span class="ld-carrier-doc-type">' +
+              self.esc(slot.label) +
+              "</span>" +
+              "<strong class=\"ld-carrier-doc-name\">" +
+              self.esc(doc ? doc.originalFilename || slot.label : "Missing") +
+              "</strong>" +
+              '<span class="ld-carrier-doc-sub">' +
+              self.esc(from) +
+              (doc && doc.uploadedAt
+                ? " · " + new Date(doc.uploadedAt).toLocaleString()
+                : "") +
+              "</span>" +
+              "</div>" +
+              actionsCell +
+              "</article>"
+            );
+          })
+          .join("") +
+        "</div>";
+    } else {
+      slotsHtml = self.carrierPacketDocsHtml(c);
     }
 
     return (
@@ -203,13 +250,13 @@ window.GreenOSModules["dispatch"] = {
       lead +
       "</p>" +
       '<div class="load-grid">' +
-      field("Onboarding", statusLabel) +
+      field("Onboarding", status || "—") +
       field("Agreement", signMeta) +
-      field("Files received", String(docs.length)) +
+      field("Approved for this load", loadApproved ? "Yes" : "No — review required") +
       field("Carrier status", c.carrierStatus || "—") +
       "</div>" +
       actions +
-      self.carrierPacketDocsHtml(c) +
+      slotsHtml +
       "</section>"
     );
   },
@@ -249,10 +296,47 @@ window.GreenOSModules["dispatch"] = {
 
   bindCarrierOnboardingActions(root, carrier, reloadTab) {
     var self = this;
-    if (!root || !carrier || !carrier.carrierProfileId) return;
+    if (!root || !carrier) return;
     var carrierId = carrier.carrierProfileId;
-    self.bindCarrierPacketDocButtons(root, carrierId);
+    if (carrierId) self.bindCarrierPacketDocButtons(root, carrierId);
+    root.querySelectorAll(".ld-review-doc-open").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        try {
+          var source = btn.getAttribute("data-source") || "carrier_packet";
+          var docId = btn.getAttribute("data-id");
+          var name = btn.getAttribute("data-name") || "document.pdf";
+          if (!docId) return;
+          if (source === "prior_load") {
+            var loadId = (reloadTab && reloadTab.loadId) || self._loadId;
+            if (!loadId) throw new Error("Load id missing");
+            var token = localStorage.getItem("gl_token") || "";
+            var url =
+              "/api/loads/" +
+              encodeURIComponent(loadId) +
+              "/reference-documents/" +
+              encodeURIComponent(docId) +
+              "?inline=1";
+            var res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+            if (!res.ok) throw new Error("Failed to open previous-load document");
+            var blob = await res.blob();
+            var obj = URL.createObjectURL(blob);
+            window.open(obj, "_blank", "noopener");
+            setTimeout(function () {
+              try {
+                URL.revokeObjectURL(obj);
+              } catch (e) {}
+            }, 60000);
+            return;
+          }
+          if (!carrierId) throw new Error("Carrier profile missing");
+          await self.openCarrierPacketDoc(carrierId, docId, name, true);
+        } catch (e) {
+          alert(e.message || e);
+        }
+      });
+    });
     root.querySelector("#ld-open-carrier-record")?.addEventListener("click", function () {
+      if (!carrierId) return;
       if (window.GreenOSModules && window.GreenOSModules.carriers) {
         window.GreenOSModules.carriers._carrierId = carrierId;
         window.GreenOSModules.carriers._tab = "documents";
@@ -264,31 +348,24 @@ window.GreenOSModules["dispatch"] = {
       }
     });
     root.querySelector("#ld-approve-carrier")?.addEventListener("click", async function () {
-      if (!confirm("Approve this carrier? They will be marked approved for Green OS.")) return;
+      if (
+        !confirm(
+          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, Broker–Carrier Agreement, and previous-load RC/BOL for THIS load?"
+        )
+      ) {
+        return;
+      }
       try {
-        var token = localStorage.getItem("gl_token") || "";
-        var res = await fetch(
-          "/api/carriers/" + encodeURIComponent(carrierId) + "/onboarding/approve",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: "Bearer " + token,
-            },
-            body: "{}",
-          }
-        );
-        var json = await res.json().catch(function () {
-          return {};
+        var loadId = (reloadTab && reloadTab.loadId) || self._loadId;
+        if (!loadId) throw new Error("Load id missing");
+        await self.api("/" + encodeURIComponent(loadId) + "/actions/approve_carrier", {
+          method: "POST",
+          body: "{}",
         });
-        if (!res.ok || json.success === false) {
-          throw new Error(json.message || "Approve failed");
-        }
-        alert("Carrier approved.");
+        alert("Carrier approved for this load. Generate Rate Confirmation is now available.");
         var host = document.querySelector("#load-tms-body");
-        var loadId = (reloadTab && reloadTab.loadId) || null;
         var tab = (reloadTab && reloadTab.tab) || "carrier";
-        if (loadId) self.openLoad(host, loadId, tab);
+        self.openLoad(host, loadId, tab);
       } catch (err) {
         alert(err.message || err);
       }
@@ -892,10 +969,10 @@ window.GreenOSModules["dispatch"] = {
     var qaCurrent = qaSteps.find(function (a) {
       return a.state === "current";
     });
-    var carrierOnboarding = String((data.carrier && data.carrier.onboardingStatus) || "").toUpperCase();
+    var carrierApprovedForLoad = Boolean(data.carrier && data.carrier.loadCarrierApproved);
     var waitingCarrierApproval =
       Boolean(data.carrier && data.carrier.carrierName) &&
-      carrierOnboarding !== "APPROVED" &&
+      !carrierApprovedForLoad &&
       !qaSteps.some(function (a) {
         return a.id === "generate_rate_con" && a.state === "done";
       });
@@ -903,7 +980,7 @@ window.GreenOSModules["dispatch"] = {
     var nowLabel = qaCurrent
       ? "Now: " + self.esc(qaCurrent.label)
       : waitingCarrierApproval
-        ? "Now: Approve carrier package"
+        ? "Now: Approved Carrier"
         : qaDone === qaSteps.length
           ? "All steps complete"
           : "In progress";
@@ -1066,6 +1143,20 @@ window.GreenOSModules["dispatch"] = {
             var approve = document.getElementById("ld-approve-carrier");
             var input = document.getElementById("ld-carrier");
             var focusEl = approve || review || input;
+            if (focusEl) {
+              if (focusEl.focus) focusEl.focus();
+              focusEl.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          }, 50);
+          return;
+        }
+        if (action === "approve_carrier") {
+          self._tab = "carrier";
+          self.renderDetails(body, data);
+          setTimeout(function () {
+            var approve = document.getElementById("ld-approve-carrier");
+            var review = document.getElementById("ld-carrier-review");
+            var focusEl = approve || review;
             if (focusEl) {
               if (focusEl.focus) focusEl.focus();
               focusEl.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1407,11 +1498,11 @@ window.GreenOSModules["dispatch"] = {
           ) +
           "</label>"
         : "";
-      var carrierApproved = String(c.onboardingStatus || "").toUpperCase() === "APPROVED";
+      var carrierApproved = c.loadCarrierApproved === true;
       var nextStepHint = !c.carrierName
-        ? "Next: assign carrier and send the agreement packet."
+        ? "Next: assign carrier."
         : !carrierApproved
-          ? "Next: review signed documents below, then <strong>Approve carrier</strong> — Rate Confirmation stays locked until then."
+          ? "Next: review packet / previous-load documents below, then click <strong>Approved Carrier</strong> — Rate Confirmation stays locked until then."
           : "Next: Generate Rate Confirmation.";
       main.innerHTML =
         "<h2>Assign Carrier</h2>" +
@@ -1555,6 +1646,9 @@ window.GreenOSModules["dispatch"] = {
               inviteMsg =
                 "\n\nCarrier saved, but onboarding email failed:\n" +
                 (invJson.message || "Connect Broker Gmail, then Resend from Carriers.");
+            } else if (invJson.data && invJson.data.invite && invJson.data.invite.skipped) {
+              inviteMsg =
+                "\n\nRegistered carrier linked. Review prior documents below, then click Approved Carrier.";
             } else {
               inviteMsg =
                 "\n\nSecure Agreement link emailed to the carrier from your Gmail.";

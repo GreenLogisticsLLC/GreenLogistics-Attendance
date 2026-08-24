@@ -18,6 +18,7 @@ import {
     assertQuickActionAllowed,
     quickActionIdForDocType,
 } from "../load-quick-actions.js";
+import { isLoadCarrierApproved } from "../load-carrier-review.js";
 import { buildCarrierOperationalSummary } from "../../ai/operational/carrier-context.js";
 import { documentAiJobService } from "../../ai/documents/job.service.js";
 import type { CarrierOperationalSummary } from "../../ai/operational/types.js";
@@ -286,18 +287,10 @@ export class LoadDocumentsService {
         });
         const actionId = quickActionIdForDocType(docType);
         if (actionId) {
-            let carrierOnboardingStatus: string | null = null;
-            if (lead.carrierProfileId) {
-                const profile = await prisma.carrier.findUnique({
-                    where: { carrierId: lead.carrierProfileId },
-                    select: { onboardingStatus: true },
-                });
-                carrierOnboardingStatus = profile?.onboardingStatus || null;
-            }
             assertQuickActionAllowed(actionId, {
                 status: lead.status,
                 carrierName: lead.carrierName,
-                carrierOnboardingStatus,
+                loadCarrierApproved: isLoadCarrierApproved(lead),
                 documents: existingDocs,
             });
         }

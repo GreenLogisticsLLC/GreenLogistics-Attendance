@@ -13,6 +13,7 @@ import {
     assertQuickActionAllowed,
     quickActionIdForDocType,
 } from "../load-quick-actions.js";
+import { isLoadCarrierApproved } from "../load-carrier-review.js";
 
 export type PodAnalysis = {
     matchesBol: boolean;
@@ -275,14 +276,7 @@ export async function uploadPodFile(input: {
     assertQuickActionAllowed(quickActionIdForDocType("POD") || "upload_pod", {
         status: lead.status,
         carrierName: lead.carrierName,
-        carrierOnboardingStatus: lead.carrierProfileId
-            ? (
-                  await prisma.carrier.findUnique({
-                      where: { carrierId: lead.carrierProfileId },
-                      select: { onboardingStatus: true },
-                  })
-              )?.onboardingStatus || null
-            : null,
+        loadCarrierApproved: isLoadCarrierApproved(lead),
         documents: existingDocs,
     });
 

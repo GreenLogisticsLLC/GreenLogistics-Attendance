@@ -15,8 +15,8 @@ export type LoadQuickAction = {
 export type LoadQuickActionInput = {
     status: string;
     carrierName?: string | null;
-    /** Carrier.onboardingStatus — Rate Con stays locked until APPROVED. */
-    carrierOnboardingStatus?: string | null;
+    /** True only after broker clicks Approved Carrier on THIS load. */
+    loadCarrierApproved?: boolean | null;
     customerPaidAt?: Date | string | null;
     carrierPaidAt?: Date | string | null;
     reviewCustomerSentAt?: Date | string | null;
@@ -48,8 +48,8 @@ function hasType(docs: Set<string>, type: string): boolean {
     return docs.has(String(type || "").toUpperCase());
 }
 
-export function isCarrierApprovedForRateCon(onboardingStatus?: string | null): boolean {
-    return String(onboardingStatus || "").toUpperCase() === "APPROVED";
+export function isCarrierApprovedForRateCon(loadCarrierApproved?: boolean | null): boolean {
+    return loadCarrierApproved === true;
 }
 
 /**
@@ -67,8 +67,8 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
 
     const carrierDone =
         Boolean(String(input.carrierName || "").trim()) || statusIdx >= flowIndex("CARRIER_ASSIGNED");
-    const carrierApproved = isCarrierApprovedForRateCon(input.carrierOnboardingStatus);
     const rateConDone = hasType(docs, "RATE_CONFIRMATION") || statusIdx >= flowIndex("RATE_CON_GENERATED");
+    const carrierApproved = isCarrierApprovedForRateCon(input.loadCarrierApproved) || rateConDone;
     const bolDone = hasType(docs, "BOL") || statusIdx >= flowIndex("CARRIER_ACCEPTED");
     const pickupDone = statusIdx >= flowIndex("PICKUP");
     const transitDone = statusIdx >= flowIndex("IN_TRANSIT");
@@ -112,7 +112,7 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
     const rateConNeed = !carrierDone
         ? "Assign Carrier first"
         : !carrierApproved
-          ? "Approve the carrier package first (signed agreement + documents)"
+          ? "Review packet / previous-load documents, then click Approved Carrier"
           : "Assign Carrier first";
 
     const defs: Array<{
@@ -130,6 +130,12 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
             status: "CARRIER_ASSIGNED",
             done: carrierDone,
             need: "Create the Load first",
+        },
+        {
+            id: "approve_carrier",
+            label: "Approved Carrier",
+            done: carrierApproved,
+            need: "Assign Carrier first",
         },
         {
             id: "generate_rate_con",
@@ -206,7 +212,7 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
 
     const firstOpenAction = defs.findIndex((d) => {
         if (d.done || d.kind === "status") return false;
-        // Rate Con is not eligible until the carrier package is approved.
+        // Rate Con is not eligible until the broker approves this carrier on this load.
         if (d.id === "generate_rate_con" && !carrierApproved) return false;
         return true;
     });
@@ -270,6 +276,7 @@ export function assertQuickActionAllowed(actionId: string, input: LoadQuickActio
         if (
             actionId === "send_review_link" ||
             actionId === "assign_carrier" ||
+            actionId === "approve_carrier" ||
             actionId === "mark_pickup"
         ) {
             return;
