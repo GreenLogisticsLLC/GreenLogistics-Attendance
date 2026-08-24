@@ -6,7 +6,7 @@ import {
 } from "./load-carrier-review.js";
 import { buildLoadQuickActions } from "./load-quick-actions.js";
 
-test("reference packet builds review slots without attaching load docs", () => {
+test("review slots are packet-only and ignore previous-load RC/BOL", () => {
     const slots = buildCarrierReviewSlots({
         packetDocs: [
             { documentId: "mc1", documentType: "MC_AUTHORITY", originalFilename: "mc.pdf" },
@@ -17,8 +17,6 @@ test("reference packet builds review slots without attaching load docs", () => {
                 documentType: "BROKER_CARRIER_AGREEMENT",
                 originalFilename: "agr.pdf",
             },
-        ],
-        priorLoadDocs: [
             {
                 documentId: "rc-old",
                 documentType: "RATE_CONFIRMATION",
@@ -33,10 +31,13 @@ test("reference packet builds review slots without attaching load docs", () => {
             },
         ],
     });
-    assert.equal(slots.length, 6);
+    assert.equal(slots.length, 4);
     assert.equal(slots.every((s) => s.present), true);
     assert.equal(slots.find((s) => s.key === "COI")?.label, "Certificate of Holder");
-    assert.equal(slots.find((s) => s.key === "RATE_CONFIRMATION")?.source, "prior_load");
+    assert.equal(
+        slots.some((s) => String(s.key) === "RATE_CONFIRMATION" || String(s.key) === "BOL"),
+        false
+    );
 });
 
 test("global onboarding APPROVED is not enough for Rate Con", () => {

@@ -12,10 +12,7 @@ import {
     buildLoadQuickActions,
 } from "../load-quick-actions.js";
 import { isLoadCarrierApproved } from "../load-carrier-review.js";
-import {
-    buildLoadCarrierReviewPacket,
-    getReferenceLoadDocument,
-} from "./load-carrier-review.service.js";
+import { buildLoadCarrierReviewPacket } from "./load-carrier-review.service.js";
 import { sendLoadReviewEmail } from "./load-review-email.service.js";
 import { shipmentLifecycleService } from "../../ai/lifecycle/service.js";
 
@@ -286,7 +283,10 @@ export class LoadService {
                           onboardingStatus: true,
                           status: true,
                           documents: {
-                              where: { status: "CURRENT" },
+                              where: {
+                                  status: "CURRENT",
+                                  documentType: { notIn: ["RATE_CONFIRMATION", "BOL", "POD"] },
+                              },
                               orderBy: [{ documentType: "asc" }, { version: "desc" }],
                               select: {
                                   documentId: true,
@@ -553,11 +553,9 @@ export class LoadService {
                 reviewSlots: reviewSlots.map((slot) => ({
                     ...slot,
                     downloadUrl: slot.document
-                        ? slot.source === "prior_load"
-                            ? `/api/loads/${shipmentLeadId}/reference-documents/${slot.document.documentId}`
-                            : `/api/carriers/${
-                                  s.carrierProfileId || carrierProfile?.carrierId
-                              }/documents/${slot.document.documentId}/download`
+                        ? `/api/carriers/${
+                              s.carrierProfileId || carrierProfile?.carrierId
+                          }/documents/${slot.document.documentId}/download`
                         : null,
                 })),
                 futureIntegrations: [
@@ -937,7 +935,7 @@ export class LoadService {
             if (!hasReviewMaterial && onboarding !== "APPROVED") {
                 throw Object.assign(
                     new Error(
-                        "No carrier packet or previous-load RC/BOL found yet. Wait for documents, then click Approved Carrier."
+                        "No carrier packet documents found yet. Wait for MC Authority / W-9 / Certificate of Holder / Agreement, then click Approved Carrier."
                     ),
                     { status: 422, code: "CARRIER_REVIEW_DOCS_REQUIRED" }
                 );
@@ -1251,20 +1249,6 @@ export class LoadService {
         }
 
         throw Object.assign(new Error(`Unknown load action: ${action}`), { status: 422 });
-    }
-
-    async getReferenceLoadDocument(shipmentLeadId: string, documentId: string) {
-        const lead = await prisma.shipmentLead.findUnique({
-            where: { shipmentLeadId },
-            select: { carrierProfileId: true, carrierMc: true },
-        });
-        if (!lead) throw Object.assign(new Error("Load not found"), { status: 404 });
-        return getReferenceLoadDocument({
-            currentShipmentLeadId: shipmentLeadId,
-            documentId,
-            carrierProfileId: lead.carrierProfileId,
-            carrierMc: lead.carrierMc,
-        });
     }
 }
 

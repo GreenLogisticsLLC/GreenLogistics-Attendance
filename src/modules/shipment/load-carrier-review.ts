@@ -1,12 +1,10 @@
-export type CarrierReviewSource = "carrier_packet" | "prior_load";
+export type CarrierReviewSource = "carrier_packet";
 
 export type CarrierReviewSlotKey =
     | "MC_AUTHORITY"
     | "W9"
     | "COI"
-    | "BROKER_CARRIER_AGREEMENT"
-    | "RATE_CONFIRMATION"
-    | "BOL";
+    | "BROKER_CARRIER_AGREEMENT";
 
 export type CarrierReviewDoc = {
     documentId: string;
@@ -50,19 +48,16 @@ export const LOAD_CARRIER_REVIEW_SLOTS: Array<{
         source: "carrier_packet",
         types: ["BROKER_CARRIER_AGREEMENT"],
     },
-    {
-        key: "RATE_CONFIRMATION",
-        label: "Rate Confirmation (previous load)",
-        source: "prior_load",
-        types: ["RATE_CONFIRMATION"],
-    },
-    {
-        key: "BOL",
-        label: "BOL (previous load)",
-        source: "prior_load",
-        types: ["BOL"],
-    },
 ];
+
+/** Load RC/BOL belong only to the load that created them — never a carrier packet item. */
+export const CARRIER_PACKET_EXCLUDE_DOC_TYPES = ["RATE_CONFIRMATION", "BOL", "POD"] as const;
+
+export function isCarrierPacketExcluded(documentType: string): boolean {
+    return (CARRIER_PACKET_EXCLUDE_DOC_TYPES as readonly string[]).includes(
+        String(documentType || "").toUpperCase()
+    );
+}
 
 export function isLoadCarrierApproved(input: {
     carrierProfileId?: string | null;
@@ -86,15 +81,16 @@ export function pickLatestReviewDoc(
 }
 
 /**
- * Build the review checklist. Documents are references only — never copied onto the new load.
+ * Build the review checklist. Packet files only — never previous-load RC/BOL.
  */
 export function buildCarrierReviewSlots(input: {
     packetDocs: CarrierReviewDoc[];
-    priorLoadDocs: CarrierReviewDoc[];
 }): CarrierReviewSlot[] {
+    const packetDocs = (input.packetDocs || []).filter(
+        (doc) => !isCarrierPacketExcluded(doc.documentType)
+    );
     return LOAD_CARRIER_REVIEW_SLOTS.map((slot) => {
-        const pool = slot.source === "prior_load" ? input.priorLoadDocs : input.packetDocs;
-        const document = pickLatestReviewDoc(pool, slot.types);
+        const document = pickLatestReviewDoc(packetDocs, slot.types);
         return {
             key: slot.key,
             label: slot.label,

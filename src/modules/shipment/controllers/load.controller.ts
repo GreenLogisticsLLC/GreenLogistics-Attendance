@@ -406,36 +406,6 @@ export const loadController = {
         }
     },
 
-    async downloadReferenceDocument(req: AuthRequest, res: Response) {
-        try {
-            const id = String(req.params.id || "");
-            const documentId = String(req.params.documentId || "");
-            const access = await accessOr404(req, res, id);
-            if (!access.ok) return;
-            const row = await loadService.getReferenceLoadDocument(id, documentId);
-            if (!row.storedName) {
-                res.status(404).json({ success: false, message: "PDF file missing" });
-                return;
-            }
-            const abs = path.join(LOAD_DOCS_ROOT, row.shipmentLeadId, row.storedName);
-            if (!fs.existsSync(abs)) {
-                res.status(404).json({ success: false, message: "PDF file missing on disk" });
-                return;
-            }
-            res.setHeader("Content-Type", row.mimeType || "application/pdf");
-            res.setHeader(
-                "Content-Disposition",
-                `${req.query.inline === "1" ? "inline" : "attachment"}; filename="${row.fileName || "document.pdf"}"`
-            );
-            fs.createReadStream(abs).pipe(res);
-        } catch (err) {
-            res.status(errStatus(err)).json({
-                success: false,
-                message: err instanceof Error ? err.message : "Failed to download",
-            });
-        }
-    },
-
     async archiveDocument(req: AuthRequest, res: Response) {
         try {
             const id = String(req.params.id || "");

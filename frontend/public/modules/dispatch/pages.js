@@ -90,7 +90,10 @@ window.GreenOSModules["dispatch"] = {
 
   carrierPacketDocsHtml(c) {
     var self = this;
-    var docs = (c && c.onboardingDocuments) || [];
+    var skip = { RATE_CONFIRMATION: 1, BOL: 1, POD: 1 };
+    var docs = ((c && c.onboardingDocuments) || []).filter(function (d) {
+      return !skip[String(d.documentType || "").toUpperCase()];
+    });
     if (!docs.length) {
       return (
         '<p class="gos-muted ld-carrier-docs-empty">No documents from the carrier yet. ' +
@@ -175,7 +178,7 @@ window.GreenOSModules["dispatch"] = {
       : "Review carrier documents for this load";
     var lead = loadApproved
       ? "Broker already approved this carrier for the current load. Rate Confirmation is unlocked."
-      : "Open each file below (packet + previous-load RC/BOL). These are for review only — they are not attached as documents on this new load. Then click <strong>Approved Carrier</strong>.";
+      : "Open MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement. Then click <strong>Approved Carrier</strong>. New Rate Confirmation and BOL are created on this load after that.";
     var actions = "";
     if (!loadApproved && c.carrierProfileId) {
       actions =
@@ -199,12 +202,7 @@ window.GreenOSModules["dispatch"] = {
         reviewSlots
           .map(function (slot) {
             var doc = slot.document || null;
-            var from =
-              slot.source === "prior_load"
-                ? doc && doc.sourceLoadNumber
-                  ? "Previous load " + doc.sourceLoadNumber + " — review only"
-                  : "Previous load — review only"
-                : "Carrier packet — review only";
+            var from = "Carrier packet — review only";
             var actionsCell = doc
               ? '<div class="ld-carrier-doc-actions">' +
                 '<button type="button" class="btn-primary ld-review-doc-open" data-source="' +
@@ -302,32 +300,9 @@ window.GreenOSModules["dispatch"] = {
     root.querySelectorAll(".ld-review-doc-open").forEach(function (btn) {
       btn.addEventListener("click", async function () {
         try {
-          var source = btn.getAttribute("data-source") || "carrier_packet";
           var docId = btn.getAttribute("data-id");
           var name = btn.getAttribute("data-name") || "document.pdf";
           if (!docId) return;
-          if (source === "prior_load") {
-            var loadId = (reloadTab && reloadTab.loadId) || self._loadId;
-            if (!loadId) throw new Error("Load id missing");
-            var token = localStorage.getItem("gl_token") || "";
-            var url =
-              "/api/loads/" +
-              encodeURIComponent(loadId) +
-              "/reference-documents/" +
-              encodeURIComponent(docId) +
-              "?inline=1";
-            var res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
-            if (!res.ok) throw new Error("Failed to open previous-load document");
-            var blob = await res.blob();
-            var obj = URL.createObjectURL(blob);
-            window.open(obj, "_blank", "noopener");
-            setTimeout(function () {
-              try {
-                URL.revokeObjectURL(obj);
-              } catch (e) {}
-            }, 60000);
-            return;
-          }
           if (!carrierId) throw new Error("Carrier profile missing");
           await self.openCarrierPacketDoc(carrierId, docId, name, true);
         } catch (e) {
@@ -350,7 +325,7 @@ window.GreenOSModules["dispatch"] = {
     root.querySelector("#ld-approve-carrier")?.addEventListener("click", async function () {
       if (
         !confirm(
-          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, Broker–Carrier Agreement, and previous-load RC/BOL for THIS load?"
+          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement for THIS load?"
         )
       ) {
         return;
@@ -1502,7 +1477,7 @@ window.GreenOSModules["dispatch"] = {
       var nextStepHint = !c.carrierName
         ? "Next: assign carrier."
         : !carrierApproved
-          ? "Next: review packet / previous-load documents below, then click <strong>Approved Carrier</strong> — Rate Confirmation stays locked until then."
+          ? "Next: review carrier packet documents below, then click <strong>Approved Carrier</strong> — Rate Confirmation stays locked until then."
           : "Next: Generate Rate Confirmation.";
       main.innerHTML =
         "<h2>Assign Carrier</h2>" +
@@ -1648,7 +1623,7 @@ window.GreenOSModules["dispatch"] = {
                 (invJson.message || "Connect Broker Gmail, then Resend from Carriers.");
             } else if (invJson.data && invJson.data.invite && invJson.data.invite.skipped) {
               inviteMsg =
-                "\n\nRegistered carrier linked. Review prior documents below, then click Approved Carrier.";
+                "\n\nRegistered carrier linked. Review packet documents below, then click Approved Carrier.";
             } else {
               inviteMsg =
                 "\n\nSecure Agreement link emailed to the carrier from your Gmail.";

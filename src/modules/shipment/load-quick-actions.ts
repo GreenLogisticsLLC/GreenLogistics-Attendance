@@ -112,7 +112,7 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
     const rateConNeed = !carrierDone
         ? "Assign Carrier first"
         : !carrierApproved
-          ? "Review packet / previous-load documents, then click Approved Carrier"
+          ? "Review carrier packet documents, then click Approved Carrier"
           : "Assign Carrier first";
 
     const defs: Array<{
