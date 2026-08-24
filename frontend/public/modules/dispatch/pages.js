@@ -1012,12 +1012,7 @@ window.GreenOSModules["dispatch"] = {
       "</aside>" +
       '<main class="load-main" id="load-main"></main>' +
       '<aside class="load-rail">' +
-      "<h4>Status</h4>" +
-      '<p class="load-status-pill">' +
-      self.esc(data.identity.statusLabel || data.identity.status) +
-      "</p>" +
-      '<div id="load-ai-alert" hidden style="display:none;margin:0.75rem 0;padding:0.55rem 0.65rem;border:1px solid #c9a227;border-radius:6px;background:#fff8e6;font-size:0.82rem"></div>' +
-      '<div id="load-market-rate" style="margin:0.75rem 0;padding:0.5rem 0;border-top:1px solid var(--gos-border,#ddd)">' +
+      '<div id="load-market-rate" style="margin:0 0 0.75rem;padding:0 0 0.5rem">' +
       "<h4>Internal Market Rate</h4>" +
       '<p class="gos-muted" id="load-market-rate-status" style="font-size:0.85rem">Loading…</p>' +
       '<pre id="load-market-rate-body" style="font-size:0.8rem;white-space:pre-wrap;margin:0;font-family:inherit"></pre>' +
@@ -1032,7 +1027,6 @@ window.GreenOSModules["dispatch"] = {
       "</div>";
 
     self.bindPaymentDocButtons(body);
-    self.watchShipmentAiSilent(body, id);
     self.loadShipmentMarketRate(body, id);
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
@@ -1138,8 +1132,23 @@ window.GreenOSModules["dispatch"] = {
           btn.disabled = true;
           var actionBody = {};
           if (action === "close_load") {
-            var aiAlert = body.querySelector("#load-ai-alert");
-            var readiness = aiAlert ? aiAlert.getAttribute("data-closeout-readiness") : "";
+            var readiness = "";
+            try {
+              var token = localStorage.getItem("gl_token");
+              var lifeRes = await fetch(
+                "/api/ai/shipments/" + encodeURIComponent(id) + "/lifecycle",
+                {
+                  headers: { Authorization: token ? "Bearer " + token : "" },
+                  cache: "no-store",
+                }
+              );
+              var lifeJson = await lifeRes.json();
+              if (lifeRes.ok && lifeJson.success && lifeJson.data) {
+                readiness = lifeJson.data.closeoutReadiness || "";
+              }
+            } catch (_e) {
+              readiness = "";
+            }
             if (
               readiness === "REVIEW_REQUIRED" &&
               !confirm("Closeout has warnings. Confirm that you reviewed them and want to close this load manually.")
@@ -3536,137 +3545,6 @@ window.GreenOSModules["dispatch"] = {
         if (statusEl) statusEl.textContent = "";
       }
     });
-  },
-
-  /**
-   * Background AI watch: no consultant rail. Only surfaces when something is
-   * actually blocked or a broker-confirm action is pending — not routine
-   * missing docs on a freshly created load.
-   */
-  async watchShipmentAiSilent(body, id) {
-    var alertEl = body.querySelector("#load-ai-alert");
-    if (!alertEl) return;
-    var self = this;
-    try {
-      var token = localStorage.getItem("gl_token");
-      var headers = { Authorization: token ? "Bearer " + token : "" };
-      var [lifeRes, summaryRes] = await Promise.all([
-        fetch("/api/ai/shipments/" + encodeURIComponent(id) + "/lifecycle", {
-          headers: headers,
-          cache: "no-store",
-        }),
-        fetch("/api/ai/shipments/" + encodeURIComponent(id) + "/summary", {
-          headers: headers,
-          cache: "no-store",
-        }),
-      ]);
-      var lifeJson = await lifeRes.json();
-      var summaryJson = summaryRes.ok ? await summaryRes.json() : { success: false };
-      if (!lifeRes.ok || !lifeJson.success) return;
-
-      var d = lifeJson.data || {};
-      var summary = (summaryJson && summaryJson.success && summaryJson.data) || {};
-      alertEl.setAttribute("data-closeout-readiness", d.closeoutReadiness || "");
-
-      var noiseCodes = {
-        CLOSEOUT_NOT_READY: true,
-      };
-      var criticalBlockers = (d.blockers || []).filter(function (issue) {
-        return issue && issue.critical && !noiseCodes[issue.code];
-      });
-      var health = d.lifecycleHealth || "";
-      var proposed = (d.proposedActions || [])
-        .concat(summary.proposedActions || [])
-        .filter(function (a) {
-          return a && a.actionId;
-        });
-      var seen = {};
-      proposed = proposed.filter(function (a) {
-        if (seen[a.actionId]) return false;
-        seen[a.actionId] = true;
-        return true;
-      });
-
-      /* BLOCKED only from real problems — not "docs not uploaded yet" / normal incomplete closeout */
-      var shouldNotify = criticalBlockers.length > 0 || proposed.length > 0;
-      if (!shouldNotify) {
-        alertEl.hidden = true;
-        alertEl.style.display = "none";
-        alertEl.innerHTML = "";
-        return;
-      }
-
-      var html =
-        "<div style='font-weight:600;margin-bottom:0.25rem'>AI flagged an issue</div>" +
-        "<div class='gos-muted' style='margin-bottom:0.35rem'>" +
-        self.esc(d.currentStage || "—") +
-        " · " +
-        self.esc(health || "—") +
-        "</div>";
-      if (criticalBlockers.length) {
-        html += "<ul style='margin:0.2rem 0 0.35rem;padding-left:1.1rem'>";
-        criticalBlockers.slice(0, 4).forEach(function (issue) {
-          html += "<li>" + self.esc(issue.message || issue.code) + "</li>";
-        });
-        html += "</ul>";
-      }
-      html +=
-        "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-ai-goto='documents'>Open Documents</button> ";
-      proposed.forEach(function (action) {
-        html +=
-          "<div style='margin-top:0.45rem;padding:0.4rem;border:1px solid var(--gos-border,#ddd);border-radius:6px;background:#fff'>" +
-          "<b>" +
-          self.esc(action.title || action.actionType) +
-          "</b>" +
-          "<div class='gos-muted' style='font-size:0.78rem'>" +
-          self.esc(action.reason || action.status || "") +
-          "</div>" +
-          "<button type='button' class='gos-btn gos-btn-sm' style='margin-top:0.3rem' data-ai-confirm='" +
-          self.esc(action.actionId) +
-          "'>Confirm &amp; Execute</button></div>";
-      });
-
-      alertEl.innerHTML = html;
-      alertEl.hidden = false;
-      alertEl.style.display = "block";
-
-      alertEl.querySelectorAll("[data-ai-goto]").forEach(function (button) {
-        button.addEventListener("click", function () {
-          self._tab = button.getAttribute("data-ai-goto") || "documents";
-          self.openLoad(body, id, self._tab);
-        });
-      });
-      alertEl.querySelectorAll("[data-ai-confirm]").forEach(function (button) {
-        button.addEventListener("click", async function () {
-          var actionId = button.getAttribute("data-ai-confirm");
-          if (!actionId || !confirm("Confirm this AI action? It will execute now.")) return;
-          button.disabled = true;
-          try {
-            var actionRes = await fetch(
-              "/api/ai/actions/" + encodeURIComponent(actionId) + "/confirm",
-              {
-                method: "POST",
-                headers: {
-                  Authorization: token ? "Bearer " + token : "",
-                  "Content-Type": "application/json",
-                },
-                body: "{}",
-              }
-            );
-            var actionJson = await actionRes.json();
-            if (!actionRes.ok || !actionJson.success) {
-              throw new Error(actionJson.message || "Confirm failed");
-            }
-            self.watchShipmentAiSilent(body, id);
-          } catch (error) {
-            alert(error.message || error);
-            button.disabled = false;
-          }
-        });
-      });
-    } catch (_err) {
-      /* silent — AI stays behind the scenes */
-    }
   },
 
   async loadShipmentMarketRate(body, id) {
