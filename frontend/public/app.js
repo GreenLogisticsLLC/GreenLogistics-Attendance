@@ -1049,6 +1049,46 @@ async function openEmployeeModal(employeeId = null, prefilledCard = null) {
     $("#emp-id").value = employeeId || "";
     $("#modal-title").textContent = employeeId ? "Edit Employee" : "Add Employee";
 
+    const posSelect = $("#emp-position");
+    const transferWrap = $("#emp-transfer-wrap");
+    const transferSelect = $("#emp-transfer-team");
+    let previousPosition = "";
+
+    function normalizePositionValue(raw) {
+        const s = String(raw || "").trim().toLowerCase().replace(/\s+/g, " ");
+        if (!s) return "";
+        if (s === "broker") return "Broker";
+        if (s === "team lead" || s === "teamlead" || s === "team-lead" || s === "tl") return "Team Lead";
+        if (s === "accounting" || s === "accountant" || s === "accaunting") return "Accounting";
+        if (s === "manager") return "Manager";
+        return "";
+    }
+
+    async function ensureTransferOptions() {
+        if (!transferSelect || transferSelect.options.length > 1) return;
+        try {
+            const data = await apiFetch("/auth/team-leads");
+            const leads = (data && data.success && data.data) || [];
+            leads.forEach(function (tl) {
+                const opt = document.createElement("option");
+                opt.value = tl.userId;
+                opt.textContent = tl.name || tl.username;
+                transferSelect.appendChild(opt);
+            });
+        } catch (_e) {
+            /* ignore */
+        }
+    }
+
+    function syncTransferVisibility() {
+        if (!transferWrap || !posSelect) return;
+        const next = posSelect.value;
+        const leavingTl = previousPosition === "Team Lead" && next && next !== "Team Lead";
+        transferWrap.classList.toggle("hidden", !leavingTl);
+        if (!leavingTl && transferSelect) transferSelect.value = "";
+        if (leavingTl) ensureTransferOptions();
+    }
+
     if (employeeId) {
         const emp = adminEmployees.find((e) => e.employeeId === employeeId);
         if (emp) {
@@ -1056,7 +1096,29 @@ async function openEmployeeModal(employeeId = null, prefilledCard = null) {
             $("#emp-first").value = emp.firstName;
             $("#emp-last").value = emp.lastName;
             $("#emp-dept").value = emp.department || "";
-            $("#emp-position").value = emp.position || "";
+            const normalized = normalizePositionValue(emp.position);
+            if (normalized) {
+                posSelect.value = normalized;
+            } else if (emp.position) {
+                // Keep unknown legacy position visible as a one-off option
+                let found = false;
+                for (let i = 0; i < posSelect.options.length; i++) {
+                    if (posSelect.options[i].value === emp.position) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    const opt = document.createElement("option");
+                    opt.value = emp.position;
+                    opt.textContent = emp.position + " (current)";
+                    posSelect.appendChild(opt);
+                }
+                posSelect.value = emp.position;
+            } else {
+                posSelect.value = "";
+            }
+            previousPosition = normalizePositionValue(emp.position) || emp.position || "";
             $("#emp-card").value = emp.cardNumber;
             $("#emp-extref").value = emp.externalRef || "";
             $("#emp-cardtype").value = String(emp.cardType || 2);
@@ -1069,7 +1131,12 @@ async function openEmployeeModal(employeeId = null, prefilledCard = null) {
         if (prefilledCard) {
             $("#emp-card").value = normalizeCardInput(prefilledCard);
         }
+        previousPosition = "";
+        if (transferWrap) transferWrap.classList.add("hidden");
     }
+
+    posSelect.onchange = syncTransferVisibility;
+    syncTransferVisibility();
 
     $("#employee-modal").classList.remove("hidden");
 }
@@ -1081,6 +1148,8 @@ $("#cancel-modal").addEventListener("click", () => $("#employee-modal").classLis
 $("#employee-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#emp-id").value;
+    const transferEl = $("#emp-transfer-team");
+    const transferWrap = $("#emp-transfer-wrap");
     const payload = {
         employeeNumber: $("#emp-number").value.trim(),
         firstName: $("#emp-first").value.trim(),
@@ -1093,6 +1162,14 @@ $("#employee-form").addEventListener("submit", async (e) => {
         status: $("#emp-status").value,
         syncToDevice: $("#emp-sync").checked,
     };
+    if (
+        transferWrap &&
+        !transferWrap.classList.contains("hidden") &&
+        transferEl &&
+        transferEl.value
+    ) {
+        payload.transferTeamToUserId = transferEl.value;
+    }
 
     if (!payload.cardNumber) {
         alert("Введите уникальный код карты");

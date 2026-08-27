@@ -422,7 +422,22 @@
                     <div><label>First Name *</label><input id="emp-first" required></div>
                     <div><label>Last Name *</label><input id="emp-last" required></div>
                     <div><label>Department</label><input id="emp-dept"></div>
-                    <div><label>Position</label><input id="emp-position"></div>
+                    <div><label>Position</label>
+                        <select id="emp-position">
+                            <option value="">—</option>
+                            <option value="Broker">Broker</option>
+                            <option value="Team Lead">Team Lead</option>
+                            <option value="Accounting">Accounting</option>
+                            <option value="Manager">Manager</option>
+                        </select>
+                        <p class="gos-muted" style="font-size:0.8rem;margin:0.35rem 0 0">Sets Green OS access for the linked login (modules match this role). User must sign in again after a change.</p>
+                    </div>
+                    <div id="emp-transfer-wrap" class="hidden" style="grid-column:1 / -1">
+                        <label>Transfer team to (required if leaving Team Lead with brokers)</label>
+                        <select id="emp-transfer-team">
+                            <option value="">Select who takes the brokers…</option>
+                        </select>
+                    </div>
                     <div><label>Card Number (UID) *</label><input id="emp-card" required placeholder="уникальный UID карты"></div>
                     <div><label>External Ref</label><input id="emp-extref" placeholder="ORD-10045"></div>
                     <div><label>Card Type</label>
@@ -481,6 +496,6 @@
     <script src="modules/administration/pages.js?v=20260814loaderr1"></script>
     <script src="js/greenos-shell.js?v=20260828emp"></script>
     <script src="js/greenos-realtime.js?v=20260820ai1"></script>
-    <script src="app.js?v=20260828tl"></script>
+    <script src="app.js?v=20260828pos"></script>
 </body>
 </html>

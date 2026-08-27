@@ -116,7 +116,7 @@ export async function createEmployeeController(req: AuthRequest, res: Response) 
 
 export async function updateEmployeeController(req: AuthRequest, res: Response) {
     const employeeId = String(req.params.employeeId);
-    const { syncToDevice, ...updateData } = req.body;
+    const { syncToDevice, transferTeamToUserId, ...updateData } = req.body;
 
     if (updateData.cardType !== undefined) {
         updateData.cardType = updateData.cardType === 1 ? 1 : 2;
@@ -134,6 +134,31 @@ export async function updateEmployeeController(req: AuthRequest, res: Response) 
     }
 
     try {
+        let roleNote = "";
+        if (updateData.position !== undefined && req.user) {
+            const { syncPlatformRoleFromEmployeePosition } = await import(
+                "../services/user-attendance-link.service.js"
+            );
+            const sync = await syncPlatformRoleFromEmployeePosition({
+                employeeId,
+                position: updateData.position,
+                actor: { userId: req.user.userId, role: req.user.role },
+                transferTeamToUserId:
+                    transferTeamToUserId === null ||
+                    transferTeamToUserId === undefined ||
+                    transferTeamToUserId === ""
+                        ? null
+                        : String(transferTeamToUserId),
+            });
+            if (!sync.ok) {
+                return res.status(sync.status).json(apiResponse(false, sync.message));
+            }
+            if (sync.canonicalPosition !== null) {
+                updateData.position = sync.canonicalPosition;
+            }
+            if (sync.message) roleNote = ` ${sync.message}`;
+        }
+
         const employee = await employeeRepository.update(employeeId, updateData);
 
         let syncReport = null;
@@ -142,7 +167,12 @@ export async function updateEmployeeController(req: AuthRequest, res: Response) 
             syncReport = await legacyIngestService.syncEmployees([employee]);
         }
 
-        return res.json(apiResponse(true, "Employee updated", { employee, syncReport }));
+        return res.json(
+            apiResponse(true, `Employee updated.${roleNote}`.trim(), {
+                employee,
+                syncReport,
+            })
+        );
     } catch (error: unknown) {
         const prismaError = error as { code?: string; meta?: { target?: string[] } };
         if (prismaError.code === "P2002") {

@@ -259,7 +259,9 @@ export class UsersService {
             let attendanceNote = "";
             if (
                 updated.role.roleName === Roles.Broker ||
-                updated.role.roleName === Roles.TeamLead
+                updated.role.roleName === Roles.TeamLead ||
+                updated.role.roleName === Roles.Manager ||
+                updated.role.roleName === Roles.Accounting
             ) {
                 try {
                     const { ensureAttendanceBadgeForUser } = await import(
