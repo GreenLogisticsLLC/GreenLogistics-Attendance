@@ -20,17 +20,17 @@ jobs:
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
           set -euo pipefail
           cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          npx tsc
           node --input-type=module << 'NODE'
-          import { prisma } from "./dist/config/database.js";
-          import { assignmentEngine } from "./dist/modules/assignment/assignment.engine.js";
-          import { attendanceSessionRepository } from "./dist/repositories/attendance-session.repository.js";
-          import { gmailOAuthService } from "./dist/modules/email/gmail/gmail-oauth.service.js";
-          import { gmailListener } from "./dist/modules/email/gmail/gmail.listener.js";
-          import { getAttendanceWorkDate } from "./dist/utils/helpers.js";
-          import { config } from "./dist/config/env.js";
+          import { createRequire } from "module";
+          const require = createRequire(import.meta.url);
+          const { PrismaClient } = require("@prisma/client");
+          const prisma = new PrismaClient();
 
-          const workDate = getAttendanceWorkDate(new Date(), config.timezone);
-          console.log("TIMEZONE", config.timezone, "WORK_DATE", workDate);
+          const workDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          console.log("WORK_DATE_ET", workDate);
 
           const brokers = await prisma.user.findMany({
             where: { role: { roleName: "Broker" }, isActive: true },
@@ -41,10 +41,15 @@ jobs:
           console.log("=== BROKER ATTENDANCE ===");
           for (const b of brokers) {
             const empId = b.employeeId || b.employee?.employeeId || null;
-            let session = null;
-            if (empId) {
-              session = await attendanceSessionRepository.findRecentActiveSession(empId);
-            }
+            const recent = empId
+              ? await prisma.attendanceSession.findFirst({
+                  where: {
+                    employeeId: empId,
+                    currentStatus: { in: ["INSIDE_OFFICE", "OUTSIDE_OFFICE", "SCHEDULED", "COMPLETED"] },
+                  },
+                  orderBy: { lastActivity: "desc" },
+                })
+              : null;
             const today = empId
               ? await prisma.attendanceSession.findUnique({
                   where: { employeeId_workDate: { employeeId: empId, workDate } },
@@ -54,37 +59,44 @@ jobs:
               name: `${b.firstName} ${b.lastName}`,
               available: b.availableForAssignment,
               employeeId: empId,
-              recentStatus: session?.currentStatus || null,
-              recentActivity: session?.lastActivity || null,
+              recentStatus: recent?.currentStatus || null,
+              recentActivity: recent?.lastActivity || null,
               todayStatus: today?.currentStatus || null,
-              todayActivity: today?.lastActivity || null,
               gmail: b.brokerGmailAccount?.status || "NONE",
-              gmailError: (b.brokerGmailAccount?.lastError || "").slice(0, 80) || null,
+              gmailError: (b.brokerGmailAccount?.lastError || "").slice(0, 60) || null,
             });
           }
 
-          const eligible = await assignmentEngine.listEligibleBrokers();
-          console.log("=== ELIGIBLE ===", eligible.map((e) => e.displayName));
+          const inside = await prisma.attendanceSession.findMany({
+            where: { currentStatus: "INSIDE_OFFICE", workDate },
+            include: { employee: { select: { firstName: true, lastName: true, employeeId: true } } },
+          });
+          console.log(
+            "=== TODAY INSIDE_OFFICE ===",
+            inside.map((s) => `${s.employee.firstName} ${s.employee.lastName}`)
+          );
 
           const counts = await prisma.shipmentLead.groupBy({
             by: ["status"],
-            where: { status: { in: ["NEW", "UNASSIGNED", "ASSIGNED", "AWAITING_ACCEPTANCE", "WORKING"] } },
+            where: {
+              status: { in: ["NEW", "UNASSIGNED", "ASSIGNED", "AWAITING_ACCEPTANCE", "WORKING"] },
+            },
             _count: { _all: true },
           });
           console.log("=== PIPELINE COUNTS ===", counts);
 
           const unassigned = await prisma.shipmentLead.count({
-            where: { status: { in: ["NEW", "UNASSIGNED"] }, OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }] },
+            where: {
+              status: { in: ["NEW", "UNASSIGNED"] },
+              OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+            },
           });
           console.log("UNASSIGNED_WAITING", unassigned);
 
-          const stored = await gmailOAuthService.getStoredRefreshToken();
-          console.log("COMPANY_GMAIL_TOKEN_SOURCE", stored.source, "hasToken", Boolean(stored.token));
-          const ok = await gmailListener.ensureCredentials().catch((e) => {
-            console.log("COMPANY_GMAIL_ENSURE_FAIL", e instanceof Error ? e.message : e);
-            return false;
+          const gmailSetting = await prisma.setting.findUnique({
+            where: { category_settingKey: { category: "gmail", settingKey: "refresh_token" } },
           });
-          console.log("COMPANY_GMAIL_READY", ok);
+          console.log("COMPANY_GMAIL_HAS_TOKEN", Boolean((gmailSetting?.settingValue || "").trim()));
 
           const recentImport = await prisma.shipmentImportLog.findMany({
             orderBy: { createdAt: "desc" },
@@ -100,6 +112,9 @@ jobs:
               subject: (r.subject || "").slice(0, 80),
             });
           }
+
+          const queue = await prisma.assignmentQueueState.findUnique({ where: { queueKey: "brokers" } });
+          console.log("QUEUE", queue);
 
           await prisma.$disconnect();
           NODE
