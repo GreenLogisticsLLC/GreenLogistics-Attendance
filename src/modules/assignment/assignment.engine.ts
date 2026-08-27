@@ -1,5 +1,4 @@
 import { prisma } from "../../config/database.js";
-import { attendanceSessionRepository } from "../../repositories/attendance-session.repository.js";
 import { domainEventEngine } from "../shipment/services/domain-event.engine.js";
 import { ensureGreenOsShipmentId } from "../shipment/shipment.id.js";
 import { platformNotificationService } from "../shipment/services/platform-notification.service.js";
@@ -9,6 +8,7 @@ import {
     shipmentLeadRepository,
 } from "../email/services/repositories.js";
 import type { ShipmentLeadStatus } from "../email/models/types.js";
+import { isEmployeeInOffice } from "../../services/attendance-presence.service.js";
 
 const QUEUE_KEY = "brokers";
 /** Minutes to accept / react before load is passed to the next In Office broker. */
@@ -612,16 +612,16 @@ export class AssignmentEngine {
     }
 
     /**
-     * Eligible = Broker + active + available + In Office (Attendance check-in).
+     * Eligible = Broker + active + In Office (Attendance check-in).
      * Out of Office → excluded. Gmail is NOT required to receive the next shipment —
      * sequential round-robin must stay fair for everyone currently In Office.
+     * `availableForAssignment` is intentionally ignored (no Busy/Away toggles).
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
         const users = await prisma.user.findMany({
             where: {
                 role: { roleName: "Broker" },
                 isActive: true,
-                availableForAssignment: true,
             },
             include: { role: true, employee: true, brokerGmailAccount: true },
             orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
@@ -632,9 +632,8 @@ export class AssignmentEngine {
             const employeeId = await this.resolveEmployeeId(user);
             if (!employeeId) continue;
 
-            const session = await attendanceSessionRepository.findRecentActiveSession(employeeId);
-            // Only In Office participates; Out of Office / other statuses are excluded.
-            if (!session || session.currentStatus !== "INSIDE_OFFICE") continue;
+            // Only In Office participates; match Dashboard presence (incl. overnight carry).
+            if (!(await isEmployeeInOffice(employeeId))) continue;
 
             if (!user.employeeId) {
                 try {

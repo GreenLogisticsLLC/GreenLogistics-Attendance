@@ -22,7 +22,7 @@ jobs:
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
-          npx tsc
+          npm run build
           pm2 restart greenos --update-env || true
           sleep 3
 
@@ -30,13 +30,7 @@ jobs:
           import { prisma } from "./dist/config/database.js";
           import { assignmentEngine } from "./dist/modules/assignment/assignment.engine.js";
           import { backfillMissingAttendanceBadges } from "./dist/services/user-attendance-link.service.js";
-
-          // Ensure brokers can receive work
-          const unlocked = await prisma.user.updateMany({
-            where: { role: { roleName: "Broker" }, isActive: true },
-            data: { availableForAssignment: true },
-          });
-          console.log("UNLOCKED_BROKERS", unlocked.count);
+          import { isEmployeeInOffice } from "./dist/services/attendance-presence.service.js";
 
           const badges = await backfillMissingAttendanceBadges();
           console.log("BADGES", badges);
@@ -50,11 +44,13 @@ jobs:
           });
           console.log("=== BROKERS ===");
           for (const b of brokers) {
+            const empId = b.employeeId || b.employee?.employeeId || null;
+            const inOffice = empId ? await isEmployeeInOffice(empId) : false;
             console.log({
               name: `${b.firstName} ${b.lastName}`,
               userId: b.userId,
-              employeeId: b.employeeId,
-              available: b.availableForAssignment,
+              employeeId: empId,
+              inOffice,
               empStatus: b.employee?.status || null,
             });
           }

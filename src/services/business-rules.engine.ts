@@ -71,11 +71,26 @@ export class BusinessRulesEngine {
     }
 
     mapDecisionToDirection(decision: string): "ENTRY" | "EXIT" {
-        const normalized = decision.toLowerCase();
-        if (normalized === "enter" || normalized === "in" || normalized === "entry") {
+        const normalized = (decision || "").toLowerCase().trim();
+        if (
+            normalized === "enter" ||
+            normalized === "in" ||
+            normalized === "entry" ||
+            normalized.startsWith("ent")
+        ) {
             return "ENTRY";
         }
-        return "EXIT";
+        if (
+            normalized === "exit" ||
+            normalized === "out" ||
+            normalized === "leave" ||
+            normalized.startsWith("ex")
+        ) {
+            return "EXIT";
+        }
+        // Ambiguous decisions (granted / open / allow / empty) must NOT mark EXIT —
+        // that was wiping In Office brokers from the assignment queue.
+        return "ENTRY";
     }
 
     mapStandardDirection(direction: string): "ENTRY" | "EXIT" {

@@ -1,6 +1,6 @@
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
-import { attendanceSessionRepository } from "../../../repositories/attendance-session.repository.js";
+import { isEmployeeInOffice } from "../../../services/attendance-presence.service.js";
 import { ACTIVE_STATUSES } from "../crm.constants.js";
 import { AUTO_PIPELINE_STATUSES } from "../../shipment/shipment.constants.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
@@ -465,10 +465,7 @@ export class CrmService {
 
             let inOffice = false;
             if (b.employeeId) {
-                const session = await attendanceSessionRepository.findRecentActiveSession(
-                    b.employeeId
-                );
-                inOffice = session?.currentStatus === "INSIDE_OFFICE";
+                inOffice = await isEmployeeInOffice(b.employeeId);
             }
 
             const tl = b.teamLead;

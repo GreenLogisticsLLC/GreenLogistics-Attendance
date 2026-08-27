@@ -11,6 +11,7 @@ import {
 } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
+import { getEmployeePresenceSession } from "./attendance-presence.service.js";
 import type {
     DashboardEmployeeRow,
     DashboardStatistics,
@@ -34,11 +35,13 @@ export class DashboardService {
         const currentBounds = getAttendanceDayBounds(workDate, config.timezone);
 
         for (const emp of employees) {
-            let session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
-                emp.employeeId,
-                workDate
-            );
-            if (!date && !session && now < currentBounds.scheduledStart) {
+            let session = date
+                ? await attendanceSessionRepository.findByEmployeeAndWorkDate(
+                      emp.employeeId,
+                      workDate
+                  )
+                : await getEmployeePresenceSession(emp.employeeId);
+            if (date && !session && now < currentBounds.scheduledStart) {
                 const previous = await attendanceSessionRepository.findByEmployeeAndWorkDate(
                     emp.employeeId,
                     addDaysToDateString(workDate, -1)

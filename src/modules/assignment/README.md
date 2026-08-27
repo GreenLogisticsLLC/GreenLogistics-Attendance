@@ -19,7 +19,7 @@ SSE: "New Shipment Assigned — GOS-…"
 | **In Office**   | Joins end of queue; drains Unassigned/NEW via Round Robin |
 | **Out of Office** | Removed immediately — skipped |
 
-No Busy / Away / Available toggles. `availableForAssignment` on User is **not** used by the engine.
+No Busy / Away / Available toggles. `availableForAssignment` on User is ignored by the engine (In Office from Attendance is the only gate).
 
 ## Notification
 
