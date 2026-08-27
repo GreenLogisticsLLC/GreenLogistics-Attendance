@@ -437,6 +437,76 @@ html[data-theme="light"] {
   border-bottom: none;
 }
 
+.gos-queue-panel {
+  background: var(--gos-surface);
+  border: 1px solid var(--gos-border);
+  border-radius: 14px;
+  padding: 1rem 1.2rem;
+  margin: 1rem 0;
+}
+
+.gos-queue-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.gos-queue-head h3 {
+  margin: 0;
+}
+
+.gos-queue-next-row {
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.gos-queue-next-row strong {
+  color: var(--gos-text);
+}
+
+.gos-queue-next-name {
+  color: var(--gos-green);
+  font-weight: 600;
+}
+
+.gos-queue-order {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--gos-muted);
+  font-size: 0.9rem;
+}
+
+.gos-queue-order li {
+  padding: 0.35rem 0;
+}
+
+.gos-queue-order li.gos-queue-next-item {
+  color: var(--gos-green);
+  font-weight: 600;
+}
+
+.gos-queue-order li.gos-queue-ineligible {
+  opacity: 0.55;
+}
+
+.gos-queue-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  margin-left: 0.35rem;
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--gos-green);
+}
+
+.gos-queue-badge.fallback {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--gos-warn, #f59e0b);
+}
+
 /* AI Assistant */
 .gos-ai-hero {
   margin-bottom: 0.75rem;
