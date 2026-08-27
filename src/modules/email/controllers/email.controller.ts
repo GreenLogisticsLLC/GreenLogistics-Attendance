@@ -612,15 +612,42 @@ export async function listEmailLogsController(_req: Request, res: Response) {
 
 export async function emailStatusController(_req: Request, res: Response) {
     const gmailConfigured = await gmailListener.ensureCredentials();
-    const gmailUser = gmailConfigured ? await gmailOAuthService.getStoredUser() : config.gmail.user || "";
+    const gmailUser = gmailConfigured
+        ? (await gmailOAuthService.getStoredUser()) || config.gmail.user || ""
+        : config.gmail.user || "";
     const smtpConfigured = Boolean(config.smtp.host && config.smtp.user && config.smtp.pass);
     const brokerAccounts = await prisma.brokerGmailAccount.count({
         where: { status: "CONNECTED", isActive: true, NOT: { refreshToken: "" } },
     });
+
+    let gmailHealthy: boolean | null = null;
+    let gmailError: string | null = null;
+    if (gmailConfigured) {
+        try {
+            // Cheap probe — list 1 unread; surfaces invalid_grant without importing.
+            await gmailListener.listUnreadMessageIds(1);
+            gmailHealthy = true;
+        } catch (err) {
+            gmailHealthy = false;
+            gmailError = err instanceof Error ? err.message : String(err);
+            if (/invalid_grant|expired or revoked/i.test(gmailError)) {
+                gmailError = "invalid_grant — reconnect Company Gmail";
+            }
+        }
+    }
+
+    const { getCompanyImportAfter } = await import(
+        "../services/gmail-import-cutoff.service.js"
+    );
+    const importAfter = await getCompanyImportAfter();
+
     return res.json(
         apiResponse(true, "OK", {
             gmailConfigured,
+            gmailHealthy,
+            gmailError,
             gmailUser,
+            importAfter: importAfter?.toISOString() || null,
             oauthClientConfigured: gmailOAuthService.isClientConfigured(),
             redirectUri: getGmailRedirectUri(),
             authUrl: "/api/email/auth",

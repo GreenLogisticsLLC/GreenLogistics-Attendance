@@ -10,6 +10,11 @@ window.GreenOSModules.email = {
       "<h1>Email Imports</h1>" +
       "<p>uShip shipment emails → Shipment Leads → Assignment pipeline. Broker column shows who is working the load.</p>" +
       "</section>" +
+      '<div id="email-reconnect-banner" class="gos-card" style="display:none;padding:1rem 1.25rem;margin-bottom:1rem;border-color:#b42318;background:rgba(180,35,24,0.08)">' +
+      "<strong>Company Gmail reconnect required</strong>" +
+      '<p style="margin:0.4rem 0 0.75rem" id="email-reconnect-detail">Token expired — new uShip emails cannot import until you reconnect.</p>' +
+      '<a class="btn-primary" href="/api/email/auth" style="width:auto;padding:0.55rem 1rem;text-decoration:none;display:inline-block">Reconnect Company Gmail now</a>' +
+      "</div>" +
       '<div class="gos-module-placeholder" style="margin-bottom:1rem">' +
       '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center">' +
       '<a class="btn-primary" id="email-connect-gmail" href="/api/email/auth" style="width:auto;padding:0.65rem 1rem;text-decoration:none;display:inline-block">Connect Company Gmail</a>' +
@@ -26,6 +31,8 @@ window.GreenOSModules.email = {
 
     const statusEl = root.querySelector("#email-import-status");
     const body = root.querySelector("#email-shipments-body");
+    const banner = root.querySelector("#email-reconnect-banner");
+    const bannerDetail = root.querySelector("#email-reconnect-detail");
 
     async function api(path, options) {
       const token = localStorage.getItem("gl_token");
@@ -182,10 +189,27 @@ window.GreenOSModules.email = {
       try {
         const data = await api("/status");
         const d = data.data || {};
+        const btn = root.querySelector("#email-connect-gmail");
+        if (d.gmailConfigured && d.gmailHealthy === false) {
+          if (banner) banner.style.display = "block";
+          if (bannerDetail) {
+            bannerDetail.textContent =
+              (d.gmailUser ? d.gmailUser + " — " : "") +
+              (d.gmailError || "Token expired") +
+              ". Kate (and other In Office brokers) will get new shipments only after reconnect.";
+          }
+          statusEl.textContent = "RECONNECT REQUIRED" + (d.gmailUser ? ": " + d.gmailUser : "");
+          statusEl.style.color = "#ef4444";
+          if (btn) btn.textContent = "Reconnect Company Gmail";
+          return;
+        }
+        if (banner) banner.style.display = "none";
         if (d.gmailConfigured) {
-          statusEl.textContent = "Gmail import" + (d.gmailUser ? ": " + d.gmailUser : "");
+          statusEl.textContent =
+            "Gmail import OK" +
+            (d.gmailUser ? ": " + d.gmailUser : "") +
+            (d.importAfter ? " · new mail after " + new Date(d.importAfter).toLocaleString() : "");
           statusEl.style.color = "#22c55e";
-          const btn = root.querySelector("#email-connect-gmail");
           if (btn) btn.textContent = "Reconnect Gmail";
         } else if (d.oauthClientConfigured) {
           statusEl.textContent = "Gmail not connected — use Connect Gmail (uShip import inbox)";
