@@ -47,6 +47,10 @@ window.GreenOSModules['administration'] = {
       this.renderEmailAccounts(body);
       return;
     }
+    if (active && active.id === 'company-settings') {
+      this.renderCompanySettings(body);
+      return;
+    }
     if (active && active.id === 'api-integrations') {
       this.renderApiIntegrations(body);
       return;
@@ -64,6 +68,85 @@ window.GreenOSModules['administration'] = {
     body.innerHTML =
       '<h2>Administration — ' + label + '</h2>' +
       '<p>Coming soon</p>';
+  },
+
+  async renderCompanySettings(body) {
+    if (!body) return;
+    body.innerHTML =
+      '<section class="gos-dash-hero">' +
+      '<h1>Company Settings — Assignment &amp; Mailing</h1>' +
+      '<p>Clean slate clears old shipments. Refresh redistributes unworked leads to brokers who are In Office and stops importing older Gmail.</p>' +
+      '</section>' +
+      '<div class="gos-card" style="padding:1.25rem;margin-bottom:1rem">' +
+      '<h3 style="margin:0 0 0.5rem">Refresh mailing</h3>' +
+      '<p class="gos-muted" style="margin:0 0 0.75rem">From this moment: ignore old unread company Gmail, reclaim shipments brokers did not accept, assign parked leads to In Office brokers.</p>' +
+      '<button type="button" class="btn-primary" id="assign-refresh-mailing" style="width:auto">Refresh mailing &amp; redistribute</button>' +
+      '</div>' +
+      '<div class="gos-card" style="padding:1.25rem;margin-bottom:1rem;border-color:#c45c5c">' +
+      '<h3 style="margin:0 0 0.5rem">Start clean slate</h3>' +
+      '<p class="gos-muted" style="margin:0 0 0.75rem">Deletes <strong>all</strong> shipments / CRM pipeline cards. Keeps users, Gmail accounts, and attendance. Then mailing only imports mail received after this click.</p>' +
+      '<button type="button" class="btn-secondary" id="assign-clean-slate" style="width:auto;background:#b42318;color:#fff;border-color:#b42318">Start clean slate (delete all shipments)</button>' +
+      '</div>' +
+      '<p id="assign-ops-msg" class="gos-muted"></p>';
+
+    var token = localStorage.getItem('gl_token') || '';
+    var msg = body.querySelector('#assign-ops-msg');
+
+    async function post(path, payload) {
+      var res = await fetch('/api/assignment' + path, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token,
+        },
+        body: JSON.stringify(payload || {}),
+      });
+      var json = await res.json().catch(function () { return {}; });
+      if (!res.ok || json.success === false) {
+        throw new Error(json.message || ('HTTP ' + res.status));
+      }
+      return json;
+    }
+
+    body.querySelector('#assign-refresh-mailing')?.addEventListener('click', async function () {
+      if (!window.confirm('Refresh mailing now? Unworked shipments will move to In Office brokers. Old unread Gmail will be skipped from this moment.')) {
+        return;
+      }
+      try {
+        msg.textContent = 'Refreshing…';
+        var json = await post('/refresh-mailing', {});
+        var d = json.data || {};
+        msg.textContent =
+          (json.message || 'Done') +
+          ' | dismissed unread: ' + (d.dismissedUnread || 0) +
+          ', reclaimed: ' + (d.reclaimed || 0) +
+          ', drained: ' + (d.drained || 0) +
+          ', In Office: ' + ((d.eligible || []).join(', ') || 'none');
+      } catch (err) {
+        msg.textContent = err.message || String(err);
+      }
+    });
+
+    body.querySelector('#assign-clean-slate')?.addEventListener('click', async function () {
+      var typed = window.prompt(
+        'This DELETES all shipments. Type CLEAN_SLATE_SHIPMENTS to confirm.'
+      );
+      if (typed !== 'CLEAN_SLATE_SHIPMENTS') {
+        msg.textContent = 'Clean slate cancelled.';
+        return;
+      }
+      try {
+        msg.textContent = 'Cleaning…';
+        var json = await post('/clean-slate', { confirm: 'CLEAN_SLATE_SHIPMENTS' });
+        var d = json.data || {};
+        msg.textContent =
+          (json.message || 'Clean slate done') +
+          ' | deleted: ' + (d.deletedShipments || 0) +
+          ', import after: ' + (d.importAfter || '—');
+      } catch (err) {
+        msg.textContent = err.message || String(err);
+      }
+    });
   },
 
   async renderApiIntegrations(body) {

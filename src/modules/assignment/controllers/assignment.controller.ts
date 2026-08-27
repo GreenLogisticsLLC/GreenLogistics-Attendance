@@ -30,12 +30,61 @@ export async function assignmentEligibleController(_req: AuthRequest, res: Respo
 
 export async function assignmentDrainPendingController(_req: AuthRequest, res: Response) {
     try {
+        await assignmentEngine.processDueAcceptances();
         const assigned = await assignmentEngine.assignPendingNewLeads(50);
         return res.json(
             apiResponse(true, `Assigned ${assigned} pending shipment(s)`, { assigned })
         );
     } catch (err) {
         const message = err instanceof Error ? err.message : "Drain failed";
+        return res.status(500).json(apiResponse(false, message));
+    }
+}
+
+/** Reclaim unworked + set Gmail cutoff now + drain to In Office brokers. */
+export async function assignmentRefreshMailingController(req: AuthRequest, res: Response) {
+    try {
+        const { assignmentOpsService } = await import("../services/assignment-ops.service.js");
+        const data = await assignmentOpsService.refreshMailingDistribution({
+            actorUserId: req.user?.userId || null,
+            drainLimit: 100,
+            dismissUnread: true,
+        });
+        return res.json(
+            apiResponse(
+                true,
+                `Refresh done — ${data.drained} assigned to ${data.eligibleCount} In Office broker(s)`,
+                data
+            )
+        );
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Refresh failed";
+        return res.status(500).json(apiResponse(false, message));
+    }
+}
+
+/** Delete all shipments and start company mailing from this moment. */
+export async function assignmentCleanSlateController(req: AuthRequest, res: Response) {
+    const confirm = String(req.body?.confirm || "");
+    if (confirm !== "CLEAN_SLATE_SHIPMENTS") {
+        return res
+            .status(422)
+            .json(apiResponse(false, 'Pass confirm: "CLEAN_SLATE_SHIPMENTS" in the body'));
+    }
+    try {
+        const { assignmentOpsService } = await import("../services/assignment-ops.service.js");
+        const data = await assignmentOpsService.cleanSlateAllShipments({
+            actorUserId: req.user?.userId || null,
+        });
+        return res.json(
+            apiResponse(
+                true,
+                `Clean slate — deleted ${data.deletedShipments} shipment(s); mailing starts from now`,
+                data
+            )
+        );
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Clean slate failed";
         return res.status(500).json(apiResponse(false, message));
     }
 }

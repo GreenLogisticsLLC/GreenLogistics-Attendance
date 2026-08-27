@@ -1,0 +1,48 @@
+name: Clean slate shipments + mailing cutoff
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type CLEAN_SLATE_SHIPMENTS
+        required: true
+        type: string
+
+jobs:
+  clean:
+    if: ${{ inputs.confirmation == 'CLEAN_SLATE_SHIPMENTS' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Wipe shipments and set import cutoff
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          npm run build
+          pm2 restart greenos --update-env || true
+          sleep 3
+          node --input-type=module << 'NODE'
+          import { assignmentOpsService } from "./dist/modules/assignment/services/assignment-ops.service.js";
+          import { prisma } from "./dist/config/database.js";
+
+          const before = await prisma.shipmentLead.count();
+          console.log("SHIPMENTS_BEFORE", before);
+          const result = await assignmentOpsService.cleanSlateAllShipments({
+            actorUserId: null,
+          });
+          console.log("CLEAN_SLATE_RESULT", result);
+          const after = await prisma.shipmentLead.count();
+          console.log("SHIPMENTS_AFTER", after);
+          await prisma.$disconnect();
+          NODE
+          EOF

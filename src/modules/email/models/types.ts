@@ -25,7 +25,14 @@ export type ShipmentLeadStatus =
     | "DELIVERED"
     | "WON";
 
-export type ImportLogEventType = "EmailImported" | "EmailIgnored" | "DuplicateShipment" | "ParseError" | "PipelineEvent";
+export type ImportLogEventType =
+    | "EmailImported"
+    | "EmailIgnored"
+    | "DuplicateShipment"
+    | "ParseError"
+    | "PipelineEvent"
+    | "SkippedBeforeCutoff"
+    | "DismissedUnread";
 
 export interface RawEmailMessage {
     gmailMessageId: string;

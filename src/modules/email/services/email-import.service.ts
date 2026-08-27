@@ -8,6 +8,7 @@ import {
 import { shipmentLeadService } from "./shipment-lead.service.js";
 import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
 import { prisma } from "../../../config/database.js";
+import { getCompanyImportAfter } from "./gmail-import-cutoff.service.js";
 
 function collectListingIds(...blobs: Array<string | null | undefined>): string[] {
     const ids = new Set<string>();
@@ -88,11 +89,15 @@ export class EmailImportService {
             };
         }
 
-        const ids = await gmailListener.listUnreadMessageIds(options?.maxMessages ?? 25);
+        const importAfter = await getCompanyImportAfter();
+        const ids = await gmailListener.listUnreadMessageIds(options?.maxMessages ?? 25, {
+            after: importAfter,
+        });
         let imported = 0;
         let ignored = 0;
         let duplicates = 0;
         let errors = 0;
+        let skippedBeforeCutoff = 0;
 
         for (const gmailMessageId of ids) {
             try {
@@ -110,6 +115,17 @@ export class EmailImportService {
                 }
 
                 const raw = await gmailListener.fetchMessage(gmailMessageId);
+                if (importAfter && raw.receivedAt.getTime() < importAfter.getTime()) {
+                    await gmailListener.markProcessed(gmailMessageId);
+                    skippedBeforeCutoff += 1;
+                    await shipmentImportLogRepository.create({
+                        eventType: "SkippedBeforeCutoff",
+                        message: `Skipped old Gmail before import_after ${importAfter.toISOString()}: ${raw.subject}`,
+                        gmailMessageId,
+                    });
+                    continue;
+                }
+
                 const stored = await emailMessageRepository.create({
                     gmailMessageId: raw.gmailMessageId,
                     gmailThreadId: raw.gmailThreadId,
@@ -268,7 +284,9 @@ export class EmailImportService {
             ignored,
             duplicates,
             errors,
+            skippedBeforeCutoff,
             drained,
+            importAfter: importAfter?.toISOString() || null,
             message: `Processed ${ids.length} unread message(s)`,
         };
     }

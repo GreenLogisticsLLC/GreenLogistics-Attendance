@@ -5,6 +5,8 @@ import {
     assignmentLogsController,
     assignmentQueueStatusController,
     assignmentDrainPendingController,
+    assignmentRefreshMailingController,
+    assignmentCleanSlateController,
     linkEmployeeController,
 } from "../controllers/assignment.controller.js";
 
@@ -21,6 +23,16 @@ assignmentRouter.post(
     "/drain-pending",
     requireRole("Administrator", "Owner", "Manager"),
     assignmentDrainPendingController
+);
+assignmentRouter.post(
+    "/refresh-mailing",
+    requireRole("Administrator", "Owner"),
+    assignmentRefreshMailingController
+);
+assignmentRouter.post(
+    "/clean-slate",
+    requireRole("Administrator", "Owner"),
+    assignmentCleanSlateController
 );
 assignmentRouter.patch(
     "/users/:userId/employee",
