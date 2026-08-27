@@ -384,7 +384,7 @@ async function loadSignupTeamLeads() {
         const data = await res.json();
         const leads = (data.success && data.data) || [];
         select.innerHTML =
-            '<option value="">Select Team Lead (Gary or Alen)…</option>' +
+            '<option value="">Select Team Lead…</option>' +
             leads
                 .map(
                     (l) =>
@@ -424,7 +424,7 @@ signupForm.addEventListener("submit", async (e) => {
         if (role === "Broker") {
             body.teamLeadId = $("#signup-team-lead")?.value || "";
             if (!body.teamLeadId) {
-                signupError.textContent = "Select a Team Lead (Gary or Alen) for this Broker";
+                signupError.textContent = "Select a Team Lead for this Broker";
                 signupError.classList.remove("hidden");
                 return;
             }

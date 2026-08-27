@@ -6,7 +6,7 @@ const COMPANY_OPS_ROLES = ["Owner", "Manager", "Administrator"] as const;
 
 /**
  * Notify company ops (Owner/Manager/Admin) + the assigned broker's Team Lead only.
- * Never broadcast to all Team Leads — Gary and Alen must stay isolated.
+ * Never broadcast to all Team Leads — each Team Lead only sees their own team.
  */
 export async function notifyOpsAndOwningTeamLead(options: {
     assignedBrokerId: string | null | undefined;

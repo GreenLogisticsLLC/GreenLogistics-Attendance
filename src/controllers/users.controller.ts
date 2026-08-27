@@ -20,7 +20,22 @@ export async function updateUserRoleController(req: AuthRequest, res: Response) 
     try {
         const userId = String(req.params.userId || "");
         const role = String(req.body?.role || req.body?.roleName || "");
-        const result = await usersService.updateUserRole(req.user, userId, role);
+        const transferTeamToUserId =
+            req.body?.transferTeamToUserId === null ||
+            req.body?.transferTeamToUserId === undefined ||
+            req.body?.transferTeamToUserId === ""
+                ? null
+                : String(req.body.transferTeamToUserId);
+        const takeOverFromUserId =
+            req.body?.takeOverFromUserId === null ||
+            req.body?.takeOverFromUserId === undefined ||
+            req.body?.takeOverFromUserId === ""
+                ? null
+                : String(req.body.takeOverFromUserId);
+        const result = await usersService.updateUserRole(req.user, userId, role, {
+            transferTeamToUserId,
+            takeOverFromUserId,
+        });
         if (!result.ok) {
             return res.status(result.status).json(apiResponse(false, result.message));
         }

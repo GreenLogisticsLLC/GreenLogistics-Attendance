@@ -114,7 +114,7 @@ export class AuthService {
             ...(teamLeadLabel ? [`Team Lead: ${teamLeadLabel}`] : []),
             "",
             isBroker
-                ? "If you Approve, they join only that Team Lead's team (Gary and Alen stay isolated)."
+                ? "If you Approve, they join only that Team Lead's team (teams stay isolated)."
                 : "If you Approve, they will receive the requested role access.",
             "",
             `Approve: ${approveUrl}`,
@@ -145,7 +145,7 @@ export class AuthService {
             </table>
             <p>${
                 isBroker
-                    ? "Approve → Broker under that Team Lead only. Teams of Gary and Alen cannot see each other."
+                    ? "Approve → Broker under that Team Lead only. Teams stay isolated from each other."
                     : "Approve to grant the requested role."
             }</p>
             <p>
@@ -196,7 +196,7 @@ export class AuthService {
                     ok: false as const,
                     status: 422,
                     message:
-                        "No Team Lead accounts exist yet. Ask the Owner to create Gary / Alen as Team Lead first.",
+                        "No Team Lead candidates yet. Ask the Owner to create at least one active employee first.",
                 };
             }
             requestedTeamLeadId = await assertValidTeamLeadId(input.teamLeadId);
@@ -204,7 +204,7 @@ export class AuthService {
                 return {
                     ok: false as const,
                     status: 422,
-                    message: "Select a Team Lead (Gary or Alen) for this Broker account",
+                    message: "Select a Team Lead for this Broker account",
                 };
             }
         }
@@ -412,7 +412,7 @@ export class AuthService {
             return {
                 ok: false as const,
                 status: 422,
-                message: "Select a valid Team Lead (Gary or Alen)",
+                message: "Select a valid Team Lead",
             };
         }
         await prisma.pendingRegistration.update({
@@ -488,7 +488,7 @@ export class AuthService {
                     ok: false as const,
                     status: 422,
                     message:
-                        "Cannot approve: select Team Lead (Gary or Alen) for this Broker first.",
+                        "Cannot approve: select a Team Lead for this Broker first.",
                 };
             }
             if (pending.requestedTeamLeadId !== teamLeadId) {

@@ -17,7 +17,7 @@ import {
     canManageUserRoles,
     isKnownRole,
 } from "../auth/roles.js";
-import { assertValidTeamLeadId } from "../auth/team-scope.js";
+import { assertValidTeamLeadId, transferTeamLeadership } from "../auth/team-scope.js";
 
 export class UsersService {
     listAssignableRoles(actorRole: string) {
@@ -118,7 +118,7 @@ export class UsersService {
                       updated.teamLead.username
                     : null,
                 message: nextTeamLeadId
-                    ? "Broker assigned to Team Lead"
+                    ? "Broker assigned to Team Lead (promoted to Team Lead if needed)"
                     : "Broker removed from Team Lead",
             },
         };
@@ -131,7 +131,15 @@ export class UsersService {
         return backfillMissingAttendanceBadges();
     }
 
-    async updateUserRole(actor: { userId: string; role: string }, userId: string, roleName: string) {
+    async updateUserRole(
+        actor: { userId: string; role: string },
+        userId: string,
+        roleName: string,
+        options?: {
+            transferTeamToUserId?: string | null;
+            takeOverFromUserId?: string | null;
+        }
+    ) {
         if (!roleName || !isKnownRole(roleName)) {
             return { ok: false as const, status: 422, message: "Unknown role" };
         }
@@ -172,6 +180,40 @@ export class UsersService {
                 }
             }
 
+            const wasTeamLead = user.role.roleName === Roles.TeamLead;
+            const leavingTeamLead = wasTeamLead && roleName !== Roles.TeamLead;
+            let transferNote = "";
+
+            if (leavingTeamLead) {
+                const brokerCount = await withDbRetry("countTeamBrokers", () =>
+                    prisma.user.count({
+                        where: {
+                            teamLeadId: userId,
+                            role: { roleName: Roles.Broker },
+                        },
+                    })
+                );
+                if (brokerCount > 0) {
+                    const target = String(options?.transferTeamToUserId || "").trim();
+                    if (!target) {
+                        return {
+                            ok: false as const,
+                            status: 422,
+                            message: `This Team Lead still has ${brokerCount} broker(s). Choose who takes the team (transferTeamToUserId) before changing the role.`,
+                        };
+                    }
+                    if (target === userId) {
+                        return {
+                            ok: false as const,
+                            status: 422,
+                            message: "Cannot transfer the team to the same person",
+                        };
+                    }
+                    const moved = await transferTeamLeadership(userId, target);
+                    transferNote = ` Moved ${moved.brokersMoved} broker(s) and ${moved.notificationsMoved} notification(s) to the new Team Lead.`;
+                }
+            }
+
             const role = await withDbRetry("upsertRole", () =>
                 prisma.role.upsert({
                     where: { roleName },
@@ -188,10 +230,31 @@ export class UsersService {
             const updated = await withDbRetry("updateUserRole", () =>
                 prisma.user.update({
                     where: { userId },
-                    data: { roleId: role.roleId },
+                    data: {
+                        roleId: role.roleId,
+                        // Non-brokers do not report to a Team Lead.
+                        ...(roleName !== Roles.Broker ? { teamLeadId: null } : {}),
+                    },
                     include: { role: true },
                 })
             );
+
+            // Optional: promote to Team Lead and take over another TL's team in one step.
+            if (
+                roleName === Roles.TeamLead &&
+                options?.takeOverFromUserId &&
+                options.takeOverFromUserId !== userId
+            ) {
+                const fromId = String(options.takeOverFromUserId).trim();
+                const from = await prisma.user.findUnique({
+                    where: { userId: fromId },
+                    include: { role: true },
+                });
+                if (from?.role.roleName === Roles.TeamLead) {
+                    const moved = await transferTeamLeadership(fromId, userId);
+                    transferNote += ` Took over ${moved.brokersMoved} broker(s) and ${moved.notificationsMoved} notification(s) from previous Team Lead.`;
+                }
+            }
 
             let attendanceNote = "";
             if (
@@ -223,7 +286,7 @@ export class UsersService {
                     email: updated.email,
                     role: updated.role.roleName,
                     isActive: updated.isActive,
-                    message: `Role updated: ${user.role.roleName} → ${updated.role.roleName}. User must sign in again for the new access to apply.${attendanceNote}`,
+                    message: `Role updated: ${user.role.roleName} → ${updated.role.roleName}. User must sign in again for the new access to apply.${transferNote}${attendanceNote}`,
                 },
             };
         } catch (err) {
