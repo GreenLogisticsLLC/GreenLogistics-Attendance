@@ -1,0 +1,106 @@
+name: Diagnose assignment + company Gmail
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Diagnose In Office eligibility and inbox health
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          node --input-type=module << 'NODE'
+          import { prisma } from "./dist/config/database.js";
+          import { assignmentEngine } from "./dist/modules/assignment/assignment.engine.js";
+          import { attendanceSessionRepository } from "./dist/repositories/attendance-session.repository.js";
+          import { gmailOAuthService } from "./dist/modules/email/gmail/gmail-oauth.service.js";
+          import { gmailListener } from "./dist/modules/email/gmail/gmail.listener.js";
+          import { getAttendanceWorkDate } from "./dist/utils/helpers.js";
+          import { config } from "./dist/config/env.js";
+
+          const workDate = getAttendanceWorkDate(new Date(), config.timezone);
+          console.log("TIMEZONE", config.timezone, "WORK_DATE", workDate);
+
+          const brokers = await prisma.user.findMany({
+            where: { role: { roleName: "Broker" }, isActive: true },
+            include: { employee: true, brokerGmailAccount: true },
+            orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+          });
+
+          console.log("=== BROKER ATTENDANCE ===");
+          for (const b of brokers) {
+            const empId = b.employeeId || b.employee?.employeeId || null;
+            let session = null;
+            if (empId) {
+              session = await attendanceSessionRepository.findRecentActiveSession(empId);
+            }
+            const today = empId
+              ? await prisma.attendanceSession.findUnique({
+                  where: { employeeId_workDate: { employeeId: empId, workDate } },
+                })
+              : null;
+            console.log({
+              name: `${b.firstName} ${b.lastName}`,
+              available: b.availableForAssignment,
+              employeeId: empId,
+              recentStatus: session?.currentStatus || null,
+              recentActivity: session?.lastActivity || null,
+              todayStatus: today?.currentStatus || null,
+              todayActivity: today?.lastActivity || null,
+              gmail: b.brokerGmailAccount?.status || "NONE",
+              gmailError: (b.brokerGmailAccount?.lastError || "").slice(0, 80) || null,
+            });
+          }
+
+          const eligible = await assignmentEngine.listEligibleBrokers();
+          console.log("=== ELIGIBLE ===", eligible.map((e) => e.displayName));
+
+          const counts = await prisma.shipmentLead.groupBy({
+            by: ["status"],
+            where: { status: { in: ["NEW", "UNASSIGNED", "ASSIGNED", "AWAITING_ACCEPTANCE", "WORKING"] } },
+            _count: { _all: true },
+          });
+          console.log("=== PIPELINE COUNTS ===", counts);
+
+          const unassigned = await prisma.shipmentLead.count({
+            where: { status: { in: ["NEW", "UNASSIGNED"] }, OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }] },
+          });
+          console.log("UNASSIGNED_WAITING", unassigned);
+
+          const stored = await gmailOAuthService.getStoredRefreshToken();
+          console.log("COMPANY_GMAIL_TOKEN_SOURCE", stored.source, "hasToken", Boolean(stored.token));
+          const ok = await gmailListener.ensureCredentials().catch((e) => {
+            console.log("COMPANY_GMAIL_ENSURE_FAIL", e instanceof Error ? e.message : e);
+            return false;
+          });
+          console.log("COMPANY_GMAIL_READY", ok);
+
+          const recentImport = await prisma.shipmentImportLog.findMany({
+            orderBy: { createdAt: "desc" },
+            take: 8,
+            select: { createdAt: true, processStatus: true, subject: true, fromAddress: true },
+          });
+          console.log("=== RECENT IMPORT LOGS ===");
+          for (const r of recentImport) {
+            console.log({
+              at: r.createdAt,
+              status: r.processStatus,
+              from: r.fromAddress,
+              subject: (r.subject || "").slice(0, 80),
+            });
+          }
+
+          await prisma.$disconnect();
+          NODE
+          EOF
