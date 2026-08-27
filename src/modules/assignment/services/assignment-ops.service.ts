@@ -170,23 +170,29 @@ export class AssignmentOpsService {
 
     /** Mark current unread company mail as read so old backlog stops importing. */
     async dismissCurrentUnread(maxMessages = 80): Promise<number> {
-        if (!(await gmailListener.ensureCredentials())) return 0;
-        const ids = await gmailListener.listUnreadMessageIds(maxMessages);
-        let n = 0;
-        for (const id of ids) {
-            try {
-                await gmailListener.markProcessed(id);
-                await shipmentImportLogRepository.create({
-                    eventType: "DismissedUnread",
-                    message: `Admin dismissed unread Gmail (clean slate / refresh): ${id}`,
-                    gmailMessageId: id,
-                });
-                n += 1;
-            } catch (err) {
-                console.warn("[assignment-ops] dismiss unread failed:", id, err);
+        try {
+            if (!(await gmailListener.ensureCredentials())) return 0;
+            const ids = await gmailListener.listUnreadMessageIds(maxMessages);
+            let n = 0;
+            for (const id of ids) {
+                try {
+                    await gmailListener.markProcessed(id);
+                    await shipmentImportLogRepository.create({
+                        eventType: "DismissedUnread",
+                        message: `Admin dismissed unread Gmail (clean slate / refresh): ${id}`,
+                        gmailMessageId: id,
+                    });
+                    n += 1;
+                } catch (err) {
+                    console.warn("[assignment-ops] dismiss unread failed:", id, err);
+                }
             }
+            return n;
+        } catch (err) {
+            // Company Gmail invalid_grant / offline — cutoff still blocks old imports by date.
+            console.warn("[assignment-ops] dismiss unread skipped:", err);
+            return 0;
         }
-        return n;
     }
 }
 
