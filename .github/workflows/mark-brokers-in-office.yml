@@ -1,0 +1,35 @@
+name: Mark brokers In Office + drain
+
+on:
+  workflow_dispatch:
+    inputs:
+      drain:
+        description: Max UNASSIGNED leads to assign after mark
+        required: false
+        default: "100"
+        type: string
+
+jobs:
+  mark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Mark active brokers In Office and drain queue
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << EOF
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          npm run build
+          pm2 restart greenos --update-env || true
+          sleep 3
+          node scripts/mark-brokers-in-office.mjs --drain ${{ inputs.drain || 100 }}
+          EOF

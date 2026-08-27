@@ -107,10 +107,30 @@ async function main() {
   const recentImport = await prisma.shipmentImportLog.findMany({
     orderBy: { createdAt: "desc" },
     take: 8,
-    select: { createdAt: true, processStatus: true, subject: true, fromAddress: true },
+    select: { createdAt: true, eventType: true, message: true, shipmentLeadId: true },
   });
   console.log("=== RECENT IMPORT LOGS ===");
   for (const r of recentImport) {
+    console.log({
+      at: r.createdAt,
+      event: r.eventType,
+      message: (r.message || "").slice(0, 100),
+      lead: r.shipmentLeadId,
+    });
+  }
+
+  const recentEmail = await prisma.emailMessage.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 5,
+    select: {
+      createdAt: true,
+      processStatus: true,
+      subject: true,
+      fromAddress: true,
+    },
+  });
+  console.log("=== RECENT EMAIL MESSAGES ===");
+  for (const r of recentEmail) {
     console.log({
       at: r.createdAt,
       status: r.processStatus,
