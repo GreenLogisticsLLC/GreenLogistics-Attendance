@@ -28,6 +28,26 @@ function displayName(u: { firstName: string; lastName: string; username: string 
     return n || u.username;
 }
 
+/** Gary leads the fallback cycle when nobody is In Office; then everyone else A→Z. */
+function isGaryBroker(b: { firstName: string; lastName: string; username: string }): boolean {
+    const blob = `${b.firstName} ${b.lastName} ${b.username}`.toLowerCase();
+    return blob.includes("gary");
+}
+
+function sortBrokersForRoundRobin(brokers: EligibleBroker[]): EligibleBroker[] {
+    return [...brokers].sort((a, b) => {
+        const aGary = isGaryBroker(a);
+        const bGary = isGaryBroker(b);
+        if (aGary && !bGary) return -1;
+        if (!aGary && bGary) return 1;
+        const fn = a.firstName.localeCompare(b.firstName, undefined, { sensitivity: "base" });
+        if (fn !== 0) return fn;
+        return a.lastName.localeCompare(b.lastName, undefined, { sensitivity: "base" });
+    });
+}
+
+export type AssignmentPoolMode = "in_office" | "all_brokers_fallback" | "none";
+
 /**
  * Assignment Engine v1.0 — Round Robin driven only by Attendance:
  * In Office → in queue; Out of Office → removed immediately.
@@ -424,20 +444,30 @@ export class AssignmentEngine {
 
     /** Public snapshot for managers / debugging. */
     async getQueueStatus() {
-        const eligible = await this.listEligibleBrokers();
+        const { eligible, mode } = await this.resolveEligibleBrokers();
         const state = await this.loadQueueState();
         const synced = this.syncQueueOrder(
             state.orderedUserIds,
             eligible.map((e) => e.userId),
             state.nextIndex
         );
+        const modeLabel =
+            mode === "in_office"
+                ? "Checked-in brokers only"
+                : mode === "all_brokers_fallback"
+                  ? "Nobody In Office — round-robin all brokers (Gary first)"
+                  : "No eligible brokers";
         return {
             version: "1.0",
-            algorithm: "round_robin_sequential_in_office",
+            algorithm: "round_robin_sequential",
+            assignmentMode: mode,
+            assignmentModeLabel: modeLabel,
             rules: [
-                "Each NEW shipment goes to the next broker currently In Office (Attendance) — sequential queue, not load balancing",
-                "Out of Office removes the broker from the queue immediately",
-                "Gmail is recommended for uShip status updates but does not block receiving the next shipment",
+                "NEW shipments go to checked-in (In Office) brokers only — sequential round-robin",
+                "If nobody is In Office → all active brokers receive shipments in order (Gary first, then A→Z)",
+                "When someone checks in → only checked-in brokers receive new shipments",
+                "Out of Office removes broker from the active pool (assigned pending leads may be reclaimed)",
+                "Gmail recommended for uShip updates but does not block receiving shipments",
             ],
             heart: "Attendance → Assignment Queue → CRM Shipment",
             eligible: eligible.map((e) => ({
@@ -614,10 +644,18 @@ export class AssignmentEngine {
     /**
      * Eligible brokers for round-robin:
      * 1) Prefer Brokers who are In Office (Attendance check-in).
-     * 2) If nobody is In Office → all active Brokers with a badge (fair RR across everyone).
+     * 2) If nobody is In Office → all active Brokers with a badge (Gary first, then A→Z).
      * Gmail is NOT required. `availableForAssignment` is ignored.
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
+        const { eligible } = await this.resolveEligibleBrokers();
+        return eligible;
+    }
+
+    async resolveEligibleBrokers(): Promise<{
+        eligible: EligibleBroker[];
+        mode: AssignmentPoolMode;
+    }> {
         const users = await prisma.user.findMany({
             where: {
                 role: { roleName: "Broker" },
@@ -674,15 +712,21 @@ export class AssignmentEngine {
         }
 
         if (inOffice.length > 0) {
-            return inOffice;
+            return {
+                eligible: sortBrokersForRoundRobin(inOffice),
+                mode: "in_office",
+            };
         }
-        // Nobody checked in → distribute to every active broker with a badge.
         if (allLinked.length > 0) {
             console.info(
-                `[assignment] no broker In Office — falling back to round-robin across ${allLinked.length} broker(s)`
+                `[assignment] no broker In Office — falling back to round-robin across ${allLinked.length} broker(s), Gary first`
             );
+            return {
+                eligible: sortBrokersForRoundRobin(allLinked),
+                mode: "all_brokers_fallback",
+            };
         }
-        return allLinked;
+        return { eligible: [], mode: "none" };
     }
 
     private async resolveEmployeeId(user: {

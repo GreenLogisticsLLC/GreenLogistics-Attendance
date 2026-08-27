@@ -142,6 +142,27 @@ async function main() {
   const queue = await prisma.assignmentQueueState.findUnique({ where: { queueKey: "brokers" } });
   console.log("QUEUE", queue);
 
+  let queueOrder = [];
+  let nextIndex = 0;
+  if (queue?.orderedUserIdsJson) {
+    try {
+      queueOrder = JSON.parse(queue.orderedUserIdsJson);
+    } catch {
+      queueOrder = [];
+    }
+    nextIndex = queue.nextIndex || 0;
+  }
+  const nextId = queueOrder.length ? queueOrder[nextIndex % queueOrder.length] : null;
+  const nextUser = nextId
+    ? brokers.find((b) => b.userId === nextId)
+    : null;
+  console.log("=== ASSIGNMENT MODE ===", insideNames.length > 0 ? "in_office" : insideNames.length === 0 && brokers.length ? "all_brokers_fallback" : "none");
+  console.log("NEXT_IN_QUEUE", nextUser ? `${nextUser.firstName} ${nextUser.lastName}` : null, `(index ${nextIndex}/${queueOrder.length})`);
+  console.log("QUEUE_ORDER_NAMES", queueOrder.map((id) => {
+    const b = brokers.find((x) => x.userId === id);
+    return b ? `${b.firstName} ${b.lastName}` : id;
+  }));
+
   await prisma.$disconnect();
 }
 
