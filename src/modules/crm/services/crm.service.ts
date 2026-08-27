@@ -208,6 +208,23 @@ export class CrmService {
         const brokersById = await userMap(brokerIdsForMap);
         const avgResponseMs = await this.averageResponseTimeMs(teamBrokerIds || undefined);
 
+        const presentBrokers = brokers.filter((b) => b.inOffice && b.role === "Broker");
+        const shipmentsToPresentBrokers = presentBrokers.reduce(
+            (sum, b) => sum + (b.currentShipments || 0),
+            0
+        );
+        const shipmentsToAllAssignedBrokers = brokers
+            .filter((b) => b.role === "Broker")
+            .reduce((sum, b) => sum + (b.currentShipments || 0), 0);
+        const assignmentMode =
+            presentBrokers.length > 0 ? "in_office" : "all_brokers_fallback";
+        // Owner "Active Loads": shipments currently with who should receive mail —
+        // checked-in brokers when anyone is present; otherwise all brokers who have work.
+        const ownerActiveLoads =
+            presentBrokers.length > 0
+                ? shipmentsToPresentBrokers
+                : shipmentsToAllAssignedBrokers;
+
         return {
             version: "1.0",
             scope: options?.teamLeadId ? "team" : "company",
@@ -221,6 +238,10 @@ export class CrmService {
                 won,
                 lost,
                 activeShipments: active,
+                ownerActiveLoads,
+                shipmentsToPresentBrokers,
+                brokersPresent: presentBrokers.length,
+                assignmentMode,
                 averageResponseTimeMinutes: avgResponseMs == null ? null : Math.round(avgResponseMs / 60000),
             },
             unassignedShipments: unassignedRows.map((row) =>
@@ -233,6 +254,7 @@ export class CrmService {
                 brokerId: b.brokerId,
                 name: b.name,
                 activeShipments: b.currentShipments,
+                inOffice: b.inOffice,
             })),
         };
     }

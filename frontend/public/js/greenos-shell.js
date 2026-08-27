@@ -3,33 +3,26 @@
  * Does not touch authentication APIs.
  */
 (function () {
-  const DEMO_CARDS = [
-    { label: "Active Loads", value: "24", hint: "Demo data", tone: "accent-blue" },
-    { label: "Active Customers", value: "86", hint: "Demo data", tone: "accent-green" },
-    { label: "Employees Present", value: "18", hint: "Demo data", tone: "accent-green" },
-    { label: "Late Employees", value: "3", hint: "Demo data", tone: "accent-warn" },
-    { label: "Pending Registrations", value: "2", hint: "Demo data", tone: "accent-purple" },
-    { label: "Revenue Today", value: "$12,480", hint: "Demo data", tone: "accent-green" },
-    { label: "Carrier Payments", value: "$4,920", hint: "Demo data", tone: "accent-blue" },
-    { label: "Open Invoices", value: "14", hint: "Demo data", tone: "accent-warn" },
-    { label: "Monthly Revenue", value: "$186K", hint: "Demo data", tone: "accent-green" },
-    { label: "Total Employees", value: "42", hint: "Demo data", tone: "" },
-    { label: "Active Carriers", value: "31", hint: "Demo data", tone: "accent-blue" },
-  ];
-
-  const DEMO_ACTIVITY = [
-    "Load #GL-2041 dispatched to Carrier SwiftHaul",
-    "Invoice INV-889 marked as paid",
-    "New CRM lead: Pacific Auto Group",
-    "Attendance: 3 employees marked late",
-    "Contract template updated for carriers",
-  ];
-
   window.GreenOS = {
     currentModule: "dashboard",
     currentSub: null,
     user: null,
     _historyBound: false,
+
+    shellApi(path) {
+      const token = localStorage.getItem("gl_token");
+      return fetch(path, {
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          Authorization: token ? "Bearer " + token : "",
+        },
+      }).then(function (res) {
+        return res.json().catch(function () {
+          return { success: false, message: "Bad response" };
+        });
+      });
+    },
 
     initShell() {
       this.user = window.GreenOSUser || this.user || null;
@@ -375,32 +368,136 @@
     },
 
     renderDashboard(root) {
-      const cards = DEMO_CARDS.map(
-        (c) =>
-          `<article class="gos-card ${c.tone}">` +
-          `<div class="label">${c.label}</div>` +
-          `<div class="value">${c.value}</div>` +
-          `<div class="hint">${c.hint}</div>` +
-          `</article>`
-      ).join("");
-
-      const activity = DEMO_ACTIVITY.map((a) => `<li>${a}</li>`).join("");
-
       root.innerHTML =
         `<section class="gos-dash-hero">` +
         `<h1>GreenOS Dashboard</h1>` +
-        `<p>Operational overview for Green Logistics — demo metrics for architecture phase.</p>` +
+        `<p>Live operational overview — Active Loads = shipments with brokers who receive mail (checked-in when anyone is In Office; otherwise all brokers).</p>` +
         `</section>` +
-        `<section class="gos-card-grid">${cards}</section>` +
+        `<p class="gos-muted" id="gos-dash-status">Loading live metrics…</p>` +
+        `<section class="gos-card-grid" id="gos-dash-cards"></section>` +
         `<section class="gos-activity">` +
-        `<h3>Recent Activity</h3>` +
-        `<ul>${activity}</ul>` +
-        `</section>` +
-        `<article class="gos-card" style="margin-top:1rem">` +
-        `<div class="label">Recent Activity feed</div>` +
-        `<div class="value" style="font-size:1rem;font-weight:500;color:var(--gos-muted)">` +
-        `Live operational stream will connect in a later phase.` +
-        `</div></article>`;
+        `<h3>Recently assigned</h3>` +
+        `<ul id="gos-dash-activity"><li class="gos-muted">Loading…</li></ul>` +
+        `</section>`;
+
+      const statusEl = root.querySelector("#gos-dash-status");
+      const cardsEl = root.querySelector("#gos-dash-cards");
+      const activityEl = root.querySelector("#gos-dash-activity");
+      const self = this;
+
+      Promise.all([
+        this.shellApi("/api/crm/dashboard"),
+        this.shellApi("/api/v1/dashboard"),
+      ])
+        .then(function (results) {
+          const crm = results[0];
+          const att = results[1];
+          const attData = (att && att.success && att.data) || {};
+          const attStats = attData.statistics || {};
+          const kpis = (crm && crm.success && crm.data && crm.data.kpis) || {};
+          const mode = kpis.assignmentMode || "";
+          const loads =
+            kpis.ownerActiveLoads != null
+              ? kpis.ownerActiveLoads
+              : kpis.activeShipments != null
+                ? kpis.activeShipments
+                : "—";
+          const present =
+            attStats.employeesPresent != null
+              ? attStats.employeesPresent
+              : kpis.brokersPresent != null
+                ? kpis.brokersPresent
+                : "—";
+          const cards = [
+            {
+              label: "Active Loads",
+              value: String(loads),
+              hint:
+                mode === "in_office"
+                  ? "With checked-in brokers"
+                  : mode === "all_brokers_fallback"
+                    ? "No one In Office — total across brokers (RR to all)"
+                    : "Assigned active shipments",
+              tone: "accent-blue",
+            },
+            {
+              label: "New today",
+              value: String(kpis.newShipmentsToday != null ? kpis.newShipmentsToday : "—"),
+              hint: "Imported / created today",
+              tone: "accent-green",
+            },
+            {
+              label: "Unassigned",
+              value: String(kpis.unassigned != null ? kpis.unassigned : "—"),
+              hint: "Waiting for a broker",
+              tone: "accent-warn",
+            },
+            {
+              label: "Employees Present",
+              value: String(present),
+              hint: "In Office now",
+              tone: "accent-green",
+            },
+            {
+              label: "Awaiting accept",
+              value: String(kpis.awaitingAcceptance != null ? kpis.awaitingAcceptance : "—"),
+              hint: "Not accepted yet",
+              tone: "accent-purple",
+            },
+            {
+              label: "Working",
+              value: String(kpis.working != null ? kpis.working : "—"),
+              hint: "Brokers working leads",
+              tone: "accent-blue",
+            },
+          ];
+          cardsEl.innerHTML = cards
+            .map(function (c) {
+              return (
+                `<article class="gos-card ${c.tone}">` +
+                `<div class="label">${c.label}</div>` +
+                `<div class="value">${c.value}</div>` +
+                `<div class="hint">${c.hint}</div>` +
+                `</article>`
+              );
+            })
+            .join("");
+
+          const recent =
+            (crm && crm.success && crm.data && crm.data.recentlyAssigned) || [];
+          if (!recent.length) {
+            activityEl.innerHTML = '<li class="gos-muted">No recent assignments</li>';
+          } else {
+            activityEl.innerHTML = recent
+              .slice(0, 12)
+              .map(function (r) {
+                const title = r.shipmentTitle || r.greenOsShipmentId || r.shipmentLeadId || "Shipment";
+                const who = r.brokerName || r.assignedBrokerName || "broker";
+                return `<li>${self.escapeHtml(String(title))} → ${self.escapeHtml(String(who))}</li>`;
+              })
+              .join("");
+          }
+          statusEl.textContent =
+            mode === "in_office"
+              ? "Assignment: checked-in brokers only (round-robin)."
+              : mode === "all_brokers_fallback"
+                ? "Assignment: nobody In Office — round-robin across all brokers."
+                : "Live metrics loaded.";
+          statusEl.style.color = "";
+        })
+        .catch(function (e) {
+          statusEl.textContent =
+            e && e.message ? e.message : "Failed to load dashboard metrics";
+          statusEl.style.color = "#ef4444";
+        });
+    },
+
+    escapeHtml(s) {
+      return String(s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
     },
 
     aiApi(path, options) {

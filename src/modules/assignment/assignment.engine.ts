@@ -55,19 +55,19 @@ export class AssignmentEngine {
                       });
             await this.pipelineLog(
                 shipmentLeadId,
-                "No broker In Office — lead marked UNASSIGNED"
+                "No eligible brokers (need active Broker + Attendance badge) — lead marked UNASSIGNED"
             );
             await this.assignmentLog({
                 shipmentLeadId,
                 eventType: "NO_ELIGIBLE",
-                message: "No broker currently In Office (Attendance)",
+                message: "No eligible brokers for assignment",
             });
             if (lead.status !== "UNASSIGNED") {
                 await domainEventEngine.emit({
                     shipmentLeadId,
                     eventType: "SHIPMENT_UNASSIGNED",
                     title: "Unassigned",
-                    message: "No broker currently In Office (Attendance)",
+                    message: "No eligible brokers for assignment",
                     timelineStage: "SHIPMENT_UNASSIGNED",
                 });
             }
@@ -76,7 +76,7 @@ export class AssignmentEngine {
                     type: "SHIPMENT_UNASSIGNED",
                     shipmentLeadId,
                     shipmentTitle: lead.shipmentTitle,
-                    reason: "No broker In Office",
+                    reason: "No eligible brokers",
                     at: new Date().toISOString(),
                 });
             } catch {
@@ -612,10 +612,10 @@ export class AssignmentEngine {
     }
 
     /**
-     * Eligible = Broker + active + In Office (Attendance check-in).
-     * Out of Office → excluded. Gmail is NOT required to receive the next shipment —
-     * sequential round-robin must stay fair for everyone currently In Office.
-     * `availableForAssignment` is intentionally ignored (no Busy/Away toggles).
+     * Eligible brokers for round-robin:
+     * 1) Prefer Brokers who are In Office (Attendance check-in).
+     * 2) If nobody is In Office → all active Brokers with a badge (fair RR across everyone).
+     * Gmail is NOT required. `availableForAssignment` is ignored.
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
         const users = await prisma.user.findMany({
@@ -627,13 +627,12 @@ export class AssignmentEngine {
             orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
         });
 
-        const eligible: EligibleBroker[] = [];
+        const inOffice: EligibleBroker[] = [];
+        const allLinked: EligibleBroker[] = [];
+
         for (const user of users) {
             const employeeId = await this.resolveEmployeeId(user);
             if (!employeeId) continue;
-
-            // Only In Office participates; match Dashboard presence (incl. overnight carry).
-            if (!(await isEmployeeInOffice(employeeId))) continue;
 
             if (!user.employeeId) {
                 try {
@@ -655,20 +654,35 @@ export class AssignmentEngine {
             );
             if (!gmailOk) {
                 console.warn(
-                    `[assignment] ${displayName(user)} is In Office but Gmail is not connected — still eligible for round-robin (connect Gmail for uShip status updates)`
+                    `[assignment] ${displayName(user)} eligible but Gmail not connected — still in round-robin (connect Gmail for uShip status updates)`
                 );
             }
 
-            eligible.push({
+            const entry: EligibleBroker = {
                 userId: user.userId,
                 username: user.username,
                 firstName: user.firstName,
                 lastName: user.lastName,
                 employeeId,
                 displayName: displayName(user),
-            });
+            };
+            allLinked.push(entry);
+
+            if (await isEmployeeInOffice(employeeId)) {
+                inOffice.push(entry);
+            }
         }
-        return eligible;
+
+        if (inOffice.length > 0) {
+            return inOffice;
+        }
+        // Nobody checked in → distribute to every active broker with a badge.
+        if (allLinked.length > 0) {
+            console.info(
+                `[assignment] no broker In Office — falling back to round-robin across ${allLinked.length} broker(s)`
+            );
+        }
+        return allLinked;
     }
 
     private async resolveEmployeeId(user: {

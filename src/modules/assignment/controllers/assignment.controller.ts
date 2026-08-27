@@ -53,7 +53,7 @@ export async function assignmentRefreshMailingController(req: AuthRequest, res: 
         return res.json(
             apiResponse(
                 true,
-                `Refresh done — ${data.drained} assigned to ${data.eligibleCount} In Office broker(s)`,
+                `Refresh done — ${data.drained} assigned to ${data.eligibleCount} eligible broker(s)`,
                 data
             )
         );
