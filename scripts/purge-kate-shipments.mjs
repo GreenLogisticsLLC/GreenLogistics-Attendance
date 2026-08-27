@@ -11,7 +11,10 @@
  *   --keep-loads   do not delete shipments that already have a Load Number
  *   --broker <id>  override userId
  */
-import { PrismaClient } from "@prisma/client";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 const execute = process.argv.includes("--execute");
