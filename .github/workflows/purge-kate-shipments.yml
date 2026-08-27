@@ -1,0 +1,48 @@
+name: Purge Kate Williams shipments
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type PURGE_KATE_SHIPMENTS
+        required: true
+        type: string
+      keep_loads:
+        description: Keep shipments that already have a Load Number (true/false)
+        required: false
+        default: "false"
+        type: string
+
+jobs:
+  purge:
+    if: ${{ inputs.confirmation == 'PURGE_KATE_SHIPMENTS' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Dry-run then purge Kate shipments on Contabo
+        env:
+          KEEP_LOADS: ${{ inputs.keep_loads }}
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            KEEP_LOADS="$KEEP_LOADS" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          echo "=== dry-run ==="
+          KEEP_ARGS=""
+          if [ "${KEEP_LOADS:-false}" = "true" ]; then
+            KEEP_ARGS="--keep-loads"
+          fi
+          node scripts/purge-kate-shipments.mjs $KEEP_ARGS
+          echo "=== execute ==="
+          node scripts/purge-kate-shipments.mjs --execute $KEEP_ARGS
+          curl --fail http://localhost:3847/api/health || true
+          EOF
