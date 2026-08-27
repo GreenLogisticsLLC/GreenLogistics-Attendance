@@ -322,6 +322,8 @@
       if (this.currentModule === "attendance") return;
       // Administration (API Integrations, users, etc.) — never auto-remount.
       if (this.currentModule === "administration") return;
+      // Employees (Platform users / roles) — manual only; auto refresh wipes open dropdowns.
+      if (this.currentModule === "employees") return;
       // Carriers — manual Refresh only (avoid wiping open carrier detail / tabs).
       if (this.currentModule === "carriers") return;
       if (this.currentModule === "customers") return;
