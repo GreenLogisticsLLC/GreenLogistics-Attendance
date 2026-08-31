@@ -675,6 +675,15 @@ export class CrmService {
         // Display filters to the latest trusted items — do not delete Q&A history.
         await domainEventEngine.correspondenceForDisplay(shipmentLeadId);
 
+        try {
+            const { clearBrokerReplyDeadline } = await import(
+                "./broker-response-problem.service.js"
+            );
+            await clearBrokerReplyDeadline(shipmentLeadId);
+        } catch {
+            /* ignore */
+        }
+
         if (
             ["WORKING", "BID_SUBMITTED", "AGENT_OPEN", "FOLLOW_UP"].includes(lead.status) ||
             lead.status === "CUSTOMER_REPLIED"

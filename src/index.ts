@@ -8,6 +8,7 @@ import { configureSqlite } from "./config/database.js";
 import { attendanceService } from "./services/attendance.service.js";
 import { startEmailImportScheduler } from "./modules/email/scheduler.js";
 import { startAssignmentAcceptanceScheduler } from "./modules/assignment/assignment-acceptance.scheduler.js";
+import { startBrokerResponseTimeoutScheduler } from "./modules/crm/broker-response-timeout.scheduler.js";
 import { startCarrierViewReconciliation } from "./modules/tracking/scheduler.js";
 import { startDocumentAiScheduler } from "./modules/ai/documents/scheduler.js";
 import { backfillMissingGreenOsShipmentIds, remigrateAllGreenOsShipmentIds } from "./modules/shipment/shipment.id.js";
@@ -48,6 +49,7 @@ setInterval(() => {
 
 startEmailImportScheduler(config.emailPollIntervalMs);
 startAssignmentAcceptanceScheduler(60_000);
+startBrokerResponseTimeoutScheduler(30_000);
 startCarrierViewReconciliation();
 startDocumentAiScheduler(15_000);
 

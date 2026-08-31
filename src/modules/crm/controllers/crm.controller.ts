@@ -912,3 +912,60 @@ export async function crmDeleteShipmentFileController(req: AuthRequest, res: Res
         return res.status(code || 500).json(apiResponse(false, message));
     }
 }
+
+/** Archive: Customer Respond with no Broker Answer after 10 minutes. */
+export async function crmListProblemsController(req: AuthRequest, res: Response) {
+    const role = req.user?.role || "";
+    if (
+        role !== "Administrator" &&
+        role !== "Owner" &&
+        role !== "Manager" &&
+        role !== "Team Lead"
+    ) {
+        return res.status(403).json(apiResponse(false, "Forbidden"));
+    }
+    const { listBrokerResponseProblems } = await import(
+        "../services/broker-response-problem.service.js"
+    );
+    const teamLeadId = teamScopeUserId(req);
+    const rows = await listBrokerResponseProblems({
+        teamLeadId: teamLeadId || undefined,
+        limit: 300,
+    });
+    return res.json(
+        apiResponse(true, "Problems loaded", {
+            scope: teamLeadId ? "team" : "company",
+            items: rows,
+        })
+    );
+}
+
+/** Month-end picture: which broker missed how many times + TL reminders. */
+export async function crmProblemsMonthlyStatsController(req: AuthRequest, res: Response) {
+    const role = req.user?.role || "";
+    if (
+        role !== "Administrator" &&
+        role !== "Owner" &&
+        role !== "Manager" &&
+        role !== "Team Lead"
+    ) {
+        return res.status(403).json(apiResponse(false, "Forbidden"));
+    }
+    const { monthlyBrokerResponseStats } = await import(
+        "../services/broker-response-problem.service.js"
+    );
+    const teamLeadId = teamScopeUserId(req);
+    const year = req.query.year ? Number(req.query.year) : undefined;
+    const month = req.query.month ? Number(req.query.month) : undefined;
+    const data = await monthlyBrokerResponseStats({
+        teamLeadId: teamLeadId || undefined,
+        year: Number.isFinite(year) ? year : undefined,
+        month: Number.isFinite(month) ? month : undefined,
+    });
+    return res.json(
+        apiResponse(true, "Monthly problem stats", {
+            scope: teamLeadId ? "team" : "company",
+            ...data,
+        })
+    );
+}

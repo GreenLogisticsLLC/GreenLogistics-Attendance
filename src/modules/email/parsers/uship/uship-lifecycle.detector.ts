@@ -431,6 +431,17 @@ export async function applyUshipLifecycleEvent(input: {
         customerKinds.has(String(detected.domainEventType || ""))
     ) {
         await domainEventEngine.correspondenceForDisplay(input.shipmentLeadId);
+        try {
+            const { armBrokerReplyDeadline } = await import(
+                "../../../crm/services/broker-response-problem.service.js"
+            );
+            await armBrokerReplyDeadline(input.shipmentLeadId);
+        } catch (err) {
+            console.warn(
+                "[lifecycle] arm brokerReplyDeadline failed:",
+                err instanceof Error ? err.message : err
+            );
+        }
     }
 
     if (NOTIFY_KINDS.has(detected.kind)) {

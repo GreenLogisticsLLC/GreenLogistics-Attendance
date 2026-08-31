@@ -24,6 +24,8 @@ import {
     crmUpdateShipmentController,
     crmUploadMiddleware,
     crmUploadShipmentFileController,
+    crmListProblemsController,
+    crmProblemsMonthlyStatsController,
 } from "../controllers/crm.controller.js";
 import { crmEventsSseController } from "../controllers/crm-events.controller.js";
 
@@ -44,7 +46,16 @@ const crmRoles = requireRole(
     Roles.Dispatcher
 );
 
+const problemsRoles = requireRole(
+    Roles.Administrator,
+    Roles.Owner,
+    Roles.Manager,
+    Roles.TeamLead
+);
+
 crmRouter.get("/dashboard", crmRoles, crmDashboardController);
+crmRouter.get("/problems", problemsRoles, crmListProblemsController);
+crmRouter.get("/problems/monthly-stats", problemsRoles, crmProblemsMonthlyStatsController);
 crmRouter.get("/shipments", crmRoles, crmListShipmentsController);
 crmRouter.get("/shipments/:id", crmRoles, crmGetShipmentController);
 crmRouter.post("/shipments/:id/opened", crmRoles, crmMarkShipmentOpenedController);

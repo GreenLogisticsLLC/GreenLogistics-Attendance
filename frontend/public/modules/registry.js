@@ -37,6 +37,13 @@ window.GreenOSRegistry = [
     roles: ["Administrator", "Owner", "Manager", "Team Lead", "Dispatcher"],
   },
   {
+    id: "problems",
+    title: "Problems",
+    icon: "⚠️",
+    subtitle: "Customer Respond with no broker answer (10 min)",
+    roles: ["Administrator", "Owner", "Manager", "Team Lead"],
+  },
+  {
     id: "crm",
     title: "CRM",
     icon: "👥",

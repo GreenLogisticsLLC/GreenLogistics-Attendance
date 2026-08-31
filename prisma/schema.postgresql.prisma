@@ -331,6 +331,7 @@ model ShipmentLead {
   assignedAt            DateTime?               @map("assigned_at")
   acceptedAt            DateTime?               @map("accepted_at")
   acceptanceDeadline    DateTime?               @map("acceptance_deadline")
+  brokerReplyDeadline   DateTime?               @map("broker_reply_deadline")
   quoteSentAt           DateTime?               @map("quote_sent_at")
   closedAt              DateTime?               @map("closed_at")
   emailMessageId        String?                 @map("email_message_id")
@@ -343,6 +344,7 @@ model ShipmentLead {
   domainEvents          DomainEvent[]
   platformNotifications PlatformNotification[]
   brokerMailboxMessages BrokerMailboxMessage[]
+  brokerResponseProblems BrokerResponseProblem[]
   directCustomer        DirectCustomer?         @relation(fields: [directCustomerId], references: [customerId], onDelete: SetNull)
 
   @@index([source])
@@ -353,6 +355,7 @@ model ShipmentLead {
   @@index([priority])
   @@index([createdAt])
   @@index([loadNumber])
+  @@index([brokerReplyDeadline])
   @@map("shipment_leads")
 }
 
@@ -395,6 +398,31 @@ model DomainEvent {
   @@index([eventType])
   @@index([createdAt])
   @@map("domain_events")
+}
+
+model BrokerResponseProblem {
+  problemId              String       @id @default(uuid()) @map("problem_id")
+  shipmentLeadId         String       @map("shipment_lead_id")
+  brokerUserId           String       @map("broker_user_id")
+  brokerName             String       @map("broker_name")
+  teamLeadUserId         String?      @map("team_lead_user_id")
+  teamLeadName           String?      @map("team_lead_name")
+  customerRespondAt      DateTime     @map("customer_respond_at")
+  deadlineAt             DateTime     @map("deadline_at")
+  detectedAt             DateTime     @default(now()) @map("detected_at")
+  customerRespondEventId String?      @map("customer_respond_event_id")
+  greenOsShipmentId      String?      @map("green_os_shipment_id")
+  shipmentTitle          String?      @map("shipment_title")
+  notifiedTeamLead       Boolean      @default(false) @map("notified_team_lead")
+  status                 String       @default("OPEN")
+  createdAt              DateTime     @default(now()) @map("created_at")
+  shipmentLead           ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+
+  @@unique([shipmentLeadId, customerRespondEventId])
+  @@index([brokerUserId, detectedAt])
+  @@index([teamLeadUserId, detectedAt])
+  @@index([detectedAt])
+  @@map("broker_response_problems")
 }
 
 model ShipmentTimelineEvent {

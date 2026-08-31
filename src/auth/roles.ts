@@ -46,6 +46,7 @@ export type ModuleId =
     | "broker"
     | "crm"
     | "shipments"
+    | "problems"
     | "email"
     | "assignment"
     | "dispatch"
@@ -71,6 +72,7 @@ const ALL_MODULES: ModuleId[] = [
     "broker",
     "crm",
     "shipments",
+    "problems",
     "email",
     "assignment",
     "dispatch",
@@ -125,6 +127,8 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
         Roles.TeamLead,
         Roles.Dispatcher,
     ],
+    /** Customer Respond without broker Answer within 10m — archive + monthly stats. */
+    problems: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
     email: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
     assignment: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
     dispatch: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead, Roles.Accounting],
