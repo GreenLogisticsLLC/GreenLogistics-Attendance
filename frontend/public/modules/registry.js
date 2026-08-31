@@ -13,6 +13,7 @@ window.GreenOSRegistry = [
     children: [
       { id: "dashboard", title: "Personal Dashboard" },
       { id: "shipments", title: "My Shipments" },
+      { id: "customer-respond", title: "Customer respond" },
       { id: "loads", title: "My Loads" },
       { id: "customers", title: "My Customers" },
       { id: "carriers", title: "MY Carrier" },

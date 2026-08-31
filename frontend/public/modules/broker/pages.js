@@ -7,6 +7,7 @@ window.GreenOSModules.broker = {
   children: [
     { id: "dashboard", title: "Personal Dashboard" },
     { id: "shipments", title: "My Shipments" },
+    { id: "customer-respond", title: "Customer respond" },
     { id: "loads", title: "My Loads" },
     { id: "customers", title: "My Customers" },
     { id: "carriers", title: "MY Carrier" },
@@ -16,11 +17,17 @@ window.GreenOSModules.broker = {
   ],
   _shipmentsTimer: null,
   _shipmentsCache: null,
+  _customerRespondTimer: null,
+  _customerRespondCache: null,
 
   stopShipmentsAutoRefresh() {
     if (this._shipmentsTimer) {
       clearInterval(this._shipmentsTimer);
       this._shipmentsTimer = null;
+    }
+    if (this._customerRespondTimer) {
+      clearInterval(this._customerRespondTimer);
+      this._customerRespondTimer = null;
     }
   },
 
@@ -70,6 +77,7 @@ window.GreenOSModules.broker = {
 
     var body = root.querySelector("#broker-body");
     if (active.id === "shipments") self.renderShipments(body, root);
+    else if (active.id === "customer-respond") self.renderCustomerRespond(body, root);
     else if (active.id === "loads") self.renderLoads(body, root);
     else if (active.id === "customers") self.renderCustomers(body, root);
     else if (active.id === "carriers") self.renderCarriers(body, root);
@@ -442,6 +450,144 @@ window.GreenOSModules.broker = {
     }, 30000);
 
     await paint(true);
+  },
+
+  /** Shipments where the customer replied (status CUSTOMER_REPLIED) — this broker only. */
+  async renderCustomerRespond(body, root) {
+    var self = this;
+    body.innerHTML =
+      '<section class="gos-dash-hero">' +
+      "<h1>Customer respond</h1>" +
+      "<p>Only your shipments where the customer replied — open a row to continue</p>" +
+      "</section>" +
+      '<p class="gos-muted" id="broker-cr-sync" style="margin:0 0 0.75rem">Loading…</p>' +
+      '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+      "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Updated</th>" +
+      '</tr></thead><tbody id="broker-cr-body"><tr><td colspan="7">Loading…</td></tr></tbody></table></div>';
+
+    var paintGen = 0;
+
+    function isCustomerRespond(s) {
+      var st = String(s.status || "").toUpperCase();
+      return st === "CUSTOMER_REPLIED" || st === "CUSTOMER_RESPOND";
+    }
+
+    function renderRows(rows) {
+      var tbody = document.getElementById("broker-cr-body");
+      if (!tbody) return;
+      var esc = self.esc.bind(self);
+      var fmt = self.fmtDate.bind(self);
+      var badge = self.statusBadge.bind(self);
+      var filtered = (rows || []).filter(isCustomerRespond);
+      self._customerRespondCache = filtered;
+      if (!filtered.length) {
+        tbody.innerHTML =
+          '<tr><td colspan="7">No Customer Respond shipments yet</td></tr>';
+        return;
+      }
+      tbody.innerHTML = filtered
+        .map(function (s, i) {
+          return (
+            '<tr class="crm-row" data-id="' +
+            s.shipmentLeadId +
+            '"><td>' +
+            (i + 1) +
+            "</td><td><strong>" +
+            esc(s.greenOsShipmentId || s.shipmentTitle) +
+            "</strong>" +
+            (s.greenOsShipmentId
+              ? '<br><small class="gos-muted">' + esc(s.shipmentTitle) + "</small>"
+              : "") +
+            "</td><td>" +
+            esc(s.customer) +
+            "</td><td>" +
+            esc(s.pickup) +
+            "</td><td>" +
+            esc(s.delivery) +
+            "</td><td>" +
+            badge(s.status) +
+            "</td><td>" +
+            fmt(s.updatedAt) +
+            "</td></tr>"
+          );
+        })
+        .join("");
+      tbody.querySelectorAll("[data-id]").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          if (window.GreenOSModules.crm && window.GreenOSModules.crm.openShipmentCard) {
+            var sid = tr.getAttribute("data-id");
+            var preview = (self._customerRespondCache || []).find(function (r) {
+              return r.shipmentLeadId === sid;
+            });
+            window.GreenOSModules.crm.openShipmentCard(root, sid, preview);
+          }
+        });
+      });
+    }
+
+    async function paint() {
+      var tbody = document.getElementById("broker-cr-body");
+      var syncEl = document.getElementById("broker-cr-sync");
+      if (!tbody) return;
+      var modal = document.getElementById("crm-modal");
+      if (
+        modal &&
+        !modal.classList.contains("hidden") &&
+        modal.getAttribute("data-card-loading") === "1"
+      ) {
+        return;
+      }
+      if (self._crPaintBusy) return;
+      self._crPaintBusy = true;
+      var myGen = ++paintGen;
+      try {
+        var data = await self.api("/shipments");
+        if (myGen !== paintGen) return;
+        if (!data.success) {
+          if (syncEl) syncEl.textContent = data.message || "Failed to load";
+          return;
+        }
+        var all = data.data || [];
+        var filtered = all.filter(isCustomerRespond);
+        renderRows(all);
+        if (syncEl) {
+          syncEl.textContent =
+            filtered.length +
+            " Customer Respond · updated " +
+            new Date().toLocaleTimeString();
+        }
+      } catch (err) {
+        if (syncEl) {
+          syncEl.textContent =
+            "Refresh failed" + (err && err.message ? " (" + err.message + ")" : "");
+        }
+      } finally {
+        self._crPaintBusy = false;
+      }
+    }
+
+    window.GreenOSBrokerReloadCustomerRespond = function () {
+      if (!document.getElementById("broker-cr-body")) return;
+      paint();
+    };
+
+    if (this._customerRespondTimer) {
+      clearInterval(this._customerRespondTimer);
+      this._customerRespondTimer = null;
+    }
+    this._customerRespondTimer = setInterval(function () {
+      if (document.hidden) return;
+      if (!document.getElementById("broker-cr-body")) {
+        if (self._customerRespondTimer) {
+          clearInterval(self._customerRespondTimer);
+          self._customerRespondTimer = null;
+        }
+        return;
+      }
+      paint();
+    }, 30000);
+
+    await paint();
   },
 
   async renderCustomers(body, root) {

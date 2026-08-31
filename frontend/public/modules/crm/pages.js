@@ -1135,6 +1135,9 @@ window.GreenOSModules.crm = {
         if (typeof window.GreenOSBrokerReloadShipments === "function") {
           window.GreenOSBrokerReloadShipments();
         }
+        if (typeof window.GreenOSBrokerReloadCustomerRespond === "function") {
+          window.GreenOSBrokerReloadCustomerRespond();
+        }
       });
       modal.addEventListener("click", function (ev) {
         if (ev.target === modal) {
@@ -1145,6 +1148,9 @@ window.GreenOSModules.crm = {
           }
           if (typeof window.GreenOSBrokerReloadShipments === "function") {
             window.GreenOSBrokerReloadShipments();
+          }
+          if (typeof window.GreenOSBrokerReloadCustomerRespond === "function") {
+            window.GreenOSBrokerReloadCustomerRespond();
           }
         }
       });
