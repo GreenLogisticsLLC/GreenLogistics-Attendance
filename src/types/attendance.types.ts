@@ -84,6 +84,7 @@ export interface DashboardStatistics {
     employeesPresent: number;
     employeesOutside: number;
     employeesOvertime: number;
+    employeesLate: number;
     employeesNotArrived: number;
     completedSessions: number;
 }

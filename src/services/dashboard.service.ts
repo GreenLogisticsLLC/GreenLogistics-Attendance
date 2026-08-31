@@ -112,6 +112,7 @@ export class DashboardService {
             employeesOvertime: rows.filter(
                 (r) => r.currentStatus === "INSIDE_OFFICE" && r.overtimeInOfficeMinutes > 0
             ).length,
+            employeesLate: rows.filter((r) => r.late && (r.lateMinutes || 0) > 0).length,
             employeesNotArrived: rows.filter(
                 (r) => !r.firstEntry && r.currentStatus === "SCHEDULED"
             ).length,

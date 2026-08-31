@@ -486,7 +486,7 @@ function renderStats(stats) {
         ["Scheduled", stats.employeesScheduled, ""],
         ["Inside Office", stats.employeesPresent, "var(--green)"],
         ["Outside", stats.employeesOutside, "var(--yellow)"],
-        ["OutTime In Office", stats.employeesOvertime, "var(--blue)"],
+        ["Late today", stats.employeesLate != null ? stats.employeesLate : (stats.employeesOvertime || 0), "var(--yellow)"],
         ["Not Arrived", stats.employeesNotArrived, "var(--gray)"],
         ["Left", stats.completedSessions, "var(--blue)"],
     ];
@@ -516,24 +516,30 @@ function formatDuration(minutes) {
     return `${h}h ${m}m`;
 }
 
+/** Late display: 35 min → "late 00:35" */
+function formatLateHhMm(minutes) {
+    if (minutes == null || minutes <= 0) return "—";
+    const total = Math.floor(Number(minutes));
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return `late ${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 function renderTable(employees) {
     const tbody = $("#employees-body");
     tbody.innerHTML = employees.map((emp) => {
         const lateClass = emp.late ? " late-row" : "";
         const nameClass = emp.late ? "late-yes" : "";
-        const lateHint = emp.late
-            ? `<br><small class="late-yes">Late${emp.lateMinutes ? ` +${emp.lateMinutes}m` : ""}</small>`
-            : "";
         return `
         <tr class="${lateClass.trim()}" data-id="${emp.employeeId}" data-status="${emp.currentStatus}" data-late="${emp.late ? "1" : "0"}">
-            <td><strong class="${nameClass}">${emp.employeeName}</strong>${lateHint}<br><small style="color:var(--muted)">${emp.employeeNumber}</small></td>
+            <td><strong class="${nameClass}">${emp.employeeName}</strong><br><small style="color:var(--muted)">${emp.employeeNumber}</small></td>
             <td>${emp.department || "—"}</td>
             <td class="${nameClass}">${emp.firstEntry || "—"}</td>
             <td><span class="status-badge status-${emp.currentStatus}">${statusLabel(emp.currentStatus)}</span></td>
             <td>${emp.currentStatus === "INSIDE_OFFICE" ? formatDuration(emp.currentOfficeMinutes) : "—"}</td>
             <td>${emp.currentStatus === "OUTSIDE_OFFICE" ? formatDuration(emp.currentAbsenceMinutes) : "—"}</td>
             <td>${formatDuration(emp.totalAbsenceMinutes)}</td>
-            <td>${emp.overtimeInOfficeMinutes ? formatDuration(emp.overtimeInOfficeMinutes) : "—"}</td>
+            <td class="${nameClass}">${emp.late ? formatLateHhMm(emp.lateMinutes) : "—"}</td>
             <td>${emp.exitCount || 0}</td>
             <td>${emp.lastActivity || "—"}</td>
         </tr>
@@ -835,6 +841,7 @@ async function openEmployeeDrawer(employeeId) {
             <div class="info-grid">
                 <div>Status: ${statusLabel(session.currentStatus)}</div>
                 <div>First Entry: ${session.firstEntry ? new Date(session.firstEntry).toLocaleString() : "—"}</div>
+                <div>Late: ${session.late ? formatLateHhMm(session.lateMinutes) : "—"}</div>
                 <div>OutTime In Office: ${overtimeMinutes ? formatDuration(overtimeMinutes) : "—"}</div>
                 <div>Total Outside: ${formatDuration(Math.max(0, rawOutsideMinutes - 60))}</div>
                 <div>Exits: ${session.exitCount}</div>
