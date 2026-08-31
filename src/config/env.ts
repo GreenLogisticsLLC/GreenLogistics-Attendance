@@ -95,6 +95,13 @@ const smtpFrom = process.env.SMTP_FROM || smtpUser || "noreply@greengrouplogisti
 const gmailUser = process.env.GMAIL_USER || "";
 /** Owner inbox: registration Approve/Reject emails land here (open in Gmail). */
 const approvalEmail = process.env.APPROVAL_EMAIL || "effiegreenlogistics@gmail.com";
+/**
+ * Only this Company Gmail may import new uShip shipments (Email Imports).
+ * Override with COMPANY_USHIP_IMPORT_EMAIL if needed.
+ */
+const companyUshipImportEmail = normalizeEmail(
+    process.env.COMPANY_USHIP_IMPORT_EMAIL || "effiegreenlogistics@gmail.com"
+);
 
 const smtpUserNorm = normalizeEmail(smtpUser);
 const gmailUserNorm = normalizeEmail(gmailUser);
@@ -118,6 +125,8 @@ export const config = {
     publicAppUrl: (process.env.PUBLIC_APP_URL || "http://localhost:3847").replace(/\/$/, ""),
     /** To: signup approval notices — Owner opens this Gmail and clicks Approve. */
     approvalEmail,
+    /** Company Email Imports mailbox — only this address may create new uShip shipments. */
+    companyUshipImportEmail,
     /** From: outbound SMTP (registration notices, future system mail). */
     smtp: {
         host: process.env.SMTP_HOST || "",

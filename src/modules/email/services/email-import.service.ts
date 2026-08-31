@@ -8,6 +8,7 @@ import {
 import { shipmentLeadService } from "./shipment-lead.service.js";
 import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
 import { prisma } from "../../../config/database.js";
+import { config } from "../../../config/env.js";
 import { getCompanyImportAfter } from "./gmail-import-cutoff.service.js";
 
 function collectListingIds(...blobs: Array<string | null | undefined>): string[] {
@@ -75,6 +76,25 @@ async function findShipmentForLifecycle(input: {
 }
 
 export class EmailImportService {
+    private assertCompanyImportMailbox(): { ok: true } | { ok: false; message: string } {
+        const required = (config.companyUshipImportEmail || "").trim().toLowerCase();
+        if (!required) return { ok: true };
+        const connected = (config.gmail.user || "").trim().toLowerCase();
+        if (!connected) {
+            return {
+                ok: false,
+                message: `Company Gmail not connected. Connect ${required} in Email Imports.`,
+            };
+        }
+        if (connected !== required) {
+            return {
+                ok: false,
+                message: `Connected mailbox is ${connected}, but new shipments must come from ${required}. Reconnect Company Gmail as ${required}.`,
+            };
+        }
+        return { ok: true };
+    }
+
     async checkInbox(options?: { maxMessages?: number }) {
         if (!(await gmailListener.ensureCredentials())) {
             return {
@@ -86,6 +106,20 @@ export class EmailImportService {
                 errors: 0,
                 message:
                     "Gmail is not connected. Open /api/email/auth (after setting GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET), or set GMAIL_REFRESH_TOKEN.",
+            };
+        }
+
+        const mailboxCheck = this.assertCompanyImportMailbox();
+        if (!mailboxCheck.ok) {
+            console.warn(`[email-import] ${mailboxCheck.message}`);
+            return {
+                configured: true,
+                processed: 0,
+                imported: 0,
+                ignored: 0,
+                duplicates: 0,
+                errors: 1,
+                message: mailboxCheck.message,
             };
         }
 

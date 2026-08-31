@@ -253,6 +253,13 @@ export class GmailOAuthService {
         const gmail = google.gmail({ version: "v1", auth: oauth2 });
         const profile = await gmail.users.getProfile({ userId: "me" });
         const email = profile.data.emailAddress || config.gmail.user || "";
+        const emailNorm = (email || "").trim().toLowerCase();
+        const required = (config.companyUshipImportEmail || "").trim().toLowerCase();
+        if (required && emailNorm && emailNorm !== required) {
+            throw new Error(
+                `Wrong Gmail account (${email}). Connect ${required} for Email Imports / new uShip shipments.`
+            );
+        }
 
         // Full replace: settings + runtime + .env. Old refresh tokens are discarded.
         await upsertGmailSetting(

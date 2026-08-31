@@ -647,6 +647,7 @@ export async function emailStatusController(_req: Request, res: Response) {
             gmailHealthy,
             gmailError,
             gmailUser,
+            companyUshipImportEmail: config.companyUshipImportEmail,
             importAfter: importAfter?.toISOString() || null,
             oauthClientConfigured: gmailOAuthService.isClientConfigured(),
             redirectUri: getGmailRedirectUri(),
