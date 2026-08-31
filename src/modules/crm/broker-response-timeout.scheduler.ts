@@ -1,6 +1,7 @@
 import {
     processOverdueBrokerReplies,
 } from "./services/broker-response-problem.service.js";
+import { processOverdueLoadLates } from "./services/load-late-problem.service.js";
 import { isAdminWriteActive } from "../../config/database.js";
 
 let timer: NodeJS.Timeout | null = null;
@@ -9,16 +10,20 @@ let running = false;
 export function startBrokerResponseTimeoutScheduler(intervalMs = 30_000) {
     if (timer) return;
     console.log(
-        `[problems] broker-reply timeout scheduler started (every ${intervalMs / 1000}s, 10m SLA)`
+        `[problems] timeout scheduler started (every ${intervalMs / 1000}s — broker reply 10m + load late 15m)`
     );
 
     const tick = async () => {
         if (running || isAdminWriteActive()) return;
         running = true;
         try {
-            const n = await processOverdueBrokerReplies(40);
-            if (n > 0) {
-                console.log(`[problems] archived ${n} Customer Respond timeout(s)`);
+            const replies = await processOverdueBrokerReplies(40);
+            if (replies > 0) {
+                console.log(`[problems] archived ${replies} Customer Respond timeout(s)`);
+            }
+            const lates = await processOverdueLoadLates(80);
+            if (lates > 0) {
+                console.log(`[problems/late] archived ${lates} load late event(s)`);
             }
         } catch (err) {
             console.error(

@@ -969,3 +969,34 @@ export async function crmProblemsMonthlyStatsController(req: AuthRequest, res: R
         })
     );
 }
+
+/** Problems → Late: pickup/delivery overdue by 15+ minutes. */
+export async function crmListLateProblemsController(req: AuthRequest, res: Response) {
+    const role = req.user?.role || "";
+    if (
+        role !== "Administrator" &&
+        role !== "Owner" &&
+        role !== "Manager" &&
+        role !== "Team Lead"
+    ) {
+        return res.status(403).json(apiResponse(false, "Forbidden"));
+    }
+    const { listLoadLateProblems } = await import(
+        "../services/load-late-problem.service.js"
+    );
+    const teamLeadId = teamScopeUserId(req);
+    const kindRaw = typeof req.query.kind === "string" ? req.query.kind.toUpperCase() : "";
+    const lateKind =
+        kindRaw === "PICKUP" || kindRaw === "DELIVERY" ? kindRaw : undefined;
+    const rows = await listLoadLateProblems({
+        teamLeadId: teamLeadId || undefined,
+        lateKind,
+        limit: 400,
+    });
+    return res.json(
+        apiResponse(true, "Late problems loaded", {
+            scope: teamLeadId ? "team" : "company",
+            items: rows,
+        })
+    );
+}

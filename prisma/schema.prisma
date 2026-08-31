@@ -399,6 +399,7 @@ model ShipmentLead {
   loadDocuments         LoadDocument[]
   shipmentTrackings     ShipmentTracking[]
   brokerResponseProblems BrokerResponseProblem[]
+  loadLateProblems      LoadLateProblem[]
   carrierProfile        Carrier?                @relation(fields: [carrierProfileId], references: [carrierId], onDelete: SetNull)
   directCustomer        DirectCustomer?         @relation(fields: [directCustomerId], references: [customerId], onDelete: SetNull)
 
@@ -593,6 +594,36 @@ model BrokerResponseProblem {
   @@index([teamLeadUserId, detectedAt])
   @@index([detectedAt])
   @@map("broker_response_problems")
+}
+
+/// Load pickup/delivery time overdue by 15+ minutes — Problems → Late.
+model LoadLateProblem {
+  problemId         String       @id @default(uuid()) @map("problem_id")
+  shipmentLeadId    String       @map("shipment_lead_id")
+  /// PICKUP | DELIVERY
+  lateKind          String       @map("late_kind")
+  brokerUserId      String?      @map("broker_user_id")
+  brokerName        String       @map("broker_name")
+  teamLeadUserId    String?      @map("team_lead_user_id")
+  teamLeadName      String?      @map("team_lead_name")
+  scheduledAt       DateTime     @map("scheduled_at")
+  graceDeadlineAt   DateTime     @map("grace_deadline_at")
+  detectedAt        DateTime     @default(now()) @map("detected_at")
+  loadNumber        String?      @map("load_number")
+  greenOsShipmentId String?      @map("green_os_shipment_id")
+  shipmentTitle     String?      @map("shipment_title")
+  loadStatus        String?      @map("load_status")
+  notifiedTeamLead  Boolean      @default(false) @map("notified_team_lead")
+  status            String       @default("OPEN")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  shipmentLead      ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+
+  @@unique([shipmentLeadId, lateKind])
+  @@index([lateKind, detectedAt])
+  @@index([brokerUserId, detectedAt])
+  @@index([teamLeadUserId, detectedAt])
+  @@index([detectedAt])
+  @@map("load_late_problems")
 }
 
 model ShipmentTimelineEvent {

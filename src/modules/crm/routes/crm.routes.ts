@@ -26,6 +26,7 @@ import {
     crmUploadShipmentFileController,
     crmListProblemsController,
     crmProblemsMonthlyStatsController,
+    crmListLateProblemsController,
 } from "../controllers/crm.controller.js";
 import { crmEventsSseController } from "../controllers/crm-events.controller.js";
 
@@ -56,6 +57,7 @@ const problemsRoles = requireRole(
 crmRouter.get("/dashboard", crmRoles, crmDashboardController);
 crmRouter.get("/problems", problemsRoles, crmListProblemsController);
 crmRouter.get("/problems/monthly-stats", problemsRoles, crmProblemsMonthlyStatsController);
+crmRouter.get("/problems/late", problemsRoles, crmListLateProblemsController);
 crmRouter.get("/shipments", crmRoles, crmListShipmentsController);
 crmRouter.get("/shipments/:id", crmRoles, crmGetShipmentController);
 crmRouter.post("/shipments/:id/opened", crmRoles, crmMarkShipmentOpenedController);
