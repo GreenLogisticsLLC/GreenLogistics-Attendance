@@ -1,10 +1,7 @@
 import { google } from "googleapis";
-import { config } from "../../../config/env.js";
 import { prisma } from "../../../config/database.js";
-import { getGmailRedirectUri } from "./gmail-oauth.service.js";
 import {
     brokerGmailOAuthService,
-    decryptBrokerRefreshToken,
 } from "./broker-gmail-oauth.service.js";
 import type { RawEmailMessage } from "../models/types.js";
 import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
@@ -205,13 +202,8 @@ async function matchShipment(input: {
 }
 
 export class BrokerGmailSyncService {
-    private clientFor(encryptedRefreshToken: string) {
-        const oauth2 = new google.auth.OAuth2(
-            config.gmail.clientId,
-            config.gmail.clientSecret,
-            getGmailRedirectUri()
-        );
-        oauth2.setCredentials({ refresh_token: decryptBrokerRefreshToken(encryptedRefreshToken) });
+    private clientFor(account: { brokerGmailId: string; refreshToken: string }) {
+        const oauth2 = brokerGmailOAuthService.getSharedAuthedClient(account);
         return google.gmail({ version: "v1", auth: oauth2 });
     }
 
@@ -397,7 +389,7 @@ export class BrokerGmailSyncService {
         historyId: string | null;
         lastSyncAt: Date | null;
     }, maxMessages = 20) {
-        const gmail = this.clientFor(account.refreshToken);
+        const gmail = this.clientFor(account);
         let synced = 0;
         let ignored = 0;
         let matched = 0;
@@ -541,14 +533,18 @@ export class BrokerGmailSyncService {
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const reconnect = /invalid_grant|expired or revoked|unauthorized/i.test(message);
+            const hint = reconnect
+                ? " invalid_grant — Google revoked the refresh token (often OAuth app still in Testing: tokens expire ~7 days). Publish OAuth consent screen to Production, then Reconnect Gmail once."
+                : "";
             console.warn(
                 `[broker-gmail] sync failed for ${account.gmailAddress}: ${message.slice(0, 200)}` +
                     (reconnect ? " → RECONNECT_REQUIRED" : "")
             );
+            brokerGmailOAuthService.invalidateBrokerClient(account.brokerGmailId);
             await prisma.brokerGmailAccount.update({
                 where: { brokerGmailId: account.brokerGmailId },
                 data: {
-                    lastError: message.slice(0, 500),
+                    lastError: (reconnect ? hint.trim() : message).slice(0, 500),
                     status: reconnect ? "RECONNECT_REQUIRED" : "CONNECTED",
                 },
             });

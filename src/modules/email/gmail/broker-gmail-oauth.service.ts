@@ -123,9 +123,89 @@ function createOAuthClient() {
     );
 }
 
+type CachedBrokerAuth = {
+    brokerGmailId: string;
+    refreshTokenPlain: string;
+    oauth2: ReturnType<typeof createOAuthClient>;
+};
+
 export class BrokerGmailOAuthService {
+    /** Reuse access tokens per mailbox; persist Google refresh-token rotations. */
+    private authByAccount = new Map<string, CachedBrokerAuth>();
+
     isClientConfigured(): boolean {
         return Boolean(config.gmail.clientId && config.gmail.clientSecret);
+    }
+
+    invalidateBrokerClient(brokerGmailId: string) {
+        this.authByAccount.delete(brokerGmailId);
+    }
+
+    invalidateAllBrokerClients() {
+        this.authByAccount.clear();
+    }
+
+    /**
+     * Shared OAuth2 client for one broker mailbox.
+     * Listens for Google token rotation and writes the new refresh_token to DB —
+     * without this, a rotated token causes permanent invalid_grant until reconnect.
+     */
+    getSharedAuthedClient(account: {
+        brokerGmailId: string;
+        refreshToken: string;
+    }): ReturnType<typeof createOAuthClient> {
+        const plain = decryptBrokerRefreshToken(account.refreshToken);
+        const cached = this.authByAccount.get(account.brokerGmailId);
+        if (cached && cached.refreshTokenPlain === plain) {
+            return cached.oauth2;
+        }
+
+        this.invalidateBrokerClient(account.brokerGmailId);
+        const oauth2 = createOAuthClient();
+        oauth2.setCredentials({ refresh_token: plain });
+        oauth2.on("tokens", (tokens) => {
+            void this.persistRotatedBrokerTokens(account.brokerGmailId, tokens).catch((err) => {
+                console.warn(
+                    "[BROKER GMAIL] Failed to persist rotated tokens:",
+                    err instanceof Error ? err.message : err
+                );
+            });
+        });
+        this.authByAccount.set(account.brokerGmailId, {
+            brokerGmailId: account.brokerGmailId,
+            refreshTokenPlain: plain,
+            oauth2,
+        });
+        return oauth2;
+    }
+
+    private async persistRotatedBrokerTokens(
+        brokerGmailId: string,
+        tokens: { refresh_token?: string | null; access_token?: string | null }
+    ) {
+        if (!tokens.refresh_token) return;
+        const encrypted = encryptBrokerRefreshToken(tokens.refresh_token);
+        await prisma.brokerGmailAccount.update({
+            where: { brokerGmailId },
+            data: {
+                refreshToken: encrypted,
+                status: "CONNECTED",
+                isActive: true,
+                lastError: null,
+            },
+        });
+        const cached = this.authByAccount.get(brokerGmailId);
+        if (cached) {
+            cached.refreshTokenPlain = tokens.refresh_token;
+            cached.oauth2.setCredentials({
+                ...cached.oauth2.credentials,
+                refresh_token: tokens.refresh_token,
+                access_token: tokens.access_token || cached.oauth2.credentials.access_token,
+            });
+        }
+        console.log(
+            `[BROKER GMAIL] Persisted rotated refresh token for ${brokerGmailId.slice(0, 8)}…`
+        );
     }
 
     /** Send email as the broker's connected Gmail (From = broker). */
@@ -148,9 +228,9 @@ export class BrokerGmailOAuthService {
                 { status: 400, code: "BROKER_GMAIL_REQUIRED" }
             );
         }
-        const oauth2 = createOAuthClient();
-        oauth2.setCredentials({
-            refresh_token: decryptBrokerRefreshToken(account!.refreshToken),
+        const oauth2 = this.getSharedAuthedClient({
+            brokerGmailId: account!.brokerGmailId,
+            refreshToken: account!.refreshToken,
         });
         const gmail = google.gmail({ version: "v1", auth: oauth2 });
         const from = account!.gmailAddress;
@@ -244,13 +324,27 @@ export class BrokerGmailOAuthService {
         const existing = await prisma.brokerGmailAccount.findFirst({
             where: { OR: [{ brokerId }, { userId }] },
         });
-        const refreshToken = tokens.refresh_token || (existing?.refreshToken
-            ? decryptBrokerRefreshToken(existing.refreshToken)
-            : "");
+        // Prefer brand-new refresh_token from Google. Only fall back to the
+        // previously stored one when Google omits it (re-consent without rotation).
+        let refreshToken = "";
+        if (tokens.refresh_token) {
+            refreshToken = tokens.refresh_token;
+        } else if (existing?.refreshToken) {
+            try {
+                refreshToken = decryptBrokerRefreshToken(existing.refreshToken);
+            } catch {
+                refreshToken = "";
+            }
+        }
         if (!refreshToken) {
             throw new Error(
                 "Google did not return a refresh_token. Revoke prior access in Google Account and reconnect with consent."
             );
+        }
+
+        // Drop any cached client that still holds a revoked token before this reconnect.
+        if (existing?.brokerGmailId) {
+            this.invalidateBrokerClient(existing.brokerGmailId);
         }
 
         oauth2.setCredentials(tokens);
@@ -288,6 +382,11 @@ export class BrokerGmailOAuthService {
         console.log(
             `[BROKER GMAIL] Connected ${email} → employee ${brokerId}, user ${user.username} (${userId})`
         );
+        // Warm shared client with the new token only.
+        this.getSharedAuthedClient({
+            brokerGmailId: saved.brokerGmailId,
+            refreshToken: saved.refreshToken,
+        });
         return { email, account: saved };
     }
 
@@ -321,6 +420,7 @@ export class BrokerGmailOAuthService {
     async disconnect(userId: string) {
         const existing = await this.getAccount(userId);
         if (!existing) return null;
+        this.invalidateBrokerClient(existing.brokerGmailId);
         try {
             const oauth2 = createOAuthClient();
             await oauth2.revokeToken(decryptBrokerRefreshToken(existing.refreshToken));

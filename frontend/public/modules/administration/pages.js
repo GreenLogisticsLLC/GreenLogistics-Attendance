@@ -246,14 +246,18 @@ window.GreenOSModules['administration'] = {
     body.innerHTML =
       '<section class="gos-dash-hero">' +
       '<h1>Email Accounts</h1>' +
-      '<p>Same as company Gmail: Owner connects each broker mailbox once. After that, uShip emails on that Gmail update the shipment card automatically (questions, accepted codes, booked, lost). Brokers do not need to connect anything.</p>' +
+      '<p>Owner connects each broker mailbox once. uShip emails on that Gmail update the shipment card automatically. Brokers do not need to connect anything.</p>' +
       '</section>' +
+      '<div class="gos-card" style="margin-bottom:1rem;padding:1rem 1.25rem;border-left:3px solid #f59e0b">' +
+      '<strong>If you see Reconnect required / invalid_grant</strong>' +
+      '<p class="gos-muted" style="margin:0.4rem 0 0;line-height:1.5">Google revoked the saved login. The usual cause: the Google Cloud OAuth app is still in <strong>Testing</strong> — refresh tokens expire about every <strong>7 days</strong>. Fix: Google Cloud Console → APIs &amp; Services → OAuth consent screen → publish to <strong>Production</strong>, then click <em>Reconnect Gmail</em> once per mailbox. After Production, connections stay until you Disconnect or the broker revokes access.</p>' +
+      '</div>' +
       '<div class="gos-card" style="margin-bottom:1rem;padding:1rem 1.25rem">' +
       '<strong>Connect a broker Gmail (one time)</strong>' +
       '<ol style="margin:0.5rem 0 0;padding-left:1.25rem;line-height:1.55">' +
       '<li>Click <em>Connect Gmail</em> on the broker row.</li>' +
-      '<li>On Google, sign in as <strong>that broker\'s personal Gmail</strong> (the one uShip emails) — same idea as connecting company Gmail.</li>' +
-      '<li>Click Allow. GreenOS stores access and syncs uShip mail forever (until Disconnect).</li>' +
+      '<li>On Google, sign in as <strong>that broker\'s personal Gmail</strong> (the one uShip emails).</li>' +
+      '<li>Click Allow. GreenOS stores access and keeps syncing (requires OAuth app in Production for permanent tokens).</li>' +
       '</ol>' +
       '</div>' +
       '<div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem">' +
