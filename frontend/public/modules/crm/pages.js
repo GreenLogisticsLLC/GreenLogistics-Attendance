@@ -950,68 +950,6 @@ window.GreenOSModules.crm = {
           : "<li class=\"gos-muted\">No Q&amp;A yet — tap the green Broker Question lamp after you write to the customer</li>") +
         "</ul>";
 
-      var statusLabels = {
-        AGENT_OPEN: "AGENT OPEN",
-        WORKING: "WORKING",
-        FOLLOW_UP: "FOLLOW UP",
-        BID_SUBMITTED: "BID SUBMITTED",
-        CUSTOMER_REPLIED: "CUSTOMER REPLIED",
-        ACCEPTED: "ACCEPTED",
-        LOAD_CREATED: "LOAD CREATED",
-        DISPATCH: "DISPATCH",
-        COMPLETED: "COMPLETED",
-        CLOSED: "CLOSED",
-        LOST: "LOST",
-        DELETED_FROM_CUSTOMER: "DELETED FROM CUSTOMER",
-        QUOTE_SENT: "QUOTE SENT",
-        NEGOTIATION: "NEGOTIATION",
-        BOOKED: "BOOKED",
-        WON: "WON",
-        AWAITING_ACCEPTANCE: "AWAITING AGENT",
-        ASSIGNED: "AWAITING AGENT",
-        AGENT_OPEN: "AGENT OPEN (OPEN IN USHIP)",
-        NEW: "NEW",
-        UNASSIGNED: "UNASSIGNED",
-      };
-      // Pipeline stages from uShip / broker Gmail — not manually selectable.
-      var autoStatuses = {
-        AGENT_OPEN: true,
-        WORKING: true,
-        BID_SUBMITTED: true,
-        CUSTOMER_REPLIED: true,
-        ACCEPTED: true,
-        LOAD_CREATED: true,
-        BOOKED: true,
-        WON: true,
-      };
-      var manualStatuses = [
-        "FOLLOW_UP",
-        "LOST",
-        "DELETED_FROM_CUSTOMER",
-      ];
-      var statusActions = "";
-      if (autoStatuses[s.status] || !manualStatuses.includes(s.status)) {
-        statusActions +=
-          '<option value="" selected disabled>' +
-          esc(statusLabels[s.status] || s.status || "Current (auto)") +
-          " — auto</option>";
-      }
-      statusActions += manualStatuses
-        .map(function (st) {
-          return (
-            '<option value="' +
-            st +
-            '"' +
-            (s.status === st || (st === "DELETED_FROM_CUSTOMER" && s.status === "DELETED")
-              ? " selected"
-              : "") +
-            ">" +
-            (statusLabels[st] || st) +
-            "</option>"
-          );
-        })
-        .join("");
-
       modal.innerHTML =
         '<div class="crm-modal-card">' +
         '<header class="crm-modal-head">' +
@@ -1180,11 +1118,6 @@ window.GreenOSModules.crm = {
           ? '<button type="button" class="btn-secondary" id="crm-test-accept" style="border-color:#f59e0b;color:#f59e0b">TEST: Customer Accepted → Create Load</button>' +
             '<small class="gos-muted" style="display:block;width:100%">Skips uShip email — for Load / Rate Con / BOL / POD testing only</small>'
           : "") +
-        '<label>Update status <select id="crm-status">' +
-        statusActions +
-        "</select>" +
-        '<small class="gos-muted" style="display:block;margin-top:0.25rem">Agent Open → Load Created update from uShip automatically. After Load Created use Loads.</small></label>' +
-        '<button type="button" class="btn-secondary" id="crm-save-status">Save</button>' +
         "</div>" +
         "<h3>Timeline / Lifecycle</h3>" +
         '<ol class="crm-pipeline">' +
@@ -1339,19 +1272,6 @@ window.GreenOSModules.crm = {
         });
       });
 
-      modal.querySelector("#crm-save-status")?.addEventListener("click", async function () {
-        var st = modal.querySelector("#crm-status").value;
-        if (!st) {
-          alert("This status updates automatically from uShip. Choose a manual status to override.");
-          return;
-        }
-        var notes = modal.querySelector("#crm-notes")?.value;
-        await window.GreenOSModules.crm.api("/shipments/" + id, {
-          method: "PATCH",
-          body: JSON.stringify({ status: st, notes: notes }),
-        });
-        window.GreenOSModules.crm.openShipmentCard(root, id);
-      });
       modal.querySelector("#crm-save-notes")?.addEventListener("click", async function () {
         var notes = modal.querySelector("#crm-notes").value;
         await window.GreenOSModules.crm.api("/shipments/" + id, {
