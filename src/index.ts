@@ -7,6 +7,7 @@ import { config } from "./config/env.js";
 import { configureSqlite } from "./config/database.js";
 import { attendanceService } from "./services/attendance.service.js";
 import { startEmailImportScheduler } from "./modules/email/scheduler.js";
+import { startAssignmentAcceptanceScheduler } from "./modules/assignment/assignment-acceptance.scheduler.js";
 import { startCarrierViewReconciliation } from "./modules/tracking/scheduler.js";
 import { startDocumentAiScheduler } from "./modules/ai/documents/scheduler.js";
 import { backfillMissingGreenOsShipmentIds, remigrateAllGreenOsShipmentIds } from "./modules/shipment/shipment.id.js";
@@ -46,6 +47,7 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 startEmailImportScheduler(config.emailPollIntervalMs);
+startAssignmentAcceptanceScheduler(60_000);
 startCarrierViewReconciliation();
 startDocumentAiScheduler(15_000);
 

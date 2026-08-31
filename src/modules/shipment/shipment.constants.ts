@@ -97,7 +97,7 @@ export const STATUS_LABELS: Record<string, string> = {
     UNASSIGNED: "Unassigned",
     ASSIGNED: "Awaiting Agent",
     AWAITING_ACCEPTANCE: "Awaiting Agent",
-    AGENT_OPEN: "Agent Open",
+    AGENT_OPEN: "Agent Open (Open in uShip)",
     WORKING: "Agent Working",
     FOLLOW_UP: "Follow Up",
     BID_SUBMITTED: "Bid Submitted",
@@ -175,7 +175,7 @@ export type DomainEventType = (typeof DOMAIN_EVENT_TYPES)[number] | string;
 export const LIFECYCLE_PIPELINE = [
     { stage: "SHIPMENT_IMPORTED", title: "Shipment Imported", status: "NEW" },
     { stage: "BROKER_ASSIGNED", title: "Awaiting Agent", status: "AWAITING_ACCEPTANCE" },
-    { stage: "AGENT_OPENED", title: "Agent Opened Shipment", status: "AGENT_OPEN" },
+    { stage: "AGENT_OPENED", title: "Agent Opened Shipment (Open in uShip)", status: "AGENT_OPEN" },
     { stage: "BROKER_ACCEPTED_WORK", title: "Agent Working", status: "WORKING" },
     { stage: "BID_SUBMITTED", title: "Bid Submitted", status: "BID_SUBMITTED" },
     /** Broker marks this after sending a question to the customer (traffic-light). */

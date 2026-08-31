@@ -283,7 +283,7 @@ export class AssignmentEngine {
         // AGENT_OPEN alone (opened card) does not count as acceptance.
         const expired = await prisma.shipmentLead.findMany({
             where: {
-                status: { in: ["AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
+                status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
                 acceptedAt: null,
                 acceptanceDeadline: { lt: now },
                 assignedBrokerId: { not: null },

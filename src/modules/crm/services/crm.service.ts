@@ -626,8 +626,8 @@ export class CrmService {
                 eventType: "AGENT_OPENED",
                 title: "Agent Opened Shipment",
                 message: canWorkAnyShipment(role)
-                    ? `Status → Agent Open (${role} working)`
-                    : "Status → Agent Open",
+                    ? `Status → Agent Open (Open in uShip) — ${role} working`
+                    : "Status → Agent Open (Open in uShip)",
                 actorUserId,
                 timelineStage: "AGENT_OPENED",
                 payload: { status: "AGENT_OPEN", actorRole: role },
