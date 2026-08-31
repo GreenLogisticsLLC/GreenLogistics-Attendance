@@ -29,6 +29,13 @@ window.GreenOSRegistry = [
     roles: ["Administrator", "Owner", "Manager", "Team Lead", "Accounting", "Dispatcher", "HR", "Viewer"],
   },
   {
+    id: "shipments",
+    title: "Shipments",
+    icon: "📋",
+    subtitle: "All shipments — who got them, open and work",
+    roles: ["Administrator", "Owner", "Manager", "Team Lead", "Dispatcher"],
+  },
+  {
     id: "crm",
     title: "CRM",
     icon: "👥",

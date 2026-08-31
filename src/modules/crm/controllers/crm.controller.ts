@@ -9,7 +9,7 @@ import {
     scopedBrokerId,
     teamScopeUserId,
 } from "../../../auth/access.js";
-import { canManageBrokers, canViewLoadProfit, isDataScopedRole, isTeamScopedRole } from "../../../auth/roles.js";
+import { canManageBrokers, canViewLoadProfit, canWorkAnyShipment, isDataScopedRole, isTeamScopedRole } from "../../../auth/roles.js";
 import { isBrokerOnTeam, listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { prisma } from "../../../config/database.js";
 import path from "path";
@@ -93,9 +93,9 @@ export async function crmMarkShipmentOpenedController(req: AuthRequest, res: Res
     const access = await assertShipmentAccess(req, res, id);
     if (!access.ok) return;
 
-    // Manager/Owner previews must not change the assigned broker's workflow status.
+    // Broker opens their assigned card; Owner/Manager may also advance workflow when working.
     const card =
-        req.user.role === "Broker"
+        req.user.role === "Broker" || canWorkAnyShipment(req.user.role)
             ? await crmService.markAgentOpened(id, req.user.userId)
             : await crmService.getShipmentCard(id);
     if (!card) return res.status(404).json(apiResponse(false, "Shipment not found"));

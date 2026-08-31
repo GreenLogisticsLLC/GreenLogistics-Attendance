@@ -45,6 +45,7 @@ export type ModuleId =
     | "dashboard"
     | "broker"
     | "crm"
+    | "shipments"
     | "email"
     | "assignment"
     | "dispatch"
@@ -69,6 +70,7 @@ const ALL_MODULES: ModuleId[] = [
     "dashboard",
     "broker",
     "crm",
+    "shipments",
     "email",
     "assignment",
     "dispatch",
@@ -113,6 +115,14 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
         Roles.Manager,
         Roles.TeamLead,
         Roles.Accounting,
+        Roles.Dispatcher,
+    ],
+    /** Top-level Shipments workspace for Owner/ops — all leads, open and work. */
+    shipments: [
+        Roles.Administrator,
+        Roles.Owner,
+        Roles.Manager,
+        Roles.TeamLead,
         Roles.Dispatcher,
     ],
     email: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
@@ -188,6 +198,18 @@ export function modulesForRole(role: string): ModuleId[] {
 /** Company-wide shipment visibility (Owner/Manager/Admin). Team Lead is team-scoped. */
 export function canViewAllShipments(role: string): boolean {
     return !isDataScopedRole(role) && !isTeamScopedRole(role);
+}
+
+/**
+ * Owner / Manager / Admin may Accept and work any shipment without being the assigned broker.
+ * Assignee name stays for accountability; ops can still run the card end-to-end.
+ */
+export function canWorkAnyShipment(role: string): boolean {
+    return (
+        role === Roles.Owner ||
+        role === Roles.Administrator ||
+        role === Roles.Manager
+    );
 }
 
 /**

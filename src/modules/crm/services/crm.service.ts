@@ -8,6 +8,15 @@ import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { ensureGreenOsShipmentId } from "../../shipment/shipment.id.js";
 import { isLoadPhase, normalizeStatus, statusLabel } from "../../shipment/shipment.lifecycle.js";
 import { listTeamBrokerIds } from "../../../auth/team-scope.js";
+import { canWorkAnyShipment } from "../../../auth/roles.js";
+
+async function actorRoleName(userId: string): Promise<string> {
+    const user = await prisma.user.findUnique({
+        where: { userId },
+        select: { role: { select: { roleName: true } } },
+    });
+    return user?.role?.roleName || "";
+}
 
 function startOfToday(timezone: string): Date {
     const parts = new Intl.DateTimeFormat("en-CA", {
@@ -588,12 +597,24 @@ export class CrmService {
         return this.getShipmentCard(shipmentLeadId);
     }
 
-    /** First open by the assigned broker: Awaiting Agent → Agent Open (idempotent). */
+    /** First open by assigned broker (or Owner/Manager working the card). */
     async markAgentOpened(shipmentLeadId: string, actorUserId: string) {
+        const lead = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+            select: { assignedBrokerId: true, status: true },
+        });
+        if (!lead) return null;
+
+        const role = await actorRoleName(actorUserId);
+        const allowed =
+            lead.assignedBrokerId === actorUserId || canWorkAnyShipment(role);
+        if (!allowed) {
+            return this.getShipmentCard(shipmentLeadId);
+        }
+
         const result = await prisma.shipmentLead.updateMany({
             where: {
                 shipmentLeadId,
-                assignedBrokerId: actorUserId,
                 status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE"] },
             },
             data: { status: "AGENT_OPEN" },
@@ -604,10 +625,12 @@ export class CrmService {
                 shipmentLeadId,
                 eventType: "AGENT_OPENED",
                 title: "Agent Opened Shipment",
-                message: "Status → Agent Open",
+                message: canWorkAnyShipment(role)
+                    ? `Status → Agent Open (${role} working)`
+                    : "Status → Agent Open",
                 actorUserId,
                 timelineStage: "AGENT_OPENED",
-                payload: { status: "AGENT_OPEN" },
+                payload: { status: "AGENT_OPEN", actorRole: role },
             });
         }
 
@@ -734,9 +757,13 @@ export class CrmService {
         const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!lead) return null;
         if (lead.assignedBrokerId && lead.assignedBrokerId !== actorUserId) {
-            throw Object.assign(new Error("Only the assigned broker can accept this shipment"), {
-                status: 403,
-            });
+            const role = await actorRoleName(actorUserId);
+            if (!canWorkAnyShipment(role)) {
+                throw Object.assign(
+                    new Error("Only the assigned broker (or Owner/Manager) can accept this shipment"),
+                    { status: 403 }
+                );
+            }
         }
         if (
             lead.status !== "ASSIGNED" &&

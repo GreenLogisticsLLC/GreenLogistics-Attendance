@@ -412,7 +412,7 @@ window.GreenOSModules.crm = {
       body.innerHTML =
         '<section class="gos-dash-hero">' +
         "<h1>Shipments</h1>" +
-        "<p>Main CRM pipeline — click a row to open the shipment card</p>" +
+        "<p>All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).</p>" +
         "</section>" +
         '<div class="table-wrap crm-table-wrap"><table class="crm-table">' +
         "<thead><tr>" +
