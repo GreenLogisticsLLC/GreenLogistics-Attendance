@@ -83,6 +83,11 @@ export class AssignmentOpsService {
         } catch {
             /* optional until schema pushed */
         }
+        try {
+            await prisma.$executeRawUnsafe(`DELETE FROM shipment_ops_comments`);
+        } catch {
+            /* optional until schema pushed */
+        }
         await prisma.$executeRawUnsafe(`DELETE FROM assignment_logs`);
         await prisma.$executeRawUnsafe(`DELETE FROM broker_mailbox_messages`);
         await prisma.$executeRawUnsafe(`DELETE FROM load_documents`);

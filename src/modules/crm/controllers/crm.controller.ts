@@ -84,7 +84,20 @@ export async function crmGetShipmentController(req: AuthRequest, res: Response) 
     if (!access.ok) return;
     const card = await crmService.getShipmentCard(id);
     if (!card) return res.status(404).json(apiResponse(false, "Shipment not found"));
-    return res.json(apiResponse(true, "OK", card));
+
+    const role = req.user?.role || "";
+    const { canSeeOpsComments, listOpsComments } = await import(
+        "../services/shipment-ops-comment.service.js"
+    );
+    if (canSeeOpsComments(role)) {
+        const opsComments = await listOpsComments(id);
+        return res.json(apiResponse(true, "OK", { ...card, opsComments }));
+    }
+    // Brokers never receive ops Comments (Team Lead ↔ Manager thread).
+    const { opsComments: _omit, ...safe } = card as Record<string, unknown> & {
+        opsComments?: unknown;
+    };
+    return res.json(apiResponse(true, "OK", safe));
 }
 
 export async function crmMarkShipmentOpenedController(req: AuthRequest, res: Response) {
@@ -999,4 +1012,87 @@ export async function crmListLateProblemsController(req: AuthRequest, res: Respo
             items: rows,
         })
     );
+}
+
+/** Team Lead / Manager / Owner Comments on a broker shipment (hidden from Broker). */
+export async function crmAddOpsCommentController(req: AuthRequest, res: Response) {
+    const id = String(req.params.id);
+    if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const access = await assertShipmentAccess(req, res, id);
+    if (!access.ok) return;
+
+    const role = req.user.role || "";
+    const { addOpsComment, listOpsComments, canSeeOpsComments } = await import(
+        "../services/shipment-ops-comment.service.js"
+    );
+    if (!canSeeOpsComments(role)) {
+        return res.status(403).json(apiResponse(false, "Forbidden — Brokers cannot use Comments"));
+    }
+
+    try {
+        const body = String(req.body?.body || req.body?.comment || "");
+        const sendToManager = Boolean(req.body?.sendToManager);
+        await addOpsComment({
+            shipmentLeadId: id,
+            authorUserId: req.user.userId,
+            authorRole: role,
+            body,
+            sendToManager,
+        });
+        const card = await crmService.getShipmentCard(id);
+        const opsComments = await listOpsComments(id);
+        return res.json(
+            apiResponse(true, sendToManager ? "Comment sent to Manager" : "Comment saved", {
+                ...card,
+                opsComments,
+            })
+        );
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Comment failed";
+        const code =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status: number }).status)
+                : 500;
+        return res.status(code || 500).json(apiResponse(false, message));
+    }
+}
+
+export async function crmSendOpsCommentToManagerController(req: AuthRequest, res: Response) {
+    const id = String(req.params.id);
+    const commentId = String(req.params.commentId);
+    if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const access = await assertShipmentAccess(req, res, id);
+    if (!access.ok) return;
+
+    const role = req.user.role || "";
+    const { sendOpsCommentToManager, listOpsComments, canSeeOpsComments } = await import(
+        "../services/shipment-ops-comment.service.js"
+    );
+    if (!canSeeOpsComments(role)) {
+        return res.status(403).json(apiResponse(false, "Forbidden"));
+    }
+
+    try {
+        await sendOpsCommentToManager({
+            shipmentLeadId: id,
+            commentId,
+            actorUserId: req.user.userId,
+            actorRole: role,
+        });
+        const card = await crmService.getShipmentCard(id);
+        const opsComments = await listOpsComments(id);
+        return res.json(
+            apiResponse(true, "Sent to Manager", {
+                ...card,
+                opsComments,
+            })
+        );
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Send failed";
+        const code =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status: number }).status)
+                : 500;
+        return res.status(code || 500).json(apiResponse(false, message));
+    }
 }

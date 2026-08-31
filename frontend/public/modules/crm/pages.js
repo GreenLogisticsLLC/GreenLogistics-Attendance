@@ -24,6 +24,17 @@ window.GreenOSModules.crm = {
     return this.currentRole() === "Team Lead" || this._lastScope === "team";
   },
 
+  /** Comments for Team Lead / Manager / Owner — never shown to Broker. */
+  canSeeOpsComments() {
+    var r = this.currentRole();
+    return (
+      r === "Team Lead" ||
+      r === "Manager" ||
+      r === "Owner" ||
+      r === "Administrator"
+    );
+  },
+
   render(root, subPageId) {
     if (!root) return;
     var self = this;
@@ -1036,6 +1047,53 @@ window.GreenOSModules.crm = {
         "</textarea>" +
         '<button type="button" class="btn-secondary" id="crm-save-notes" style="width:auto;margin-top:0.5rem">Save Notes</button>' +
         "</div>" +
+        (window.GreenOSModules.crm.canSeeOpsComments()
+          ? (function () {
+              var comments = Array.isArray(s.opsComments) ? s.opsComments : [];
+              var listHtml = comments.length
+                ? comments
+                    .map(function (c) {
+                      return (
+                        '<li style="margin-bottom:0.65rem;padding:0.55rem 0.65rem;border:1px solid var(--border);border-radius:8px;background:var(--bg)">' +
+                        '<div style="display:flex;flex-wrap:wrap;gap:0.35rem 0.75rem;align-items:baseline;margin-bottom:0.25rem">' +
+                        "<strong>" +
+                        esc(c.authorName || "—") +
+                        "</strong>" +
+                        '<span class="gos-muted" style="font-size:0.78rem">' +
+                        esc(c.authorRole || "") +
+                        " · " +
+                        esc(window.GreenOSModules.crm.fmtDate(c.createdAt)) +
+                        "</span>" +
+                        (c.sentToManager
+                          ? '<span style="font-size:0.72rem;color:#f59e0b">Sent to Manager</span>'
+                          : '<button type="button" class="btn-secondary crm-ops-send-mgr" data-comment-id="' +
+                            esc(c.commentId) +
+                            '" style="width:auto;padding:0.15rem 0.5rem;font-size:0.72rem">Send to Manager</button>') +
+                        "</div>" +
+                        '<div style="white-space:pre-wrap">' +
+                        esc(c.body || "") +
+                        "</div>" +
+                        "</li>"
+                      );
+                    })
+                    .join("")
+                : '<li class="gos-muted">No comments yet — Team Lead can write here; Broker never sees this.</li>';
+              return (
+                '<div class="crm-ops-comments" style="margin-top:1rem">' +
+                "<h3>Comments</h3>" +
+                '<p class="gos-muted" style="font-size:0.8rem;margin:0.15rem 0 0.5rem">Visible to Team Lead, Manager, Owner — hidden from Broker.</p>' +
+                '<ul id="crm-ops-comment-list" style="list-style:none;padding:0;margin:0 0 0.75rem">' +
+                listHtml +
+                "</ul>" +
+                '<textarea id="crm-ops-comment-body" rows="3" placeholder="Write a comment for Manager…" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:0.6rem"></textarea>' +
+                '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem">' +
+                '<button type="button" class="btn-secondary" id="crm-ops-comment-save" style="width:auto">Save comment</button>' +
+                '<button type="button" class="btn-primary" id="crm-ops-comment-send" style="width:auto">Send to Manager</button>' +
+                "</div>" +
+                "</div>"
+              );
+            })()
+          : "") +
         "<h3>Files</h3>" +
         '<div class="crm-files-upload" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin:0.35rem 0 0.75rem">' +
         '<input type="file" id="crm-file-input" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp,.gif,.heic,.zip" style="max-width:100%">' +
@@ -1286,6 +1344,68 @@ window.GreenOSModules.crm = {
         });
         window.GreenOSModules.crm.openShipmentCard(root, id);
       });
+
+      async function postOpsComment(sendToManager) {
+        var ta = modal.querySelector("#crm-ops-comment-body");
+        var body = ta ? String(ta.value || "").trim() : "";
+        if (!body) {
+          alert("Write a comment first");
+          return;
+        }
+        var saveBtn = modal.querySelector("#crm-ops-comment-save");
+        var sendBtn = modal.querySelector("#crm-ops-comment-send");
+        if (saveBtn) saveBtn.disabled = true;
+        if (sendBtn) sendBtn.disabled = true;
+        try {
+          var res = await window.GreenOSModules.crm.api(
+            "/shipments/" + encodeURIComponent(id) + "/ops-comments",
+            {
+              method: "POST",
+              body: JSON.stringify({ body: body, sendToManager: !!sendToManager }),
+            }
+          );
+          if (!res || !res.success) {
+            throw new Error((res && res.message) || "Comment failed");
+          }
+          window.GreenOSModules.crm.openShipmentCard(root, id);
+        } catch (err) {
+          alert(err.message || err);
+          if (saveBtn) saveBtn.disabled = false;
+          if (sendBtn) sendBtn.disabled = false;
+        }
+      }
+
+      modal.querySelector("#crm-ops-comment-save")?.addEventListener("click", function () {
+        postOpsComment(false);
+      });
+      modal.querySelector("#crm-ops-comment-send")?.addEventListener("click", function () {
+        postOpsComment(true);
+      });
+      modal.querySelectorAll(".crm-ops-send-mgr").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var commentId = btn.getAttribute("data-comment-id");
+          if (!commentId) return;
+          btn.disabled = true;
+          try {
+            var res = await window.GreenOSModules.crm.api(
+              "/shipments/" +
+                encodeURIComponent(id) +
+                "/ops-comments/" +
+                encodeURIComponent(commentId) +
+                "/send-to-manager",
+              { method: "POST", body: "{}" }
+            );
+            if (!res || !res.success) {
+              throw new Error((res && res.message) || "Send failed");
+            }
+            window.GreenOSModules.crm.openShipmentCard(root, id);
+          } catch (err) {
+            alert(err.message || err);
+            btn.disabled = false;
+          }
+        });
+      });
+
       modal.querySelector("#crm-save-load")?.addEventListener("click", async function () {
         var token = localStorage.getItem("gl_token") || "";
         var btn = modal.querySelector("#crm-save-load");

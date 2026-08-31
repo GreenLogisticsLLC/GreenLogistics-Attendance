@@ -27,6 +27,8 @@ import {
     crmListProblemsController,
     crmProblemsMonthlyStatsController,
     crmListLateProblemsController,
+    crmAddOpsCommentController,
+    crmSendOpsCommentToManagerController,
 } from "../controllers/crm.controller.js";
 import { crmEventsSseController } from "../controllers/crm-events.controller.js";
 
@@ -65,6 +67,12 @@ crmRouter.patch("/shipments/:id", crmRoles, crmUpdateShipmentController);
 crmRouter.post("/shipments/:id/accept", crmRoles, crmAcceptShipmentController);
 crmRouter.post("/shipments/:id/test-customer-accept", crmRoles, crmTestCustomerAcceptController);
 crmRouter.post("/shipments/:id/broker-question", crmRoles, crmBrokerQuestionController);
+crmRouter.post("/shipments/:id/ops-comments", problemsRoles, crmAddOpsCommentController);
+crmRouter.post(
+    "/shipments/:id/ops-comments/:commentId/send-to-manager",
+    problemsRoles,
+    crmSendOpsCommentToManagerController
+);
 crmRouter.post(
     "/shipments/:id/files",
     crmRoles,

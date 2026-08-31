@@ -400,6 +400,7 @@ model ShipmentLead {
   shipmentTrackings     ShipmentTracking[]
   brokerResponseProblems BrokerResponseProblem[]
   loadLateProblems      LoadLateProblem[]
+  opsComments           ShipmentOpsComment[]
   carrierProfile        Carrier?                @relation(fields: [carrierProfileId], references: [carrierId], onDelete: SetNull)
   directCustomer        DirectCustomer?         @relation(fields: [directCustomerId], references: [customerId], onDelete: SetNull)
 
@@ -624,6 +625,25 @@ model LoadLateProblem {
   @@index([teamLeadUserId, detectedAt])
   @@index([detectedAt])
   @@map("load_late_problems")
+}
+
+/// Team Lead / Manager / Owner comments on a broker shipment — never shown to Broker.
+model ShipmentOpsComment {
+  commentId        String       @id @default(uuid()) @map("comment_id")
+  shipmentLeadId   String       @map("shipment_lead_id")
+  authorUserId     String       @map("author_user_id")
+  authorName       String       @map("author_name")
+  authorRole       String       @map("author_role")
+  body             String
+  sentToManager    Boolean      @default(false) @map("sent_to_manager")
+  sentToManagerAt  DateTime?    @map("sent_to_manager_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  shipmentLead     ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+
+  @@index([shipmentLeadId, createdAt])
+  @@index([authorUserId, createdAt])
+  @@index([sentToManager, createdAt])
+  @@map("shipment_ops_comments")
 }
 
 model ShipmentTimelineEvent {
