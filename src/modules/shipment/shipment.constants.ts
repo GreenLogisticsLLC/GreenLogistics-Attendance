@@ -96,9 +96,9 @@ export const STATUS_LABELS: Record<string, string> = {
     NEW: "New",
     UNASSIGNED: "Unassigned",
     ASSIGNED: "Awaiting Agent",
-    AWAITING_ACCEPTANCE: "Awaiting Agent",
-    AGENT_OPEN: "Agent Open (Open in uShip)",
-    WORKING: "Agent Working",
+    AWAITING_ACCEPTANCE: "Waiting",
+    AGENT_OPEN: "Open in uShip",
+    WORKING: "Shipment Accepted",
     FOLLOW_UP: "Follow Up",
     BID_SUBMITTED: "Bid Submitted",
     CUSTOMER_REPLIED: "Customer Respond",
@@ -174,9 +174,9 @@ export type DomainEventType = (typeof DOMAIN_EVENT_TYPES)[number] | string;
 /** CRM shipment card pipeline — stops at Load Created. Later ops live in Loads (`LOAD_PIPELINE`). */
 export const LIFECYCLE_PIPELINE = [
     { stage: "SHIPMENT_IMPORTED", title: "Shipment Imported", status: "NEW" },
-    { stage: "BROKER_ASSIGNED", title: "Awaiting Agent", status: "AWAITING_ACCEPTANCE" },
-    { stage: "AGENT_OPENED", title: "Agent Opened Shipment (Open in uShip)", status: "AGENT_OPEN" },
-    { stage: "BROKER_ACCEPTED_WORK", title: "Agent Working", status: "WORKING" },
+    { stage: "BROKER_ASSIGNED", title: "Waiting", status: "AWAITING_ACCEPTANCE" },
+    { stage: "AGENT_OPENED", title: "Open in uShip", status: "AGENT_OPEN" },
+    { stage: "BROKER_ACCEPTED_WORK", title: "Shipment Accepted", status: "WORKING" },
     { stage: "BID_SUBMITTED", title: "Bid Submitted", status: "BID_SUBMITTED" },
     /** Broker marks this after sending a question to the customer (traffic-light). */
     { stage: "BROKER_QUESTION", title: "Broker Question", status: "BID_SUBMITTED", interactive: true },

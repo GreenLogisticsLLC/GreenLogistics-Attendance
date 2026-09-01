@@ -43,16 +43,20 @@ export class DomainEventEngine {
         );
         return new Set(
             messages
-                .filter(
-                    (message) =>
+                .filter((message) => {
+                    // Any message already linked to this card is trusted for Q&A lamps.
+                    if (message.gmailMessageId) return true;
+                    return (
                         strongMethods.has(String(message.matchMethod || "")) ||
                         (message.matchMethod === "gmailThreadId" &&
                             Boolean(
                                 message.gmailThreadId &&
                                     trustedThreads.has(message.gmailThreadId)
                             ))
-                )
+                    );
+                })
                 .map((message) => message.gmailMessageId)
+                .filter((id): id is string => Boolean(id))
         );
     }
 

@@ -81,7 +81,7 @@ window.GreenOSModules.email = {
       var labels = {
         ASSIGNED: "Assigned — awaiting Accept",
         AWAITING_ACCEPTANCE: "Assigned — awaiting Accept",
-        AGENT_OPEN: "Opened — awaiting Accept",
+        AGENT_OPEN: "Open in uShip — Accept still required",
         WORKING: "Agent Working",
         UNASSIGNED: "Unassigned (waiting for check-in)",
         NEW: "New",

@@ -624,13 +624,13 @@ export class CrmService {
             await domainEventEngine.emit({
                 shipmentLeadId,
                 eventType: "AGENT_OPENED",
-                title: "Agent Opened Shipment",
+                title: "Open in uShip",
                 message: canWorkAnyShipment(role)
-                    ? `Status → Agent Open (Open in uShip) — ${role} working`
-                    : "Status → Agent Open (Open in uShip)",
+                    ? `Status → Open in uShip — ${role} opened uShip link`
+                    : "Status → Open in uShip",
                 actorUserId,
                 timelineStage: "AGENT_OPENED",
-                payload: { status: "AGENT_OPEN", actorRole: role },
+                payload: { status: "AGENT_OPEN", actorRole: role, source: "uship_link" },
             });
         }
 
@@ -797,8 +797,8 @@ export class CrmService {
         await domainEventEngine.emit({
             shipmentLeadId,
             eventType: "BROKER_ACCEPTED_WORK",
-            title: "Agent Working",
-            message: "Status → Agent Working",
+            title: "Shipment Accepted",
+            message: "Broker accepted shipment — working the load",
             actorUserId,
             timelineStage: "BROKER_ACCEPTED_WORK",
             payload: { status: "WORKING" },

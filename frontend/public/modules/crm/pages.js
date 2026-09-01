@@ -141,10 +141,10 @@ window.GreenOSModules.crm = {
     var map = {
       NEW: { cls: "crm-st-new", label: "🟢 New" },
       UNASSIGNED: { cls: "crm-st-unassigned", label: "⚪ Unassigned" },
-      ASSIGNED: { cls: "crm-st-await", label: "🟡 Awaiting Agent" },
-      AWAITING_ACCEPTANCE: { cls: "crm-st-await", label: "🟡 Awaiting Agent" },
-      AGENT_OPEN: { cls: "crm-st-quote", label: "🔵 Agent Open (Open in uShip)" },
-      WORKING: { cls: "crm-st-working", label: "🟢 Agent Working" },
+      ASSIGNED: { cls: "crm-st-await", label: "🟡 Waiting" },
+      AWAITING_ACCEPTANCE: { cls: "crm-st-await", label: "🟡 Waiting" },
+      AGENT_OPEN: { cls: "crm-st-quote", label: "🔵 Open in uShip" },
+      WORKING: { cls: "crm-st-working", label: "✅ Shipment Accepted" },
       FOLLOW_UP: { cls: "crm-st-follow", label: "🟠 Follow Up" },
       QUOTE_SENT: { cls: "crm-st-quote", label: "🔵 Quote Sent" },
       NEGOTIATION: { cls: "crm-st-nego", label: "🟣 Negotiation" },
@@ -1213,33 +1213,25 @@ window.GreenOSModules.crm = {
         }
       });
 
-      // Opening the card (or uShip) marks Agent Open — Accept is still required to keep the lead.
-      if (
-        s.status === "ASSIGNED" ||
-        s.status === "AWAITING_ACCEPTANCE" ||
-        s.status === "AGENT_OPEN"
-      ) {
-        window.GreenOSModules.crm
-          .api("/shipments/" + encodeURIComponent(id) + "/opened", { method: "POST" })
-          .then(function (res) {
-            if (gen !== window.GreenOSModules.crm._cardOpenGen) return;
-            if (modal.getAttribute("data-shipment-id") !== id) return;
-            var next = res && res.success && res.data ? res.data : null;
-            if (next && next.status && next.status !== s.status) {
-              window.GreenOSModules.crm.openShipmentCard(root, id);
-            }
-          })
-          .catch(function () {
-            /* keep card open even if status bump fails */
-          });
-      }
-
       modal.querySelectorAll(".crm-open-uship").forEach(function (link) {
         link.addEventListener("click", function () {
-          window.GreenOSModules.crm.api("/shipments/" + encodeURIComponent(id) + "/opened", {
-            method: "POST",
-            keepalive: true,
-          });
+          window.GreenOSModules.crm
+            .api("/shipments/" + encodeURIComponent(id) + "/opened", {
+              method: "POST",
+              body: JSON.stringify({ action: "uship" }),
+              keepalive: true,
+            })
+            .then(function (res) {
+              if (gen !== window.GreenOSModules.crm._cardOpenGen) return;
+              if (modal.getAttribute("data-shipment-id") !== id) return;
+              var next = res && res.success && res.data ? res.data : null;
+              if (next && next.status && next.status !== s.status) {
+                window.GreenOSModules.crm.openShipmentCard(root, id);
+              }
+            })
+            .catch(function () {
+              /* uShip tab still opens via href */
+            });
         });
       });
 

@@ -12,7 +12,7 @@ import { isEmployeeInOffice } from "../../services/attendance-presence.service.j
 
 const QUEUE_KEY = "brokers";
 /** Minutes to accept / react before load is passed to the next In Office broker. */
-const ACCEPTANCE_MINUTES = 20;
+const ACCEPTANCE_MINUTES = 15;
 
 export type EligibleBroker = {
     userId: string;
