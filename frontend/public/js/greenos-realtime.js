@@ -312,9 +312,7 @@
   }
 
   function refreshOpenViews() {
-    if (typeof window.GreenOSEmailReload === "function") {
-      window.GreenOSEmailReload();
-    }
+    // Email Imports — manual refresh only (Check Gmail Now / navigate away and back).
     var modalOpen = false;
     try {
       var m = document.getElementById("crm-modal");
@@ -346,7 +344,8 @@
       window.GreenOS.currentModule !== "dispatch" &&
       window.GreenOS.currentModule !== "administration" &&
       window.GreenOS.currentModule !== "carriers" &&
-      window.GreenOS.currentModule !== "ai"
+      window.GreenOS.currentModule !== "ai" &&
+      window.GreenOS.currentModule !== "email"
     ) {
       window.GreenOS.refreshModule();
     }
