@@ -11,13 +11,80 @@ import {
 } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
-import { getEmployeePresenceSession } from "./attendance-presence.service.js";
+import { getEmployeePresenceSession, getEmployeePresenceSessionsMap } from "./attendance-presence.service.js";
 import type {
     DashboardEmployeeRow,
     DashboardStatistics,
 } from "../types/attendance.types.js";
 
 export class DashboardService {
+    /** Lightweight stats for GreenOS shell — skips per-employee row building. */
+    async getStatisticsOnly(date?: string, options?: { teamLeadUserId?: string | null }) {
+        const now = new Date();
+        let employees = await employeeRepository.findAllActive();
+        if (options?.teamLeadUserId) {
+            const { listTeamEmployeeIds } = await import("../auth/team-scope.js");
+            const allowed = new Set(await listTeamEmployeeIds(options.teamLeadUserId));
+            employees = employees.filter((e) => allowed.has(e.employeeId));
+        }
+
+        const workDate = date || getAttendanceWorkDate(now, config.timezone);
+        const sessionsMap = await getEmployeePresenceSessionsMap(
+            employees.map((e) => e.employeeId)
+        );
+
+        let employeesPresent = 0;
+        let employeesOutside = 0;
+        let employeesOvertime = 0;
+        let employeesLate = 0;
+        let employeesNotArrived = 0;
+        let completedSessions = 0;
+
+        for (const emp of employees) {
+            const session = sessionsMap.get(emp.employeeId) ?? null;
+            const currentStatus = session?.currentStatus ?? "SCHEDULED";
+
+            if (currentStatus === "INSIDE_OFFICE") {
+                employeesPresent++;
+                const overtimeEnd = now;
+                const overtimeStart =
+                    session?.firstEntry && session.firstEntry > session.scheduledEnd
+                        ? session.firstEntry
+                        : session?.scheduledEnd;
+                if (
+                    session &&
+                    overtimeStart &&
+                    overtimeEnd > overtimeStart
+                ) {
+                    employeesOvertime++;
+                }
+            } else if (currentStatus === "OUTSIDE_OFFICE") {
+                employeesOutside++;
+            } else if (currentStatus === "COMPLETED") {
+                completedSessions++;
+            }
+
+            if (session?.late && (session.lateMinutes || 0) > 0) {
+                employeesLate++;
+            }
+            if (!session?.firstEntry && currentStatus === "SCHEDULED") {
+                employeesNotArrived++;
+            }
+        }
+
+        const statistics: DashboardStatistics = {
+            employeesScheduled: employees.length,
+            employeesPresent,
+            employeesOutside,
+            employeesOvertime,
+            employeesLate,
+            employeesNotArrived,
+            completedSessions,
+        };
+
+        return { workDate, statistics };
+    }
+
     async getDashboard(date?: string, options?: { teamLeadUserId?: string | null }) {
         const now = new Date();
         let employees = await employeeRepository.findAllActive();

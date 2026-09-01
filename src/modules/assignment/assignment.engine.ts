@@ -8,7 +8,7 @@ import {
     shipmentLeadRepository,
 } from "../email/services/repositories.js";
 import type { ShipmentLeadStatus } from "../email/models/types.js";
-import { isEmployeeInOffice } from "../../services/attendance-presence.service.js";
+import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
 
 const QUEUE_KEY = "brokers";
 /** Minutes to accept / react before load is passed to the next In Office broker. */
@@ -656,31 +656,31 @@ export class AssignmentEngine {
         eligible: EligibleBroker[];
         mode: AssignmentPoolMode;
     }> {
-        const users = await prisma.user.findMany({
-            where: {
-                role: { roleName: "Broker" },
-                isActive: true,
-            },
-            include: { role: true, employee: true, brokerGmailAccount: true },
-            orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
-        });
+        const [users, activeEmployees] = await Promise.all([
+            prisma.user.findMany({
+                where: {
+                    role: { roleName: "Broker" },
+                    isActive: true,
+                },
+                include: { role: true, employee: true, brokerGmailAccount: true },
+                orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+            }),
+            prisma.employee.findMany({
+                where: { status: "ACTIVE" },
+                select: { employeeId: true, firstName: true, lastName: true },
+            }),
+        ]);
 
-        const inOffice: EligibleBroker[] = [];
         const allLinked: EligibleBroker[] = [];
+        const employeeIdsToCheck: string[] = [];
+        const linkUpdates: Array<{ userId: string; employeeId: string }> = [];
 
         for (const user of users) {
-            const employeeId = await this.resolveEmployeeId(user);
+            const employeeId = this.resolveEmployeeIdSync(user, activeEmployees);
             if (!employeeId) continue;
 
             if (!user.employeeId) {
-                try {
-                    await prisma.user.update({
-                        where: { userId: user.userId },
-                        data: { employeeId },
-                    });
-                } catch {
-                    /* unique conflict — ignore */
-                }
+                linkUpdates.push({ userId: user.userId, employeeId });
             }
 
             const gmail = user.brokerGmailAccount;
@@ -705,11 +705,21 @@ export class AssignmentEngine {
                 displayName: displayName(user),
             };
             allLinked.push(entry);
-
-            if (await isEmployeeInOffice(employeeId)) {
-                inOffice.push(entry);
-            }
+            employeeIdsToCheck.push(employeeId);
         }
+
+        if (linkUpdates.length) {
+            void Promise.all(
+                linkUpdates.map(({ userId, employeeId }) =>
+                    prisma.user
+                        .update({ where: { userId }, data: { employeeId } })
+                        .catch(() => undefined)
+                )
+            );
+        }
+
+        const inOfficeIds = await getInOfficeEmployeeIds(employeeIdsToCheck);
+        const inOffice = allLinked.filter((entry) => inOfficeIds.has(entry.employeeId));
 
         if (inOffice.length > 0) {
             return {
@@ -727,6 +737,35 @@ export class AssignmentEngine {
             };
         }
         return { eligible: [], mode: "none" };
+    }
+
+    private resolveEmployeeIdSync(
+        user: {
+            userId: string;
+            employeeId: string | null;
+            employee?: { employeeId: string; status: string } | null;
+            firstName: string;
+            lastName: string;
+        },
+        activeEmployees: Array<{ employeeId: string; firstName: string; lastName: string }>
+    ): string | null {
+        if (user.employeeId && user.employee?.status === "ACTIVE") {
+            return user.employeeId;
+        }
+        if (user.employeeId) {
+            const emp = activeEmployees.find((e) => e.employeeId === user.employeeId);
+            if (emp) return emp.employeeId;
+        }
+
+        const fn = user.firstName.trim().toLowerCase();
+        const ln = user.lastName.trim().toLowerCase();
+        const matches = activeEmployees.filter(
+            (e) =>
+                e.firstName.trim().toLowerCase() === fn &&
+                e.lastName.trim().toLowerCase() === ln
+        );
+        if (matches.length === 1) return matches[0].employeeId;
+        return null;
     }
 
     private async resolveEmployeeId(user: {

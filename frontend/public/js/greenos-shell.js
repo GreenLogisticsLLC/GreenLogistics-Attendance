@@ -426,193 +426,227 @@
       const queueOrderEl = root.querySelector("#gos-queue-order");
       const queueUpdatedEl = root.querySelector("#gos-queue-updated");
       const self = this;
+      const state = { crm: null, att: null, queue: null };
 
-      Promise.all([
-        this.shellApi("/api/crm/dashboard"),
-        this.shellApi("/api/v1/dashboard"),
-        this.shellApi("/api/assignment/queue"),
-      ])
-        .then(function (results) {
-          const crm = results[0];
-          const att = results[1];
-          const queueRes = results[2];
-          const attData = (att && att.success && att.data) || {};
-          const attStats = attData.statistics || {};
-          const kpis = (crm && crm.success && crm.data && crm.data.kpis) || {};
-          const queueData = (queueRes && queueRes.success && queueRes.data) || null;
-          const mode =
-            (queueData && queueData.assignmentMode) || kpis.assignmentMode || "";
-          const loads =
-            kpis.ownerActiveLoads != null
-              ? kpis.ownerActiveLoads
-              : kpis.activeShipments != null
-                ? kpis.activeShipments
-                : "—";
-          const present =
-            attStats.employeesPresent != null
-              ? attStats.employeesPresent
-              : kpis.brokersPresent != null
-                ? kpis.brokersPresent
-                : "—";
-          const cards = [
-            {
-              label: "Active Loads",
-              value: String(loads),
-              hint:
-                mode === "in_office"
-                  ? "With checked-in brokers"
-                  : mode === "all_brokers_fallback"
-                    ? "No one In Office — total across brokers (RR to all)"
-                    : "Assigned active shipments",
-              tone: "accent-blue",
-            },
-            {
-              label: "New today",
-              value: String(kpis.newShipmentsToday != null ? kpis.newShipmentsToday : "—"),
-              hint: "Imported / created today",
-              tone: "accent-green",
-            },
-            {
-              label: "Unassigned",
-              value: String(kpis.unassigned != null ? kpis.unassigned : "—"),
-              hint: "Waiting for a broker",
-              tone: "accent-warn",
-            },
-            {
-              label: "Employees Present",
-              value: String(present),
-              hint: "In Office now",
-              tone: "accent-green",
-            },
-            {
-              label: "Awaiting accept",
-              value: String(kpis.awaitingAcceptance != null ? kpis.awaitingAcceptance : "—"),
-              hint: "Not accepted yet",
-              tone: "accent-purple",
-            },
-            {
-              label: "Working",
-              value: String(kpis.working != null ? kpis.working : "—"),
-              hint: "Brokers working leads",
-              tone: "accent-blue",
-            },
-          ];
-          if (cardsEl) {
-            cardsEl.innerHTML = cards
-              .map(function (c) {
+      function currentMode() {
+        const queueData = state.queue && state.queue.success && state.queue.data;
+        const kpis =
+          state.crm && state.crm.success && state.crm.data && state.crm.data.kpis;
+        return (queueData && queueData.assignmentMode) || (kpis && kpis.assignmentMode) || "";
+      }
+
+      function renderCards() {
+        if (!cardsEl) return;
+        const kpis =
+          (state.crm && state.crm.success && state.crm.data && state.crm.data.kpis) || {};
+        const attStats =
+          (state.att && state.att.success && state.att.data && state.att.data.statistics) || {};
+        const mode = currentMode();
+        const loads =
+          kpis.ownerActiveLoads != null
+            ? kpis.ownerActiveLoads
+            : kpis.activeShipments != null
+              ? kpis.activeShipments
+              : "—";
+        const present =
+          attStats.employeesPresent != null
+            ? attStats.employeesPresent
+            : kpis.brokersPresent != null
+              ? kpis.brokersPresent
+              : "—";
+        const cards = [
+          {
+            label: "Active Loads",
+            value: String(loads),
+            hint:
+              mode === "in_office"
+                ? "With checked-in brokers"
+                : mode === "all_brokers_fallback"
+                  ? "No one In Office — total across brokers (RR to all)"
+                  : "Assigned active shipments",
+            tone: "accent-blue",
+          },
+          {
+            label: "New today",
+            value: String(kpis.newShipmentsToday != null ? kpis.newShipmentsToday : "—"),
+            hint: "Imported / created today",
+            tone: "accent-green",
+          },
+          {
+            label: "Unassigned",
+            value: String(kpis.unassigned != null ? kpis.unassigned : "—"),
+            hint: "Waiting for a broker",
+            tone: "accent-warn",
+          },
+          {
+            label: "Employees Present",
+            value: String(present),
+            hint: "In Office now",
+            tone: "accent-green",
+          },
+          {
+            label: "Awaiting accept",
+            value: String(kpis.awaitingAcceptance != null ? kpis.awaitingAcceptance : "—"),
+            hint: "Not accepted yet",
+            tone: "accent-purple",
+          },
+          {
+            label: "Working",
+            value: String(kpis.working != null ? kpis.working : "—"),
+            hint: "Brokers working leads",
+            tone: "accent-blue",
+          },
+        ];
+        cardsEl.innerHTML = cards
+          .map(function (c) {
+            return (
+              `<article class="gos-card ${c.tone}">` +
+              `<div class="label">${c.label}</div>` +
+              `<div class="value">${c.value}</div>` +
+              `<div class="hint">${c.hint}</div>` +
+              `</article>`
+            );
+          })
+          .join("");
+      }
+
+      function renderQueue() {
+        if (!queueModeEl || !queueNextEl || !queueOrderEl) return;
+        const queueData = state.queue && state.queue.success && state.queue.data;
+        const mode = currentMode();
+        if (queueData) {
+          const modeLabel =
+            queueData.assignmentModeLabel ||
+            (mode === "in_office"
+              ? "Checked-in brokers only"
+              : mode === "all_brokers_fallback"
+                ? "Nobody In Office — all brokers (Gary first)"
+                : "No eligible brokers");
+          const badgeClass =
+            mode === "all_brokers_fallback" ? "gos-queue-badge fallback" : "gos-queue-badge";
+          const badgeText =
+            mode === "in_office"
+              ? "In Office"
+              : mode === "all_brokers_fallback"
+                ? "Fallback"
+                : "Idle";
+          queueModeEl.innerHTML =
+            self.escapeHtml(modeLabel) + ` <span class="${badgeClass}">${badgeText}</span>`;
+          queueNextEl.textContent = queueData.nextBroker || "—";
+
+          const order = queueData.queueOrder || [];
+          const eligibleIds = new Set(
+            (queueData.eligible || []).map(function (e) {
+              return e.userId;
+            })
+          );
+          const nextName = queueData.nextBroker || "";
+          if (!order.length) {
+            queueOrderEl.innerHTML =
+              '<li class="gos-muted">No brokers in queue — check badges / Broker role</li>';
+          } else {
+            queueOrderEl.innerHTML = order
+              .map(function (item, idx) {
+                const isNext = item.name === nextName || idx === queueData.nextIndex;
+                const inPool = eligibleIds.has(item.userId);
+                const cls =
+                  (isNext ? "gos-queue-next-item " : "") + (inPool ? "" : "gos-queue-ineligible");
+                const tag = isNext ? ' <span class="gos-queue-badge">next</span>' : "";
                 return (
-                  `<article class="gos-card ${c.tone}">` +
-                  `<div class="label">${c.label}</div>` +
-                  `<div class="value">${c.value}</div>` +
-                  `<div class="hint">${c.hint}</div>` +
-                  `</article>`
+                  `<li class="${cls.trim()}">` +
+                  `${idx + 1}. ${self.escapeHtml(item.name || item.userId)}${tag}` +
+                  `</li>`
                 );
               })
               .join("");
           }
+        } else if (state.queue) {
+          queueModeEl.textContent =
+            "Queue status unavailable for your role (Owner / Manager / Broker can view).";
+          queueNextEl.textContent = "—";
+          queueOrderEl.innerHTML = '<li class="gos-muted">—</li>';
+        }
+      }
 
-          if (queueModeEl && queueNextEl && queueOrderEl) {
-            if (queueData) {
-              const modeLabel =
-                queueData.assignmentModeLabel ||
-                (mode === "in_office"
-                  ? "Checked-in brokers only"
-                  : mode === "all_brokers_fallback"
-                    ? "Nobody In Office — all brokers (Gary first)"
-                    : "No eligible brokers");
-              const badgeClass =
-                mode === "all_brokers_fallback" ? "gos-queue-badge fallback" : "gos-queue-badge";
-              const badgeText =
-                mode === "in_office"
-                  ? "In Office"
-                  : mode === "all_brokers_fallback"
-                    ? "Fallback"
-                    : "Idle";
-              queueModeEl.innerHTML =
-                self.escapeHtml(modeLabel) +
-                ` <span class="${badgeClass}">${badgeText}</span>`;
-              queueNextEl.textContent = queueData.nextBroker || "—";
+      function renderActivity() {
+        if (!activityEl || !state.crm) return;
+        const recent =
+          (state.crm.success && state.crm.data && state.crm.data.recentlyAssigned) || [];
+        if (!recent.length) {
+          activityEl.innerHTML = '<li class="gos-muted">No recent assignments</li>';
+        } else {
+          activityEl.innerHTML = recent
+            .slice(0, 12)
+            .map(function (r) {
+              const title =
+                r.shipmentTitle || r.greenOsShipmentId || r.shipmentLeadId || "Shipment";
+              const who = r.brokerName || r.assignedBrokerName || "broker";
+              return `<li>${self.escapeHtml(String(title))} → ${self.escapeHtml(String(who))}</li>`;
+            })
+            .join("");
+        }
+      }
 
-              const order = queueData.queueOrder || [];
-              const eligibleIds = new Set(
-                (queueData.eligible || []).map(function (e) {
-                  return e.userId;
-                })
-              );
-              const nextName = queueData.nextBroker || "";
-              if (!order.length) {
-                queueOrderEl.innerHTML =
-                  '<li class="gos-muted">No brokers in queue — check badges / Broker role</li>';
-              } else {
-                queueOrderEl.innerHTML = order
-                  .map(function (item, idx) {
-                    const isNext = item.name === nextName || idx === queueData.nextIndex;
-                    const inPool = eligibleIds.has(item.userId);
-                    const cls =
-                      (isNext ? "gos-queue-next-item " : "") +
-                      (inPool ? "" : "gos-queue-ineligible");
-                    const tag = isNext ? ' <span class="gos-queue-badge">next</span>' : "";
-                    return (
-                      `<li class="${cls.trim()}">` +
-                      `${idx + 1}. ${self.escapeHtml(item.name || item.userId)}${tag}` +
-                      `</li>`
-                    );
-                  })
-                  .join("");
-              }
-            } else {
-              queueModeEl.textContent =
-                "Queue status unavailable for your role (Owner / Manager / Broker can view).";
-              queueNextEl.textContent = "—";
-              queueOrderEl.innerHTML = '<li class="gos-muted">—</li>';
-            }
-          }
+      function renderStatus() {
+        if (!statusEl) return;
+        if (!state.crm && !state.queue) return;
+        const mode = currentMode();
+        statusEl.textContent =
+          mode === "in_office"
+            ? "Assignment: checked-in brokers only (round-robin)."
+            : mode === "all_brokers_fallback"
+              ? "Assignment: nobody In Office — round-robin across all brokers (Gary first)."
+              : "Live metrics loaded.";
+        statusEl.style.color = "";
+      }
 
-          if (queueUpdatedEl) {
-            const now = new Date();
-            queueUpdatedEl.textContent =
-              "Updated " +
-              now.toLocaleTimeString(undefined, {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              });
-          }
+      function markQueueUpdated() {
+        if (!queueUpdatedEl) return;
+        const now = new Date();
+        queueUpdatedEl.textContent =
+          "Updated " +
+          now.toLocaleTimeString(undefined, {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+      }
 
-          if (activityEl) {
-            const recent =
-              (crm && crm.success && crm.data && crm.data.recentlyAssigned) || [];
-            if (!recent.length) {
-              activityEl.innerHTML = '<li class="gos-muted">No recent assignments</li>';
-            } else {
-              activityEl.innerHTML = recent
-                .slice(0, 12)
-                .map(function (r) {
-                  const title =
-                    r.shipmentTitle || r.greenOsShipmentId || r.shipmentLeadId || "Shipment";
-                  const who = r.brokerName || r.assignedBrokerName || "broker";
-                  return `<li>${self.escapeHtml(String(title))} → ${self.escapeHtml(String(who))}</li>`;
-                })
-                .join("");
-            }
-          }
-
-          if (statusEl) {
-            statusEl.textContent =
-              mode === "in_office"
-                ? "Assignment: checked-in brokers only (round-robin)."
-                : mode === "all_brokers_fallback"
-                  ? "Assignment: nobody In Office — round-robin across all brokers (Gary first)."
-                  : "Live metrics loaded.";
-            statusEl.style.color = "";
-          }
+      this.shellApi("/api/crm/dashboard?shell=1")
+        .then(function (crm) {
+          state.crm = crm;
+          renderCards();
+          renderActivity();
+          renderStatus();
         })
-        .catch(function (e) {
+        .catch(function () {
+          state.crm = { success: false };
           if (statusEl) {
-            statusEl.textContent =
-              e && e.message ? e.message : "Failed to load dashboard metrics";
+            statusEl.textContent = "CRM metrics failed to load";
             statusEl.style.color = "#ef4444";
           }
+        });
+
+      this.shellApi("/api/v1/dashboard?statsOnly=1")
+        .then(function (att) {
+          state.att = att;
+          renderCards();
+        })
+        .catch(function () {
+          state.att = { success: false };
+        });
+
+      this.shellApi("/api/assignment/queue")
+        .then(function (queueRes) {
+          state.queue = queueRes;
+          renderQueue();
+          renderCards();
+          renderStatus();
+          markQueueUpdated();
+        })
+        .catch(function () {
+          state.queue = { success: false };
+          renderQueue();
         });
     },
 

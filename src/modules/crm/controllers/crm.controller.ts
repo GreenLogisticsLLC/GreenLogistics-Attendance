@@ -40,7 +40,10 @@ export async function crmDashboardController(req: AuthRequest, res: Response) {
         );
     }
     const teamLeadId = teamScopeUserId(req) || undefined;
-    const data = await crmService.getDashboard(teamLeadId ? { teamLeadId } : undefined);
+    const shell = req.query.shell === "1";
+    const data = await crmService.getDashboard(
+        teamLeadId ? { teamLeadId, shell } : shell ? { shell } : undefined
+    );
     return res.json(
         apiResponse(
             true,

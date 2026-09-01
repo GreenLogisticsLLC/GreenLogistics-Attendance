@@ -16,6 +16,23 @@ export class AttendanceSessionRepository {
         });
     }
 
+    async findByEmployeesAndWorkDate(employeeIds: string[], workDate: string) {
+        if (!employeeIds.length) return [];
+        return prisma.attendanceSession.findMany({
+            where: {
+                employeeId: { in: employeeIds },
+                workDate,
+            },
+            include: {
+                absenceIntervals: {
+                    where: { endTime: null },
+                    orderBy: { startTime: "desc" },
+                    take: 1,
+                },
+            },
+        });
+    }
+
     async findLatestSessionForEmployee(employeeId: string, workDate: string) {
         const workDateSession = await this.findByEmployeeAndWorkDate(employeeId, workDate);
         if (workDateSession) {

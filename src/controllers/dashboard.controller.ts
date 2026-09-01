@@ -8,6 +8,10 @@ import { listTeamEmployeeIds } from "../auth/team-scope.js";
 export async function getDashboardController(req: AuthRequest, res: Response) {
     const date = req.query.date as string | undefined;
     const teamLeadUserId = teamScopeUserId(req);
+    if (req.query.statsOnly === "1") {
+        const data = await dashboardService.getStatisticsOnly(date, { teamLeadUserId });
+        return res.json(apiResponse(true, "Dashboard statistics loaded", data));
+    }
     const data = await dashboardService.getDashboard(date, { teamLeadUserId });
     return res.json(apiResponse(true, "Dashboard loaded", data));
 }
