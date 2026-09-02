@@ -331,6 +331,8 @@ model ShipmentLead {
   assignedAt            DateTime?               @map("assigned_at")
   acceptedAt            DateTime?               @map("accepted_at")
   acceptanceDeadline    DateTime?               @map("acceptance_deadline")
+  isReassignment        Boolean                 @default(false) @map("is_reassignment")
+  wasEverReassigned     Boolean                 @default(false) @map("was_ever_reassigned")
   brokerReplyDeadline   DateTime?               @map("broker_reply_deadline")
   quoteSentAt           DateTime?               @map("quote_sent_at")
   closedAt              DateTime?               @map("closed_at")

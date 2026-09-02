@@ -122,12 +122,15 @@ export class AssignmentEngine {
         if (!lead) return lead;
 
         const acceptanceDeadline = new Date(Date.now() + ACCEPTANCE_MINUTES * 60_000);
+        const isReassignment = Boolean(options?.reassignFrom);
         const assigned = await shipmentLeadRepository.update(shipmentLeadId, {
             status: "ASSIGNED",
             assignedBrokerId: broker.userId,
             assignedAt: new Date(),
             acceptanceDeadline,
             acceptedAt: null,
+            isReassignment,
+            ...(isReassignment ? { wasEverReassigned: true } : {}),
         });
 
         const reason = options?.reassignFrom
@@ -464,6 +467,7 @@ export class AssignmentEngine {
             assignmentModeLabel: modeLabel,
             rules: [
                 "NEW shipments go to checked-in (In Office) brokers only — sequential round-robin",
+                "Fresh NEW imports are assigned before passed-along (reassigned) loads",
                 "If nobody is In Office → all active brokers receive shipments in order (Gary first, then A→Z)",
                 "When someone checks in → only checked-in brokers receive new shipments",
                 "Out of Office removes broker from the active pool (assigned pending leads may be reclaimed)",
@@ -537,15 +541,34 @@ export class AssignmentEngine {
      * Called when a broker returns In Office, or manually from ops tools.
      */
     async assignPendingNewLeads(limit = 50): Promise<number> {
-        const pending = await prisma.shipmentLead.findMany({
-            where: {
-                status: { in: ["NEW", "UNASSIGNED"] },
-                OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
-            },
-            orderBy: { createdAt: "asc" },
-            take: limit,
-            select: { shipmentLeadId: true },
-        });
+        const unassignedPool = {
+            status: "UNASSIGNED" as const,
+            OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+        };
+        const [freshNew, unassignedFresh, unassignedOther] = await Promise.all([
+            prisma.shipmentLead.findMany({
+                where: {
+                    status: "NEW",
+                    OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+                },
+                orderBy: { createdAt: "asc" },
+                take: limit,
+                select: { shipmentLeadId: true },
+            }),
+            prisma.shipmentLead.findMany({
+                where: { ...unassignedPool, wasEverReassigned: false },
+                orderBy: { createdAt: "asc" },
+                take: limit,
+                select: { shipmentLeadId: true },
+            }),
+            prisma.shipmentLead.findMany({
+                where: { ...unassignedPool, wasEverReassigned: true },
+                orderBy: { createdAt: "asc" },
+                take: limit,
+                select: { shipmentLeadId: true },
+            }),
+        ]);
+        const pending = [...freshNew, ...unassignedFresh, ...unassignedOther].slice(0, limit);
 
         let assigned = 0;
         for (const row of pending) {

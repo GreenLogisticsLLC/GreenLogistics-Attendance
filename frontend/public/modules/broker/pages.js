@@ -276,18 +276,56 @@ window.GreenOSModules.broker = {
 
   async renderShipments(body, root) {
     var self = this;
+    var activeTab = self._shipmentsTab || "new";
     body.innerHTML =
-      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>Shipments assigned to you — list refreshes automatically</p></section>' +
+      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>New imports first — passed-from-another-broker loads are in Other Shipment</p></section>' +
+      '<nav class="gos-subnav" id="broker-ship-tabs">' +
+      '<button type="button" class="gos-subnav-item' +
+      (activeTab === "new" ? " is-active" : "") +
+      '" data-ship-tab="new">New Shipment <span class="gos-queue-badge" id="broker-ship-count-new">…</span></button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (activeTab === "other" ? " is-active" : "") +
+      '" data-ship-tab="other">Other Shipment <span class="gos-queue-badge" id="broker-ship-count-other">…</span></button>' +
+      "</nav>" +
       '<p class="gos-muted" id="broker-ship-sync" style="margin:0 0 0.75rem">Loading…</p>' +
       '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
       "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Updated</th>" +
       '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="7">Loading…</td></tr></tbody></table></div>';
+
+    body.querySelectorAll("[data-ship-tab]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        self._shipmentsTab = btn.getAttribute("data-ship-tab") || "new";
+        self.renderShipments(body, root);
+      });
+    });
 
     var paintGen = 0;
 
     function searchQuery() {
       var input = document.getElementById("gos-global-search");
       return input ? String(input.value || "").trim().toLowerCase() : "";
+    }
+
+    function rowsForTab(rows) {
+      var tab = self._shipmentsTab || "new";
+      return rows.filter(function (s) {
+        return tab === "other" ? Boolean(s.isReassignment) : !s.isReassignment;
+      });
+    }
+
+    function sortRows(rows) {
+      var priority = {
+        AWAITING_ACCEPTANCE: 0,
+        AGENT_OPEN: 1,
+        ASSIGNED: 2,
+        WORKING: 3,
+      };
+      return rows.slice().sort(function (a, b) {
+        var pa = priority[a.status] != null ? priority[a.status] : 9;
+        var pb = priority[b.status] != null ? priority[b.status] : 9;
+        if (pa !== pb) return pa - pb;
+        return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+      });
     }
 
     function filterByLocationZip(rows) {
@@ -300,6 +338,19 @@ window.GreenOSModules.broker = {
       });
     }
 
+    function updateTabCounts(rows) {
+      var newCount = rows.filter(function (s) {
+        return !s.isReassignment;
+      }).length;
+      var otherCount = rows.filter(function (s) {
+        return Boolean(s.isReassignment);
+      }).length;
+      var newEl = document.getElementById("broker-ship-count-new");
+      var otherEl = document.getElementById("broker-ship-count-other");
+      if (newEl) newEl.textContent = String(newCount);
+      if (otherEl) otherEl.textContent = String(otherCount);
+    }
+
     function renderRows(rows) {
       var tbody = document.getElementById("broker-ship-body");
       if (!tbody) return;
@@ -307,13 +358,15 @@ window.GreenOSModules.broker = {
       var fmt = self.fmtDate.bind(self);
       var badge = self.statusBadge.bind(self);
       var query = searchQuery();
-      var visibleRows = filterByLocationZip(rows);
+      var tabRows = sortRows(rowsForTab(rows));
+      var visibleRows = filterByLocationZip(tabRows);
+      var tabLabel = (self._shipmentsTab || "new") === "other" ? "Other Shipment" : "New Shipment";
       if (!visibleRows.length) {
         tbody.innerHTML =
           '<tr><td colspan="7">' +
           (query
             ? "No shipments found for ZIP " + esc(query)
-            : "No shipments assigned yet") +
+            : "No " + tabLabel.toLowerCase() + " loads yet") +
           "</td></tr>";
         return;
       }
@@ -329,6 +382,9 @@ window.GreenOSModules.broker = {
             "</strong>" +
             (s.greenOsShipmentId
               ? '<br><small class="gos-muted">' + esc(s.shipmentTitle) + "</small>"
+              : "") +
+            (s.isReassignment
+              ? '<br><small class="gos-muted">Passed from another broker</small>'
               : "") +
             "</td><td>" +
             esc(s.customer) +
@@ -360,9 +416,10 @@ window.GreenOSModules.broker = {
     function applyGlobalSearch() {
       if (!document.getElementById("broker-ship-body")) return;
       var rows = self._shipmentsCache || [];
-      var visibleCount = filterByLocationZip(rows).length;
+      var visibleCount = filterByLocationZip(rowsForTab(rows)).length;
       var query = searchQuery();
       var syncEl = document.getElementById("broker-ship-sync");
+      updateTabCounts(rows);
       renderRows(rows);
       if (syncEl && query) {
         syncEl.textContent =
@@ -407,18 +464,23 @@ window.GreenOSModules.broker = {
         }
         var rows = data.data || [];
         self._shipmentsCache = rows;
+        updateTabCounts(rows);
         if (syncEl) {
           var query = searchQuery();
+          var tabRows = rowsForTab(rows);
           syncEl.textContent = query
             ? "ZIP " +
               query +
               " · " +
-              filterByLocationZip(rows).length +
+              filterByLocationZip(tabRows).length +
               " matching shipment(s) · updated " +
               new Date().toLocaleTimeString()
-            : "Auto-refresh on · " +
+            : tabRows.length +
+              " in " +
+              ((self._shipmentsTab || "new") === "other" ? "Other Shipment" : "New Shipment") +
+              " · " +
               rows.length +
-              " shipment(s) · updated " +
+              " total · updated " +
               new Date().toLocaleTimeString();
         }
         renderRows(rows);

@@ -407,23 +407,43 @@ window.GreenOSModules.crm = {
     );
   },
 
-  async renderShipments(body, root, brokerId) {
+  async renderShipments(body, root, brokerId, options) {
+    options = options || {};
     // Keep the current table on background reloads so the page does not blink.
     if (!body.querySelector("#crm-ship-body")) {
       body.innerHTML = "<p>Loading shipments…</p>";
     }
     try {
-      var q = brokerId ? "?brokerId=" + encodeURIComponent(brokerId) : "";
+      var params = [];
+      if (brokerId) params.push("brokerId=" + encodeURIComponent(brokerId));
+      if (options.assignmentKind === "new" || options.assignmentKind === "other") {
+        params.push("assignmentKind=" + options.assignmentKind);
+      }
+      var q = params.length ? "?" + params.join("&") : "";
       var data = await this.api("/shipments" + q);
       if (!data.success) {
         body.innerHTML = "<p>" + this.esc(data.message || "Failed") + "</p>";
         return;
       }
       var rows = data.data || [];
+      var tabLabel =
+        options.assignmentKind === "other"
+          ? "Other Shipment"
+          : options.assignmentKind === "new"
+            ? "New Shipment"
+            : "All Shipments";
       body.innerHTML =
         '<section class="gos-dash-hero">' +
-        "<h1>Shipments</h1>" +
-        "<p>All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).</p>" +
+        "<h1>" +
+        tabLabel +
+        "</h1>" +
+        "<p>" +
+        (options.assignmentKind === "other"
+          ? "Loads passed from another broker who did not accept in time."
+          : options.assignmentKind === "new"
+            ? "Fresh imports and first-time assignments — prioritized in round-robin."
+            : "All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).") +
+        "</p>" +
         "</section>" +
         '<div class="table-wrap crm-table-wrap"><table class="crm-table">' +
         "<thead><tr>" +

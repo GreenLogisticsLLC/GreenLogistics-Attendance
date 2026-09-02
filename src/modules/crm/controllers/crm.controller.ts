@@ -72,9 +72,14 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
         }
     }
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    const assignmentKind =
+        req.query.assignmentKind === "new" || req.query.assignmentKind === "other"
+            ? req.query.assignmentKind
+            : undefined;
     const data = await crmService.listShipments({
         brokerId,
         status,
+        assignmentKind,
         teamLeadId: !brokerId && teamLeadId ? teamLeadId : undefined,
         lite: req.user?.role === "Broker",
     });

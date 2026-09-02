@@ -382,6 +382,10 @@ model ShipmentLead {
   assignedAt            DateTime?               @map("assigned_at")
   acceptedAt            DateTime?               @map("accepted_at")
   acceptanceDeadline    DateTime?               @map("acceptance_deadline")
+  /// True when current broker received this load from another broker (acceptance timeout / pass-along).
+  isReassignment        Boolean                 @default(false) @map("is_reassignment")
+  /// Sticky — used to deprioritize parked UNASSIGNED loads vs fresh NEW imports.
+  wasEverReassigned     Boolean                 @default(false) @map("was_ever_reassigned")
   /// Broker must Answer after Customer Respond by this time (else Problems archive).
   brokerReplyDeadline   DateTime?               @map("broker_reply_deadline")
   quoteSentAt           DateTime?               @map("quote_sent_at")

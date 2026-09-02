@@ -4,7 +4,7 @@
  */
 window.GreenOSModules = window.GreenOSModules || {};
 window.GreenOSModules.shipments = {
-  render(root) {
+  render(root, subPageId) {
     if (!root) return;
     var crm = window.GreenOSModules.crm;
     if (!crm || typeof crm.renderShipments !== "function") {
@@ -13,11 +13,21 @@ window.GreenOSModules.shipments = {
       return;
     }
 
+    var tab = subPageId === "other" ? "other" : "new";
+
     root.innerHTML =
       '<div class="gos-module-layout">' +
+      '<nav class="gos-subnav">' +
+      '<button type="button" class="gos-subnav-item' +
+      (tab === "new" ? " is-active" : "") +
+      '" data-subpage="new">New Shipment</button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (tab === "other" ? " is-active" : "") +
+      '" data-subpage="other">Other Shipment</button>' +
+      "</nav>" +
       '<div class="gos-module-body" id="shipments-module-body"></div>' +
       "</div>";
     var body = root.querySelector("#shipments-module-body");
-    crm.renderShipments(body, root);
+    crm.renderShipments(body, root, null, { assignmentKind: tab });
   },
 };

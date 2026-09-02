@@ -111,6 +111,7 @@ const SHIPMENT_LIST_SELECT = {
     loadNumber: true,
     viewUrl: true,
     assignedBrokerId: true,
+    isReassignment: true,
     createdAt: true,
     updatedAt: true,
     receivedAt: true,
@@ -127,6 +128,7 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         delivery: e.delivery,
         status: lead.status as string,
         statusLabel: e.statusLabel,
+        isReassignment: Boolean(lead.isReassignment),
         updatedAt: lead.updatedAt as Date | string | null,
     };
 }
@@ -357,6 +359,8 @@ export class CrmService {
         teamLeadId?: string;
         /** Broker My Shipments — slim payload, no heavy blobs. */
         lite?: boolean;
+        /** new | other — filter by first-time vs passed-from-another-broker assignment. */
+        assignmentKind?: "new" | "other";
     }) {
         const where: Record<string, unknown> = {};
         if (options?.brokerId) {
@@ -372,6 +376,11 @@ export class CrmService {
             ];
         }
         if (options?.status) where.status = options.status;
+        if (options?.assignmentKind === "new") {
+            where.isReassignment = false;
+        } else if (options?.assignmentKind === "other") {
+            where.isReassignment = true;
+        }
 
         const lite = options?.lite === true;
         const rows = await prisma.shipmentLead.findMany({
