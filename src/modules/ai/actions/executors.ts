@@ -243,7 +243,7 @@ export async function executeCreateFollowUp(
             select: { status: true, aiNotes: true },
         });
         if (!lead) throw actionError("Shipment not found", 404, "NOT_FOUND");
-        const terminal = ["CLOSED", "LOST", "DELETED_FROM_CUSTOMER", "DELETED"];
+        const terminal = ["CLOSED", "LOST", "ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER", "DELETED"];
         if (terminal.includes(String(lead.status || "").toUpperCase())) {
             throw actionError("Cannot create follow-up on closed/lost shipment", 422, "STALE_ACTION");
         }

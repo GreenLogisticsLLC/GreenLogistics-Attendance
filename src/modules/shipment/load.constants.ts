@@ -127,7 +127,7 @@ export const LOAD_DOMAIN_EVENTS = [
 ] as const;
 
 export const LOAD_PIPELINE = [
-    { stage: "CUSTOMER_ACCEPTED", title: "Customer Accepted", status: "ACCEPTED" },
+    { stage: "CUSTOMER_ACCEPTED", title: "Accept Green", status: "ACCEPT_GREEN" },
     { stage: "LOAD_CREATED", title: "Load Created", status: "LOAD_CREATED" },
     { stage: "CARRIER_ASSIGNED", title: "Carrier Assigned", status: "CARRIER_ASSIGNED" },
     { stage: "RATE_CONFIRMATION_GENERATED", title: "Rate Confirmation Generated", status: "RATE_CON_GENERATED" },

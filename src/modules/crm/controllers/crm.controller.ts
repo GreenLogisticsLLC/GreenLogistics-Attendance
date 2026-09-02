@@ -379,6 +379,7 @@ export async function crmMyCarriersController(req: AuthRequest, res: Response) {
         "DISPATCH",
         "PICKED_UP",
         "ACCEPTED",
+        "ACCEPT_GREEN",
         "BOOKED",
     ]);
 
@@ -812,9 +813,11 @@ export async function crmCustomerDetailController(req: AuthRequest, res: Respons
             completed: shipments.filter((s) =>
                 ["COMPLETED", "CLOSED", "WON", "DELIVERED"].includes(s.status)
             ).length,
-            lost: shipments.filter((s) => s.status === "LOST").length,
+            lost: shipments.filter((s) =>
+                ["LOST", "ACCEPTED_ANOTHER_COMPANY"].includes(s.status)
+            ).length,
             active: shipments.filter((s) =>
-                !["COMPLETED", "CLOSED", "WON", "LOST"].includes(s.status)
+                !["COMPLETED", "CLOSED", "WON", "LOST", "ACCEPTED_ANOTHER_COMPANY"].includes(s.status)
             ).length,
         };
     })();

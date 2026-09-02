@@ -14,7 +14,7 @@ import type { ShipmentLifecycleContext } from "../lifecycle/types.js";
 
 const SHIPMENT_LIMIT = 35;
 const CARRIER_LIMIT = 20;
-const CLOSED_STATUSES = ["CLOSED", "LOST", "DELETED"];
+const CLOSED_STATUSES = ["CLOSED", "LOST", "ACCEPTED_ANOTHER_COMPANY", "DELETED"];
 
 type ShipmentRow = {
     shipmentLeadId: string;

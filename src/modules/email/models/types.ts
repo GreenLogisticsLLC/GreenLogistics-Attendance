@@ -13,6 +13,8 @@ export type ShipmentLeadStatus =
     | "BID_SUBMITTED"
     | "CUSTOMER_REPLIED"
     | "ACCEPTED"
+    | "ACCEPT_GREEN"
+    | "ACCEPTED_ANOTHER_COMPANY"
     | "LOAD_CREATED"
     | "DISPATCH"
     | "COMPLETED"

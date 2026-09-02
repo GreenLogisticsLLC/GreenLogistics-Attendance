@@ -45,10 +45,10 @@ export class ShipmentService {
         if (!isLoadPhase(previousStatus) || input.forceStatus) {
             if (!isLoadPhase(previousStatus)) {
                 // Hard gate: Customer Accepted (or Booked alias) must happen first.
-                if (!["ACCEPTED"].includes(previousStatus) && !input.forceStatus) {
+                if (!["ACCEPT_GREEN"].includes(previousStatus) && !input.forceStatus) {
                     throw Object.assign(
                         new Error(
-                            "Load Number can be created only after Customer Accepted (uShip Accepted email)"
+                            "Load Number can be created only after Accept Green (uShip accepted our quote)"
                         ),
                         { status: 422 }
                     );
@@ -118,18 +118,17 @@ export class ShipmentService {
             return shipment;
         }
 
-        if (!["ACCEPTED", "BOOKED", "LOAD_CREATED"].includes(status)) {
+        if (!["ACCEPT_GREEN", "LOAD_CREATED"].includes(status)) {
             throw Object.assign(
-                new Error("Load Number is generated only after Customer Accepted"),
+                new Error("Load Number is generated only after Accept Green"),
                 { status: 422 }
             );
         }
 
-        // Ensure status is ACCEPTED before applying load (BOOKED → treat as accepted).
-        if (status === "BOOKED") {
+        if (status === "ACCEPT_GREEN" && shipment.status !== "ACCEPT_GREEN") {
             await this.transitionStatus({
                 shipmentLeadId: input.shipmentLeadId,
-                status: "ACCEPTED",
+                status: "ACCEPT_GREEN",
                 actorUserId: input.actorUserId,
                 skipLifecycleCheck: true,
             });
@@ -176,8 +175,14 @@ export class ShipmentService {
         if (input.extras?.price !== undefined) data.price = input.extras.price;
         if (input.extras?.priority !== undefined) data.priority = input.extras.priority;
         if (to === "BID_SUBMITTED") data.quoteSentAt = new Date();
-        if (to === "ACCEPTED" && !shipment.acceptedAt) data.acceptedAt = new Date();
-        if (to === "COMPLETED" || to === "CLOSED" || to === "LOST" || to === "DELETED_FROM_CUSTOMER") {
+        if (to === "ACCEPT_GREEN" && !shipment.acceptedAt) data.acceptedAt = new Date();
+        if (
+            to === "COMPLETED" ||
+            to === "CLOSED" ||
+            to === "LOST" ||
+            to === "ACCEPTED_ANOTHER_COMPANY" ||
+            to === "DELETED_FROM_CUSTOMER"
+        ) {
             data.closedAt = new Date();
         }
 
@@ -195,8 +200,8 @@ export class ShipmentService {
             payload: { extras: input.extras || {} },
         });
 
-        // Customer Accepted → Create Load automatically (GL100001…).
-        if (to === "ACCEPTED" && !updated.loadNumber) {
+        // Accept Green → Create Load automatically (GL100001…).
+        if (to === "ACCEPT_GREEN" && !updated.loadNumber) {
             try {
                 return await this.createLoadAfterAccepted({
                     shipmentLeadId: input.shipmentLeadId,

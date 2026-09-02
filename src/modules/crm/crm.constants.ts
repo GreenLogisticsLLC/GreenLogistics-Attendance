@@ -11,7 +11,7 @@ export {
 /** Waiting for a broker In Office (Assignment Engine). */
 export const UNASSIGNED_STATUSES: string[] = ["NEW", "UNASSIGNED"];
 
-export const CLOSED_STATUSES: string[] = ["WON", "LOST", "COMPLETED", "CLOSED"];
+export const CLOSED_STATUSES: string[] = ["WON", "LOST", "COMPLETED", "CLOSED", "ACCEPTED_ANOTHER_COMPANY"];
 
 /** @deprecated Prefer LIFECYCLE_PIPELINE from Domain Events. Kept for older UI. */
 export const TIMELINE_STAGES = [
@@ -20,7 +20,7 @@ export const TIMELINE_STAGES = [
     { stage: "BROKER_ACCEPTED", title: "Broker Accepted Shipment" },
     { stage: "BID_SUBMITTED", title: "Bid Submitted" },
     { stage: "CUSTOMER_REPLIED", title: "Customer Replied" },
-    { stage: "CUSTOMER_ACCEPTED", title: "Customer Accepted" },
+    { stage: "CUSTOMER_ACCEPTED", title: "Accept Green" },
     { stage: "LOAD_CREATED", title: "Load Created" },
 ] as const;
 

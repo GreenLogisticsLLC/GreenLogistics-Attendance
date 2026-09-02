@@ -4,7 +4,8 @@ import { STATUS_LABELS, type ShipmentStatus } from "./shipment.constants.js";
 const ALIASES: Record<string, string> = {
     QUOTE_SENT: "BID_SUBMITTED",
     NEGOTIATION: "CUSTOMER_REPLIED",
-    BOOKED: "ACCEPTED",
+    BOOKED: "ACCEPT_GREEN",
+    ACCEPTED: "ACCEPT_GREEN",
     WON: "COMPLETED",
     PICKED_UP: "PICKUP",
     ASSIGNED: "AWAITING_ACCEPTANCE",
@@ -39,7 +40,8 @@ const LOAD_FLOW = [
 
 /**
  * Allowed transitions. Assignment path + marketplace + load ops on same card.
- * CLOSED / LOST / DELETED_FROM_CUSTOMER are terminal (customer deleted listing on uShip).
+ * CLOSED / LOST / ACCEPTED_ANOTHER_COMPANY / DELETED_FROM_CUSTOMER are terminal
+ * (customer booked elsewhere or deleted listing on uShip).
  */
 const ALLOWED: Record<string, string[]> = {
     NEW: [
@@ -49,9 +51,18 @@ const ALLOWED: Record<string, string[]> = {
         "WORKING",
         "BID_SUBMITTED",
         "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
         "DELETED_FROM_CUSTOMER",
     ],
-    UNASSIGNED: ["NEW", "AWAITING_ACCEPTANCE", "AGENT_OPEN", "WORKING", "LOST", "DELETED_FROM_CUSTOMER"],
+    UNASSIGNED: [
+        "NEW",
+        "AWAITING_ACCEPTANCE",
+        "AGENT_OPEN",
+        "WORKING",
+        "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
+        "DELETED_FROM_CUSTOMER",
+    ],
     AWAITING_ACCEPTANCE: [
         "AGENT_OPEN",
         "WORKING",
@@ -59,6 +70,7 @@ const ALLOWED: Record<string, string[]> = {
         "UNASSIGNED",
         "BID_SUBMITTED",
         "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
         "DELETED_FROM_CUSTOMER",
     ],
     AGENT_OPEN: [
@@ -68,15 +80,17 @@ const ALLOWED: Record<string, string[]> = {
         "BID_SUBMITTED",
         "CUSTOMER_REPLIED",
         "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
         "DELETED_FROM_CUSTOMER",
     ],
     WORKING: [
         "FOLLOW_UP",
         "BID_SUBMITTED",
         "CUSTOMER_REPLIED",
-        "ACCEPTED",
+        "ACCEPT_GREEN",
         "LOAD_CREATED",
         "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
         "DELETED_FROM_CUSTOMER",
     ],
     FOLLOW_UP: [
@@ -86,24 +100,28 @@ const ALLOWED: Record<string, string[]> = {
         "CUSTOMER_REPLIED",
         "AWAITING_ACCEPTANCE",
         "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
         "DELETED_FROM_CUSTOMER",
     ],
     BID_SUBMITTED: [
         "CUSTOMER_REPLIED",
-        "ACCEPTED",
+        "ACCEPT_GREEN",
         "BID_SUBMITTED",
         "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
         "WORKING",
         "DELETED_FROM_CUSTOMER",
     ],
     CUSTOMER_REPLIED: [
         "BID_SUBMITTED",
-        "ACCEPTED",
+        "ACCEPT_GREEN",
         "CUSTOMER_REPLIED",
         "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
         "WORKING",
         "DELETED_FROM_CUSTOMER",
     ],
+    ACCEPT_GREEN: ["LOAD_CREATED", "DISPATCH", "COMPLETED", "LOST", "DELETED_FROM_CUSTOMER"],
     ACCEPTED: ["LOAD_CREATED", "DISPATCH", "COMPLETED", "LOST", "DELETED_FROM_CUSTOMER"],
     LOAD_CREATED: [
         "CARRIER_ASSIGNED",
@@ -112,6 +130,7 @@ const ALLOWED: Record<string, string[]> = {
         "COMPLETED",
         "CLOSED",
         "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
         "DELETED_FROM_CUSTOMER",
     ],
     CARRIER_ASSIGNED: [
@@ -153,6 +172,7 @@ const ALLOWED: Record<string, string[]> = {
     COMPLETED: ["CLOSED", "CUSTOMER_INVOICE", "CARRIER_PAYMENT", "DELETED_FROM_CUSTOMER"],
     CLOSED: [],
     LOST: ["CLOSED"],
+    ACCEPTED_ANOTHER_COMPANY: ["CLOSED"],
     DELETED_FROM_CUSTOMER: [],
 };
 
@@ -161,6 +181,7 @@ export function canTransition(from: string, to: string): boolean {
     const b = normalizeStatus(to);
     if (a === b) return true;
     if (b === "DELETED_FROM_CUSTOMER" && a !== "CLOSED") return true;
+    if (b === "ACCEPTED_ANOTHER_COMPANY" && a !== "CLOSED" && a !== "ACCEPT_GREEN") return true;
     const next = ALLOWED[a];
     if (!next) return true;
     return next.includes(b);
@@ -193,7 +214,9 @@ export function eventTypeForStatus(status: string): string {
         WORKING: "BROKER_ACCEPTED_WORK",
         BID_SUBMITTED: "BID_SUBMITTED",
         CUSTOMER_REPLIED: "CUSTOMER_RESPOND",
+        ACCEPT_GREEN: "CUSTOMER_ACCEPTED",
         ACCEPTED: "CUSTOMER_ACCEPTED",
+        ACCEPTED_ANOTHER_COMPANY: "SHIPMENT_ACCEPTED_ANOTHER_COMPANY",
         LOAD_CREATED: "LOAD_CREATED",
         CARRIER_ASSIGNED: "CARRIER_ASSIGNED",
         RATE_CON_GENERATED: "RATE_CONFIRMATION_GENERATED",

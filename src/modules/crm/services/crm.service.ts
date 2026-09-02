@@ -178,7 +178,7 @@ export class CrmService {
                 where: { status: "WON", ...teamAssigned },
             }),
             prisma.shipmentLead.count({
-                where: { status: "LOST", ...teamAssigned },
+                where: { status: { in: ["LOST", "ACCEPTED_ANOTHER_COMPANY"] }, ...teamAssigned },
             }),
             prisma.shipmentLead.count({
                 where: { status: { in: [...ACTIVE_STATUSES] }, ...teamAssigned },
@@ -669,7 +669,7 @@ export class CrmService {
                 followUp: countFor("FOLLOW_UP"),
                 quotesSent: countFor("QUOTE_SENT"),
                 won: countFor("WON"),
-                lost: countFor("LOST"),
+                lost: countFor("LOST") + countFor("ACCEPTED_ANOTHER_COMPANY"),
                 averageResponseTimeMinutes: avgMs == null ? null : Math.round(avgMs / 60000),
             });
         }
@@ -886,7 +886,7 @@ export class CrmService {
             }
         }
 
-        if (["CLOSED", "LOST", "DELETED_FROM_CUSTOMER"].includes(normalizeStatus(lead.status))) {
+        if (["CLOSED", "LOST", "ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"].includes(normalizeStatus(lead.status))) {
             throw Object.assign(
                 new Error(`Cannot simulate Customer Accepted from status ${lead.status}`),
                 { status: 422 }
@@ -896,10 +896,10 @@ export class CrmService {
         await ensureGreenOsShipmentId(shipmentLeadId).catch(() => null);
 
         // Mirror uShip Accepted email: ACCEPTED auto-creates Load (GL…) inside transitionStatus.
-        if (normalizeStatus(lead.status) !== "ACCEPTED" && !isLoadPhase(lead.status)) {
+        if (normalizeStatus(lead.status) !== "ACCEPT_GREEN" && !isLoadPhase(lead.status)) {
             await shipmentService.transitionStatus({
                 shipmentLeadId,
-                status: "ACCEPTED",
+                status: "ACCEPT_GREEN",
                 actorUserId,
                 skipLifecycleCheck: true,
             });

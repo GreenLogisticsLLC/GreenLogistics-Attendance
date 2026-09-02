@@ -37,6 +37,7 @@ export const MAX_VALID_RATE = 50000;
 /** Statuses excluded from historical rate dataset (cancelled / lost / deleted). */
 export const EXCLUDED_SHIPMENT_STATUSES = [
     "LOST",
+    "ACCEPTED_ANOTHER_COMPANY",
     "DELETED_FROM_CUSTOMER",
     "DELETED",
     "CANCELLED",

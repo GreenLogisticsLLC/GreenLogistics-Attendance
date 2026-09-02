@@ -18,6 +18,7 @@ export type UshipLifecycleKind =
     | "AGENT_WORKING"
     | "BID_UPDATED"
     | "CUSTOMER_ACCEPTED"
+    | "ACCEPTED_ANOTHER_COMPANY"
     | "LOAD_NUMBER_ASSIGNED"
     | "SHIPMENT_BOOKED"
     | "SHIPMENT_LOST"
@@ -67,8 +68,22 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
+    // Another company booked this listing — before our-win "accepted" / generic "booked".
     if (
-        /shipment\s+lost|listing\s+closed|another\s+carrier|bid\s+not\s+selected|unfortunately.{0,40}lost|canceled|cancelled/.test(
+        /booked\s+by\s+another|accepted\s+by\s+another|another\s+(?:company|carrier|service\s+provider|transporter|provider|listing)|(?:company|carrier|provider)\s+other\s+than\s+(?:yours|us)|listing\s+(?:has\s+been\s+|was\s+)?(?:booked|accepted)\s+by\s+(?:a\s+)?(?:different|other|another)|this\s+(?:listing|shipment)\s+has\s+been\s+booked\s+by\s+another|a\s+listing\s+you\s+quoted.{0,80}booked\s+by\s+another/.test(
+            h
+        )
+    ) {
+        return {
+            kind: "ACCEPTED_ANOTHER_COMPANY",
+            title: "Accepted another company",
+            domainEventType: "SHIPMENT_ACCEPTED_ANOTHER_COMPANY",
+            targetStatus: "ACCEPTED_ANOTHER_COMPANY",
+        };
+    }
+
+    if (
+        /shipment\s+lost|listing\s+closed|bid\s+not\s+selected|unfortunately.{0,40}lost|canceled|cancelled/.test(
             h
         )
     ) {
@@ -80,27 +95,26 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    // Accepted MUST be detected before any load-number heuristics (false "Load #" matches
-    // used to light Load Created before Customer Accepted).
+    // Our broker won — Accept Green. Must run before generic "booked".
     if (
-        /customer\s+accepted|accepted\s+your\s+bid|your\s+bid\s+was\s+accepted|bid\s+accepted|booking\s+confirmed|your\s+code\s+has\s+been\s+accepted|code\s+has\s+been\s+accepted\s+by\s+(?:the\s+)?customer|quote\s+has\s+been\s+accepted/.test(
+        /customer\s+accepted|accepted\s+your\s+bid|your\s+bid\s+was\s+accepted|bid\s+accepted|booking\s+confirmed|your\s+code\s+has\s+been\s+accepted|code\s+has\s+been\s+accepted\s+by\s+(?:the\s+)?customer|quote\s+has\s+been\s+accepted|accepted\s+your\s+quote|your\s+quote\s+was\s+accepted|congratulations.{0,40}(?:booked|accepted)/.test(
             h
         )
     ) {
         return {
             kind: "CUSTOMER_ACCEPTED",
-            title: "Customer Accepted",
+            title: "Accept Green",
             domainEventType: "CUSTOMER_ACCEPTED",
-            targetStatus: "ACCEPTED",
+            targetStatus: "ACCEPT_GREEN",
         };
     }
 
-    if (/\bbooked\b|shipment\s+booked|listing\s+booked/.test(h)) {
+    if (/\byour\s+listing\s+(?:has\s+been\s+|was\s+)?booked\b|shipment\s+booked|listing\s+booked/.test(h)) {
         return {
             kind: "SHIPMENT_BOOKED",
-            title: "Shipment Booked",
+            title: "Accept Green",
             domainEventType: "CUSTOMER_ACCEPTED",
-            targetStatus: "ACCEPTED",
+            targetStatus: "ACCEPT_GREEN",
         };
     }
 
@@ -224,6 +238,7 @@ const NOTIFY_KINDS = new Set<UshipLifecycleKind>([
     "CUSTOMER_QUESTION",
     "AGENT_WORKING",
     "CUSTOMER_ACCEPTED",
+    "ACCEPTED_ANOTHER_COMPANY",
     "LOAD_NUMBER_ASSIGNED",
     "SHIPMENT_BOOKED",
     "SHIPMENT_LOST",
@@ -277,6 +292,7 @@ export async function applyUshipLifecycleEvent(input: {
     if (detected.kind === "LOAD_NUMBER_ASSIGNED") {
         const current = normalizeStatus(shipment.status);
         const loadReady = [
+            "ACCEPT_GREEN",
             "ACCEPTED",
             "LOAD_CREATED",
             "CARRIER_ASSIGNED",
@@ -318,6 +334,7 @@ export async function applyUshipLifecycleEvent(input: {
             BID_SUBMITTED: 3,
             CUSTOMER_REPLIED: 4,
             FOLLOW_UP: 2,
+            ACCEPT_GREEN: 5,
             ACCEPTED: 5,
             LOAD_CREATED: 6,
             CARRIER_ASSIGNED: 6.2,
@@ -333,12 +350,16 @@ export async function applyUshipLifecycleEvent(input: {
             COMPLETED: 8,
             CLOSED: 9,
             LOST: 9,
+            ACCEPTED_ANOTHER_COMPANY: 9,
             DELETED_FROM_CUSTOMER: 9,
         };
+        const alreadyWon = current === "ACCEPT_GREEN" || (rank[current] ?? 0) >= 5;
         const shouldUpdateStatus =
             detected.targetStatus === "LOST" ||
             detected.targetStatus === "DELETED_FROM_CUSTOMER" ||
-            (rank[target] ?? 0) >= (rank[current] ?? 0);
+            (detected.targetStatus === "ACCEPTED_ANOTHER_COMPANY" && !alreadyWon) ||
+            ((rank[target] ?? 0) >= (rank[current] ?? 0) &&
+                !(detected.targetStatus === "ACCEPTED_ANOTHER_COMPANY" && alreadyWon));
 
         if (shouldUpdateStatus && current !== target) {
             await shipmentService.transitionStatus({
@@ -385,10 +406,11 @@ export async function applyUshipLifecycleEvent(input: {
             });
         }
 
-        // After Accepted email → auto-generate Load Number (GL100001…).
+        // After Accept Green → auto-generate Load Number (GL100001…).
+        // Do not create a load when another company won.
         if (
             (detected.kind === "CUSTOMER_ACCEPTED" || detected.kind === "SHIPMENT_BOOKED") &&
-            target === "ACCEPTED"
+            target === "ACCEPT_GREEN"
         ) {
             await shipmentService
                 .createLoadAfterAccepted({
@@ -467,6 +489,7 @@ export async function applyUshipLifecycleEvent(input: {
             AGENT_WORKING: "AGENT_WORKING",
             NEW_MESSAGE: "CUSTOMER_RESPOND",
             CUSTOMER_ACCEPTED: "BID_ACCEPTED",
+            ACCEPTED_ANOTHER_COMPANY: "SHIPMENT_ACCEPTED_ANOTHER_COMPANY",
             SHIPMENT_BOOKED: "SHIPMENT_BOOKED",
             LOAD_NUMBER_ASSIGNED: "LOAD_NUMBER_RECEIVED",
             SHIPMENT_LOST: "SHIPMENT_LOST",

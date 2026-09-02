@@ -172,7 +172,7 @@ export class DomainEventEngine {
             CUSTOMER_RESPOND: ["CUSTOMER_RESPOND", "CUSTOMER_REPLIED", "CUSTOMER_QUESTION", "NEW_MESSAGE"],
             BROKER_QUESTION: ["BROKER_QUESTION"],
             BID_SUBMITTED: ["BID_SUBMITTED", "QUOTE_SENT"],
-            CUSTOMER_ACCEPTED: ["CUSTOMER_ACCEPTED", "BOOKED"],
+            CUSTOMER_ACCEPTED: ["CUSTOMER_ACCEPTED", "BOOKED", "ACCEPT_GREEN"],
             BROKER_ACCEPTED_WORK: ["BROKER_ACCEPTED_WORK", "BROKER_ACCEPTED", "AGENT_STARTED_WORK"],
             SHIPMENT_IMPORTED: ["SHIPMENT_IMPORTED", "IMPORTED"],
             BROKER_ASSIGNED: ["BROKER_ASSIGNED", "ASSIGNED"],
@@ -192,7 +192,8 @@ export class DomainEventEngine {
                         (step.stage === "SHIPMENT_IMPORTED" && t.stage === "IMPORTED") ||
                         (step.stage === "BROKER_ASSIGNED" && t.stage === "ASSIGNED") ||
                         (step.stage === "BROKER_ACCEPTED_WORK" && t.stage === "BROKER_ACCEPTED") ||
-                        (step.stage === "CUSTOMER_ACCEPTED" && t.stage === "BOOKED") ||
+                        (step.stage === "CUSTOMER_ACCEPTED" &&
+                            (t.stage === "BOOKED" || t.stage === "ACCEPT_GREEN" || t.stage === "ACCEPTED")) ||
                         (step.stage === "BID_SUBMITTED" && t.stage === "QUOTE_SENT") ||
                         (step.stage === "CUSTOMER_RESPOND" &&
                             (t.stage === "CUSTOMER_REPLIED" || t.stage === "CUSTOMER_RESPOND"))
@@ -205,9 +206,13 @@ export class DomainEventEngine {
                 const accepted =
                     occurred.has("CUSTOMER_ACCEPTED") ||
                     occurred.has("BOOKED") ||
+                    occurred.has("ACCEPT_GREEN") ||
                     timeline.some(
                         (t: { stage: string }) =>
-                            t.stage === "CUSTOMER_ACCEPTED" || t.stage === "ACCEPTED" || t.stage === "BOOKED"
+                            t.stage === "CUSTOMER_ACCEPTED" ||
+                            t.stage === "ACCEPTED" ||
+                            t.stage === "ACCEPT_GREEN" ||
+                            t.stage === "BOOKED"
                     );
                 if (!accepted) {
                     return {

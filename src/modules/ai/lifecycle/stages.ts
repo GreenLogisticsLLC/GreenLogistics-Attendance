@@ -44,7 +44,7 @@ export function deriveCurrentStage(evidence: LifecycleEvidence): LifecycleStage 
     const pod = document(evidence, "POD");
     const rc = document(evidence, "RATE_CONFIRMATION");
 
-    if (["LOST", "DELETED_FROM_CUSTOMER"].includes(status)) return "CLOSED";
+    if (["LOST", "ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"].includes(status)) return "CLOSED";
     if (status === "CLOSED") return "CLOSED";
     if (complianceBlocked(evidence) && LIFECYCLE_STAGE_ORDER.indexOf(statusStage(status)) >= 3) {
         return "CARRIER_COMPLIANCE";
@@ -80,6 +80,7 @@ function statusStage(status: string): LifecycleStage {
         case "BID_SUBMITTED":
         case "CUSTOMER_REPLIED":
             return "ASSIGNED";
+        case "ACCEPT_GREEN":
         case "ACCEPTED":
         case "LOAD_CREATED":
             return "CUSTOMER_CONFIRMED";
@@ -104,6 +105,7 @@ function statusStage(status: string): LifecycleStage {
             return "CLOSEOUT";
         case "CLOSED":
         case "LOST":
+        case "ACCEPTED_ANOTHER_COMPANY":
         case "DELETED_FROM_CUSTOMER":
             return "CLOSED";
         default:
@@ -143,7 +145,7 @@ export function stageFromEventType(type: string): LifecycleStage {
             .replace(/_MARKED$/, "")
             .replace("SHIPMENT_IMPORTED", "NEW")
             .replace("BROKER_ASSIGNED", "ASSIGNED")
-            .replace("CUSTOMER_ACCEPTED", "ACCEPTED")
+            .replace("CUSTOMER_ACCEPTED", "ACCEPT_GREEN")
             .replace("RATE_CONFIRMATION_GENERATED", "RATE_CON_GENERATED")
             .replace("SHIPMENT_COMPLETED", "COMPLETED")
             .replace("SHIPMENT_CLOSED", "CLOSED")
