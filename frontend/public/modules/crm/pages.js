@@ -1238,23 +1238,21 @@ window.GreenOSModules.crm = {
       });
 
       modal.querySelectorAll(".crm-open-uship").forEach(function (link) {
-        link.addEventListener("click", function () {
+        link.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          var href = link.getAttribute("href");
+          if (href) window.open(href, "_blank", "noopener");
           window.GreenOSModules.crm
-            .api("/shipments/" + encodeURIComponent(id) + "/opened", {
+            .api("/shipments/" + encodeURIComponent(id) + "/opened?action=uship", {
               method: "POST",
               body: JSON.stringify({ action: "uship" }),
-              keepalive: true,
             })
-            .then(function (res) {
-              if (gen !== window.GreenOSModules.crm._cardOpenGen) return;
+            .then(function () {
               if (modal.getAttribute("data-shipment-id") !== id) return;
-              var next = res && res.success && res.data ? res.data : null;
-              if (next && next.status && next.status !== s.status) {
-                window.GreenOSModules.crm.openShipmentCard(root, id);
-              }
+              window.GreenOSModules.crm.openShipmentCard(root, id);
             })
             .catch(function () {
-              /* uShip tab still opens via href */
+              /* uShip tab still opens */
             });
         });
       });

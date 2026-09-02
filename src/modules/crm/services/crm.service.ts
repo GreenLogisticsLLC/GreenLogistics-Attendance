@@ -748,7 +748,7 @@ export class CrmService {
         return this.getShipmentCard(shipmentLeadId);
     }
 
-    /** First open by assigned broker (or Owner/Manager working the card). */
+    /** First "Open in uShip" click by assigned broker (or ops working the card). */
     async markAgentOpened(shipmentLeadId: string, actorUserId: string) {
         const lead = await prisma.shipmentLead.findUnique({
             where: { shipmentLeadId },
@@ -758,20 +758,23 @@ export class CrmService {
 
         const role = await actorRoleName(actorUserId);
         const allowed =
-            lead.assignedBrokerId === actorUserId || canWorkAnyShipment(role);
+            lead.assignedBrokerId === actorUserId ||
+            canWorkAnyShipment(role) ||
+            role === "Team Lead";
         if (!allowed) {
             return this.getShipmentCard(shipmentLeadId);
         }
 
-        const result = await prisma.shipmentLead.updateMany({
-            where: {
-                shipmentLeadId,
-                status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE"] },
-            },
-            data: { status: "AGENT_OPEN" },
-        });
-
-        if (result.count > 0) {
+        const waitingStatuses = ["ASSIGNED", "AWAITING_ACCEPTANCE", "NEW"];
+        if (waitingStatuses.includes(lead.status)) {
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId },
+                data: {
+                    status: "AGENT_OPEN",
+                    // Opening uShip means the broker took the lead — do not reassign after 15m.
+                    acceptanceDeadline: null,
+                },
+            });
             await domainEventEngine.emit({
                 shipmentLeadId,
                 eventType: "AGENT_OPENED",

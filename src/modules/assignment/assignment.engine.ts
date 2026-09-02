@@ -237,10 +237,11 @@ export class AssignmentEngine {
 
     async processDueAcceptances() {
         const now = new Date();
-        // 1) Reclaim loads whose assigned broker is no longer In Office (still awaiting accept).
+        // 1) Reclaim loads still Waiting whose assigned broker is no longer In Office.
+        //    Do not reclaim after Open in uShip or Accept — the broker kept the lead.
         const awaiting = await prisma.shipmentLead.findMany({
             where: {
-                status: { in: ["AWAITING_ACCEPTANCE", "AGENT_OPEN", "ASSIGNED"] },
+                status: { in: ["AWAITING_ACCEPTANCE", "ASSIGNED"] },
                 acceptedAt: null,
                 assignedBrokerId: { not: null },
             },
@@ -282,11 +283,12 @@ export class AssignmentEngine {
             });
         }
 
-        // 2) No accept within the window → pass to next In Office broker.
-        // AGENT_OPEN alone (opened card) does not count as acceptance.
+        // 2) Still Waiting (never opened uShip, never accepted) past the window
+        //    → pass to next In Office broker.
+        // Open in uShip (AGENT_OPEN) or Accept (WORKING + acceptedAt) keeps the lead.
         const expired = await prisma.shipmentLead.findMany({
             where: {
-                status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
+                status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE"] },
                 acceptedAt: null,
                 acceptanceDeadline: { lt: now },
                 assignedBrokerId: { not: null },
@@ -296,6 +298,14 @@ export class AssignmentEngine {
 
         let reassigned = 0;
         for (const lead of expired) {
+            if (
+                lead.acceptedAt ||
+                ["AGENT_OPEN", "WORKING", "BID_SUBMITTED", "CUSTOMER_REPLIED", "ACCEPT_GREEN"].includes(
+                    lead.status
+                )
+            ) {
+                continue;
+            }
             const previousBrokerId = lead.assignedBrokerId!;
             const previousUser = await prisma.user.findUnique({
                 where: { userId: previousBrokerId },
@@ -470,7 +480,7 @@ export class AssignmentEngine {
                 "Fresh NEW imports are assigned before passed-along (reassigned) loads",
                 "If nobody is In Office → all active brokers receive shipments in order (Gary first, then A→Z)",
                 "When someone checks in → only checked-in brokers receive new shipments",
-                "Out of Office removes broker from the active pool (assigned pending leads may be reclaimed)",
+                "Waiting leads unopened for 15 minutes go to the next broker; Open in uShip or Accept keeps the load",
                 "Gmail recommended for uShip updates but does not block receiving shipments",
             ],
             heart: "Attendance → Assignment Queue → CRM Shipment",

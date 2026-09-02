@@ -122,9 +122,9 @@ export async function crmMarkShipmentOpenedController(req: AuthRequest, res: Res
               : "";
 
     // Only explicit "Open in uShip" advances to AGENT_OPEN — viewing the card does not.
+    // Anyone who can open the card may mark the uShip click (Broker, Team Lead, Owner…).
     const card =
-        action === "uship" &&
-        (req.user.role === "Broker" || canWorkAnyShipment(req.user.role))
+        action === "uship"
             ? await crmService.markAgentOpened(id, req.user.userId)
             : await crmService.getShipmentCard(id);
     if (!card) return res.status(404).json(apiResponse(false, "Shipment not found"));
