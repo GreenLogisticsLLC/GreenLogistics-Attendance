@@ -157,13 +157,27 @@ export class AssignmentOpsService {
         let n = 0;
         for (const lead of leads) {
             const previousBrokerId = lead.assignedBrokerId!;
-            await shipmentLeadRepository.update(lead.shipmentLeadId, {
-                status: "UNASSIGNED",
-                assignedBrokerId: null,
-                acceptanceDeadline: null,
-                isReassignment: true,
-                wasEverReassigned: true,
+            if (lead.acceptedAt || lead.status === "WORKING" || lead.status === "AGENT_OPEN") {
+                continue;
+            }
+            const parked = await prisma.shipmentLead.updateMany({
+                where: {
+                    shipmentLeadId: lead.shipmentLeadId,
+                    acceptedAt: null,
+                    status: {
+                        in: ["NEW", "UNASSIGNED", "AWAITING_ACCEPTANCE", "ASSIGNED"],
+                    },
+                    assignedBrokerId: previousBrokerId,
+                },
+                data: {
+                    status: "UNASSIGNED",
+                    assignedBrokerId: null,
+                    acceptanceDeadline: null,
+                    isReassignment: true,
+                    wasEverReassigned: true,
+                },
             });
+            if (parked.count === 0) continue;
             await domainEventEngine.emit({
                 shipmentLeadId: lead.shipmentLeadId,
                 eventType: "SHIPMENT_UNASSIGNED",

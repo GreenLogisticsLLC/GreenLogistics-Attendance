@@ -1325,8 +1325,14 @@ window.GreenOSModules.crm = {
       });
 
       modal.querySelector("#crm-accept")?.addEventListener("click", async function () {
-        await window.GreenOSModules.crm.api("/shipments/" + id + "/accept", { method: "POST" });
-        window.GreenOSModules.crm.openShipmentCard(root, id);
+        var res = await window.GreenOSModules.crm.api("/shipments/" + id + "/accept", {
+          method: "POST",
+        });
+        if (!res || res.success === false) {
+          alert((res && res.message) || "Could not accept shipment");
+          return;
+        }
+        window.GreenOSModules.crm.openShipmentCard(document, id, res.data || null);
       });
 
       function authFileUrl(url) {

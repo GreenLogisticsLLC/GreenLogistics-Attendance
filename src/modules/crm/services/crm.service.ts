@@ -947,6 +947,9 @@ export class CrmService {
                 );
             }
         }
+        if (lead.status === "WORKING" && lead.acceptedAt) {
+            return this.getShipmentCard(shipmentLeadId);
+        }
         if (
             lead.status !== "ASSIGNED" &&
             lead.status !== "AWAITING_ACCEPTANCE" &&
@@ -964,6 +967,7 @@ export class CrmService {
                 status: "WORKING",
                 acceptedAt: new Date(),
                 acceptanceDeadline: null,
+                assignedBrokerId: lead.assignedBrokerId || actorUserId,
             },
         });
         await ensureGreenOsShipmentId(shipmentLeadId).catch(() => null);

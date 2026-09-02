@@ -9,6 +9,27 @@ import {
 } from "../email/services/repositories.js";
 import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
+import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
+
+/** Once the broker opened uShip or accepted, the lead must stay on their account. */
+const KEPT_BY_BROKER = new Set([
+    "AGENT_OPEN",
+    "WORKING",
+    "FOLLOW_UP",
+    "BID_SUBMITTED",
+    "CUSTOMER_REPLIED",
+    "ACCEPT_GREEN",
+    "ACCEPTED",
+    "LOAD_CREATED",
+]);
+
+const WAITING_TO_ASSIGN = ["NEW", "UNASSIGNED", "ASSIGNED", "AWAITING_ACCEPTANCE"] as const;
+
+function isKeptByCurrentBroker(lead: { status: string; acceptedAt?: Date | null }) {
+    if (lead.acceptedAt) return true;
+    const status = normalizeStatus(lead.status);
+    return KEPT_BY_BROKER.has(status) || isLoadPhase(status);
+}
 
 const QUEUE_KEY = "brokers";
 /** Minutes to accept / react before load is passed to the next In Office broker. */
@@ -128,6 +149,9 @@ export class AssignmentEngine {
     ) {
         const lead = await shipmentLeadRepository.findById(shipmentLeadId);
         if (!lead) return lead;
+        if (isKeptByCurrentBroker(lead)) {
+            return lead;
+        }
 
         const acceptanceDeadline = new Date(Date.now() + ACCEPTANCE_MINUTES * 60_000);
         const isReassignment = Boolean(
@@ -136,15 +160,27 @@ export class AssignmentEngine {
                 lead.isReassignment ||
                 lead.assignedBrokerId
         );
-        const assigned = await shipmentLeadRepository.update(shipmentLeadId, {
-            status: "ASSIGNED",
-            assignedBrokerId: broker.userId,
-            assignedAt: new Date(),
-            acceptanceDeadline,
-            acceptedAt: null,
-            isReassignment,
-            ...(isReassignment ? { wasEverReassigned: true } : {}),
+        const claimed = await prisma.shipmentLead.updateMany({
+            where: {
+                shipmentLeadId,
+                acceptedAt: null,
+                status: { in: [...WAITING_TO_ASSIGN] },
+            },
+            data: {
+                status: "ASSIGNED",
+                assignedBrokerId: broker.userId,
+                assignedAt: new Date(),
+                acceptanceDeadline,
+                acceptedAt: null,
+                isReassignment,
+                ...(isReassignment ? { wasEverReassigned: true } : {}),
+            },
         });
+        if (claimed.count === 0) {
+            return shipmentLeadRepository.findById(shipmentLeadId);
+        }
+        const assigned = await shipmentLeadRepository.findById(shipmentLeadId);
+        if (!assigned) return lead;
 
         const reason = options?.reassignFrom
             ? `Reassigned from ${options.reassignFrom} → ${broker.displayName} (no reaction in ${ACCEPTANCE_MINUTES}m)`
@@ -175,9 +211,18 @@ export class AssignmentEngine {
             queueSnapshot,
         });
 
-        const awaiting = await shipmentLeadRepository.update(shipmentLeadId, {
-            status: "AWAITING_ACCEPTANCE",
+        const advanced = await prisma.shipmentLead.updateMany({
+            where: {
+                shipmentLeadId,
+                acceptedAt: null,
+                status: "ASSIGNED",
+            },
+            data: { status: "AWAITING_ACCEPTANCE" },
         });
+        if (advanced.count === 0) {
+            return shipmentLeadRepository.findById(shipmentLeadId);
+        }
+        const awaiting = await shipmentLeadRepository.findById(shipmentLeadId);
         await this.pipelineLog(shipmentLeadId, "Status → AWAITING_ACCEPTANCE");
 
         try {
@@ -322,18 +367,29 @@ export class AssignmentEngine {
                 (b) => b.userId === brokerId
             );
             if (stillEligible) continue;
+            const latest = await shipmentLeadRepository.findById(lead.shipmentLeadId);
+            if (!latest || isKeptByCurrentBroker(latest)) continue;
             // Broker checked out / not eligible — pass to someone In Office now.
             await this.pipelineLog(
                 lead.shipmentLeadId,
                 "Assigned broker is not In Office — reclaiming for round-robin"
             );
-            await shipmentLeadRepository.update(lead.shipmentLeadId, {
-                status: "UNASSIGNED",
-                assignedBrokerId: null,
-                acceptanceDeadline: null,
-                isReassignment: true,
-                wasEverReassigned: true,
+            const reclaimed = await prisma.shipmentLead.updateMany({
+                where: {
+                    shipmentLeadId: lead.shipmentLeadId,
+                    acceptedAt: null,
+                    status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE"] },
+                    assignedBrokerId: brokerId,
+                },
+                data: {
+                    status: "UNASSIGNED",
+                    assignedBrokerId: null,
+                    acceptanceDeadline: null,
+                    isReassignment: true,
+                    wasEverReassigned: true,
+                },
             });
+            if (reclaimed.count === 0) continue;
             await domainEventEngine.emit({
                 shipmentLeadId: lead.shipmentLeadId,
                 eventType: "SHIPMENT_UNASSIGNED",
@@ -369,14 +425,8 @@ export class AssignmentEngine {
 
         let reassigned = 0;
         for (const lead of expired) {
-            if (
-                lead.acceptedAt ||
-                ["AGENT_OPEN", "WORKING", "BID_SUBMITTED", "CUSTOMER_REPLIED", "ACCEPT_GREEN"].includes(
-                    lead.status
-                )
-            ) {
-                continue;
-            }
+            const latest = await shipmentLeadRepository.findById(lead.shipmentLeadId);
+            if (!latest || isKeptByCurrentBroker(latest)) continue;
             const previousBrokerId = lead.assignedBrokerId!;
             const previousUser = await prisma.user.findUnique({
                 where: { userId: previousBrokerId },
@@ -449,13 +499,21 @@ export class AssignmentEngine {
             });
 
             if (!pick) {
-                await shipmentLeadRepository.update(lead.shipmentLeadId, {
-                    status: "UNASSIGNED",
-                    assignedBrokerId: null,
-                    acceptanceDeadline: null,
-                    isReassignment: true,
-                    wasEverReassigned: true,
+                const parked = await prisma.shipmentLead.updateMany({
+                    where: {
+                        shipmentLeadId: lead.shipmentLeadId,
+                        acceptedAt: null,
+                        status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE"] },
+                    },
+                    data: {
+                        status: "UNASSIGNED",
+                        assignedBrokerId: null,
+                        acceptanceDeadline: null,
+                        isReassignment: true,
+                        wasEverReassigned: true,
+                    },
                 });
+                if (parked.count === 0) continue;
                 await this.pipelineLog(
                     lead.shipmentLeadId,
                     "No other broker In Office — parked UNASSIGNED"
@@ -488,10 +546,15 @@ export class AssignmentEngine {
                 continue;
             }
 
-            await this.assignLeadToBroker(lead.shipmentLeadId, pick.broker, pick.queueSnapshot, {
-                reassignFrom: previousLabel,
-            });
-            reassigned += 1;
+            const after = await this.assignLeadToBroker(
+                lead.shipmentLeadId,
+                pick.broker,
+                pick.queueSnapshot,
+                { reassignFrom: previousLabel }
+            );
+            if (after && after.assignedBrokerId === pick.broker.userId && !isKeptByCurrentBroker(after)) {
+                reassigned += 1;
+            }
         }
         return reassigned || expired.length;
     }
