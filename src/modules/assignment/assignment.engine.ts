@@ -620,15 +620,23 @@ export class AssignmentEngine {
     }
 
     /**
-     * Assign waiting NEW / UNASSIGNED shipments (no broker) via Round Robin.
-     * Called when a broker returns In Office, or manually from ops tools.
+     * Assign waiting NEW / first-time UNASSIGNED shipments via Round Robin.
+     * Automatic ticks never hand out old passed-along (Other) loads — those
+     * only fill in after every fresh import is gone, and only when asked.
      */
-    async assignPendingNewLeads(limit = 50): Promise<number> {
+    async assignPendingNewLeads(
+        limit = 50,
+        options?: { includeOther?: boolean }
+    ): Promise<number> {
         const unassignedPool = {
             status: "UNASSIGNED" as const,
             OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
         };
-        const [freshNew, unassignedFresh, unassignedOther] = await Promise.all([
+        const freshFilter = {
+            wasEverReassigned: false,
+            isReassignment: false,
+        };
+        const [freshNew, unassignedFresh] = await Promise.all([
             prisma.shipmentLead.findMany({
                 where: {
                     status: "NEW",
@@ -639,19 +647,50 @@ export class AssignmentEngine {
                 select: { shipmentLeadId: true },
             }),
             prisma.shipmentLead.findMany({
-                where: { ...unassignedPool, wasEverReassigned: false },
-                orderBy: { createdAt: "asc" },
-                take: limit,
-                select: { shipmentLeadId: true },
-            }),
-            prisma.shipmentLead.findMany({
-                where: { ...unassignedPool, wasEverReassigned: true },
+                where: { ...unassignedPool, ...freshFilter },
                 orderBy: { createdAt: "asc" },
                 take: limit,
                 select: { shipmentLeadId: true },
             }),
         ]);
-        const pending = [...freshNew, ...unassignedFresh, ...unassignedOther].slice(0, limit);
+        const seen = new Set<string>();
+        const pending: Array<{ shipmentLeadId: string }> = [];
+        for (const row of [...freshNew, ...unassignedFresh]) {
+            if (seen.has(row.shipmentLeadId)) continue;
+            seen.add(row.shipmentLeadId);
+            pending.push(row);
+            if (pending.length >= limit) break;
+        }
+
+        if (options?.includeOther && pending.length < limit) {
+            const stillFresh = await prisma.shipmentLead.count({
+                where: {
+                    OR: [
+                        {
+                            status: "NEW",
+                            OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+                        },
+                        { ...unassignedPool, ...freshFilter },
+                    ],
+                },
+            });
+            if (stillFresh === 0) {
+                const unassignedOther = await prisma.shipmentLead.findMany({
+                    where: {
+                        ...unassignedPool,
+                        OR: [{ wasEverReassigned: true }, { isReassignment: true }],
+                    },
+                    orderBy: { createdAt: "asc" },
+                    take: limit - pending.length,
+                    select: { shipmentLeadId: true },
+                });
+                for (const row of unassignedOther) {
+                    if (seen.has(row.shipmentLeadId)) continue;
+                    seen.add(row.shipmentLeadId);
+                    pending.push(row);
+                }
+            }
+        }
 
         let assigned = 0;
         for (const row of pending) {

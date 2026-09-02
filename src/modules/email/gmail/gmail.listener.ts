@@ -82,13 +82,13 @@ export class GmailListener {
     async listUnreadMessageIds(maxResults = 25, options?: { after?: Date | null }): Promise<string[]> {
         if (!(await this.ensureCredentials())) return [];
         const gmail = await this.getClient();
-        let q = "is:unread";
+        let q = "is:unread from:uship.com";
         if (options?.after && !Number.isNaN(options.after.getTime())) {
             // Gmail `after:` is date-only (UTC day). Fine-grained filter uses receivedAt later.
             const y = options.after.getUTCFullYear();
             const m = String(options.after.getUTCMonth() + 1).padStart(2, "0");
             const d = String(options.after.getUTCDate()).padStart(2, "0");
-            q = `is:unread after:${y}/${m}/${d}`;
+            q = `is:unread from:uship.com after:${y}/${m}/${d}`;
         }
         const res = await gmail.users.messages.list({
             userId: config.gmail.user,

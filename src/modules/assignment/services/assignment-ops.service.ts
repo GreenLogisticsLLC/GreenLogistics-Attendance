@@ -33,7 +33,8 @@ export class AssignmentOpsService {
         const reclaimed = await this.reclaimUnworkedLeads();
         await assignmentEngine.processDueAcceptances();
         const drained = await assignmentEngine.assignPendingNewLeads(
-            options?.drainLimit ?? 100
+            options?.drainLimit ?? 100,
+            { includeOther: true }
         );
         const eligible = await assignmentEngine.listEligibleBrokers();
 

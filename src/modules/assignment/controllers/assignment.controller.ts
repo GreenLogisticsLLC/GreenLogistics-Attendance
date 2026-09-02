@@ -31,7 +31,9 @@ export async function assignmentEligibleController(_req: AuthRequest, res: Respo
 export async function assignmentDrainPendingController(_req: AuthRequest, res: Response) {
     try {
         await assignmentEngine.processDueAcceptances();
-        const assigned = await assignmentEngine.assignPendingNewLeads(50);
+        const assigned = await assignmentEngine.assignPendingNewLeads(50, {
+            includeOther: true,
+        });
         return res.json(
             apiResponse(true, `Assigned ${assigned} pending shipment(s)`, { assigned })
         );

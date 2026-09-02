@@ -29,7 +29,11 @@ export class ShipmentLeadService {
                     emailMessageId,
                     shipmentLeadId: byUrl.shipmentLeadId,
                 });
-                return { duplicate: true as const, lead: byUrl };
+                if (byUrl.status === "NEW" || byUrl.status === "UNASSIGNED") {
+                    await assignmentEngine.startPipeline(byUrl.shipmentLeadId);
+                }
+                const refreshed = await shipmentLeadRepository.findById(byUrl.shipmentLeadId);
+                return { duplicate: true as const, lead: refreshed || byUrl };
             }
         }
 
@@ -46,7 +50,11 @@ export class ShipmentLeadService {
                     emailMessageId,
                     shipmentLeadId: byExternal.shipmentLeadId,
                 });
-                return { duplicate: true as const, lead: byExternal };
+                if (byExternal.status === "NEW" || byExternal.status === "UNASSIGNED") {
+                    await assignmentEngine.startPipeline(byExternal.shipmentLeadId);
+                }
+                const refreshed = await shipmentLeadRepository.findById(byExternal.shipmentLeadId);
+                return { duplicate: true as const, lead: refreshed || byExternal };
             }
         }
 

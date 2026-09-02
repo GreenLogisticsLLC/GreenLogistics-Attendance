@@ -302,11 +302,10 @@ export class EmailImportService {
             }
         }
 
-        // Advance acceptance timers and drain parked UNASSIGNED leads whenever brokers are In Office.
+        // Timeouts still pass waiting leads. Do not drain old Other backlog here —
+        // only leftover fresh NEW imports that were parked with no broker.
         await shipmentLeadService.assignment.processDueAcceptances();
-        // Trickle the parked backlog instead of firing 10-15 assignments at once:
-        // freshly imported leads are already assigned inside createFromParsed.
-        const drained = await shipmentLeadService.assignment.assignPendingNewLeads(3);
+        const drained = await shipmentLeadService.assignment.assignPendingNewLeads(8);
         if (drained > 0) {
             console.log(`[email] drained ${drained} pending shipment(s) to In Office brokers`);
         }

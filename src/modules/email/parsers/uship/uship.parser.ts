@@ -120,11 +120,18 @@ export class UShipParser implements EmailParser {
         }
         // Fallback: uShip listing alert with a view URL
         if (
-            /(?:new\s+listing|listing\s+alert|matches\s+your)/.test(blob) &&
+            /(?:new\s+listing|listing\s+alert|matches\s+your|new\s+load|shipment\s+alert)/.test(blob) &&
             /uship\.com/i.test(email.bodyHtml || email.bodyText || "")
         ) {
             return true;
         }
+        const htmlAndText = `${blob}\n${email.bodyHtml || ""}`;
+        const hasListing = /uship\.com\/(?:listing|shipment)\/\d{5,}/i.test(htmlAndText);
+        const followUp =
+            /quote\s+confirmation|bid\s+submitted|bid\s+confirmation|customer\s+(?:accepted|respond|replied|question)|accepted\s+your|load\s*(?:number|#)|deleted\s+(?:this\s+)?(?:listing|shipment)|booked\s+by\s+another|your\s+code\s+has\s+been/.test(
+                subject
+            );
+        if (hasListing && !followUp) return true;
         return false;
     }
 
@@ -140,11 +147,12 @@ export class UShipParser implements EmailParser {
 
         const viewUrl =
             matchFirst(html, [
-                /href="(https?:\/\/[^"]*uship\.com\/(?:listing|shipment|ship)[^"]*)"/i,
-                /href="(https?:\/\/[^"]*uship\.com[^"]+)"/i,
-                /(https?:\/\/(?:www\.)?uship\.com\/[^\s"'<>]+)/i,
+                /href="(https?:\/\/[^"]*uship\.com\/(?:listing|shipment)\/\d{5,}[^"]*)"/i,
+                /(https?:\/\/(?:www\.)?uship\.com\/(?:listing|shipment)\/\d{5,}[^\s"'<>]*)/i,
             ]) ||
-            matchFirst(text, [/(https?:\/\/(?:www\.)?uship\.com\/[^\s"'<>]+)/i]);
+            matchFirst(text, [
+                /(https?:\/\/(?:www\.)?uship\.com\/(?:listing|shipment)\/\d{5,}[^\s"'<>]*)/i,
+            ]);
 
         const externalShipmentId =
             matchFirst(viewUrl || "", [/\/(?:listing|shipment)\/(\d{5,})\b/i, /\/(\d{5,})\b/]) ||
