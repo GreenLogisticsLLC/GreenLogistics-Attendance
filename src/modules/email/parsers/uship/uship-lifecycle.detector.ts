@@ -132,6 +132,43 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
+    // Customer reply/question BEFORE quote-confirmation — uShip footers often mention "your quote".
+    if (
+        /customer\s+question|asked\s+a\s+question|new\s+question|question\s+from\s+(?:the\s+)?customer|you\s+have\s+a\s+new\s+question/.test(
+            h
+        ) &&
+        !/respond\s+to|response\s+to|answered|replied/.test(h)
+    ) {
+        return {
+            kind: "CUSTOMER_QUESTION",
+            title: "Customer Question",
+            domainEventType: "CUSTOMER_RESPOND",
+            targetStatus: "CUSTOMER_REPLIED",
+        };
+    }
+
+    if (
+        /customer\s+respond|customer\s+responded|respond\s+to\s+(?:your\s+)?(?:question|code)|response\s+to\s+(?:your\s+)?(?:question|code)|question\s+answered|code\s+answered|response\s+from\s+(?:the\s+)?customer|customer\s+has\s+responded|answered\s+your\s+question|reply\s+to\s+your\s+(?:question|code|quote)|customer\s+replied|new\s+reply|replied\s+to\s+your|new\s+message\s+from\s+(?:the\s+)?(?:customer|shipper)|shipper\s+(?:responded|replied)|customer\s+sent\s+you|new\s+message\s+(?:regarding|about)\s+your/.test(
+            h
+        )
+    ) {
+        return {
+            kind: "CUSTOMER_RESPOND",
+            title: "Customer Respond",
+            domainEventType: "CUSTOMER_RESPOND",
+            targetStatus: "CUSTOMER_REPLIED",
+        };
+    }
+
+    if (/new\s+message|message\s+from\s+customer|message\s+from\s+(?:the\s+)?shipper/.test(h)) {
+        return {
+            kind: "CUSTOMER_RESPOND",
+            title: "Customer Respond",
+            domainEventType: "CUSTOMER_RESPOND",
+            targetStatus: "CUSTOMER_REPLIED",
+        };
+    }
+
     if (/bid\s+updated|updated\s+your\s+bid|quote\s+updated/.test(h)) {
         return {
             kind: "BID_UPDATED",
@@ -141,23 +178,16 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    // uShip "Quote Confirmation" / quote posted — common after broker places a quote.
+    const subjectH = String(subject || "").toLowerCase();
+    // uShip "Quote Confirmation" / "Bid Submitted" — prefer the subject so body footers do not steal it.
     if (
-        /quote\s+confirmation|confirmation\s+of\s+your\s+quote|your\s+quote\s+(?:has\s+been\s+)?(?:submitted|received|confirmed|posted|placed)|you\s+(?:have\s+)?(?:submitted|placed|posted)\s+a\s+quote|quote\s+successfully|successfully\s+(?:submitted|posted)\s+(?:your\s+)?quote|we\s+received\s+your\s+quote|quote\s+was\s+submitted/.test(
+        /quote\s+confirmation|bid\s+confirmation|bid\s+submitted|quote\s+submitted/.test(subjectH) ||
+        /quote\s+confirmation|confirmation\s+of\s+your\s+(?:quote|bid)|your\s+(?:quote|bid)\s+(?:has\s+been\s+)?(?:submitted|received|confirmed|posted|placed)|you\s+(?:have\s+)?(?:submitted|placed|posted)\s+a\s+(?:quote|bid)|successfully\s+(?:submitted|posted)\s+(?:your\s+)?(?:quote|bid)|we\s+received\s+your\s+(?:quote|bid)|(?:quote|bid)\s+was\s+submitted/.test(
             h
         )
     ) {
         return {
-            kind: "QUOTE_SUBMITTED",
-            title: "Quote Submitted",
-            domainEventType: "BID_SUBMITTED",
-            targetStatus: "BID_SUBMITTED",
-        };
-    }
-
-    if (/bid\s+submitted|you\s+submitted\s+a\s+bid|quote\s+submitted|submitted\s+a\s+quote|bid\s+confirmation|confirmation\s+of\s+your\s+bid/.test(h)) {
-        return {
-            kind: kindFromQuote(h),
+            kind: /quote/.test(h) ? "QUOTE_SUBMITTED" : "BID_SUBMITTED",
             title: /quote/.test(h) ? "Quote Submitted" : "Bid Submitted",
             domainEventType: "BID_SUBMITTED",
             targetStatus: "BID_SUBMITTED",
@@ -177,59 +207,11 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    // Customer answered / asked — uShip often uses "Respond to Question - {title}".
-    if (
-        /customer\s+question|asked\s+a\s+question|new\s+question|question\s+from\s+(?:the\s+)?customer|you\s+have\s+a\s+new\s+question/.test(
-            h
-        ) ||
-        /respond\s+to\s+(?:your\s+)?(?:question|code)|response\s+to\s+(?:your\s+)?(?:question|code)|question\s+answered|code\s+answered/.test(
-            h
-        )
-    ) {
-        const isQuestion =
-            /customer\s+question|asked\s+a\s+question|new\s+question|question\s+from\s+(?:the\s+)?customer|you\s+have\s+a\s+new\s+question/.test(
-                h
-            ) && !/respond\s+to|response\s+to|answered/.test(h);
-        return {
-            kind: isQuestion ? "CUSTOMER_QUESTION" : "CUSTOMER_RESPOND",
-            title: isQuestion ? "Customer Question" : "Customer Respond",
-            domainEventType: "CUSTOMER_RESPOND",
-            targetStatus: "CUSTOMER_REPLIED",
-        };
-    }
-
-    // Customer answered the broker's question / quote follow-up (uShip "Customer Respond").
-    if (
-        /customer\s+respond|customer\s+responded|response\s+from\s+(?:the\s+)?customer|customer\s+has\s+responded|answered\s+your\s+question|reply\s+to\s+your\s+(?:question|code|quote)|customer\s+replied|new\s+reply|replied\s+to\s+your|new\s+message\s+from\s+(?:the\s+)?customer/.test(
-            h
-        )
-    ) {
-        return {
-            kind: "CUSTOMER_RESPOND",
-            title: "Customer Respond",
-            domainEventType: "CUSTOMER_RESPOND",
-            targetStatus: "CUSTOMER_REPLIED",
-        };
-    }
-
-    if (/new\s+message|message\s+from\s+customer/.test(h)) {
-        return {
-            kind: "CUSTOMER_RESPOND",
-            title: "Customer Respond",
-            domainEventType: "CUSTOMER_RESPOND",
-            targetStatus: "CUSTOMER_REPLIED",
-        };
-    }
-
     return {
         kind: "UNKNOWN",
         title: "uShip email",
         domainEventType: "STATUS_CHANGED",
     };
-}
-
-function kindFromQuote(h: string): UshipLifecycleKind {
-    return /quote/.test(h) ? "QUOTE_SUBMITTED" : "BID_SUBMITTED";
 }
 
 const NOTIFY_KINDS = new Set<UshipLifecycleKind>([
@@ -386,6 +368,24 @@ export async function applyUshipLifecycleEvent(input: {
                         kind: detected.kind,
                     },
                     timelineStage: "CUSTOMER_RESPOND",
+                });
+            } else if (
+                detected.kind === "BID_SUBMITTED" ||
+                detected.kind === "QUOTE_SUBMITTED" ||
+                detected.kind === "BID_UPDATED"
+            ) {
+                await domainEventEngine.emit({
+                    shipmentLeadId: input.shipmentLeadId,
+                    eventType: "BID_SUBMITTED",
+                    title: "Bid Submitted",
+                    message: input.subject,
+                    actorUserId: input.actorUserId,
+                    payload: {
+                        source: input.source || "uship_email",
+                        gmailMessageId: input.gmailMessageId,
+                        kind: detected.kind,
+                    },
+                    timelineStage: "BID_SUBMITTED",
                 });
             }
         } else {

@@ -311,6 +311,33 @@
     return true;
   }
 
+  function requestDesktopPush() {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      Notification.requestPermission().catch(function () {});
+    }
+  }
+
+  function showDesktopPush(title, body, shipmentLeadId) {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    try {
+      var n = new Notification(title, {
+        body: body || "",
+        tag: shipmentLeadId ? "gos-" + shipmentLeadId + "-customer" : "gos-customer",
+        requireInteraction: true,
+      });
+      n.onclick = function () {
+        try {
+          window.focus();
+        } catch (e) {}
+        n.close();
+        if (shipmentLeadId) openShipmentById(shipmentLeadId);
+      };
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
   function refreshOpenViews() {
     // Email Imports — manual refresh only (Check Gmail Now / navigate away and back).
     var modalOpen = false;
@@ -413,6 +440,7 @@
   function connect() {
     var token = localStorage.getItem("gl_token");
     if (!token) return;
+    requestDesktopPush();
     if (es) {
       try {
         es.close();
@@ -570,6 +598,20 @@
         unread += 1;
         updateBadge();
         playNotifySound();
+        var kind = String(d.kind || "");
+        if (
+          kind === "CUSTOMER_RESPOND" ||
+          kind === "CUSTOMER_REPLIED" ||
+          kind === "CUSTOMER_QUESTION" ||
+          kind === "NEW_MESSAGE"
+        ) {
+          showDesktopPush(
+            "Customer Respond",
+            (num ? "Shipment # " + num + " — " : "") +
+              (d.subject || "Customer replied to your question"),
+            d.shipmentLeadId
+          );
+        }
       }
       refreshOpenViews();
     }

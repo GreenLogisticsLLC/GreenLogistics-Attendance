@@ -85,6 +85,14 @@ function collectListingIds(...blobs: Array<string | null | undefined>): string[]
         for (const match of text.matchAll(/\/listing\/(\d{5,})(?:\/|[?#"'<\s>]|$)/gi)) {
             if (match[1]) ids.add(match[1]);
         }
+        for (const match of text.matchAll(/uship\.com\/l\/(\d{5,})/gi)) {
+            if (match[1]) ids.add(match[1]);
+        }
+        for (const match of text.matchAll(
+            /(?:listing|shipment)(?:id|_id)?\s*[=:#]?\s*(\d{5,})/gi
+        )) {
+            if (match[1]) ids.add(match[1]);
+        }
         for (const match of text.matchAll(
             /(?:listing|shipment)\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/gi
         )) {
@@ -94,28 +102,40 @@ function collectListingIds(...blobs: Array<string | null | undefined>): string[]
     return [...ids];
 }
 
-/**
- * Prefer listing IDs from raw HTML href attributes — stripHtml() destroys them.
- * If multiple distinct listing IDs appear, return none rather than guessing.
- */
 function extractUshipRefs(input: {
     subject?: string | null;
     bodyText?: string | null;
     bodyHtml?: string | null;
     snippet?: string | null;
-}): { externalId?: string; viewUrl?: string } {
-    const ids = collectListingIds(input.subject, input.bodyHtml, input.bodyText, input.snippet);
-    if (ids.length !== 1) {
-        return {};
-    }
-    const externalId = ids[0];
+}): { listingIds: string[]; externalId?: string; viewUrl?: string } {
+    const listingIds = collectListingIds(
+        input.subject,
+        input.bodyHtml,
+        input.bodyText,
+        input.snippet
+    );
+    const externalId = listingIds.length === 1 ? listingIds[0] : undefined;
     return {
+        listingIds,
         externalId,
-        viewUrl: `https://www.uship.com/listing/${externalId}`,
+        viewUrl: externalId ? `https://www.uship.com/listing/${externalId}` : undefined,
     };
 }
 
-const STRONG_MATCH_METHODS = ["viewUrl", "externalShipmentId", "greenOsShipmentId"];
+const STRONG_MATCH_METHODS = [
+    "viewUrl",
+    "externalShipmentId",
+    "greenOsShipmentId",
+    "listingTitle",
+];
+
+function normalizeTitle(value: string): string {
+    return String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
 
 async function matchExactListing(
     externalId: string,
@@ -127,14 +147,48 @@ async function matchExactListing(
             assignedBrokerId: userId,
             OR: [
                 { viewUrl: canonicalUrl },
+                { viewUrl: { contains: `/listing/${externalId}` } },
                 { source: "USHIP", externalShipmentId: externalId },
+                { externalShipmentId: externalId },
             ],
         },
         select: { shipmentLeadId: true, assignedBrokerId: true },
-        take: 5,
+        take: 8,
     });
-    if (rows.length !== 1) return null;
-    return rows[0];
+    const unique = [...new Map(rows.map((r) => [r.shipmentLeadId, r])).values()];
+    if (unique.length !== 1) return null;
+    return unique[0];
+}
+
+async function matchByUniqueTitle(
+    userId: string,
+    subject: string,
+    body: string
+): Promise<{ shipmentLeadId: string; assignedBrokerId: string | null } | null> {
+    const hay = normalizeTitle(`${subject}\n${body.slice(0, 800)}`);
+    if (hay.length < 10) return null;
+    const leads = await prisma.shipmentLead.findMany({
+        where: {
+            assignedBrokerId: userId,
+            status: {
+                notIn: [
+                    "CLOSED",
+                    "LOST",
+                    "DELETED_FROM_CUSTOMER",
+                    "ACCEPTED_ANOTHER_COMPANY",
+                    "COMPLETED",
+                ],
+            },
+        },
+        select: { shipmentLeadId: true, assignedBrokerId: true, shipmentTitle: true },
+        take: 250,
+    });
+    const hits = leads.filter((lead) => {
+        const title = normalizeTitle(String(lead.shipmentTitle || ""));
+        return title.length >= 8 && hay.includes(title);
+    });
+    if (hits.length !== 1) return null;
+    return hits[0];
 }
 
 async function matchShipment(input: {
@@ -142,6 +196,7 @@ async function matchShipment(input: {
     brokerGmailId: string;
     gmailThreadId?: string;
     externalId?: string;
+    listingIds?: string[];
     viewUrl?: string;
     subject: string;
     body: string;
@@ -149,12 +204,27 @@ async function matchShipment(input: {
     let candidate: { shipmentLeadId: string; assignedBrokerId: string | null } | null = null;
     let method = "";
 
-    const listingId =
-        input.externalId ||
-        (input.viewUrl ? input.viewUrl.match(/\/listing\/(\d+)/i)?.[1] : undefined);
-    if (listingId) {
-        candidate = await matchExactListing(listingId, input.userId);
-        method = input.viewUrl ? "viewUrl" : "externalShipmentId";
+    const listingIds = [
+        ...new Set(
+            [
+                input.externalId,
+                ...(input.listingIds || []),
+                input.viewUrl ? input.viewUrl.match(/\/listing\/(\d+)/i)?.[1] : undefined,
+            ].filter((id): id is string => Boolean(id))
+        ),
+    ];
+
+    const listingHits: Array<{ shipmentLeadId: string; assignedBrokerId: string | null }> = [];
+    for (const listingId of listingIds) {
+        const hit = await matchExactListing(listingId, input.userId);
+        if (hit) listingHits.push(hit);
+    }
+    const uniqueListings = [
+        ...new Map(listingHits.map((h) => [h.shipmentLeadId, h])).values(),
+    ];
+    if (uniqueListings.length === 1) {
+        candidate = uniqueListings[0];
+        method = input.viewUrl || input.externalId ? "viewUrl" : "externalShipmentId";
     }
 
     const gosSeq = `${input.subject} ${input.body}`.match(/\bGOS(\d{7,})\b/i);
@@ -181,8 +251,6 @@ async function matchShipment(input: {
                 brokerGmailId: input.brokerGmailId,
                 gmailThreadId: input.gmailThreadId,
                 shipmentLeadId: { not: null },
-                // A thread may continue a strong listing match, but it must never
-                // inherit an earlier title/city guess from an unrelated shipment.
                 matchMethod: { in: STRONG_MATCH_METHODS },
             },
             orderBy: { receivedAt: "desc" },
@@ -194,6 +262,11 @@ async function matchShipment(input: {
         });
         candidate = prior?.shipmentLead || null;
         method = "gmailThreadId";
+    }
+
+    if (!candidate) {
+        candidate = await matchByUniqueTitle(input.userId, input.subject, input.body);
+        if (candidate) method = "listingTitle";
     }
 
     // Hard routing boundary: a broker mailbox can update only that broker's assigned Shipment.
@@ -346,6 +419,7 @@ export class BrokerGmailSyncService {
                     brokerGmailId: account.brokerGmailId,
                     gmailThreadId: row.gmailThreadId || undefined,
                     externalId: refs.externalId,
+                    listingIds: refs.listingIds,
                     viewUrl: refs.viewUrl,
                     subject: row.subject,
                     body,
@@ -363,7 +437,7 @@ export class BrokerGmailSyncService {
             }
 
             const looksQuoteOrBid =
-                /quote|bid\s+confirmation|bid\s+submitted|submitted\s+a\s+(?:quote|bid)/i.test(
+                /quote|bid\s+confirmation|bid\s+submitted|submitted\s+a\s+(?:quote|bid)|customer\s+respond|respond\s+to\s+question|customer\s+replied|new\s+message/i.test(
                     `${row.subject}\n${body}`
                 );
             // Re-apply for newly matched rows, or quote/bid confirmations that may have been UNKNOWN before.
@@ -422,6 +496,7 @@ export class BrokerGmailSyncService {
                                 brokerGmailId: account.brokerGmailId,
                                 gmailThreadId: existing.gmailThreadId || undefined,
                                 externalId: refs.externalId,
+                                listingIds: refs.listingIds,
                                 viewUrl: refs.viewUrl,
                                 subject: existing.subject,
                                 body,
@@ -470,6 +545,7 @@ export class BrokerGmailSyncService {
                         brokerGmailId: account.brokerGmailId,
                         gmailThreadId: raw.gmailThreadId,
                         externalId: refs.externalId,
+                        listingIds: refs.listingIds,
                         viewUrl: refs.viewUrl,
                         subject: raw.subject,
                         body,
