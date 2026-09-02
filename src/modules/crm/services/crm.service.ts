@@ -748,7 +748,7 @@ export class CrmService {
         return this.getShipmentCard(shipmentLeadId);
     }
 
-    /** First "Open in uShip" click by assigned broker (or ops working the card). */
+    /** Explicit "Open in uShip" click — always set AGENT_OPEN from waiting states. */
     async markAgentOpened(shipmentLeadId: string, actorUserId: string) {
         const lead = await prisma.shipmentLead.findUnique({
             where: { shipmentLeadId },
@@ -757,21 +757,20 @@ export class CrmService {
         if (!lead) return null;
 
         const role = await actorRoleName(actorUserId);
-        const allowed =
-            lead.assignedBrokerId === actorUserId ||
-            canWorkAnyShipment(role) ||
-            role === "Team Lead";
-        if (!allowed) {
-            return this.getShipmentCard(shipmentLeadId);
-        }
+        const current = normalizeStatus(lead.status);
+        const waitingStatuses = new Set([
+            "NEW",
+            "UNASSIGNED",
+            "ASSIGNED",
+            "AWAITING_ACCEPTANCE",
+            "FOLLOW_UP",
+        ]);
 
-        const waitingStatuses = ["ASSIGNED", "AWAITING_ACCEPTANCE", "NEW"];
-        if (waitingStatuses.includes(lead.status)) {
+        if (waitingStatuses.has(current)) {
             await prisma.shipmentLead.update({
                 where: { shipmentLeadId },
                 data: {
                     status: "AGENT_OPEN",
-                    // Opening uShip means the broker took the lead — do not reassign after 15m.
                     acceptanceDeadline: null,
                 },
             });
@@ -779,13 +778,13 @@ export class CrmService {
                 shipmentLeadId,
                 eventType: "AGENT_OPENED",
                 title: "Open in uShip",
-                message: canWorkAnyShipment(role)
-                    ? `Status → Open in uShip — ${role} opened uShip link`
-                    : "Status → Open in uShip",
+                message: `Status → Open in uShip${role ? ` — ${role}` : ""}`,
                 actorUserId,
                 timelineStage: "AGENT_OPENED",
                 payload: { status: "AGENT_OPEN", actorRole: role, source: "uship_link" },
             });
+        } else if (current === "AGENT_OPEN") {
+            /* already Open in uShip — card refresh is enough */
         }
 
         return this.getShipmentCard(shipmentLeadId);

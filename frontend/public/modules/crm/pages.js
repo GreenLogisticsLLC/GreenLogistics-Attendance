@@ -766,8 +766,17 @@ window.GreenOSModules.crm = {
   },
 
   async openShipmentCard(root, id, preview) {
-    var modal = root.querySelector("#crm-modal");
-    if (!modal) return;
+    var modal =
+      (root && root.querySelector && root.querySelector("#crm-modal")) ||
+      document.getElementById("crm-modal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "crm-modal";
+      modal.className = "crm-modal";
+      modal.setAttribute("role", "dialog");
+      modal.setAttribute("aria-modal", "true");
+      document.body.appendChild(modal);
+    }
     var gen = (this._cardOpenGen = (this._cardOpenGen || 0) + 1);
     modal.classList.remove("hidden");
     modal.setAttribute("data-shipment-id", id);
@@ -906,6 +915,7 @@ window.GreenOSModules.crm = {
         pipeline +=
           '<li class="' +
           (p.done ? "is-done" : "") +
+          (p.stage === "AGENT_OPENED" ? " crm-pipe-uship" : "") +
           '" data-stage="' +
           esc(p.stage) +
           '">' +
@@ -1171,11 +1181,9 @@ window.GreenOSModules.crm = {
         (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED" || s.status === "AGENT_OPEN"
           ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
           : "") +
-        (s.ushipUrl
-          ? '<a class="btn-primary crm-open-uship" href="' +
-            esc(s.ushipUrl) +
-            '" target="_blank" rel="noopener" style="width:auto;padding:0.65rem 1rem;text-decoration:none;display:inline-block">Open in uShip</a>'
-          : "") +
+        '<button type="button" class="btn-primary crm-open-uship" data-uship-url="' +
+        esc(s.ushipUrl || "") +
+        '">Open in uShip</button>' +
         (s.loadNumber
           ? '<button type="button" class="btn-primary" id="crm-open-load">Open Load ' +
             esc(s.loadNumber) +
@@ -1237,22 +1245,38 @@ window.GreenOSModules.crm = {
         }
       });
 
-      modal.querySelectorAll(".crm-open-uship").forEach(function (link) {
+      modal.querySelectorAll(".crm-open-uship, .crm-pipe-uship").forEach(function (link) {
         link.addEventListener("click", function (ev) {
           ev.preventDefault();
-          var href = link.getAttribute("href");
+          ev.stopPropagation();
+          var href =
+            link.getAttribute("data-uship-url") ||
+            link.getAttribute("href") ||
+            (s.ushipUrl || "");
           if (href) window.open(href, "_blank", "noopener");
+          var badgeHost = modal.querySelector(".crm-card-grid div");
+          if (badgeHost) {
+            badgeHost.innerHTML =
+              "<span>Status</span>" + window.GreenOSModules.crm.statusBadge("AGENT_OPEN");
+          }
           window.GreenOSModules.crm
             .api("/shipments/" + encodeURIComponent(id) + "/opened?action=uship", {
               method: "POST",
               body: JSON.stringify({ action: "uship" }),
             })
-            .then(function () {
+            .then(function (res) {
               if (modal.getAttribute("data-shipment-id") !== id) return;
-              window.GreenOSModules.crm.openShipmentCard(root, id);
+              var next = res && res.success && res.data ? res.data : null;
+              window.GreenOSModules.crm.openShipmentCard(document, id, next);
+              if (typeof window.GreenOSCrmReloadBody === "function") {
+                window.GreenOSCrmReloadBody();
+              }
+              if (typeof window.GreenOSBrokerReloadShipments === "function") {
+                window.GreenOSBrokerReloadShipments();
+              }
             })
             .catch(function () {
-              /* uShip tab still opens */
+              window.GreenOSModules.crm.openShipmentCard(document, id);
             });
         });
       });
@@ -1267,16 +1291,35 @@ window.GreenOSModules.crm = {
             node.classList.remove("is-pending");
             node.classList.add("is-done");
           }
+          var customerNode = modal.querySelector(".crm-qa-node.is-customer");
+          if (customerNode) {
+            customerNode.classList.remove("is-done");
+            customerNode.classList.add("is-pending");
+          }
           btn.disabled = true;
           try {
-            await window.GreenOSModules.crm.api(
+            var res = await window.GreenOSModules.crm.api(
               "/shipments/" + encodeURIComponent(id) + "/broker-question",
               { method: "POST", body: JSON.stringify({}) }
             );
-            window.GreenOSModules.crm.openShipmentCard(root, id);
+            if (!res || res.success === false) {
+              throw new Error((res && res.message) || "Could not mark Broker Answer");
+            }
+            var next = res.data || null;
+            window.GreenOSModules.crm.openShipmentCard(document, id, next);
+            if (typeof window.GreenOSBrokerReloadCustomerRespond === "function") {
+              window.GreenOSBrokerReloadCustomerRespond();
+            }
+            if (typeof window.GreenOSBrokerReloadShipments === "function") {
+              window.GreenOSBrokerReloadShipments();
+            }
           } catch (e) {
             btn.disabled = false;
-            alert("Could not mark Broker Question");
+            if (customerNode) {
+              customerNode.classList.add("is-done");
+              customerNode.classList.remove("is-pending");
+            }
+            alert((e && e.message) || "Could not mark Broker Answer");
           }
         });
       });

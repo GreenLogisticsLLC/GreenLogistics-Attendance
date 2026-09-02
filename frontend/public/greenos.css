@@ -1014,6 +1014,9 @@ html[data-theme="light"] {
 .crm-pipeline li.is-done {
   color: var(--gos-text);
 }
+.crm-pipeline li.crm-pipe-uship {
+  cursor: pointer;
+}
 .crm-pipe-dot {
   position: absolute;
   left: -0.4rem;

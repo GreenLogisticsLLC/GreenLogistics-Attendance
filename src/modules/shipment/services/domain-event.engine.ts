@@ -201,6 +201,45 @@ export class DomainEventEngine {
             const done = Boolean(
                 match || legacy || keys.some((k) => occurred.has(k))
             );
+            // Red Customer Respond lamp is live only while the latest customer reply
+            // is newer than the latest broker answer. Answering turns it off until
+            // the customer writes again.
+            if (step.stage === "CUSTOMER_RESPOND") {
+                const customerKeys = new Set(aliases.CUSTOMER_RESPOND);
+                const brokerKeys = new Set(["BROKER_QUESTION", "BROKER_ANSWER"]);
+                const latestCustomer = [
+                    ...events.filter((e) => customerKeys.has(e.eventType)),
+                    ...timeline.filter(
+                        (t: { stage: string }) =>
+                            customerKeys.has(t.stage) || t.stage === "CUSTOMER_REPLIED"
+                    ),
+                ].reduce<Date | null>((latest, row) => {
+                    const at = row.createdAt;
+                    if (!at) return latest;
+                    if (!latest || at > latest) return at;
+                    return latest;
+                }, null);
+                const latestBroker = [
+                    ...events.filter((e) => brokerKeys.has(e.eventType)),
+                    ...timeline.filter((t: { stage: string }) => brokerKeys.has(t.stage)),
+                ].reduce<Date | null>((latest, row) => {
+                    const at = row.createdAt;
+                    if (!at) return latest;
+                    if (!latest || at > latest) return at;
+                    return latest;
+                }, null);
+                const lampOn = Boolean(
+                    latestCustomer && (!latestBroker || latestCustomer > latestBroker)
+                );
+                return {
+                    stage: step.stage,
+                    title: step.title,
+                    status: step.status,
+                    interactive: Boolean((step as { interactive?: boolean }).interactive),
+                    done: lampOn,
+                    at: lampOn ? latestCustomer : null,
+                };
+            }
             // Load Created cannot light without Customer Accepted first.
             if (step.stage === "LOAD_CREATED") {
                 const accepted =
