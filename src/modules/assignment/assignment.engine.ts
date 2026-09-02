@@ -13,6 +13,7 @@ import { getInOfficeEmployeeIds } from "../../services/attendance-presence.servi
 const QUEUE_KEY = "brokers";
 /** Minutes to accept / react before load is passed to the next In Office broker. */
 const ACCEPTANCE_MINUTES = 15;
+let lastPassedFlagRepairAt = 0;
 
 export type EligibleBroker = {
     userId: string;
@@ -106,7 +107,14 @@ export class AssignmentEngine {
         }
 
         const { broker, queueSnapshot } = pick;
-        return this.assignLeadToBroker(shipmentLeadId, broker, queueSnapshot);
+        return this.assignLeadToBroker(
+            shipmentLeadId,
+            broker,
+            queueSnapshot,
+            lead.wasEverReassigned || lead.isReassignment
+                ? { reassignFrom: "previous broker" }
+                : undefined
+        );
     }
 
     /**
@@ -122,7 +130,12 @@ export class AssignmentEngine {
         if (!lead) return lead;
 
         const acceptanceDeadline = new Date(Date.now() + ACCEPTANCE_MINUTES * 60_000);
-        const isReassignment = Boolean(options?.reassignFrom);
+        const isReassignment = Boolean(
+            options?.reassignFrom ||
+                lead.wasEverReassigned ||
+                lead.isReassignment ||
+                lead.assignedBrokerId
+        );
         const assigned = await shipmentLeadRepository.update(shipmentLeadId, {
             status: "ASSIGNED",
             assignedBrokerId: broker.userId,
@@ -235,7 +248,63 @@ export class AssignmentEngine {
         return awaiting || assigned;
     }
 
+    /**
+     * Keep New vs Other in sync for leads that already passed through another broker
+     * (timeout, checkout, or a later round-robin assign that used to wipe the flag).
+     */
+    async repairPassedShipmentFlags() {
+        const now = Date.now();
+        if (lastPassedFlagRepairAt && now - lastPassedFlagRepairAt < 15_000) return;
+        lastPassedFlagRepairAt = now;
+        await prisma.shipmentLead.updateMany({
+            where: { wasEverReassigned: true, isReassignment: false },
+            data: { isReassignment: true },
+        });
+
+        const [fromLogs, fromEvents] = await Promise.all([
+            prisma.assignmentLog.findMany({
+                where: {
+                    eventType: "REASSIGNED",
+                    shipmentLeadId: { not: null },
+                },
+                select: { shipmentLeadId: true },
+                distinct: ["shipmentLeadId"],
+                take: 500,
+            }),
+            prisma.domainEvent.findMany({
+                where: {
+                    OR: [
+                        { eventType: "REASSIGNED" },
+                        {
+                            eventType: "SHIPMENT_UNASSIGNED",
+                            payloadJson: { contains: "previousBrokerId" },
+                        },
+                    ],
+                },
+                select: { shipmentLeadId: true },
+                distinct: ["shipmentLeadId"],
+                take: 500,
+            }),
+        ]);
+        const ids = [
+            ...new Set(
+                [...fromLogs, ...fromEvents]
+                    .map((row) => row.shipmentLeadId)
+                    .filter((id): id is string => Boolean(id))
+            ),
+        ];
+        if (!ids.length) return;
+        await prisma.shipmentLead.updateMany({
+            where: {
+                shipmentLeadId: { in: ids },
+                OR: [{ isReassignment: false }, { wasEverReassigned: false }],
+            },
+            data: { isReassignment: true, wasEverReassigned: true },
+        });
+    }
+
     async processDueAcceptances() {
+        await this.repairPassedShipmentFlags();
         const now = new Date();
         // 1) Reclaim loads still Waiting whose assigned broker is no longer In Office.
         //    Do not reclaim after Open in uShip or Accept — the broker kept the lead.
@@ -262,6 +331,8 @@ export class AssignmentEngine {
                 status: "UNASSIGNED",
                 assignedBrokerId: null,
                 acceptanceDeadline: null,
+                isReassignment: true,
+                wasEverReassigned: true,
             });
             await domainEventEngine.emit({
                 shipmentLeadId: lead.shipmentLeadId,
@@ -382,6 +453,8 @@ export class AssignmentEngine {
                     status: "UNASSIGNED",
                     assignedBrokerId: null,
                     acceptanceDeadline: null,
+                    isReassignment: true,
+                    wasEverReassigned: true,
                 });
                 await this.pipelineLog(
                     lead.shipmentLeadId,

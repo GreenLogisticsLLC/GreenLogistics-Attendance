@@ -160,6 +160,8 @@ export class AssignmentOpsService {
                 status: "UNASSIGNED",
                 assignedBrokerId: null,
                 acceptanceDeadline: null,
+                isReassignment: true,
+                wasEverReassigned: true,
             });
             await domainEventEngine.emit({
                 shipmentLeadId: lead.shipmentLeadId,

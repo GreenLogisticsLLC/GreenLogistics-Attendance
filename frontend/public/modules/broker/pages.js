@@ -306,10 +306,14 @@ window.GreenOSModules.broker = {
       return input ? String(input.value || "").trim().toLowerCase() : "";
     }
 
+    function isOtherShipment(s) {
+      return Boolean(s.isReassignment || s.wasEverReassigned);
+    }
+
     function rowsForTab(rows) {
       var tab = self._shipmentsTab || "new";
       return rows.filter(function (s) {
-        return tab === "other" ? Boolean(s.isReassignment) : !s.isReassignment;
+        return tab === "other" ? isOtherShipment(s) : !isOtherShipment(s);
       });
     }
 
@@ -340,10 +344,10 @@ window.GreenOSModules.broker = {
 
     function updateTabCounts(rows) {
       var newCount = rows.filter(function (s) {
-        return !s.isReassignment;
+        return !isOtherShipment(s);
       }).length;
       var otherCount = rows.filter(function (s) {
-        return Boolean(s.isReassignment);
+        return isOtherShipment(s);
       }).length;
       var newEl = document.getElementById("broker-ship-count-new");
       var otherEl = document.getElementById("broker-ship-count-other");
@@ -383,7 +387,7 @@ window.GreenOSModules.broker = {
             (s.greenOsShipmentId
               ? '<br><small class="gos-muted">' + esc(s.shipmentTitle) + "</small>"
               : "") +
-            (s.isReassignment
+            (isOtherShipment(s)
               ? '<br><small class="gos-muted">Passed from another broker</small>'
               : "") +
             "</td><td>" +

@@ -112,6 +112,7 @@ const SHIPMENT_LIST_SELECT = {
     viewUrl: true,
     assignedBrokerId: true,
     isReassignment: true,
+    wasEverReassigned: true,
     createdAt: true,
     updatedAt: true,
     receivedAt: true,
@@ -128,7 +129,8 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         delivery: e.delivery,
         status: lead.status as string,
         statusLabel: e.statusLabel,
-        isReassignment: Boolean(lead.isReassignment),
+        isReassignment: Boolean(lead.isReassignment || lead.wasEverReassigned),
+        wasEverReassigned: Boolean(lead.wasEverReassigned || lead.isReassignment),
         updatedAt: lead.updatedAt as Date | string | null,
     };
 }
@@ -362,6 +364,17 @@ export class CrmService {
         /** new | other — filter by first-time vs passed-from-another-broker assignment. */
         assignmentKind?: "new" | "other";
     }) {
+        if (options?.lite || options?.assignmentKind) {
+            try {
+                const { assignmentEngine } = await import(
+                    "../../assignment/assignment.engine.js"
+                );
+                await assignmentEngine.repairPassedShipmentFlags();
+            } catch {
+                /* listing still works if repair is busy */
+            }
+        }
+
         const where: Record<string, unknown> = {};
         if (options?.brokerId) {
             where.assignedBrokerId = options.brokerId;
@@ -378,8 +391,12 @@ export class CrmService {
         if (options?.status) where.status = options.status;
         if (options?.assignmentKind === "new") {
             where.isReassignment = false;
+            where.wasEverReassigned = false;
         } else if (options?.assignmentKind === "other") {
-            where.isReassignment = true;
+            const passed = {
+                OR: [{ isReassignment: true }, { wasEverReassigned: true }],
+            };
+            where.AND = [...(Array.isArray(where.AND) ? where.AND : []), passed];
         }
 
         const lite = options?.lite === true;
@@ -758,15 +775,20 @@ export class CrmService {
 
         const role = await actorRoleName(actorUserId);
         const current = normalizeStatus(lead.status);
-        const waitingStatuses = new Set([
-            "NEW",
-            "UNASSIGNED",
-            "ASSIGNED",
-            "AWAITING_ACCEPTANCE",
-            "FOLLOW_UP",
+        const alreadyPastOpen = new Set([
+            "AGENT_OPEN",
+            "WORKING",
+            "BID_SUBMITTED",
+            "CUSTOMER_REPLIED",
+            "ACCEPT_GREEN",
+            "ACCEPTED_ANOTHER_COMPANY",
+            "DELETED_FROM_CUSTOMER",
+            "LOST",
+            "CLOSED",
+            "COMPLETED",
         ]);
 
-        if (waitingStatuses.has(current)) {
+        if (current !== "AGENT_OPEN" && !alreadyPastOpen.has(current) && !isLoadPhase(current)) {
             await prisma.shipmentLead.update({
                 where: { shipmentLeadId },
                 data: {
@@ -783,8 +805,6 @@ export class CrmService {
                 timelineStage: "AGENT_OPENED",
                 payload: { status: "AGENT_OPEN", actorRole: role, source: "uship_link" },
             });
-        } else if (current === "AGENT_OPEN") {
-            /* already Open in uShip — card refresh is enough */
         }
 
         return this.getShipmentCard(shipmentLeadId);
