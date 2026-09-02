@@ -328,14 +328,10 @@
       if (this.currentModule === "ai") return;
       // Trucking has its own live timer.
       if (this.currentModule === "trucking") return;
-      if (
-        this.currentModule === "broker" &&
-        this.currentSub === "shipments" &&
-        typeof window.GreenOSBrokerReloadShipments === "function"
-      ) {
-        window.GreenOSBrokerReloadShipments();
-        return;
-      }
+      // Shipments list — manual only; push/poll must not remount the table.
+      if (this.currentModule === "shipments") return;
+      if (this.currentModule === "broker" && this.currentSub === "shipments") return;
+      if (this.currentModule === "crm" && this.currentSub === "shipments") return;
       if (
         this.currentModule === "crm" &&
         typeof window.GreenOSCrmReloadBody === "function"

@@ -338,21 +338,17 @@
     }
   }
 
-  function refreshOpenViews() {
-    // Email Imports — manual refresh only (Check Gmail Now / navigate away and back).
-    var modalOpen = false;
-    try {
-      var m = document.getElementById("crm-modal");
-      modalOpen = Boolean(m && !m.classList.contains("hidden"));
-    } catch (e) {}
-    // Avoid stacking list refreshes while a shipment card is loading/open.
-    if (
-      !modalOpen &&
-      typeof window.GreenOSBrokerReloadShipments === "function"
-    ) {
-      window.GreenOSBrokerReloadShipments();
-    }
+  function isShipmentsListPage() {
+    var g = window.GreenOS;
+    if (!g) return false;
+    if (g.currentModule === "shipments") return true;
+    if (g.currentModule === "broker" && g.currentSub === "shipments") return true;
+    if (g.currentModule === "crm" && g.currentSub === "shipments") return true;
+    return false;
+  }
 
+  function refreshOpenViews() {
+    // Shipments list is manual only — no SSE / poll remount (toast still shows).
     var loadOpen = false;
     try {
       loadOpen = Boolean(
@@ -362,6 +358,7 @@
     } catch (e) {}
     if (
       !loadOpen &&
+      !isShipmentsListPage() &&
       window.GreenOS &&
       typeof window.GreenOS.refreshModule === "function" &&
       window.GreenOS.currentModule &&
@@ -372,7 +369,8 @@
       window.GreenOS.currentModule !== "administration" &&
       window.GreenOS.currentModule !== "carriers" &&
       window.GreenOS.currentModule !== "ai" &&
-      window.GreenOS.currentModule !== "email"
+      window.GreenOS.currentModule !== "email" &&
+      window.GreenOS.currentModule !== "shipments"
     ) {
       window.GreenOS.refreshModule();
     }

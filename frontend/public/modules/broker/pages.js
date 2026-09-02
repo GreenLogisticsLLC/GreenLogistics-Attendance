@@ -501,19 +501,10 @@ window.GreenOSModules.broker = {
     }
 
     window.GreenOSBrokerReloadShipments = function () {
-      if (!document.getElementById("broker-ship-body")) return;
-      paint(false);
+      /* Shipments list is manual — do not push-refresh the table. */
     };
 
     self.stopShipmentsAutoRefresh();
-    self._shipmentsTimer = setInterval(function () {
-      if (document.hidden) return;
-      if (!document.getElementById("broker-ship-body")) {
-        self.stopShipmentsAutoRefresh();
-        return;
-      }
-      paint(false);
-    }, 30000);
 
     await paint(true);
   },
