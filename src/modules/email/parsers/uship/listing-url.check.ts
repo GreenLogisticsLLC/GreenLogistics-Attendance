@@ -52,11 +52,24 @@ const sticky = ushipListingUrlFromLead(
         shipmentTitle: "2009 Buell Blast",
         viewUrl: "",
     },
-    ["Later email https://www.uship.com/listing/111222333/Other-Load/"]
+    [
+        "https://www.uship.com/listing/914816914/2009-Buell-Blast/",
+        "Later email https://www.uship.com/listing/111222333/Other-Load/",
+    ]
 );
 assert(
     sticky === "https://www.uship.com/listing/914816914/2009-Buell-Blast/",
     "card listing number stays sticky: " + sticky
 );
+
+const noFakeSlug = ushipListingUrlFromLead(
+    {
+        externalShipmentId: "914816914",
+        shipmentTitle: "2009 Buell Blast",
+        viewUrl: "",
+    },
+    ["Later email https://www.uship.com/listing/111222333/Other-Load/"]
+);
+assert(noFakeSlug === null, "do not invent a slug from our title: " + noFakeSlug);
 
 console.log("OK: listing-url checks passed");

@@ -135,7 +135,7 @@ window.GreenOSModules.crm = {
         extra.push(c && (c.message || ""), c && (c.title || ""));
       });
     }
-    var blob = [s.ushipUrl, s.viewUrl, s.imageUrl, s.shipmentTitle, s.notes, s.externalShipmentId]
+    var blob = [s.ushipUrl, s.viewUrl, s.imageUrl, s.notes, s.externalShipmentId]
       .concat(extra)
       .join("\n");
     blob = String(blob || "")
@@ -144,20 +144,14 @@ window.GreenOSModules.crm = {
       .replace(/=2F/gi, "/")
       .replace(/%2F/gi, "/")
       .replace(/%3A/gi, ":");
-    var m = blob.match(/uship\.com\/(?:listing|shipment|l)\/(\d{6,})(?:\/([^\/?#\s"']*))?/i);
+    var m = blob.match(/uship\.com\/(?:listing|shipment|l)\/(\d{6,})\/([^\/?#\s"']+)/i);
     if (!m) return "";
-    var slug = String(s.shipmentTitle || m[2] || "")
-      .replace(/['`]/g, "")
-      .replace(/[^A-Za-z0-9]+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 48);
-    return slug
-      ? "https://www.uship.com/listing/" + m[1] + "/" + slug + "/"
-      : "https://www.uship.com/listing/" + m[1] + "/";
+    return "https://www.uship.com/listing/" + m[1] + "/" + m[2].replace(/\/+$/, "") + "/";
   },
 
   ushipOpenHref(s, id) {
+    var listing = this.ushipListingUrl(s);
+    if (listing) return listing;
     var token = localStorage.getItem("gl_token") || "";
     return (
       "/api/crm/shipments/" +

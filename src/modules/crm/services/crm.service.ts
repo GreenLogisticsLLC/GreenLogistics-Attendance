@@ -10,10 +10,12 @@ import { isLoadPhase, normalizeStatus, statusLabel } from "../../shipment/shipme
 import { listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { canWorkAnyShipment } from "../../../auth/roles.js";
 import {
-    canonicalUshipListingUrl,
+    followUshipToListingUrl,
+    hasRealListingSlug,
     isUshipListingId,
     isUshipTrackingOrJunkUrl,
     listingIdFromText,
+    trackingUrlsFromText,
     ushipListingUrlFromLead,
 } from "../../email/parsers/uship/listing-url.js";
 import { gmailListener } from "../../email/gmail/gmail.listener.js";
@@ -506,7 +508,7 @@ export class CrmService {
             lead as unknown as Record<string, unknown>,
             extraBlobs
         );
-        if (resolvedUshipUrl) {
+        if (resolvedUshipUrl && hasRealListingSlug(resolvedUshipUrl)) {
             const listingId = listingIdFromText(resolvedUshipUrl);
             const currentView = String(lead.viewUrl || "");
             const shouldFixView =
@@ -598,15 +600,13 @@ export class CrmService {
             ...lead.domainEvents.map((ev) => ev.payloadJson),
         ];
         let url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, extraBlobs);
+        if (!hasRealListingSlug(url)) url = null;
+
         const stickyId = isUshipListingId(lead.externalShipmentId)
             ? String(lead.externalShipmentId)
-            : listingIdFromText(lead.viewUrl || "", url || "");
+            : listingIdFromText(lead.viewUrl || "");
         const currentView = String(lead.viewUrl || "");
-        const needsLiveRead =
-            !url ||
-            !stickyId ||
-            isUshipTrackingOrJunkUrl(currentView) ||
-            !listingIdFromText(url || currentView);
+        const needsLiveRead = !url || isUshipTrackingOrJunkUrl(currentView);
 
         if (needsLiveRead) {
             try {
@@ -614,10 +614,9 @@ export class CrmService {
                     shipmentLeadId
                 );
                 if (brokerBlobs.length) {
-                    url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, [
-                        ...extraBlobs,
-                        ...brokerBlobs,
-                    ]);
+                    extraBlobs.push(...brokerBlobs);
+                    url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, extraBlobs);
+                    if (!hasRealListingSlug(url)) url = null;
                 }
             } catch {
                 /* broker Gmail re-read is best-effort */
@@ -628,14 +627,10 @@ export class CrmService {
             try {
                 if (await gmailListener.ensureCredentials()) {
                     const raw = await gmailListener.fetchMessage(lead.emailMessage.gmailMessageId);
-                    url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, [
-                        raw.subject,
-                        raw.snippet,
-                        raw.bodyText,
-                        raw.bodyHtml,
-                        ...extraBlobs,
-                    ]);
-                    if (url) {
+                    extraBlobs.push(raw.subject, raw.snippet, raw.bodyText, raw.bodyHtml);
+                    url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, extraBlobs);
+                    if (!hasRealListingSlug(url)) url = null;
+                    if (raw.bodyHtml || raw.bodyText) {
                         await prisma.emailMessage
                             .update({
                                 where: { emailMessageId: lead.emailMessage.emailMessageId },
@@ -653,15 +648,22 @@ export class CrmService {
             }
         }
 
-        const listingId = listingIdFromText(url || "") || stickyId || null;
-        if (!url && listingId) {
-            url = canonicalUshipListingUrl(listingId, lead.shipmentTitle);
+        if (!url) {
+            const trackers = trackingUrlsFromText(currentView, ...extraBlobs).slice(0, 6);
+            for (const tracker of trackers) {
+                url = await followUshipToListingUrl(tracker);
+                if (hasRealListingSlug(url)) break;
+                url = null;
+            }
         }
 
-        if (url) {
+        const listingId = listingIdFromText(url || "") || stickyId || null;
+
+        if (url && hasRealListingSlug(url)) {
             const shouldFixView =
                 !currentView ||
                 isUshipTrackingOrJunkUrl(currentView) ||
+                !hasRealListingSlug(currentView) ||
                 (listingId && !currentView.includes(`/listing/${listingId}`));
             if (shouldFixView || (listingId && lead.externalShipmentId !== listingId)) {
                 await prisma.shipmentLead
@@ -674,8 +676,9 @@ export class CrmService {
                     })
                     .catch(() => null);
             }
+            return url;
         }
-        return url;
+        return null;
     }
 
     private async getBrokerPresenceSummary(options?: { teamLeadId?: string }) {

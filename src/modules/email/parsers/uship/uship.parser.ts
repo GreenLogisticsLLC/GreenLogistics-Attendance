@@ -307,7 +307,7 @@ export class UShipParser implements EmailParser {
             price: Number.isFinite(price as number) ? price : null,
             imageUrl: imageUrl || undefined,
             viewUrl: listingId
-                ? canonicalUshipListingUrl(listingId, listingSlug || shipmentTitle)
+                ? canonicalUshipListingUrl(listingId, listingSlug || undefined)
                 : undefined,
             receivedAt: email.receivedAt,
         };
