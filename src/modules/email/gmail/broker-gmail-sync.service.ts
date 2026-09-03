@@ -723,6 +723,72 @@ export class BrokerGmailSyncService {
         }
         return blobs;
     }
+
+    /**
+     * Instant Alerts often never get linked to the card. Search the assigned broker's
+     * Gmail by pickup/delivery and return the best-matching message bodies.
+     */
+    async searchListingBlobsForLead(lead: {
+        assignedBrokerId: string | null;
+        pickupCity: string | null;
+        deliveryCity: string | null;
+        pickupZip: string | null;
+        deliveryZip: string | null;
+        shipmentTitle: string | null;
+        miles: number | null;
+    }): Promise<string[]> {
+        if (!lead.assignedBrokerId) return [];
+        const account = await prisma.brokerGmailAccount.findFirst({
+            where: {
+                userId: lead.assignedBrokerId,
+                isActive: true,
+                status: "CONNECTED",
+            },
+            select: { brokerGmailId: true, refreshToken: true },
+        });
+        if (!account) return [];
+
+        const terms = ["from:(uship.com OR email.uship.com OR mail.uship.com)", "newer_than:30d"];
+        if (lead.deliveryCity) terms.push(`"${lead.deliveryCity}"`);
+        else if (lead.pickupCity) terms.push(`"${lead.pickupCity}"`);
+        if (lead.deliveryZip) terms.push(lead.deliveryZip);
+        const q = terms.join(" ");
+
+        try {
+            const gmail = this.clientFor(account);
+            const list = await gmail.users.messages.list({
+                userId: "me",
+                q,
+                maxResults: 12,
+            });
+            const scored: Array<{ score: number; blobs: string[] }> = [];
+            for (const msg of list.data.messages || []) {
+                if (!msg.id) continue;
+                const raw = await this.fetchRaw(gmail, msg.id);
+                const hay = `${raw.subject}\n${raw.snippet || ""}\n${raw.bodyText || ""}\n${raw.bodyHtml || ""}`.toLowerCase();
+                let score = 0;
+                if (lead.deliveryCity && hay.includes(lead.deliveryCity.toLowerCase())) score += 4;
+                if (lead.pickupCity && hay.includes(lead.pickupCity.toLowerCase())) score += 4;
+                if (lead.deliveryZip && hay.includes(lead.deliveryZip)) score += 3;
+                if (lead.pickupZip && hay.includes(lead.pickupZip)) score += 3;
+                if (lead.miles && hay.includes(String(Math.round(lead.miles)))) score += 2;
+                if (lead.shipmentTitle) {
+                    const title = lead.shipmentTitle.toLowerCase().slice(0, 24);
+                    if (title.length >= 4 && hay.includes(title)) score += 2;
+                }
+                if (listingIdsFromText(raw.bodyHtml, raw.bodyText, raw.subject).length) score += 3;
+                scored.push({
+                    score,
+                    blobs: [raw.subject, raw.snippet || "", raw.bodyText || "", raw.bodyHtml || ""],
+                });
+            }
+            scored.sort((a, b) => b.score - a.score);
+            const best = scored.filter((row) => row.score >= 4).slice(0, 3);
+            return best.flatMap((row) => row.blobs);
+        } catch {
+            return [];
+        }
+    }
 }
 
 export const brokerGmailSyncService = new BrokerGmailSyncService();

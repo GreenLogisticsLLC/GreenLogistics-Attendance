@@ -1,0 +1,32 @@
+name: Backfill uShip listing URL
+
+on:
+  workflow_dispatch:
+    inputs:
+      gos:
+        description: Green OS shipment ID
+        required: true
+        default: GOS1000550
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Resolve listing on Contabo
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            "GOS='${{ github.event.inputs.gos }}' bash -s" << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          node scripts/backfill-uship-listing.mjs "${GOS:-GOS1000550}"
+          EOF

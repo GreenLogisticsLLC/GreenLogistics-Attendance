@@ -649,6 +649,27 @@ export class CrmService {
         }
 
         if (!url) {
+            try {
+                const searched = await brokerGmailSyncService.searchListingBlobsForLead({
+                    assignedBrokerId: lead.assignedBrokerId,
+                    pickupCity: lead.pickupCity,
+                    deliveryCity: lead.deliveryCity,
+                    pickupZip: lead.pickupZip,
+                    deliveryZip: lead.deliveryZip,
+                    shipmentTitle: lead.shipmentTitle,
+                    miles: lead.miles,
+                });
+                if (searched.length) {
+                    extraBlobs.push(...searched);
+                    url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, extraBlobs);
+                    if (!hasRealListingSlug(url)) url = null;
+                }
+            } catch {
+                /* live Gmail search is best-effort */
+            }
+        }
+
+        if (!url) {
             const trackers = trackingUrlsFromText(currentView, ...extraBlobs).slice(0, 6);
             for (const tracker of trackers) {
                 url = await followUshipToListingUrl(tracker);
