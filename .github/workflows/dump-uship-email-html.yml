@@ -26,14 +26,18 @@ jobs:
             "GOS='${{ github.event.inputs.gos }}' bash -s" << 'EOF'
           set -euo pipefail
           cd /root/GreenLogistics-Attendance
+          # Avoid git reset during deploy; only refresh the script
           git fetch origin
           git show origin/main:scripts/dump-uship-email-html.mjs > scripts/dump-uship-email-html.mjs
-          for i in 1 2 3 4 5 6 7 8; do
-            if node -e "require('@prisma/client')" >/dev/null 2>&1; then
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if [ -x node_modules/.bin/prisma ] && node -e "const {PrismaClient}=require('@prisma/client'); const p=new PrismaClient(); p.\$connect().then(()=>p.\$disconnect()).catch(()=>process.exit(1))" >/dev/null 2>&1; then
               break
             fi
-            echo "waiting for prisma client..."
-            sleep 15
+            echo "waiting for prisma/client after deploy..."
+            if [ -x node_modules/.bin/prisma ]; then
+              node_modules/.bin/prisma generate >/dev/null 2>&1 || true
+            fi
+            sleep 20
           done
           node scripts/dump-uship-email-html.mjs "${GOS:-GOS1000550}"
           EOF

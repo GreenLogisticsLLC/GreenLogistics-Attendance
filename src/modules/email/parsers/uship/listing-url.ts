@@ -89,8 +89,17 @@ export function listingRefsFromText(...blobs: Array<string | null | undefined>):
     for (const match of text.matchAll(/\/listing\/(\d{6,12})(?:\/([^\/?#\s"']*))?/gi)) {
         push(match[1], match[2] || "");
     }
-    for (const match of text.matchAll(/[?&](?:listingId|listing_id|shipmentId|shipment_id)=(\d{6,12})/gi)) {
+    for (const match of text.matchAll(/#\/listings?\/(\d{6,12})/gi)) {
         push(match[1]);
+    }
+    for (const match of text.matchAll(/listing2\.aspx\?[^"'<\s]*\b(?:listing)?id=(\d{6,12})/gi)) {
+        push(match[1]);
+    }
+    for (const match of text.matchAll(/[?&](?:listingId|listing_id|shipmentId|shipment_id|id)=(\d{6,12})/gi)) {
+        // Avoid zip-like false positives on bare id= only when other listing context exists nearby
+        if (/listing|shipment|uship/i.test(text.slice(Math.max(0, match.index - 40), match.index + 40))) {
+            push(match[1]);
+        }
     }
     for (const match of text.matchAll(/ID\s*#\s*(\d{8,12})/gi)) {
         push(match[1], "", MIN_LOOSE_ID_LEN);
