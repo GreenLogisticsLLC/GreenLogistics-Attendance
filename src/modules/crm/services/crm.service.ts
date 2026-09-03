@@ -10,6 +10,7 @@ import { isLoadPhase, normalizeStatus, statusLabel } from "../../shipment/shipme
 import { listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { canWorkAnyShipment } from "../../../auth/roles.js";
 import {
+    isUshipTrackingOrJunkUrl,
     listingIdFromText,
     ushipListingUrlFromLead,
 } from "../../email/parsers/uship/listing-url.js";
@@ -459,6 +460,7 @@ export class CrmService {
                         subject: true,
                         fromAddress: true,
                         snippet: true,
+                        bodyText: true,
                         receivedAt: true,
                         matchMethod: true,
                         userId: true,
@@ -490,6 +492,7 @@ export class CrmService {
             lead.documentsJson,
             ...mailboxEmails.map((m) => m.subject),
             ...mailboxEmails.map((m) => m.snippet),
+            ...mailboxEmails.map((m) => m.bodyText),
             ...lead.importLogs.map((log) => log.message),
             ...lead.domainEvents.map((ev) => ev.message),
             ...lead.domainEvents.map((ev) => ev.payloadJson),
@@ -500,19 +503,26 @@ export class CrmService {
             lead as unknown as Record<string, unknown>,
             extraBlobs
         );
-        if (resolvedUshipUrl && !lead.viewUrl) {
+        if (resolvedUshipUrl) {
             const listingId = listingIdFromText(resolvedUshipUrl);
-            await prisma.shipmentLead
-                .update({
-                    where: { shipmentLeadId: lead.shipmentLeadId },
-                    data: {
-                        viewUrl: resolvedUshipUrl,
-                        ...(listingId && !lead.externalShipmentId
-                            ? { externalShipmentId: listingId }
-                            : {}),
-                    },
-                })
-                .catch(() => null);
+            const currentView = String(lead.viewUrl || "");
+            const shouldFixView =
+                !currentView ||
+                isUshipTrackingOrJunkUrl(currentView) ||
+                (listingId && !currentView.includes(`/listing/${listingId}`));
+            if (shouldFixView || (listingId && !lead.externalShipmentId)) {
+                await prisma.shipmentLead
+                    .update({
+                        where: { shipmentLeadId: lead.shipmentLeadId },
+                        data: {
+                            ...(shouldFixView ? { viewUrl: resolvedUshipUrl } : {}),
+                            ...(listingId && lead.externalShipmentId !== listingId
+                                ? { externalShipmentId: listingId }
+                                : {}),
+                        },
+                    })
+                    .catch(() => null);
+            }
         }
 
         const enriched = enrichLead(
@@ -569,7 +579,7 @@ export class CrmService {
             where: { shipmentLeadId },
             orderBy: { receivedAt: "asc" },
             take: 80,
-            select: { subject: true, snippet: true },
+            select: { subject: true, snippet: true, bodyText: true },
         });
         const extraBlobs = [
             lead.emailMessage?.subject,
@@ -579,13 +589,17 @@ export class CrmService {
             lead.documentsJson,
             ...mailboxEmails.map((m) => m.subject),
             ...mailboxEmails.map((m) => m.snippet),
+            ...mailboxEmails.map((m) => m.bodyText),
             ...lead.importLogs.map((log) => log.message),
             ...lead.domainEvents.map((ev) => ev.message),
             ...lead.domainEvents.map((ev) => ev.payloadJson),
         ];
         let url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, extraBlobs);
+        const currentView = String(lead.viewUrl || "");
+        const needsGmailReread =
+            !url || isUshipTrackingOrJunkUrl(currentView) || !listingIdFromText(url || currentView);
 
-        if (!url && lead.emailMessage?.gmailMessageId) {
+        if (needsGmailReread && lead.emailMessage?.gmailMessageId) {
             try {
                 if (await gmailListener.ensureCredentials()) {
                     const raw = await gmailListener.fetchMessage(lead.emailMessage.gmailMessageId);
@@ -595,10 +609,7 @@ export class CrmService {
                         raw.bodyText,
                         raw.bodyHtml,
                     ]);
-                    if (
-                        url &&
-                        (!lead.emailMessage.bodyHtml || !lead.emailMessage.bodyText)
-                    ) {
+                    if (url) {
                         await prisma.emailMessage
                             .update({
                                 where: { emailMessageId: lead.emailMessage.emailMessageId },
@@ -616,19 +627,23 @@ export class CrmService {
             }
         }
 
-        if (url && (!lead.viewUrl || !lead.externalShipmentId)) {
+        if (url) {
             const listingId = listingIdFromText(url);
-            await prisma.shipmentLead
-                .update({
-                    where: { shipmentLeadId },
-                    data: {
-                        ...(!lead.viewUrl ? { viewUrl: url } : {}),
-                        ...(listingId && !lead.externalShipmentId
-                            ? { externalShipmentId: listingId }
-                            : {}),
-                    },
-                })
-                .catch(() => null);
+            const shouldFixView =
+                !currentView ||
+                isUshipTrackingOrJunkUrl(currentView) ||
+                (listingId && !currentView.includes(`/listing/${listingId}`));
+            if (shouldFixView || (listingId && lead.externalShipmentId !== listingId)) {
+                await prisma.shipmentLead
+                    .update({
+                        where: { shipmentLeadId },
+                        data: {
+                            ...(shouldFixView ? { viewUrl: url } : {}),
+                            ...(listingId ? { externalShipmentId: listingId } : {}),
+                        },
+                    })
+                    .catch(() => null);
+            }
         }
         return url;
     }

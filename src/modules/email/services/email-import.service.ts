@@ -10,7 +10,7 @@ import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detec
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { getCompanyImportAfter } from "./gmail-import-cutoff.service.js";
-import { listingIdsFromText } from "../parsers/uship/listing-url.js";
+import { canonicalUshipListingUrl, listingIdsFromText } from "../parsers/uship/listing-url.js";
 
 function collectListingIds(...blobs: Array<string | null | undefined>): string[] {
     return listingIdsFromText(...blobs);
@@ -27,7 +27,7 @@ function extractUshipRefs(input: {
     const externalId = ids[0];
     return {
         externalId,
-        viewUrl: `https://www.uship.com/listing/${externalId}`,
+        viewUrl: externalId ? canonicalUshipListingUrl(externalId) : undefined,
     };
 }
 

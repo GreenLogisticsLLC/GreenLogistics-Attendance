@@ -146,20 +146,13 @@ export class UShipParser implements EmailParser {
         );
         const html = email.bodyHtml || "";
 
-        const viewUrlRaw =
-            matchFirst(html, [
-                /href=["'](https?:\/\/[^"']*uship\.com\/(?:listing|shipment|l)\/\d{5,}[^"']*)["']/i,
-                /href=3D["'](https?:\/\/[^"']*uship\.com\/(?:listing|shipment|l)\/\d{5,}[^"']*)["']/i,
-                /(https?:\/\/(?:www\.)?uship\.com\/(?:listing|shipment|l)\/\d{5,}[^\s"'<>]*)/i,
-            ]) ||
-            matchFirst(text, [
-                /(https?:\/\/(?:www\.)?uship\.com\/(?:listing|shipment|l)\/\d{5,}[^\s"'<>]*)/i,
-            ]);
-
-        const externalShipmentId =
-            listingIdFromText(viewUrlRaw, html, text) ||
-            matchFirst(text, [/Shipment\s*#?\s*:?\s*(\d{5,})/i, /Listing\s*#?\s*:?\s*(\d{5,})/i]);
-        const viewUrl = viewUrlRaw || (externalShipmentId ? canonicalUshipListingUrl(externalShipmentId) : undefined);
+        const listingId =
+            listingIdFromText(html, text, email.subject, email.snippet) ||
+            matchFirst(text, [/Shipment\s*(?:id|#|number)\s*:?\s*(\d{8,})/i, /Listing\s*(?:id|#|number)\s*:?\s*(\d{8,})/i]);
+        const listingSlugMatch = `${html}\n${text}`.match(
+            /uship\.com\/(?:listing|shipment|l)\/\d{6,}\/([^\/?#\s"']+)/i
+        );
+        const listingSlug = listingSlugMatch?.[1] || "";
 
         // --- Locations: labeled first, then Instant Alert unlabeled pairs ---
         const pickupLine = matchFirst(text, [
@@ -293,7 +286,7 @@ export class UShipParser implements EmailParser {
 
         return {
             source: "USHIP",
-            externalShipmentId: externalShipmentId || undefined,
+            externalShipmentId: listingId || undefined,
             shipmentTitle,
             customerName: customerName || undefined,
             pickupCity: pickup.city,
@@ -313,7 +306,9 @@ export class UShipParser implements EmailParser {
             weight: weight || undefined,
             price: Number.isFinite(price as number) ? price : null,
             imageUrl: imageUrl || undefined,
-            viewUrl: viewUrl || undefined,
+            viewUrl: listingId
+                ? canonicalUshipListingUrl(listingId, listingSlug || shipmentTitle)
+                : undefined,
             receivedAt: email.receivedAt,
         };
     }

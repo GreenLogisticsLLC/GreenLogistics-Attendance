@@ -118,16 +118,11 @@ window.GreenOSModules.crm = {
 
   ushipListingUrl(s) {
     if (!s) return "";
-    if (s.ushipUrl) return String(s.ushipUrl);
-    if (s.viewUrl && /uship\.com/i.test(String(s.viewUrl))) return String(s.viewUrl);
-    if (s.externalShipmentId && /^\d{5,}$/.test(String(s.externalShipmentId))) {
-      return "https://www.uship.com/listing/" + s.externalShipmentId;
-    }
     var extra = [];
     if (s.email) extra.push(s.email.subject, s.email.snippet);
     if (Array.isArray(s.mailboxEmails)) {
       s.mailboxEmails.forEach(function (m) {
-        extra.push(m && (m.subject || ""), m && (m.snippet || ""));
+        extra.push(m && (m.subject || ""), m && (m.snippet || ""), m && (m.bodyText || ""));
       });
     }
     if (Array.isArray(s.domainEvents)) {
@@ -140,22 +135,29 @@ window.GreenOSModules.crm = {
         extra.push(c && (c.message || ""), c && (c.title || ""));
       });
     }
-    var blob = [s.viewUrl, s.imageUrl, s.shipmentTitle, s.notes].concat(extra).join("\n");
+    var blob = [s.ushipUrl, s.viewUrl, s.imageUrl, s.shipmentTitle, s.notes, s.externalShipmentId]
+      .concat(extra)
+      .join("\n");
     blob = String(blob || "")
       .replace(/=\r?\n/g, "")
       .replace(/=3D/gi, "=")
+      .replace(/=2F/gi, "/")
       .replace(/%2F/gi, "/")
       .replace(/%3A/gi, ":");
-    var m =
-      blob.match(/uship\.com\/(?:listing|shipment|l)\/(\d{5,})/i) ||
-      blob.match(/\/listing\/(\d{5,})/i) ||
-      blob.match(/(?:listing|shipment)\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/i);
-    return m ? "https://www.uship.com/listing/" + m[1] : "";
+    var m = blob.match(/uship\.com\/(?:listing|shipment|l)\/(\d{6,})(?:\/([^\/?#\s"']*))?/i);
+    if (!m) return "";
+    var slug = String(s.shipmentTitle || m[2] || "")
+      .replace(/['`]/g, "")
+      .replace(/[^A-Za-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 48);
+    return slug
+      ? "https://www.uship.com/listing/" + m[1] + "/" + slug + "/"
+      : "https://www.uship.com/listing/" + m[1] + "/";
   },
 
   ushipOpenHref(s, id) {
-    var listing = this.ushipListingUrl(s);
-    if (listing) return listing;
     var token = localStorage.getItem("gl_token") || "";
     return (
       "/api/crm/shipments/" +

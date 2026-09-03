@@ -98,7 +98,7 @@ export async function crmOpenUshipController(req: AuthRequest, res: Response) {
     if (url) {
         return res.redirect(302, url);
     }
-    return res.redirect(302, "https://www.uship.com/find-shipments/");
+    return res.redirect(302, "https://www.uship.com/find");
 }
 
 export async function crmGetShipmentController(req: AuthRequest, res: Response) {

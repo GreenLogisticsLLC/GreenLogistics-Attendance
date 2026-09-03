@@ -5,7 +5,7 @@ import {
 } from "./broker-gmail-oauth.service.js";
 import type { RawEmailMessage } from "../models/types.js";
 import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
-import { listingIdsFromText } from "../parsers/uship/listing-url.js";
+import { canonicalUshipListingUrl, listingIdsFromText } from "../parsers/uship/listing-url.js";
 
 const USHIP_QUERY =
     "from:(uship.com OR email.uship.com OR notifications.uship.com OR mail.uship.com) newer_than:21d";
@@ -99,7 +99,7 @@ function extractUshipRefs(input: {
     return {
         listingIds,
         externalId,
-        viewUrl: externalId ? `https://www.uship.com/listing/${externalId}` : undefined,
+        viewUrl: externalId ? canonicalUshipListingUrl(externalId) : undefined,
     };
 }
 
