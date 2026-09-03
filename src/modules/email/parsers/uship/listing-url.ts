@@ -96,6 +96,31 @@ export function listingIdFromText(...blobs: Array<string | null | undefined>): s
     return listingRefsFromText(...blobs)[0]?.id || null;
 }
 
+export function isUshipListingId(value: string | null | undefined): boolean {
+    return isPlausibleListingId(String(value || "").trim(), MIN_URL_ID_LEN);
+}
+
+/** Keep the original listing path (with slug) when it already points at this id. */
+export function originalListingUrlForId(
+    listingId: string,
+    ...blobs: Array<string | null | undefined>
+): string | null {
+    const id = String(listingId || "").replace(/\D/g, "");
+    if (!isUshipListingId(id)) return null;
+    let text = blobs.map((blob) => normalizeListingBlob(String(blob || ""))).join("\n");
+    text = expandEncodedUrls(text);
+    const re = new RegExp(
+        String.raw`https?:\/\/(?:www\.)?uship\.com\/(?:listing|shipment|l)\/${id}(?:\/[^\/?#\s"']*)?`,
+        "i"
+    );
+    const match = text.match(re);
+    if (!match) return null;
+    const cleaned = match[0]
+        .replace(/^http:\/\//i, "https://")
+        .replace(/uship\.com\/(?:shipment|l)\//i, "uship.com/listing/");
+    return cleaned.endsWith("/") ? cleaned : `${cleaned}/`;
+}
+
 export function ushipListingUrlFromLead(
     lead: Record<string, unknown>,
     extraBlobs: Array<string | null | undefined> = []
@@ -105,18 +130,23 @@ export function ushipListingUrlFromLead(
     const ext = String(lead.externalShipmentId || "").trim();
     const blobs = [view, ext, String(lead.imageUrl || ""), title, String(lead.notes || ""), ...extraBlobs];
     const refs = listingRefsFromText(...blobs);
-    const fromUrl = refs[0];
-    const slug = fromUrl?.slug || listingSlugFromTitle(title);
 
-    if (fromUrl) return canonicalUshipListingUrl(fromUrl.id, slug);
+    // The number already on this card always wins — never open a different listing from later emails.
+    const stickyId = isUshipListingId(ext)
+        ? ext
+        : listingRefsFromText(view).find((ref) => ref.id)?.id || "";
 
-    if (/^\d{6,12}$/.test(ext) && !isUshipTrackingOrJunkUrl(view)) {
-        return canonicalUshipListingUrl(ext, slug);
+    if (stickyId) {
+        const original = originalListingUrlForId(stickyId, ...blobs);
+        if (original && /\/listing\/\d+\/[^\/?#]+/.test(original)) return original;
+        const matching = refs.find((ref) => ref.id === stickyId);
+        return canonicalUshipListingUrl(stickyId, matching?.slug || title);
     }
 
-    if (view.startsWith("http") && /uship\.com/i.test(view) && !isUshipTrackingOrJunkUrl(view)) {
-        const fromView = listingRefsFromText(view)[0];
-        if (fromView) return canonicalUshipListingUrl(fromView.id, fromView.slug || slug);
+    const fromUrl = refs[0];
+    if (fromUrl) {
+        const original = originalListingUrlForId(fromUrl.id, ...blobs);
+        return original || canonicalUshipListingUrl(fromUrl.id, fromUrl.slug || title);
     }
     return null;
 }

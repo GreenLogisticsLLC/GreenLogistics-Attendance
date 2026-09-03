@@ -46,4 +46,17 @@ assert(
     "miles/zip must not become listing ids"
 );
 
+const sticky = ushipListingUrlFromLead(
+    {
+        externalShipmentId: "914816914",
+        shipmentTitle: "2009 Buell Blast",
+        viewUrl: "",
+    },
+    ["Later email https://www.uship.com/listing/111222333/Other-Load/"]
+);
+assert(
+    sticky === "https://www.uship.com/listing/914816914/2009-Buell-Blast/",
+    "card listing number stays sticky: " + sticky
+);
+
 console.log("OK: listing-url checks passed");

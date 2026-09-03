@@ -669,6 +669,60 @@ export class BrokerGmailSyncService {
             },
         });
     }
+
+    /** Full HTML/text of broker uShip emails for this card — listing links live in HTML, not snippets. */
+    async listingSourceBlobsForShipment(shipmentLeadId: string): Promise<string[]> {
+        const rows = await prisma.brokerMailboxMessage.findMany({
+            where: { shipmentLeadId },
+            orderBy: { receivedAt: "asc" },
+            take: 8,
+            select: {
+                messageId: true,
+                gmailMessageId: true,
+                userId: true,
+                subject: true,
+                snippet: true,
+                bodyText: true,
+            },
+        });
+        if (!rows.length) return [];
+
+        const blobs: string[] = [];
+        const byUser = new Map<string, typeof rows>();
+        for (const row of rows) {
+            blobs.push(row.subject, row.snippet || "", row.bodyText || "");
+            const list = byUser.get(row.userId) || [];
+            list.push(row);
+            byUser.set(row.userId, list);
+        }
+
+        for (const [userId, userRows] of byUser) {
+            const account = await prisma.brokerGmailAccount.findFirst({
+                where: { userId, isActive: true, status: "CONNECTED" },
+                select: { brokerGmailId: true, refreshToken: true },
+            });
+            if (!account) continue;
+            try {
+                const gmail = this.clientFor(account);
+                for (const row of userRows) {
+                    if (listingIdsFromText(row.bodyText, row.snippet, row.subject).length) continue;
+                    const raw = await this.fetchRaw(gmail, row.gmailMessageId);
+                    blobs.push(raw.subject, raw.snippet || "", raw.bodyText || "", raw.bodyHtml || "");
+                    if (raw.bodyText && raw.bodyText !== row.bodyText) {
+                        await prisma.brokerMailboxMessage
+                            .update({
+                                where: { messageId: row.messageId },
+                                data: { bodyText: raw.bodyText.slice(0, 20000) },
+                            })
+                            .catch(() => null);
+                    }
+                }
+            } catch {
+                /* broker Gmail re-read is best-effort */
+            }
+        }
+        return blobs;
+    }
 }
 
 export const brokerGmailSyncService = new BrokerGmailSyncService();

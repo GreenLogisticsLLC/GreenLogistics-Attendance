@@ -10,11 +10,14 @@ import { isLoadPhase, normalizeStatus, statusLabel } from "../../shipment/shipme
 import { listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { canWorkAnyShipment } from "../../../auth/roles.js";
 import {
+    canonicalUshipListingUrl,
+    isUshipListingId,
     isUshipTrackingOrJunkUrl,
     listingIdFromText,
     ushipListingUrlFromLead,
 } from "../../email/parsers/uship/listing-url.js";
 import { gmailListener } from "../../email/gmail/gmail.listener.js";
+import { brokerGmailSyncService } from "../../email/gmail/broker-gmail-sync.service.js";
 
 async function actorRoleName(userId: string): Promise<string> {
     const user = await prisma.user.findUnique({
@@ -595,11 +598,33 @@ export class CrmService {
             ...lead.domainEvents.map((ev) => ev.payloadJson),
         ];
         let url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, extraBlobs);
+        const stickyId = isUshipListingId(lead.externalShipmentId)
+            ? String(lead.externalShipmentId)
+            : listingIdFromText(lead.viewUrl || "", url || "");
         const currentView = String(lead.viewUrl || "");
-        const needsGmailReread =
-            !url || isUshipTrackingOrJunkUrl(currentView) || !listingIdFromText(url || currentView);
+        const needsLiveRead =
+            !url ||
+            !stickyId ||
+            isUshipTrackingOrJunkUrl(currentView) ||
+            !listingIdFromText(url || currentView);
 
-        if (needsGmailReread && lead.emailMessage?.gmailMessageId) {
+        if (needsLiveRead) {
+            try {
+                const brokerBlobs = await brokerGmailSyncService.listingSourceBlobsForShipment(
+                    shipmentLeadId
+                );
+                if (brokerBlobs.length) {
+                    url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, [
+                        ...extraBlobs,
+                        ...brokerBlobs,
+                    ]);
+                }
+            } catch {
+                /* broker Gmail re-read is best-effort */
+            }
+        }
+
+        if (needsLiveRead && lead.emailMessage?.gmailMessageId) {
             try {
                 if (await gmailListener.ensureCredentials()) {
                     const raw = await gmailListener.fetchMessage(lead.emailMessage.gmailMessageId);
@@ -608,6 +633,7 @@ export class CrmService {
                         raw.snippet,
                         raw.bodyText,
                         raw.bodyHtml,
+                        ...extraBlobs,
                     ]);
                     if (url) {
                         await prisma.emailMessage
@@ -627,8 +653,12 @@ export class CrmService {
             }
         }
 
+        const listingId = listingIdFromText(url || "") || stickyId || null;
+        if (!url && listingId) {
+            url = canonicalUshipListingUrl(listingId, lead.shipmentTitle);
+        }
+
         if (url) {
-            const listingId = listingIdFromText(url);
             const shouldFixView =
                 !currentView ||
                 isUshipTrackingOrJunkUrl(currentView) ||
