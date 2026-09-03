@@ -328,10 +328,19 @@
       if (this.currentModule === "ai") return;
       // Trucking has its own live timer.
       if (this.currentModule === "trucking") return;
-      // Shipments list — manual only; push/poll must not remount the table.
+      // Shipments list — manual only; push/poll must not remount the table
+      // (Broker, Team Lead, Owner — New / Other / CRM Shipments).
       if (this.currentModule === "shipments") return;
+      if (this.currentSub === "new" || this.currentSub === "other") return;
       if (this.currentModule === "broker" && this.currentSub === "shipments") return;
       if (this.currentModule === "crm" && this.currentSub === "shipments") return;
+      if (
+        document.getElementById("shipments-module-body") ||
+        document.getElementById("crm-ship-body") ||
+        document.getElementById("broker-ship-body")
+      ) {
+        return;
+      }
       if (
         this.currentModule === "crm" &&
         typeof window.GreenOSCrmReloadBody === "function"

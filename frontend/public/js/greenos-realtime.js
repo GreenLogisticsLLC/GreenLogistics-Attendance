@@ -340,8 +340,16 @@
 
   function isShipmentsListPage() {
     var g = window.GreenOS;
+    if (
+      document.getElementById("shipments-module-body") ||
+      document.getElementById("crm-ship-body") ||
+      document.getElementById("broker-ship-body")
+    ) {
+      return true;
+    }
     if (!g) return false;
     if (g.currentModule === "shipments") return true;
+    if (g.currentSub === "new" || g.currentSub === "other") return true;
     if (g.currentModule === "broker" && g.currentSub === "shipments") return true;
     if (g.currentModule === "crm" && g.currentSub === "shipments") return true;
     return false;

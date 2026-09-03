@@ -28,6 +28,9 @@ window.GreenOSModules.shipments = {
       '<div class="gos-module-body" id="shipments-module-body"></div>' +
       "</div>";
     var body = root.querySelector("#shipments-module-body");
+    window.GreenOSCrmReloadBody = function () {
+      /* Team Lead / ops Shipments list is manual — no push remount. */
+    };
     crm.renderShipments(body, root, null, { assignmentKind: tab });
   },
 };

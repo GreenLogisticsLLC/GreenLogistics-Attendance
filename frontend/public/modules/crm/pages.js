@@ -88,8 +88,18 @@ window.GreenOSModules.crm = {
       else self.renderShipments(current, root);
     }
 
-    // Soft reload used by realtime/poll: keeps the subnav and the open card alive.
-    window.GreenOSCrmReloadBody = paint;
+    // Soft reload for CRM dashboard/brokers only — never remount Shipments via push.
+    window.GreenOSCrmReloadBody = function () {
+      if (
+        document.getElementById("shipments-module-body") ||
+        document.getElementById("crm-ship-body") ||
+        document.getElementById("broker-ship-body")
+      ) {
+        return;
+      }
+      if (page === "shipments") return;
+      paint();
+    };
     paint();
   },
 
