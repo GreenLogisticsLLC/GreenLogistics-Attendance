@@ -95,16 +95,10 @@ export async function crmOpenUshipController(req: AuthRequest, res: Response) {
     if (req.user?.userId) {
         await crmService.markAgentOpened(id, req.user.userId).catch(() => null);
     }
-    if (!url) {
-        res.status(404).type("html").send(
-            `<!doctype html><html><head><meta charset="utf-8"><title>uShip</title></head><body style="font-family:sans-serif;background:#0f1720;color:#e8f0ea;padding:2rem">
-<p>Could not find the uShip listing for this shipment yet.</p>
-<p><a href="https://www.uship.com/" style="color:#4ade80">Open uShip</a></p>
-</body></html>`
-        );
-        return;
+    if (url) {
+        return res.redirect(302, url);
     }
-    return res.redirect(302, url);
+    return res.redirect(302, "https://www.uship.com/find-shipments/");
 }
 
 export async function crmGetShipmentController(req: AuthRequest, res: Response) {

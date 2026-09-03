@@ -56,8 +56,8 @@ jobs:
           git fetch origin
           git reset --hard origin/main
           git rev-parse --short HEAD > deploy-version.txt
-          rm -rf node_modules
-          if ! npm ci; then
+          rm -rf node_modules .npm-lock 2>/dev/null || true
+          if ! npm ci --prefer-offline 2>/dev/null; then
             echo "WARN: npm ci failed — retrying with npm install"
             rm -rf node_modules
             npm install --no-audit --no-fund

@@ -13,13 +13,18 @@ export function listingIdsFromText(...blobs: Array<string | null | undefined>): 
     const ids = new Set<string>();
     let text = blobs.map((blob) => normalizeListingBlob(String(blob || ""))).join("\n");
     if (!text) return [];
-    for (const match of text.matchAll(/[?&](?:url|u|redirect|dest|destination|target)=([^&\s"'<>]+)/gi)) {
-        try {
-            text += `\n${decodeURIComponent(match[1])}`;
-        } catch {
-            /* ignore bad encoding */
-        }
+
+    // Expand URL-encoded tracking links: click.mail.uship.com?url=https%3A%2F%2F...
+    const expanded: string[] = [];
+    for (const match of text.matchAll(/[?&](?:url|u|redirect|dest|destination|target|href)=([^&\s"'<>]+)/gi)) {
+        try { expanded.push(decodeURIComponent(match[1])); } catch { /* ignore */ }
     }
+    // Also expand href= values in HTML (handles single-encoded and double-encoded)
+    for (const match of text.matchAll(/href=["']([^"'>]+uship[^"'>]*)["']/gi)) {
+        try { expanded.push(decodeURIComponent(match[1])); } catch { expanded.push(match[1]); }
+    }
+    if (expanded.length) text += "\n" + expanded.join("\n");
+
     const patterns = [
         /uship\.com\/(?:listing|shipment|l)\/(\d{5,})/gi,
         /\/listing\/(\d{5,})(?:\/|[?#"'<\s>]|$)/gi,
