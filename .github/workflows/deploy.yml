@@ -56,10 +56,24 @@ jobs:
           git fetch origin
           git reset --hard origin/main
           git rev-parse --short HEAD > deploy-version.txt
-          rm -rf node_modules .npm-lock 2>/dev/null || true
-          if ! npm ci --prefer-offline 2>/dev/null; then
+          # Contabo FS sometimes returns ENOTEMPTY mid-rm; never let wipe abort deploy.
+          wipe_node_modules() {
+            chmod -R u+w node_modules 2>/dev/null || true
+            rm -rf node_modules 2>/dev/null || true
+            if [ -e node_modules ]; then
+              mv node_modules "node_modules.trash.$$" 2>/dev/null || true
+              rm -rf "node_modules.trash.$$" 2>/dev/null || true
+            fi
+            if [ -e node_modules ]; then
+              find node_modules -mindepth 1 -delete 2>/dev/null || true
+              rmdir node_modules 2>/dev/null || true
+            fi
+          }
+          wipe_node_modules || true
+          rm -f .npm-lock 2>/dev/null || true
+          if ! npm ci --prefer-offline; then
             echo "WARN: npm ci failed — retrying with npm install"
-            rm -rf node_modules
+            wipe_node_modules || true
             npm install --no-audit --no-fund
           fi
 

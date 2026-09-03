@@ -22,9 +22,17 @@ jobs:
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
+          wipe_node_modules() {
+            chmod -R u+w node_modules 2>/dev/null || true
+            rm -rf node_modules 2>/dev/null || true
+            if [ -e node_modules ]; then
+              mv node_modules "node_modules.trash.$$" 2>/dev/null || true
+              rm -rf "node_modules.trash.$$" 2>/dev/null || true
+            fi
+          }
           if ! npm ci; then
             echo "WARN: npm ci failed — retrying with npm install"
-            rm -rf node_modules
+            wipe_node_modules || true
             npm install --no-audit --no-fund
           fi
           npm run db:generate

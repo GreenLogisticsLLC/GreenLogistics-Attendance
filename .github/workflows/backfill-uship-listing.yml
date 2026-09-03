@@ -28,5 +28,16 @@ jobs:
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
+          if [ ! -d node_modules/@prisma/client ] || [ ! -f dist/modules/crm/services/crm.service.js ]; then
+            echo "Deps/build missing — installing and building first"
+            if ! npm ci; then
+              chmod -R u+w node_modules 2>/dev/null || true
+              rm -rf node_modules 2>/dev/null || true
+              if [ -e node_modules ]; then mv node_modules "node_modules.trash.$$" || true; fi
+              npm install --no-audit --no-fund
+            fi
+            npm run db:generate
+            npm run build
+          fi
           node scripts/backfill-uship-listing.mjs "${GOS:-GOS1000550}"
           EOF
