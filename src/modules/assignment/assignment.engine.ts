@@ -513,48 +513,39 @@ export class AssignmentEngine {
             });
 
             if (!pick) {
-                const parked = await prisma.shipmentLead.updateMany({
+                // No other broker In Office — keep the lead with the same broker.
+                // Extend the acceptance deadline by another ACCEPTANCE_MINUTES so the
+                // scheduler does not fire again immediately on the next tick.
+                const extended = await prisma.shipmentLead.updateMany({
                     where: {
                         shipmentLeadId: lead.shipmentLeadId,
                         acceptedAt: null,
                         status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
                     },
                     data: {
-                        status: "UNASSIGNED",
-                        assignedBrokerId: null,
-                        acceptanceDeadline: null,
-                        isReassignment: true,
-                        wasEverReassigned: true,
+                        acceptanceDeadline: new Date(now.getTime() + ACCEPTANCE_MINUTES * 60_000),
                     },
                 });
-                if (parked.count === 0) continue;
+                if (extended.count === 0) continue;
                 await this.pipelineLog(
                     lead.shipmentLeadId,
-                    "No other broker In Office — parked UNASSIGNED"
+                    `No other broker In Office — keeping with ${previousLabel} until another broker arrives`
                 );
                 await domainEventEngine.emit({
                     shipmentLeadId: lead.shipmentLeadId,
-                    eventType: "SHIPMENT_UNASSIGNED",
-                    title: "Unassigned",
-                    message: "No other broker In Office after acceptance timeout",
-                    timelineStage: "SHIPMENT_UNASSIGNED",
+                    eventType: "STATUS_CHANGED",
+                    title: "Waiting — sole broker",
+                    message: `${previousLabel} is the only broker In Office — shipment stays until another broker checks in`,
+                    timelineStage: "STATUS_CHANGED",
+                    payload: { previousBrokerId, reason: "SOLE_BROKER_EXTENDED" },
                 });
-                // Ensure previous broker's My Shipments drops this row (assignedBrokerId already cleared).
+                // Notify the broker so they know it's still theirs
                 sseEmitToUser(previousBrokerId, {
-                    type: "SHIPMENT_UNASSIGNED",
+                    type: "ACCEPTANCE_EXTENDED",
                     shipmentLeadId: lead.shipmentLeadId,
                     greenOsShipmentId: lead.greenOsShipmentId,
                     shipmentTitle: lead.shipmentTitle,
-                    reason: "No other broker In Office after timeout — removed from your queue",
-                    removedFromYourQueue: true,
-                    at: new Date().toISOString(),
-                });
-                sseEmitToRoles(["Owner", "Manager", "Administrator"], {
-                    type: "SHIPMENT_UNASSIGNED",
-                    shipmentLeadId: lead.shipmentLeadId,
-                    shipmentTitle: lead.shipmentTitle,
-                    reason: "No other broker In Office after timeout",
-                    previousBrokerName: previousLabel,
+                    message: `You are the only broker In Office — shipment #${gosId} stays with you until another broker arrives`,
                     at: new Date().toISOString(),
                 });
                 continue;
