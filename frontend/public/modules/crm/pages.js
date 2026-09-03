@@ -1191,9 +1191,21 @@ window.GreenOSModules.crm = {
         (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED" || s.status === "AGENT_OPEN"
           ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
           : "") +
-        '<button type="button" class="btn-primary crm-open-uship" data-uship-url="' +
-        esc(s.ushipUrl || "") +
-        '">Open in uShip</button>' +
+        (function () {
+          var listing =
+            s.ushipUrl ||
+            s.viewUrl ||
+            (s.externalShipmentId && /^\d{5,}$/.test(String(s.externalShipmentId))
+              ? "https://www.uship.com/listing/" + s.externalShipmentId
+              : "");
+          return listing
+            ? '<a class="btn-primary crm-open-uship" href="' +
+                esc(listing) +
+                '" target="_blank" rel="noopener noreferrer" data-uship-url="' +
+                esc(listing) +
+                '">Open in uShip</a>'
+            : '<button type="button" class="btn-primary crm-open-uship" data-uship-url="">Open in uShip</button>';
+        })() +
         (s.loadNumber
           ? '<button type="button" class="btn-primary" id="crm-open-load">Open Load ' +
             esc(s.loadNumber) +
@@ -1257,13 +1269,32 @@ window.GreenOSModules.crm = {
 
       modal.querySelectorAll(".crm-open-uship, .crm-pipe-uship").forEach(function (link) {
         link.addEventListener("click", function (ev) {
-          ev.preventDefault();
           ev.stopPropagation();
           var href =
             link.getAttribute("data-uship-url") ||
             link.getAttribute("href") ||
-            (s.ushipUrl || "");
+            s.ushipUrl ||
+            s.viewUrl ||
+            (s.externalShipmentId && /^\d{5,}$/.test(String(s.externalShipmentId))
+              ? "https://www.uship.com/listing/" + s.externalShipmentId
+              : "");
+          var waiting =
+            s.status === "NEW" ||
+            s.status === "UNASSIGNED" ||
+            s.status === "ASSIGNED" ||
+            s.status === "AWAITING_ACCEPTANCE" ||
+            s.status === "AGENT_OPEN";
+          if (!waiting) {
+            if (href && link.tagName !== "A") window.open(href, "_blank", "noopener");
+            if (!href) alert("No uShip listing URL on this card");
+            return;
+          }
+          ev.preventDefault();
           if (href) window.open(href, "_blank", "noopener");
+          else {
+            alert("No uShip listing URL on this card");
+            return;
+          }
           var badgeHost = modal.querySelector(".crm-card-grid div");
           if (badgeHost) {
             badgeHost.innerHTML =
@@ -1278,12 +1309,6 @@ window.GreenOSModules.crm = {
               if (modal.getAttribute("data-shipment-id") !== id) return;
               var next = res && res.success && res.data ? res.data : null;
               window.GreenOSModules.crm.openShipmentCard(document, id, next);
-              if (typeof window.GreenOSCrmReloadBody === "function") {
-                window.GreenOSCrmReloadBody();
-              }
-              if (typeof window.GreenOSBrokerReloadShipments === "function") {
-                window.GreenOSBrokerReloadShipments();
-              }
             })
             .catch(function () {
               window.GreenOSModules.crm.openShipmentCard(document, id);

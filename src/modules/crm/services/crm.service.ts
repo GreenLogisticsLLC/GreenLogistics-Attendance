@@ -85,7 +85,13 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
         paymentStatus: (lead.paymentStatus as string) || null,
         opsPickupAt: lead.opsPickupAt || null,
         opsDeliveryAt: lead.opsDeliveryAt || null,
-        ushipUrl: lead.viewUrl || null,
+        ushipUrl: (function ushipListingUrl() {
+            const view = String(lead.viewUrl || "").trim();
+            if (view) return view;
+            const ext = String(lead.externalShipmentId || "").trim();
+            if (/^\d{5,}$/.test(ext)) return `https://www.uship.com/listing/${ext}`;
+            return null;
+        })(),
     };
 }
 

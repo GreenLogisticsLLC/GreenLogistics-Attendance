@@ -996,6 +996,12 @@ html[data-theme="light"] {
   align-items: center;
   margin-bottom: 1.25rem;
 }
+a.crm-open-uship {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+  box-sizing: border-box;
+}
 .crm-actions select {
   margin-left: 0.35rem;
 }
