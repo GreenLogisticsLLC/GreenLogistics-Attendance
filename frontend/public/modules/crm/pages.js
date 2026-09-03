@@ -901,6 +901,10 @@ window.GreenOSModules.crm = {
         if (pipeSteps[pi].stage === "BROKER_QUESTION") brokerQ = pipeSteps[pi];
         if (pipeSteps[pi].stage === "CUSTOMER_RESPOND") customerR = pipeSteps[pi];
       }
+      // Customer reply owns the pair: red on, green off. Never both glowing.
+      if (customerR && customerR.done && brokerQ && brokerQ.done) {
+        brokerQ = Object.assign({}, brokerQ, { done: false, at: null });
+      }
 
       function pipeNodeHtml(p, opts) {
         opts = opts || {};

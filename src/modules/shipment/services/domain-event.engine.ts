@@ -168,9 +168,44 @@ export class DomainEventEngine {
         const occurred = new Set(events.map((e) => e.eventType));
         for (const t of timeline) occurred.add(t.stage);
 
+        const qaCustomerKeys = new Set([
+            "CUSTOMER_RESPOND",
+            "CUSTOMER_REPLIED",
+            "CUSTOMER_QUESTION",
+            "NEW_MESSAGE",
+        ]);
+        const qaBrokerKeys = new Set(["BROKER_QUESTION", "BROKER_ANSWER"]);
+        const latestAt = (rows: Array<{ createdAt: Date | null }>): Date | null =>
+            rows.reduce<Date | null>((latest, row) => {
+                const at = row.createdAt;
+                if (!at) return latest;
+                if (!latest || at > latest) return at;
+                return latest;
+            }, null);
+        const latestCustomerAt = latestAt([
+            ...events.filter((e) => qaCustomerKeys.has(e.eventType)),
+            ...timeline.filter(
+                (t: { stage: string }) =>
+                    qaCustomerKeys.has(t.stage) || t.stage === "CUSTOMER_REPLIED"
+            ),
+        ]);
+        const latestBrokerAt = latestAt([
+            ...events.filter((e) => qaBrokerKeys.has(e.eventType)),
+            ...timeline.filter((t: { stage: string }) => qaBrokerKeys.has(t.stage)),
+        ]);
+        // Only one Q&A lamp at a time: customer reply turns red on and green off.
+        const customerLampOn = Boolean(
+            latestCustomerAt &&
+                (!latestBrokerAt || latestCustomerAt.getTime() > latestBrokerAt.getTime())
+        );
+        const brokerLampOn = Boolean(
+            latestBrokerAt &&
+                (!latestCustomerAt || latestBrokerAt.getTime() >= latestCustomerAt.getTime())
+        );
+
         const aliases: Record<string, string[]> = {
             CUSTOMER_RESPOND: ["CUSTOMER_RESPOND", "CUSTOMER_REPLIED", "CUSTOMER_QUESTION", "NEW_MESSAGE"],
-            BROKER_QUESTION: ["BROKER_QUESTION"],
+            BROKER_QUESTION: ["BROKER_QUESTION", "BROKER_ANSWER"],
             BID_SUBMITTED: ["BID_SUBMITTED", "QUOTE_SENT"],
             CUSTOMER_ACCEPTED: ["CUSTOMER_ACCEPTED", "BOOKED", "ACCEPT_GREEN"],
             BROKER_ACCEPTED_WORK: ["BROKER_ACCEPTED_WORK", "BROKER_ACCEPTED", "AGENT_STARTED_WORK"],
@@ -201,43 +236,24 @@ export class DomainEventEngine {
             const done = Boolean(
                 match || legacy || keys.some((k) => occurred.has(k))
             );
-            // Red Customer Respond lamp is live only while the latest customer reply
-            // is newer than the latest broker answer. Answering turns it off until
-            // the customer writes again.
             if (step.stage === "CUSTOMER_RESPOND") {
-                const customerKeys = new Set(aliases.CUSTOMER_RESPOND);
-                const brokerKeys = new Set(["BROKER_QUESTION", "BROKER_ANSWER"]);
-                const latestCustomer = [
-                    ...events.filter((e) => customerKeys.has(e.eventType)),
-                    ...timeline.filter(
-                        (t: { stage: string }) =>
-                            customerKeys.has(t.stage) || t.stage === "CUSTOMER_REPLIED"
-                    ),
-                ].reduce<Date | null>((latest, row) => {
-                    const at = row.createdAt;
-                    if (!at) return latest;
-                    if (!latest || at > latest) return at;
-                    return latest;
-                }, null);
-                const latestBroker = [
-                    ...events.filter((e) => brokerKeys.has(e.eventType)),
-                    ...timeline.filter((t: { stage: string }) => brokerKeys.has(t.stage)),
-                ].reduce<Date | null>((latest, row) => {
-                    const at = row.createdAt;
-                    if (!at) return latest;
-                    if (!latest || at > latest) return at;
-                    return latest;
-                }, null);
-                const lampOn = Boolean(
-                    latestCustomer && (!latestBroker || latestCustomer > latestBroker)
-                );
                 return {
                     stage: step.stage,
                     title: step.title,
                     status: step.status,
                     interactive: Boolean((step as { interactive?: boolean }).interactive),
-                    done: lampOn,
-                    at: lampOn ? latestCustomer : null,
+                    done: customerLampOn,
+                    at: customerLampOn ? latestCustomerAt : null,
+                };
+            }
+            if (step.stage === "BROKER_QUESTION") {
+                return {
+                    stage: step.stage,
+                    title: step.title,
+                    status: step.status,
+                    interactive: Boolean((step as { interactive?: boolean }).interactive),
+                    done: brokerLampOn,
+                    at: brokerLampOn ? latestBrokerAt : null,
                 };
             }
             // Load Created cannot light without Customer Accepted first.
