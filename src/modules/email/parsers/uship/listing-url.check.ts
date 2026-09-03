@@ -79,6 +79,11 @@ assert(
     "shipment/{slug}/{id} format"
 );
 assert(
+    cleanResolvedUshipUrl("https://www.uship.com/listing/12345678") ===
+        "https://www.uship.com/listing/12345678/",
+    "bare listing url without invented slug"
+);
+assert(
     cleanResolvedUshipUrl(
         "https://www.uship.com/shipment/3-Pallets/470376850/?utm_medium=Email"
     ) === "https://www.uship.com/shipment/3-Pallets/470376850/",

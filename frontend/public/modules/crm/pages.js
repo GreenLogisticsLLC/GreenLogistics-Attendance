@@ -118,6 +118,27 @@ window.GreenOSModules.crm = {
 
   ushipListingUrl(s) {
     if (!s) return "";
+    // Prefer the concrete URL already bound on the card at import time.
+    var stored = String(s.viewUrl || s.ushipUrl || "").trim();
+    if (stored) {
+      var storedClean = stored
+        .replace(/=\r?\n/g, "")
+        .replace(/=3D/gi, "=")
+        .replace(/=2F/gi, "/")
+        .replace(/%2F/gi, "/")
+        .replace(/%3A/gi, ":");
+      var sm =
+        storedClean.match(/uship\.com\/shipment\/([^\/?#\s"']+)\/(\d{6,})/i) ||
+        storedClean.match(/uship\.com\/(?:listing|l)\/(\d{6,})\/([^\/?#\s"']+)/i);
+      if (sm) {
+        if (/\/shipment\//i.test(sm[0])) {
+          return "https://www.uship.com/shipment/" + sm[1] + "/" + sm[2] + "/";
+        }
+        return "https://www.uship.com/listing/" + sm[1] + "/" + sm[2].replace(/\/+$/, "") + "/";
+      }
+      var bare = storedClean.match(/uship\.com\/(?:listing|l)\/(\d{6,})\/?(?:[?#]|$)/i);
+      if (bare) return "https://www.uship.com/listing/" + bare[1] + "/";
+    }
     var extra = [];
     if (s.email) extra.push(s.email.subject, s.email.snippet);
     if (Array.isArray(s.mailboxEmails)) {

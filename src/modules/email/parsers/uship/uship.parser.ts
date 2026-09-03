@@ -1,5 +1,10 @@
 import type { EmailParser, ParsedShipmentDraft, RawEmailMessage } from "../../models/types.js";
-import { canonicalUshipListingUrl, listingIdFromText } from "./listing-url.js";
+import {
+    cleanResolvedUshipUrl,
+    listingIdFromText,
+    normalizeListingBlob,
+    originalListingUrlForId,
+} from "./listing-url.js";
 
 const USHIP_FROM = /uship\.com/i;
 const CITY_STATE_ZIP =
@@ -149,10 +154,15 @@ export class UShipParser implements EmailParser {
         const listingId =
             listingIdFromText(html, text, email.subject, email.snippet) ||
             matchFirst(text, [/Shipment\s*(?:id|#|number)\s*:?\s*(\d{8,})/i, /Listing\s*(?:id|#|number)\s*:?\s*(\d{8,})/i]);
-        const listingSlugMatch = `${html}\n${text}`.match(
-            /uship\.com\/(?:listing|shipment|l)\/\d{6,}\/([^\/?#\s"']+)/i
-        );
-        const listingSlug = listingSlugMatch?.[1] || "";
+        // Only keep a URL that is already in the email (or decoded from click wrappers).
+        // Instant Alert track.uship.com links are bound at import via resolveConcreteUshipListing.
+        const concreteViewUrl =
+            (listingId
+                ? originalListingUrlForId(listingId, html, text, email.subject, email.snippet)
+                : null) ||
+            cleanResolvedUshipUrl(
+                normalizeListingBlob([html, text, email.subject, email.snippet].join("\n"))
+            );
 
         // --- Locations: labeled first, then Instant Alert unlabeled pairs ---
         const pickupLine = matchFirst(text, [
@@ -306,9 +316,7 @@ export class UShipParser implements EmailParser {
             weight: weight || undefined,
             price: Number.isFinite(price as number) ? price : null,
             imageUrl: imageUrl || undefined,
-            viewUrl: listingId
-                ? canonicalUshipListingUrl(listingId, listingSlug || undefined)
-                : undefined,
+            viewUrl: concreteViewUrl || undefined,
             receivedAt: email.receivedAt,
         };
     }

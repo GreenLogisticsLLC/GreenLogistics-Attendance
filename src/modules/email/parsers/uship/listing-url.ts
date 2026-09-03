@@ -84,6 +84,47 @@ export function cleanResolvedUshipUrl(raw: string): string | null {
             .replace(/uship\.com\/l\//i, "uship.com/listing/");
         return url.endsWith("/") ? url : `${url}/`;
     }
+    // Bare /listing/{id}/ as written in some classic emails (no invented slug).
+    const bare = text.match(
+        /https?:\/\/(?:www\.)?uship\.com\/(?:listing|l)\/(\d{6,12})\/?(?=[?#\s"'<>]|$)/i
+    );
+    if (bare) {
+        const id = bare[1];
+        return `https://www.uship.com/listing/${id}/`;
+    }
+    return null;
+}
+
+/**
+ * Bind the concrete uShip page URL for this email onto a card.
+ * Follows track.uship.com / click wrappers; never invents a slug from our title.
+ */
+export async function resolveConcreteUshipListing(
+    ...blobs: Array<string | null | undefined>
+): Promise<{ viewUrl: string; externalShipmentId: string } | null> {
+    const fromEmail = sluggedListingUrlFrom(...blobs);
+    if (fromEmail && hasRealListingSlug(fromEmail)) {
+        const id = listingIdFromText(fromEmail);
+        if (id) return { viewUrl: fromEmail, externalShipmentId: id };
+    }
+
+    const bare = cleanResolvedUshipUrl(
+        blobs.map((b) => normalizeListingBlob(String(b || ""))).join("\n")
+    );
+    if (bare) {
+        const id = listingIdFromText(bare);
+        if (id) return { viewUrl: bare, externalShipmentId: id };
+    }
+
+    for (const track of trackingUrlsFromText(...blobs)) {
+        const resolved = await followUshipToListingUrl(track);
+        if (!resolved) continue;
+        const cleaned = cleanResolvedUshipUrl(resolved) || resolved;
+        if (!hasRealListingSlug(cleaned) && !/\/listing\/\d{6,12}\/?$/i.test(cleaned)) continue;
+        const id = listingIdFromText(cleaned);
+        if (id) return { viewUrl: cleaned, externalShipmentId: id };
+    }
+
     return null;
 }
 

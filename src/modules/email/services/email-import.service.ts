@@ -10,7 +10,7 @@ import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detec
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { getCompanyImportAfter } from "./gmail-import-cutoff.service.js";
-import { canonicalUshipListingUrl, listingIdsFromText } from "../parsers/uship/listing-url.js";
+import { canonicalUshipListingUrl, listingIdsFromText, resolveConcreteUshipListing } from "../parsers/uship/listing-url.js";
 
 function collectListingIds(...blobs: Array<string | null | undefined>): string[] {
     return listingIdsFromText(...blobs);
@@ -258,6 +258,28 @@ export class EmailImportService {
                     await gmailListener.markProcessed(gmailMessageId);
                     errors += 1;
                     continue;
+                }
+
+                // Every USHIP card must store the concrete listing/shipment URL from this email.
+                if (draft.source === "USHIP") {
+                    const bound = await resolveConcreteUshipListing(
+                        draft.viewUrl,
+                        raw.bodyHtml,
+                        raw.bodyText,
+                        raw.subject,
+                        raw.snippet
+                    );
+                    if (bound) {
+                        draft.viewUrl = bound.viewUrl;
+                        draft.externalShipmentId = bound.externalShipmentId;
+                    } else {
+                        await shipmentImportLogRepository.create({
+                            eventType: "MissingUshipUrl",
+                            message: `No concrete uShip URL for: ${raw.subject}`,
+                            gmailMessageId,
+                            emailMessageId: stored.emailMessageId,
+                        });
+                    }
                 }
 
                 const result = await shipmentLeadService.createFromParsed({
