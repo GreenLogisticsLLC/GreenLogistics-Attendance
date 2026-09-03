@@ -3,6 +3,8 @@
  *   node scripts/dump-uship-email-html.mjs GOS1000550
  */
 import { createRequire } from "module";
+import { pathToFileURL } from "url";
+import path from "path";
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require("@prisma/client");
@@ -22,19 +24,46 @@ async function main() {
     const html = lead.emailMessage.bodyHtml || "";
     const text = lead.emailMessage.bodyText || "";
     console.log("htmlLen", html.length, "textLen", text.length);
-    const patterns = [
-        /https?:\/\/[^\s"'<>]*uship[^\s"'<>]*/gi,
-        /href=["'][^"']+["']/gi,
-        /listing[^<\s"']{0,80}/gi,
-        /ID\s*#?\s*\d+/gi,
-    ];
-    for (const re of patterns) {
-        const hits = [...(html + "\n" + text).matchAll(re)].slice(0, 20).map((m) => m[0]);
-        console.log("\n===", re.source.slice(0, 40), "===", hits.length);
-        for (const h of hits) console.log(h.slice(0, 300));
+
+    const urlHits = [...(html + "\n" + text).matchAll(/https?:\/\/[^\s"'<>]+/gi)]
+        .map((m) => m[0])
+        .filter((u) => /uship|listing|click/i.test(u))
+        .slice(0, 30);
+    console.log("\n=== URL HITS ===", urlHits.length);
+    for (const u of urlHits) console.log(u.slice(0, 400));
+
+    const hrefHits = [...html.matchAll(/href=(?:3D)?["']?([^"'>\s]+)/gi)]
+        .map((m) => m[1])
+        .filter((u) => /uship|listing|http/i.test(u))
+        .slice(0, 30);
+    console.log("\n=== HREF HITS ===", hrefHits.length);
+    for (const u of hrefHits) console.log(String(u).slice(0, 400));
+
+    try {
+        const listing = await import(
+            pathToFileURL(path.join(process.cwd(), "dist/modules/email/parsers/uship/listing-url.js")).href
+        );
+        console.log("\n=== EXTRACTOR ===");
+        console.log("ids", listing.listingIdsFromText(html, text));
+        console.log("trackers", listing.trackingUrlsFromText(html, text).map((u) => u.slice(0, 200)));
+        console.log(
+            "fromLead",
+            listing.ushipListingUrlFromLead(
+                {
+                    shipmentTitle: lead.shipmentTitle,
+                    viewUrl: lead.viewUrl,
+                    externalShipmentId: lead.externalShipmentId,
+                    imageUrl: lead.imageUrl,
+                },
+                [html, text]
+            )
+        );
+    } catch (err) {
+        console.log("extractor import failed", err instanceof Error ? err.message : err);
     }
-    console.log("\n=== HTML HEAD ===");
-    console.log(html.slice(0, 2500));
+
+    console.log("\n=== HTML SAMPLE (redacted) ===");
+    console.log(html.slice(0, 1800).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]"));
 }
 
 main()

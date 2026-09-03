@@ -28,5 +28,6 @@ jobs:
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
+          npx prisma generate >/dev/null
           node scripts/dump-uship-email-html.mjs "${GOS:-GOS1000550}"
           EOF
