@@ -5,6 +5,7 @@ import {
 } from "./broker-gmail-oauth.service.js";
 import type { RawEmailMessage } from "../models/types.js";
 import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
+import { listingIdsFromText } from "../parsers/uship/listing-url.js";
 
 const USHIP_QUERY =
     "from:(uship.com OR email.uship.com OR notifications.uship.com OR mail.uship.com) newer_than:21d";
@@ -79,27 +80,7 @@ function isUshipRelated(fromAddress: string, subject: string, body: string): boo
 }
 
 function collectListingIds(...blobs: Array<string | null | undefined>): string[] {
-    const ids = new Set<string>();
-    for (const blob of blobs) {
-        const text = String(blob || "");
-        for (const match of text.matchAll(/\/listing\/(\d{5,})(?:\/|[?#"'<\s>]|$)/gi)) {
-            if (match[1]) ids.add(match[1]);
-        }
-        for (const match of text.matchAll(/uship\.com\/l\/(\d{5,})/gi)) {
-            if (match[1]) ids.add(match[1]);
-        }
-        for (const match of text.matchAll(
-            /(?:listing|shipment)(?:id|_id)?\s*[=:#]?\s*(\d{5,})/gi
-        )) {
-            if (match[1]) ids.add(match[1]);
-        }
-        for (const match of text.matchAll(
-            /(?:listing|shipment)\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/gi
-        )) {
-            if (match[1]) ids.add(match[1]);
-        }
-    }
-    return [...ids];
+    return listingIdsFromText(...blobs);
 }
 
 function extractUshipRefs(input: {

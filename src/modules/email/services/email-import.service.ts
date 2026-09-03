@@ -10,21 +10,10 @@ import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detec
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { getCompanyImportAfter } from "./gmail-import-cutoff.service.js";
+import { listingIdsFromText } from "../parsers/uship/listing-url.js";
 
 function collectListingIds(...blobs: Array<string | null | undefined>): string[] {
-    const ids = new Set<string>();
-    for (const blob of blobs) {
-        const text = String(blob || "");
-        for (const match of text.matchAll(/\/listing\/(\d{5,})(?:\/|[?#"'<\s>]|$)/gi)) {
-            if (match[1]) ids.add(match[1]);
-        }
-        for (const match of text.matchAll(
-            /(?:listing|shipment)\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/gi
-        )) {
-            if (match[1]) ids.add(match[1]);
-        }
-    }
-    return [...ids];
+    return listingIdsFromText(...blobs);
 }
 
 function extractUshipRefs(input: {

@@ -1,4 +1,5 @@
 import type { EmailParser, ParsedShipmentDraft, RawEmailMessage } from "../../models/types.js";
+import { canonicalUshipListingUrl, listingIdFromText } from "./listing-url.js";
 
 const USHIP_FROM = /uship\.com/i;
 const CITY_STATE_ZIP =
@@ -145,18 +146,20 @@ export class UShipParser implements EmailParser {
         );
         const html = email.bodyHtml || "";
 
-        const viewUrl =
+        const viewUrlRaw =
             matchFirst(html, [
-                /href="(https?:\/\/[^"]*uship\.com\/(?:listing|shipment)\/\d{5,}[^"]*)"/i,
-                /(https?:\/\/(?:www\.)?uship\.com\/(?:listing|shipment)\/\d{5,}[^\s"'<>]*)/i,
+                /href=["'](https?:\/\/[^"']*uship\.com\/(?:listing|shipment|l)\/\d{5,}[^"']*)["']/i,
+                /href=3D["'](https?:\/\/[^"']*uship\.com\/(?:listing|shipment|l)\/\d{5,}[^"']*)["']/i,
+                /(https?:\/\/(?:www\.)?uship\.com\/(?:listing|shipment|l)\/\d{5,}[^\s"'<>]*)/i,
             ]) ||
             matchFirst(text, [
-                /(https?:\/\/(?:www\.)?uship\.com\/(?:listing|shipment)\/\d{5,}[^\s"'<>]*)/i,
+                /(https?:\/\/(?:www\.)?uship\.com\/(?:listing|shipment|l)\/\d{5,}[^\s"'<>]*)/i,
             ]);
 
         const externalShipmentId =
-            matchFirst(viewUrl || "", [/\/(?:listing|shipment)\/(\d{5,})\b/i, /\/(\d{5,})\b/]) ||
+            listingIdFromText(viewUrlRaw, html, text) ||
             matchFirst(text, [/Shipment\s*#?\s*:?\s*(\d{5,})/i, /Listing\s*#?\s*:?\s*(\d{5,})/i]);
+        const viewUrl = viewUrlRaw || (externalShipmentId ? canonicalUshipListingUrl(externalShipmentId) : undefined);
 
         // --- Locations: labeled first, then Instant Alert unlabeled pairs ---
         const pickupLine = matchFirst(text, [

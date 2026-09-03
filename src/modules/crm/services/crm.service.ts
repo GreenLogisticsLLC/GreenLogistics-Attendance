@@ -9,6 +9,10 @@ import { ensureGreenOsShipmentId } from "../../shipment/shipment.id.js";
 import { isLoadPhase, normalizeStatus, statusLabel } from "../../shipment/shipment.lifecycle.js";
 import { listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { canWorkAnyShipment } from "../../../auth/roles.js";
+import {
+    listingIdFromText,
+    ushipListingUrlFromLead,
+} from "../../email/parsers/uship/listing-url.js";
 
 async function actorRoleName(userId: string): Promise<string> {
     const user = await prisma.user.findUnique({
@@ -85,13 +89,7 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
         paymentStatus: (lead.paymentStatus as string) || null,
         opsPickupAt: lead.opsPickupAt || null,
         opsDeliveryAt: lead.opsDeliveryAt || null,
-        ushipUrl: (function ushipListingUrl() {
-            const view = String(lead.viewUrl || "").trim();
-            if (view) return view;
-            const ext = String(lead.externalShipmentId || "").trim();
-            if (/^\d{5,}$/.test(ext)) return `https://www.uship.com/listing/${ext}`;
-            return null;
-        })(),
+        ushipUrl: ushipListingUrlFromLead(lead),
     };
 }
 
@@ -112,6 +110,8 @@ const SHIPMENT_LIST_SELECT = {
     equipment: true,
     vehicle: true,
     price: true,
+    externalShipmentId: true,
+    imageUrl: true,
     priority: true,
     status: true,
     loadNumber: true,
@@ -481,10 +481,46 @@ export class CrmService {
             )
         );
 
+        const extraBlobs = [
+            lead.emailMessage?.subject,
+            lead.emailMessage?.snippet,
+            lead.emailMessage?.bodyText,
+            lead.emailMessage?.bodyHtml,
+            lead.documentsJson,
+            ...mailboxEmails.map((m) => m.subject),
+            ...mailboxEmails.map((m) => m.snippet),
+            ...lead.importLogs.map((log) => log.message),
+            ...lead.domainEvents.map((ev) => ev.message),
+            ...lead.domainEvents.map((ev) => ev.payloadJson),
+            ...correspondence.map((item) => item.message),
+            ...correspondence.map((item) => item.title),
+        ];
+        const resolvedUshipUrl = ushipListingUrlFromLead(
+            lead as unknown as Record<string, unknown>,
+            extraBlobs
+        );
+        if (resolvedUshipUrl && !lead.viewUrl) {
+            const listingId = listingIdFromText(resolvedUshipUrl);
+            await prisma.shipmentLead
+                .update({
+                    where: { shipmentLeadId: lead.shipmentLeadId },
+                    data: {
+                        viewUrl: resolvedUshipUrl,
+                        ...(listingId && !lead.externalShipmentId
+                            ? { externalShipmentId: listingId }
+                            : {}),
+                    },
+                })
+                .catch(() => null);
+        }
+
         const enriched = enrichLead(
             {
                 ...(lead as unknown as Record<string, unknown>),
                 greenOsShipmentId: greenOsShipmentId || lead.greenOsShipmentId,
+                viewUrl: resolvedUshipUrl || lead.viewUrl,
+                externalShipmentId:
+                    lead.externalShipmentId || listingIdFromText(resolvedUshipUrl || "") || null,
             },
             brokers
         );
@@ -510,6 +546,7 @@ export class CrmService {
                       subject: lead.emailMessage.subject,
                       from: lead.emailMessage.fromAddress,
                       receivedAt: lead.emailMessage.receivedAt,
+                      snippet: lead.emailMessage.snippet,
                   }
                 : null,
         };

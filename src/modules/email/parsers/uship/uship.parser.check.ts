@@ -117,6 +117,21 @@ if (!instantDraft.imageUrl) {
     process.exit(1);
 }
 
+const encoded: RawEmailMessage = {
+    gmailMessageId: "msg-encoded-1",
+    fromAddress: "uShip <no-reply@email.uship.com>",
+    subject: "INSTANT ALERT - Matches Your Green Saved Search",
+    receivedAt: new Date("2026-09-03T10:00:00Z"),
+    bodyText: "View listing",
+    bodyHtml: `href=3D"https://www.uship.com/listing/=\n55443322" src="https://cdn.uship.com/photos/pallets.jpg"`,
+};
+
+const encodedDraft = ushipParser.parse(encoded);
+if (encodedDraft?.externalShipmentId !== "55443322" || !encodedDraft.viewUrl?.includes("55443322")) {
+    console.error("FAIL: encoded / quoted-printable listing URL", encodedDraft);
+    process.exit(1);
+}
+
 console.log("OK: uShip parser unit check passed (classic + Instant Alert)");
 console.log(
     JSON.stringify(

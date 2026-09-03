@@ -116,6 +116,43 @@ window.GreenOSModules.crm = {
     return res.json();
   },
 
+  ushipListingUrl(s) {
+    if (!s) return "";
+    if (s.ushipUrl) return String(s.ushipUrl);
+    if (s.viewUrl && /uship\.com/i.test(String(s.viewUrl))) return String(s.viewUrl);
+    if (s.externalShipmentId && /^\d{5,}$/.test(String(s.externalShipmentId))) {
+      return "https://www.uship.com/listing/" + s.externalShipmentId;
+    }
+    var extra = [];
+    if (s.email) extra.push(s.email.subject, s.email.snippet);
+    if (Array.isArray(s.mailboxEmails)) {
+      s.mailboxEmails.forEach(function (m) {
+        extra.push(m && (m.subject || ""), m && (m.snippet || ""));
+      });
+    }
+    if (Array.isArray(s.domainEvents)) {
+      s.domainEvents.forEach(function (ev) {
+        extra.push(ev && (ev.message || ""), ev && (ev.payloadJson || ""));
+      });
+    }
+    if (Array.isArray(s.correspondence)) {
+      s.correspondence.forEach(function (c) {
+        extra.push(c && (c.message || ""), c && (c.title || ""));
+      });
+    }
+    var blob = [s.viewUrl, s.imageUrl, s.shipmentTitle, s.notes].concat(extra).join("\n");
+    blob = String(blob || "")
+      .replace(/=\r?\n/g, "")
+      .replace(/=3D/gi, "=")
+      .replace(/%2F/gi, "/")
+      .replace(/%3A/gi, ":");
+    var m =
+      blob.match(/uship\.com\/(?:listing|shipment|l)\/(\d{5,})/i) ||
+      blob.match(/\/listing\/(\d{5,})/i) ||
+      blob.match(/(?:listing|shipment)\s*(?:id|#|number)?\s*[:#]?\s*(\d{5,})/i);
+    return m ? "https://www.uship.com/listing/" + m[1] : "";
+  },
+
   esc(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;")
@@ -1192,12 +1229,7 @@ window.GreenOSModules.crm = {
           ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
           : "") +
         (function () {
-          var listing =
-            s.ushipUrl ||
-            s.viewUrl ||
-            (s.externalShipmentId && /^\d{5,}$/.test(String(s.externalShipmentId))
-              ? "https://www.uship.com/listing/" + s.externalShipmentId
-              : "");
+          var listing = window.GreenOSModules.crm.ushipListingUrl(s);
           return listing
             ? '<a class="btn-primary crm-open-uship" href="' +
                 esc(listing) +
@@ -1273,28 +1305,22 @@ window.GreenOSModules.crm = {
           var href =
             link.getAttribute("data-uship-url") ||
             link.getAttribute("href") ||
-            s.ushipUrl ||
-            s.viewUrl ||
-            (s.externalShipmentId && /^\d{5,}$/.test(String(s.externalShipmentId))
-              ? "https://www.uship.com/listing/" + s.externalShipmentId
-              : "");
+            window.GreenOSModules.crm.ushipListingUrl(s);
           var waiting =
             s.status === "NEW" ||
             s.status === "UNASSIGNED" ||
             s.status === "ASSIGNED" ||
             s.status === "AWAITING_ACCEPTANCE" ||
             s.status === "AGENT_OPEN";
+          if (!href) {
+            return;
+          }
           if (!waiting) {
-            if (href && link.tagName !== "A") window.open(href, "_blank", "noopener");
-            if (!href) alert("No uShip listing URL on this card");
+            if (link.tagName !== "A") window.open(href, "_blank", "noopener");
             return;
           }
           ev.preventDefault();
-          if (href) window.open(href, "_blank", "noopener");
-          else {
-            alert("No uShip listing URL on this card");
-            return;
-          }
+          window.open(href, "_blank", "noopener");
           var badgeHost = modal.querySelector(".crm-card-grid div");
           if (badgeHost) {
             badgeHost.innerHTML =
