@@ -769,7 +769,7 @@ export class CrmService {
     async markAgentOpened(shipmentLeadId: string, actorUserId: string) {
         const lead = await prisma.shipmentLead.findUnique({
             where: { shipmentLeadId },
-            select: { assignedBrokerId: true, status: true },
+            select: { assignedBrokerId: true, status: true, assignedAt: true, acceptanceDeadline: true },
         });
         if (!lead) return null;
 
@@ -789,11 +789,16 @@ export class CrmService {
         ]);
 
         if (current !== "AGENT_OPEN" && !alreadyPastOpen.has(current) && !isLoadPhase(current)) {
+            const deadline =
+                lead.acceptanceDeadline ||
+                (lead.assignedAt
+                    ? new Date(lead.assignedAt.getTime() + 15 * 60_000)
+                    : new Date(Date.now() + 15 * 60_000));
             await prisma.shipmentLead.update({
                 where: { shipmentLeadId },
                 data: {
                     status: "AGENT_OPEN",
-                    acceptanceDeadline: null,
+                    acceptanceDeadline: deadline,
                 },
             });
             await domainEventEngine.emit({

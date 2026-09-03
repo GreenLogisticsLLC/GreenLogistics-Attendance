@@ -11,9 +11,8 @@ import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
-/** Once the broker opened uShip or accepted, the lead must stay on their account. */
+/** Only Accept Shipment (and later work) keeps the lead. Open in uShip still times out. */
 const KEPT_BY_BROKER = new Set([
-    "AGENT_OPEN",
     "WORKING",
     "FOLLOW_UP",
     "BID_SUBMITTED",
@@ -23,7 +22,13 @@ const KEPT_BY_BROKER = new Set([
     "LOAD_CREATED",
 ]);
 
-const WAITING_TO_ASSIGN = ["NEW", "UNASSIGNED", "ASSIGNED", "AWAITING_ACCEPTANCE"] as const;
+const WAITING_TO_ASSIGN = [
+    "NEW",
+    "UNASSIGNED",
+    "ASSIGNED",
+    "AWAITING_ACCEPTANCE",
+    "AGENT_OPEN",
+] as const;
 
 function isKeptByCurrentBroker(lead: { status: string; acceptedAt?: Date | null }) {
     if (lead.acceptedAt) return true;
@@ -351,11 +356,11 @@ export class AssignmentEngine {
     async processDueAcceptances() {
         await this.repairPassedShipmentFlags();
         const now = new Date();
-        // 1) Reclaim loads still Waiting whose assigned broker is no longer In Office.
-        //    Do not reclaim after Open in uShip or Accept — the broker kept the lead.
+        // 1) Reclaim loads not yet accepted whose assigned broker left Office.
+        //    Open in uShip does not keep the lead — only Accept Shipment does.
         const awaiting = await prisma.shipmentLead.findMany({
             where: {
-                status: { in: ["AWAITING_ACCEPTANCE", "ASSIGNED"] },
+                status: { in: ["AWAITING_ACCEPTANCE", "ASSIGNED", "AGENT_OPEN"] },
                 acceptedAt: null,
                 assignedBrokerId: { not: null },
             },
@@ -378,7 +383,7 @@ export class AssignmentEngine {
                 where: {
                     shipmentLeadId: lead.shipmentLeadId,
                     acceptedAt: null,
-                    status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE"] },
+                    status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
                     assignedBrokerId: brokerId,
                 },
                 data: {
@@ -410,15 +415,24 @@ export class AssignmentEngine {
             });
         }
 
-        // 2) Still Waiting (never opened uShip, never accepted) past the window
-        //    → pass to next In Office broker.
-        // Open in uShip (AGENT_OPEN) or Accept (WORKING + acceptedAt) keeps the lead.
+        // 2) Not accepted within 15 minutes → next In Office broker.
+        // Open in uShip still counts as waiting. Only Accept Shipment keeps the lead.
+        const fifteenAgo = new Date(now.getTime() - ACCEPTANCE_MINUTES * 60_000);
         const expired = await prisma.shipmentLead.findMany({
             where: {
-                status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE"] },
                 acceptedAt: null,
-                acceptanceDeadline: { lt: now },
                 assignedBrokerId: { not: null },
+                OR: [
+                    {
+                        status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
+                        acceptanceDeadline: { lt: now },
+                    },
+                    {
+                        status: "AGENT_OPEN",
+                        acceptanceDeadline: null,
+                        assignedAt: { lt: fifteenAgo },
+                    },
+                ],
             },
             take: 50,
         });
@@ -503,7 +517,7 @@ export class AssignmentEngine {
                     where: {
                         shipmentLeadId: lead.shipmentLeadId,
                         acceptedAt: null,
-                        status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE"] },
+                        status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
                     },
                     data: {
                         status: "UNASSIGNED",
@@ -616,7 +630,7 @@ export class AssignmentEngine {
                 "Fresh NEW imports are assigned before passed-along (reassigned) loads",
                 "If nobody is In Office → all active brokers receive shipments in order (Gary first, then A→Z)",
                 "When someone checks in → only checked-in brokers receive new shipments",
-                "Waiting leads unopened for 15 minutes go to the next broker; Open in uShip or Accept keeps the load",
+                "Waiting leads not accepted in 15 minutes go to the next broker — Open in uShip still passes; only Accept Shipment keeps the load",
                 "Gmail recommended for uShip updates but does not block receiving shipments",
             ],
             heart: "Attendance → Assignment Queue → CRM Shipment",

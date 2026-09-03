@@ -157,7 +157,7 @@ export class AssignmentOpsService {
         let n = 0;
         for (const lead of leads) {
             const previousBrokerId = lead.assignedBrokerId!;
-            if (lead.acceptedAt || lead.status === "WORKING" || lead.status === "AGENT_OPEN") {
+            if (lead.acceptedAt || lead.status === "WORKING") {
                 continue;
             }
             const parked = await prisma.shipmentLead.updateMany({
@@ -165,7 +165,7 @@ export class AssignmentOpsService {
                     shipmentLeadId: lead.shipmentLeadId,
                     acceptedAt: null,
                     status: {
-                        in: ["NEW", "UNASSIGNED", "AWAITING_ACCEPTANCE", "ASSIGNED"],
+                        in: ["NEW", "UNASSIGNED", "AWAITING_ACCEPTANCE", "ASSIGNED", "AGENT_OPEN"],
                     },
                     assignedBrokerId: previousBrokerId,
                 },

@@ -6,7 +6,7 @@ let running = false;
 
 /**
  * Acceptance deadlines must advance even when company Gmail is idle —
- * otherwise AGENT_OPEN / AWAITING_ACCEPTANCE never pass to the next broker.
+ * otherwise AWAITING_ACCEPTANCE / AGENT_OPEN never pass if Accept was not clicked.
  */
 export function startAssignmentAcceptanceScheduler(intervalMs = 60_000) {
     if (timer) return;
