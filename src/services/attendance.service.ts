@@ -69,9 +69,14 @@ export class AttendanceService {
         let { session } = lookup;
 
         if (!session) {
-            const shiftId = employee.shiftId;
+            let shiftId = employee.shiftId;
             if (!shiftId) {
-                throw new Error("Employee has no shift assigned — cannot create session");
+                const { ensureFlexibleShiftId } = await import("./shift-default.service.js");
+                shiftId = await ensureFlexibleShiftId();
+                await prisma.employee.update({
+                    where: { employeeId: employee.employeeId },
+                    data: { shiftId },
+                });
             }
             await attendanceSessionRepository.create({
                 employeeId: employee.employeeId,
@@ -92,8 +97,12 @@ export class AttendanceService {
 
         const activeSession = session;
         const currentStatus = activeSession.currentStatus as EmployeeStatus;
-        // Use reader-reported direction only — never invert or toggle from prior status.
-        const direction = input.direction;
+        // A single door adapter often reports "out" even when the person is arriving.
+        // If they are not already inside, a granted swipe is an ENTRY (door opened).
+        let direction = input.direction;
+        if (direction === "EXIT" && currentStatus !== "INSIDE_OFFICE") {
+            direction = "ENTRY";
+        }
 
         let eventType: AttendanceEventType = "NORMAL";
 

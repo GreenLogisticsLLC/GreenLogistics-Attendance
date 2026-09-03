@@ -1,0 +1,31 @@
+name: Check in employee by name
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Employee first/last name to mark In Office
+        required: true
+        default: Andy
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Diagnose badge and mark In Office
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git checkout origin/main -- scripts/checkin-employee-by-name.mjs
+          node scripts/checkin-employee-by-name.mjs '${{ github.event.inputs.name }}'
+          EOF
