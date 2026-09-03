@@ -27,7 +27,13 @@ jobs:
           set -euo pipefail
           cd /root/GreenLogistics-Attendance
           git fetch origin
-          git reset --hard origin/main
-          npx prisma generate >/dev/null
+          git show origin/main:scripts/dump-uship-email-html.mjs > scripts/dump-uship-email-html.mjs
+          for i in 1 2 3 4 5 6 7 8; do
+            if node -e "require('@prisma/client')" >/dev/null 2>&1; then
+              break
+            fi
+            echo "waiting for prisma client..."
+            sleep 15
+          done
           node scripts/dump-uship-email-html.mjs "${GOS:-GOS1000550}"
           EOF
