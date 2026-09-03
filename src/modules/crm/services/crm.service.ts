@@ -514,7 +514,9 @@ export class CrmService {
             const shouldFixView =
                 !currentView ||
                 isUshipTrackingOrJunkUrl(currentView) ||
-                (listingId && !currentView.includes(`/listing/${listingId}`));
+                (listingId &&
+                    !currentView.includes(`/listing/${listingId}`) &&
+                    !currentView.includes(`/${listingId}`));
             if (shouldFixView || (listingId && !lead.externalShipmentId)) {
                 await prisma.shipmentLead
                     .update({
@@ -685,7 +687,9 @@ export class CrmService {
                 !currentView ||
                 isUshipTrackingOrJunkUrl(currentView) ||
                 !hasRealListingSlug(currentView) ||
-                (listingId && !currentView.includes(`/listing/${listingId}`));
+                (listingId &&
+                    !currentView.includes(`/listing/${listingId}`) &&
+                    !currentView.includes(`/${listingId}`));
             if (shouldFixView || (listingId && lead.externalShipmentId !== listingId)) {
                 await prisma.shipmentLead
                     .update({

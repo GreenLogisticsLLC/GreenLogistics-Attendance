@@ -1,7 +1,9 @@
 import {
     canonicalUshipListingUrl,
+    cleanResolvedUshipUrl,
     listingIdFromText,
     listingIdsFromText,
+    trackingUrlsFromText,
     ushipListingUrlFromLead,
 } from "./listing-url.js";
 
@@ -71,5 +73,22 @@ const noFakeSlug = ushipListingUrlFromLead(
     ["Later email https://www.uship.com/listing/111222333/Other-Load/"]
 );
 assert(noFakeSlug === null, "do not invent a slug from our title: " + noFakeSlug);
+
+assert(
+    listingIdFromText("https://www.uship.com/shipment/3-Pallets/470376850/") === "470376850",
+    "shipment/{slug}/{id} format"
+);
+assert(
+    cleanResolvedUshipUrl(
+        "https://www.uship.com/shipment/3-Pallets/470376850/?utm_medium=Email"
+    ) === "https://www.uship.com/shipment/3-Pallets/470376850/",
+    "clean shipment url"
+);
+assert(
+    trackingUrlsFromText(
+        'href="https://track.uship.com/f/a/abc~~/AA~/payload"'
+    )[0]?.includes("track.uship.com"),
+    "track.uship.com is a tracker"
+);
 
 console.log("OK: listing-url checks passed");

@@ -144,8 +144,13 @@ window.GreenOSModules.crm = {
       .replace(/=2F/gi, "/")
       .replace(/%2F/gi, "/")
       .replace(/%3A/gi, ":");
-    var m = blob.match(/uship\.com\/(?:listing|shipment|l)\/(\d{6,})\/([^\/?#\s"']+)/i);
+    var m =
+      blob.match(/uship\.com\/shipment\/([^\/?#\s"']+)\/(\d{6,})/i) ||
+      blob.match(/uship\.com\/(?:listing|l)\/(\d{6,})\/([^\/?#\s"']+)/i);
     if (!m) return "";
+    if (/\/shipment\//i.test(m[0])) {
+      return "https://www.uship.com/shipment/" + m[1] + "/" + m[2] + "/";
+    }
     return "https://www.uship.com/listing/" + m[1] + "/" + m[2].replace(/\/+$/, "") + "/";
   },
 
