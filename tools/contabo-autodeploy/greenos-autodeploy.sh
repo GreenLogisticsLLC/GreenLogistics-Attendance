@@ -97,11 +97,16 @@ ensure_greenos_healthy() {
 
   log "WARN health check FAILED — self-heal: npm ci (if needed), build, pm2 restart"
   cd "$APP_DIR"
-  if [[ ! -d node_modules ]] || [[ ! -x node_modules/.bin/tsc ]]; then
+  if [[ ! -d node_modules ]] || [[ ! -x node_modules/.bin/tsc ]] || [[ ! -f node_modules/dotenv/package.json ]]; then
     log "STEP self-heal npm ci (node_modules missing or incomplete)"
     if ! npm ci >>"$LOG_FILE" 2>&1; then
       log "WARN self-heal npm ci failed — trying npm install"
-      rm -rf node_modules
+      chmod -R u+w node_modules 2>/dev/null || true
+      rm -rf node_modules 2>/dev/null || true
+      if [[ -e node_modules ]]; then
+        mv node_modules "node_modules.trash.$$" 2>/dev/null || true
+        rm -rf "node_modules.trash.$$" 2>/dev/null || true
+      fi
       npm install --no-audit --no-fund >>"$LOG_FILE" 2>&1 || {
         log "ERROR self-heal npm install failed"
         set -e

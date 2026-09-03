@@ -25,10 +25,13 @@ jobs:
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
             "GOS='${{ github.event.inputs.gos }}' bash -s" << 'EOF'
           set -euo pipefail
+          mkdir -p /var/lock
+          exec 9>/var/lock/greenos-autodeploy.lock
+          flock 9
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
-          if [ ! -d node_modules/@prisma/client ] || [ ! -f dist/modules/crm/services/crm.service.js ]; then
+          if [ ! -d node_modules/@prisma/client ] || [ ! -f dist/modules/crm/services/crm.service.js ] || [ ! -f node_modules/dotenv/package.json ]; then
             echo "Deps/build missing — installing and building first"
             if ! npm ci; then
               chmod -R u+w node_modules 2>/dev/null || true

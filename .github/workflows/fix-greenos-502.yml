@@ -19,6 +19,9 @@ jobs:
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
           set -euo pipefail
+          mkdir -p /var/lock
+          exec 9>/var/lock/greenos-autodeploy.lock
+          flock 9
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
@@ -32,6 +35,11 @@ jobs:
           }
           if ! npm ci; then
             echo "WARN: npm ci failed — retrying with npm install"
+            wipe_node_modules || true
+            npm install --no-audit --no-fund
+          fi
+          if [ ! -f node_modules/dotenv/package.json ]; then
+            echo "WARN: incomplete node_modules — wipe + npm install"
             wipe_node_modules || true
             npm install --no-audit --no-fund
           fi

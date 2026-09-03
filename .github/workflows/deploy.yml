@@ -52,6 +52,13 @@ jobs:
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
             "OPENAI_KEY_B64='${OPENAI_KEY_B64}' OPENAI_MODEL_SAFE='${OPENAI_MODEL_SAFE}' OPENAI_PROJECT_SAFE='${OPENAI_PROJECT_SAFE}' OPENAI_ORG_SAFE='${OPENAI_ORG_SAFE}' GMAIL_CLIENT_ID_B64='${GMAIL_CLIENT_ID_B64}' GMAIL_CLIENT_SECRET_B64='${GMAIL_CLIENT_SECRET_B64}' PUBLIC_APP_URL_B64='${PUBLIC_APP_URL_B64}' SMTP_B64='${SMTP_B64}' bash -s" << 'EOF'
           set -euo pipefail
+          # Share lock with tools/contabo-autodeploy/greenos-autodeploy.sh so timer
+          # self-heal cannot race GitHub Actions mid npm install.
+          mkdir -p /var/lock
+          exec 9>/var/lock/greenos-autodeploy.lock
+          echo "Waiting for greenos deploy lock..."
+          flock 9
+          echo "Acquired greenos deploy lock"
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
@@ -69,12 +76,27 @@ jobs:
               rmdir node_modules 2>/dev/null || true
             fi
           }
+          rm -rf node_modules.trash.* 2>/dev/null || true
           wipe_node_modules || true
           rm -f .npm-lock 2>/dev/null || true
-          if ! npm ci --prefer-offline; then
-            echo "WARN: npm ci failed — retrying with npm install"
+          install_deps() {
+            if ! npm ci --prefer-offline; then
+              echo "WARN: npm ci failed — retrying with npm install"
+              wipe_node_modules || true
+              npm install --no-audit --no-fund
+            fi
+          }
+          install_deps
+          # Race/corruption check — dotenv must exist for db:push scripts.
+          if [ ! -f node_modules/dotenv/package.json ] || [ ! -f node_modules/@prisma/client/package.json ]; then
+            echo "WARN: node_modules incomplete after install — wiping and retrying once"
             wipe_node_modules || true
-            npm install --no-audit --no-fund
+            install_deps
+          fi
+          if [ ! -f node_modules/dotenv/package.json ]; then
+            echo "ERROR: dotenv still missing after retry"
+            ls -la node_modules | head -50 || true
+            exit 1
           fi
 
           # Sync schema to the canonical absolute SQLite path (or Postgres)
