@@ -10,6 +10,7 @@ import {
     crmDeleteShipmentFileController,
     crmDownloadShipmentFileController,
     crmGetShipmentController,
+    crmOpenUshipController,
     crmListBrokersController,
     crmListShipmentsController,
     crmMarkShipmentOpenedController,
@@ -61,6 +62,7 @@ crmRouter.get("/problems", problemsRoles, crmListProblemsController);
 crmRouter.get("/problems/monthly-stats", problemsRoles, crmProblemsMonthlyStatsController);
 crmRouter.get("/problems/late", problemsRoles, crmListLateProblemsController);
 crmRouter.get("/shipments", crmRoles, crmListShipmentsController);
+crmRouter.get("/shipments/:id/uship", crmRoles, crmOpenUshipController);
 crmRouter.get("/shipments/:id", crmRoles, crmGetShipmentController);
 crmRouter.post("/shipments/:id/opened", crmRoles, crmMarkShipmentOpenedController);
 crmRouter.patch("/shipments/:id", crmRoles, crmUpdateShipmentController);

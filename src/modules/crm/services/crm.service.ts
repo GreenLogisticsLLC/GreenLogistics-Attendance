@@ -13,6 +13,7 @@ import {
     listingIdFromText,
     ushipListingUrlFromLead,
 } from "../../email/parsers/uship/listing-url.js";
+import { gmailListener } from "../../email/gmail/gmail.listener.js";
 
 async function actorRoleName(userId: string): Promise<string> {
     const user = await prisma.user.findUnique({
@@ -550,6 +551,86 @@ export class CrmService {
                   }
                 : null,
         };
+    }
+
+    /** Find the uShip listing for this card, including a live Gmail re-read if needed. */
+    async resolveUshipListingUrl(shipmentLeadId: string): Promise<string | null> {
+        const lead = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+            include: {
+                emailMessage: true,
+                importLogs: { orderBy: { createdAt: "desc" }, take: 30 },
+                domainEvents: { orderBy: { createdAt: "desc" }, take: 80 },
+            },
+        });
+        if (!lead) return null;
+
+        const mailboxEmails = await prisma.brokerMailboxMessage.findMany({
+            where: { shipmentLeadId },
+            orderBy: { receivedAt: "asc" },
+            take: 80,
+            select: { subject: true, snippet: true },
+        });
+        const extraBlobs = [
+            lead.emailMessage?.subject,
+            lead.emailMessage?.snippet,
+            lead.emailMessage?.bodyText,
+            lead.emailMessage?.bodyHtml,
+            lead.documentsJson,
+            ...mailboxEmails.map((m) => m.subject),
+            ...mailboxEmails.map((m) => m.snippet),
+            ...lead.importLogs.map((log) => log.message),
+            ...lead.domainEvents.map((ev) => ev.message),
+            ...lead.domainEvents.map((ev) => ev.payloadJson),
+        ];
+        let url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, extraBlobs);
+
+        if (!url && lead.emailMessage?.gmailMessageId) {
+            try {
+                if (await gmailListener.ensureCredentials()) {
+                    const raw = await gmailListener.fetchMessage(lead.emailMessage.gmailMessageId);
+                    url = ushipListingUrlFromLead(lead as unknown as Record<string, unknown>, [
+                        raw.subject,
+                        raw.snippet,
+                        raw.bodyText,
+                        raw.bodyHtml,
+                    ]);
+                    if (
+                        url &&
+                        (!lead.emailMessage.bodyHtml || !lead.emailMessage.bodyText)
+                    ) {
+                        await prisma.emailMessage
+                            .update({
+                                where: { emailMessageId: lead.emailMessage.emailMessageId },
+                                data: {
+                                    bodyHtml: raw.bodyHtml || lead.emailMessage.bodyHtml,
+                                    bodyText: raw.bodyText || lead.emailMessage.bodyText,
+                                    snippet: raw.snippet || lead.emailMessage.snippet,
+                                },
+                            })
+                            .catch(() => null);
+                    }
+                }
+            } catch {
+                /* Gmail re-read is best-effort */
+            }
+        }
+
+        if (url && (!lead.viewUrl || !lead.externalShipmentId)) {
+            const listingId = listingIdFromText(url);
+            await prisma.shipmentLead
+                .update({
+                    where: { shipmentLeadId },
+                    data: {
+                        ...(!lead.viewUrl ? { viewUrl: url } : {}),
+                        ...(listingId && !lead.externalShipmentId
+                            ? { externalShipmentId: listingId }
+                            : {}),
+                    },
+                })
+                .catch(() => null);
+        }
+        return url;
     }
 
     private async getBrokerPresenceSummary(options?: { teamLeadId?: string }) {

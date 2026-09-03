@@ -153,6 +153,18 @@ window.GreenOSModules.crm = {
     return m ? "https://www.uship.com/listing/" + m[1] : "";
   },
 
+  ushipOpenHref(s, id) {
+    var listing = this.ushipListingUrl(s);
+    if (listing) return listing;
+    var token = localStorage.getItem("gl_token") || "";
+    return (
+      "/api/crm/shipments/" +
+      encodeURIComponent(id) +
+      "/uship?token=" +
+      encodeURIComponent(token)
+    );
+  },
+
   esc(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;")
@@ -1229,14 +1241,14 @@ window.GreenOSModules.crm = {
           ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
           : "") +
         (function () {
-          var listing = window.GreenOSModules.crm.ushipListingUrl(s);
-          return listing
-            ? '<a class="btn-primary crm-open-uship" href="' +
-                esc(listing) +
-                '" target="_blank" rel="noopener noreferrer" data-uship-url="' +
-                esc(listing) +
-                '">Open in uShip</a>'
-            : '<button type="button" class="btn-primary crm-open-uship" data-uship-url="">Open in uShip</button>';
+          var href = window.GreenOSModules.crm.ushipOpenHref(s, id);
+          return (
+            '<a class="btn-primary crm-open-uship" href="' +
+            esc(href) +
+            '" target="_blank" rel="noopener noreferrer" data-uship-url="' +
+            esc(href) +
+            '">Open in uShip</a>'
+          );
         })() +
         (s.loadNumber
           ? '<button type="button" class="btn-primary" id="crm-open-load">Open Load ' +
@@ -1305,40 +1317,28 @@ window.GreenOSModules.crm = {
           var href =
             link.getAttribute("data-uship-url") ||
             link.getAttribute("href") ||
-            window.GreenOSModules.crm.ushipListingUrl(s);
+            window.GreenOSModules.crm.ushipOpenHref(s, id);
+          if (!href) return;
+          // Never block the tab — native <a target=_blank> survives popup blockers.
+          if (link.tagName !== "A") {
+            window.open(href, "_blank", "noopener");
+          }
           var waiting =
             s.status === "NEW" ||
             s.status === "UNASSIGNED" ||
             s.status === "ASSIGNED" ||
             s.status === "AWAITING_ACCEPTANCE" ||
             s.status === "AGENT_OPEN";
-          if (!href) {
-            return;
-          }
-          if (!waiting) {
-            if (link.tagName !== "A") window.open(href, "_blank", "noopener");
-            return;
-          }
-          ev.preventDefault();
-          window.open(href, "_blank", "noopener");
+          if (!waiting) return;
           var badgeHost = modal.querySelector(".crm-card-grid div");
           if (badgeHost) {
             badgeHost.innerHTML =
               "<span>Status</span>" + window.GreenOSModules.crm.statusBadge("AGENT_OPEN");
           }
-          window.GreenOSModules.crm
-            .api("/shipments/" + encodeURIComponent(id) + "/opened?action=uship", {
-              method: "POST",
-              body: JSON.stringify({ action: "uship" }),
-            })
-            .then(function (res) {
-              if (modal.getAttribute("data-shipment-id") !== id) return;
-              var next = res && res.success && res.data ? res.data : null;
-              window.GreenOSModules.crm.openShipmentCard(document, id, next);
-            })
-            .catch(function () {
-              window.GreenOSModules.crm.openShipmentCard(document, id);
-            });
+          window.GreenOSModules.crm.api("/shipments/" + encodeURIComponent(id) + "/opened?action=uship", {
+            method: "POST",
+            body: JSON.stringify({ action: "uship" }),
+          });
         });
       });
 

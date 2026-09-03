@@ -132,6 +132,20 @@ if (encodedDraft?.externalShipmentId !== "55443322" || !encodedDraft.viewUrl?.in
     process.exit(1);
 }
 
+const tracked: RawEmailMessage = {
+    gmailMessageId: "msg-track-1",
+    fromAddress: "uShip <no-reply@email.uship.com>",
+    subject: "INSTANT ALERT - Matches Your Green Saved Search",
+    receivedAt: new Date("2026-09-03T11:00:00Z"),
+    bodyText: "View listing",
+    bodyHtml: `<a href="https://click.mail.uship.com/ls/click?url=https%3A%2F%2Fwww.uship.com%2Flisting%2F66778899">View</a>`,
+};
+const trackedDraft = ushipParser.parse(tracked);
+if (trackedDraft?.externalShipmentId !== "66778899") {
+    console.error("FAIL: tracking url= listing id", trackedDraft);
+    process.exit(1);
+}
+
 console.log("OK: uShip parser unit check passed (classic + Instant Alert)");
 console.log(
     JSON.stringify(

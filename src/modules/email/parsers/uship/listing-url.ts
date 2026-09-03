@@ -11,8 +11,15 @@ export function normalizeListingBlob(raw: string): string {
 
 export function listingIdsFromText(...blobs: Array<string | null | undefined>): string[] {
     const ids = new Set<string>();
-    const text = blobs.map((blob) => normalizeListingBlob(String(blob || ""))).join("\n");
+    let text = blobs.map((blob) => normalizeListingBlob(String(blob || ""))).join("\n");
     if (!text) return [];
+    for (const match of text.matchAll(/[?&](?:url|u|redirect|dest|destination|target)=([^&\s"'<>]+)/gi)) {
+        try {
+            text += `\n${decodeURIComponent(match[1])}`;
+        } catch {
+            /* ignore bad encoding */
+        }
+    }
     const patterns = [
         /uship\.com\/(?:listing|shipment|l)\/(\d{5,})/gi,
         /\/listing\/(\d{5,})(?:\/|[?#"'<\s>]|$)/gi,

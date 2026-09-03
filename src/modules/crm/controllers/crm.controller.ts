@@ -86,6 +86,27 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
     return res.json(apiResponse(true, "Shipments loaded", data));
 }
 
+export async function crmOpenUshipController(req: AuthRequest, res: Response) {
+    const id = String(req.params.id);
+    const access = await assertShipmentAccess(req, res, id);
+    if (!access.ok) return;
+
+    const url = await crmService.resolveUshipListingUrl(id);
+    if (req.user?.userId) {
+        await crmService.markAgentOpened(id, req.user.userId).catch(() => null);
+    }
+    if (!url) {
+        res.status(404).type("html").send(
+            `<!doctype html><html><head><meta charset="utf-8"><title>uShip</title></head><body style="font-family:sans-serif;background:#0f1720;color:#e8f0ea;padding:2rem">
+<p>Could not find the uShip listing for this shipment yet.</p>
+<p><a href="https://www.uship.com/" style="color:#4ade80">Open uShip</a></p>
+</body></html>`
+        );
+        return;
+    }
+    return res.redirect(302, url);
+}
+
 export async function crmGetShipmentController(req: AuthRequest, res: Response) {
     const id = String(req.params.id);
     const access = await assertShipmentAccess(req, res, id);
