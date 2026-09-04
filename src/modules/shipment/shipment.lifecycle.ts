@@ -76,6 +76,7 @@ const ALLOWED: Record<string, string[]> = {
     AGENT_OPEN: [
         "WORKING",
         "FOLLOW_UP",
+        "BROKER_REPLY",
         "UNASSIGNED",
         "BID_SUBMITTED",
         "CUSTOMER_REPLIED",
@@ -85,6 +86,7 @@ const ALLOWED: Record<string, string[]> = {
     ],
     WORKING: [
         "FOLLOW_UP",
+        "BROKER_REPLY",
         "BID_SUBMITTED",
         "CUSTOMER_REPLIED",
         "ACCEPT_GREEN",
@@ -98,6 +100,19 @@ const ALLOWED: Record<string, string[]> = {
         "WORKING",
         "BID_SUBMITTED",
         "CUSTOMER_REPLIED",
+        "BROKER_REPLY",
+        "AWAITING_ACCEPTANCE",
+        "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
+        "DELETED_FROM_CUSTOMER",
+    ],
+    BROKER_REPLY: [
+        "AGENT_OPEN",
+        "WORKING",
+        "BID_SUBMITTED",
+        "CUSTOMER_REPLIED",
+        "FOLLOW_UP",
+        "ACCEPT_GREEN",
         "AWAITING_ACCEPTANCE",
         "LOST",
         "ACCEPTED_ANOTHER_COMPANY",
@@ -116,6 +131,8 @@ const ALLOWED: Record<string, string[]> = {
         "BID_SUBMITTED",
         "ACCEPT_GREEN",
         "CUSTOMER_REPLIED",
+        "BROKER_REPLY",
+        "FOLLOW_UP",
         "LOST",
         "ACCEPTED_ANOTHER_COMPANY",
         "WORKING",
@@ -233,6 +250,7 @@ export function eventTypeForStatus(status: string): string {
         LOST: "SHIPMENT_LOST",
         DELETED_FROM_CUSTOMER: "SHIPMENT_DELETED_BY_CUSTOMER",
         FOLLOW_UP: "STATUS_CHANGED",
+        BROKER_REPLY: "BROKER_QUESTION",
     };
     return map[n] || "STATUS_CHANGED";
 }

@@ -248,6 +248,108 @@ export async function applyUshipLifecycleEvent(input: {
     });
     if (!shipment) return { applied: false as const, detected };
 
+    const customerReplyKinds = new Set<UshipLifecycleKind>([
+        "CUSTOMER_RESPOND",
+        "CUSTOMER_QUESTION",
+        "CUSTOMER_REPLIED",
+        "NEW_MESSAGE",
+    ]);
+
+    // Idempotency: never re-apply the same Gmail message as Customer Respond.
+    // Rematch used to re-emit CUSTOMER_RESPOND with a fresh timestamp after the
+    // broker clicked the green lamp — red incorrectly won on card reopen.
+    if (customerReplyKinds.has(detected.kind)) {
+        if (input.gmailMessageId) {
+            const already = await prisma.domainEvent.findFirst({
+                where: {
+                    shipmentLeadId: input.shipmentLeadId,
+                    eventType: {
+                        in: [
+                            "CUSTOMER_RESPOND",
+                            "CUSTOMER_REPLIED",
+                            "CUSTOMER_QUESTION",
+                            "NEW_MESSAGE",
+                        ],
+                    },
+                    payloadJson: { contains: input.gmailMessageId },
+                },
+                select: { eventId: true },
+            });
+            if (already) {
+                return {
+                    applied: false as const,
+                    detected,
+                    reason: "Customer reply Gmail already applied (idempotent)",
+                };
+            }
+
+            // If broker already clicked green AFTER this email was received, do not
+            // resurrect the red lamp from an older Question Answered rematch.
+            const latestBroker = await prisma.domainEvent.findFirst({
+                where: {
+                    shipmentLeadId: input.shipmentLeadId,
+                    eventType: { in: ["BROKER_QUESTION", "BROKER_ANSWER"] },
+                },
+                orderBy: { createdAt: "desc" },
+                select: { createdAt: true },
+            });
+            if (latestBroker) {
+                const mail = await prisma.brokerMailboxMessage.findFirst({
+                    where: { gmailMessageId: input.gmailMessageId },
+                    select: { receivedAt: true },
+                });
+                if (
+                    mail?.receivedAt &&
+                    mail.receivedAt.getTime() < latestBroker.createdAt.getTime()
+                ) {
+                    return {
+                        applied: false as const,
+                        detected,
+                        reason: "Broker Answer is newer than this customer-reply email",
+                    };
+                }
+            }
+        } else {
+            // Without a Gmail id we cannot tell new vs rematch — never override a
+            // newer green Broker Answer (red is Gmail-only).
+            const latestBroker = await prisma.domainEvent.findFirst({
+                where: {
+                    shipmentLeadId: input.shipmentLeadId,
+                    eventType: { in: ["BROKER_QUESTION", "BROKER_ANSWER"] },
+                },
+                orderBy: { createdAt: "desc" },
+                select: { createdAt: true },
+            });
+            if (latestBroker) {
+                const latestCustomer = await prisma.domainEvent.findFirst({
+                    where: {
+                        shipmentLeadId: input.shipmentLeadId,
+                        eventType: {
+                            in: [
+                                "CUSTOMER_RESPOND",
+                                "CUSTOMER_REPLIED",
+                                "CUSTOMER_QUESTION",
+                                "NEW_MESSAGE",
+                            ],
+                        },
+                    },
+                    orderBy: { createdAt: "desc" },
+                    select: { createdAt: true },
+                });
+                if (
+                    !latestCustomer ||
+                    latestBroker.createdAt.getTime() >= latestCustomer.createdAt.getTime()
+                ) {
+                    return {
+                        applied: false as const,
+                        detected,
+                        reason: "Customer reply requires Gmail message after Broker Answer",
+                    };
+                }
+            }
+        }
+    }
+
     // Authoritative mailbox gate:
     // - before assignment: only company Gmail may mutate the card
     // - after assignment: assigned broker Gmail is preferred
@@ -255,12 +357,6 @@ export async function applyUshipLifecycleEvent(input: {
     //   company Gmail; still light the red lamp and notify the assigned broker
     const source = input.source || "uship_email";
     const assignedBrokerId = shipment.assignedBrokerId || null;
-    const customerReplyKinds = new Set<UshipLifecycleKind>([
-        "CUSTOMER_RESPOND",
-        "CUSTOMER_QUESTION",
-        "CUSTOMER_REPLIED",
-        "NEW_MESSAGE",
-    ]);
     if (assignedBrokerId) {
         const fromAssignedBroker =
             source === "broker_gmail" && input.actorUserId === assignedBrokerId;
@@ -327,7 +423,8 @@ export async function applyUshipLifecycleEvent(input: {
             WORKING: 2,
             BID_SUBMITTED: 3,
             CUSTOMER_REPLIED: 4,
-            FOLLOW_UP: 2,
+            FOLLOW_UP: 4,
+            BROKER_REPLY: 4,
             ACCEPT_GREEN: 5,
             ACCEPTED: 5,
             LOAD_CREATED: 6,

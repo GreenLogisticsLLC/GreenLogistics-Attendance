@@ -227,6 +227,7 @@ window.GreenOSModules.crm = {
       AGENT_OPEN: { cls: "crm-st-quote", label: "🔵 Open in uShip" },
       WORKING: { cls: "crm-st-working", label: "✅ Shipment Accepted" },
       FOLLOW_UP: { cls: "crm-st-follow", label: "🟠 Follow Up" },
+      BROKER_REPLY: { cls: "crm-st-follow", label: "🟠 BROKER REPLY" },
       QUOTE_SENT: { cls: "crm-st-quote", label: "🔵 Quote Sent" },
       NEGOTIATION: { cls: "crm-st-nego", label: "🟣 Negotiation" },
       BOOKED: { cls: "crm-st-quote", label: "🔵 Booked" },

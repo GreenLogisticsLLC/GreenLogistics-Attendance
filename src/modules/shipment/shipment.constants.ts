@@ -38,6 +38,7 @@ export const SHIPMENT_STATUSES = [
     "AGENT_OPEN",
     "WORKING",
     "FOLLOW_UP",
+    "BROKER_REPLY",
     "BID_SUBMITTED",
     "CUSTOMER_REPLIED",
     "ACCEPTED",
@@ -88,6 +89,7 @@ export const AUTO_PIPELINE_STATUSES = [
 
 export const MANUAL_CRM_STATUSES = [
     "FOLLOW_UP",
+    "BROKER_REPLY",
     "DISPATCH",
     "COMPLETED",
     "CLOSED",
@@ -105,6 +107,7 @@ export const STATUS_LABELS: Record<string, string> = {
     AGENT_OPEN: "Open in uShip",
     WORKING: "Shipment Accepted",
     FOLLOW_UP: "Follow Up",
+    BROKER_REPLY: "BROKER REPLY",
     BID_SUBMITTED: "Bid Submitted",
     CUSTOMER_REPLIED: "Customer Respond",
     ACCEPTED: "Accept Green",

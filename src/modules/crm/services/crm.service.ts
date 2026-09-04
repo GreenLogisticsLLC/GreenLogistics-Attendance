@@ -880,7 +880,7 @@ export class CrmService {
                 teamLeadName: tl ? brokerName(tl) : null,
                 currentShipments,
                 awaitingAcceptance: countFor("AWAITING_ACCEPTANCE"),
-                followUp: countFor("FOLLOW_UP"),
+                followUp: countFor("FOLLOW_UP") + countFor("BROKER_REPLY"),
                 quotesSent: countFor("QUOTE_SENT"),
                 won: countFor("WON"),
                 lost: countFor("LOST") + countFor("ACCEPTED_ANOTHER_COMPANY"),
@@ -1060,12 +1060,14 @@ export class CrmService {
         }
 
         if (
-            ["WORKING", "BID_SUBMITTED", "AGENT_OPEN", "FOLLOW_UP"].includes(lead.status) ||
+            ["WORKING", "BID_SUBMITTED", "AGENT_OPEN", "FOLLOW_UP", "BROKER_REPLY"].includes(
+                lead.status
+            ) ||
             lead.status === "CUSTOMER_REPLIED"
         ) {
             await prisma.shipmentLead.update({
                 where: { shipmentLeadId },
-                data: { status: "FOLLOW_UP" },
+                data: { status: "BROKER_REPLY" },
             }).catch(() => null);
         }
 
