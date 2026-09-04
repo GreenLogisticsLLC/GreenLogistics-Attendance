@@ -1201,12 +1201,15 @@ window.GreenOSModules.crm = {
         '<textarea id="crm-notes" rows="3" style="width:100%;margin-top:0.35rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:0.6rem">' +
         esc(s.notes || "") +
         "</textarea>" +
-        "<h3 style=\"margin:0.75rem 0 0.35rem;font-size:1rem\">Files</h3>" +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;margin:0.75rem 0 0.35rem">' +
+        "<h3 style=\"margin:0;font-size:1rem\">Files</h3>" +
+        '<button type="button" class="btn-secondary" id="crm-save-notes" style="width:auto;margin:0;flex-shrink:0">Save Notes</button>' +
+        "</div>" +
         '<div class="crm-files-upload" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin:0 0 0.5rem">' +
         '<input type="file" id="crm-file-input" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp,.gif,.heic,.zip" style="max-width:100%">' +
         '<span class="gos-muted" id="crm-upload-status" style="font-size:0.8rem"></span>' +
         "</div>" +
-        '<ul class="gos-muted" id="crm-files" style="margin:0 0 0.5rem">' +
+        '<ul class="gos-muted" id="crm-files" style="margin:0">' +
         (Array.isArray(s.documents) && s.documents.length
           ? s.documents
               .map(function (d) {
@@ -1251,7 +1254,6 @@ window.GreenOSModules.crm = {
               .join("")
           : "") +
         "</ul>" +
-        '<button type="button" class="btn-secondary" id="crm-save-notes" style="width:auto;margin-top:0.25rem">Save Notes</button>' +
         "</div>" +
         (window.GreenOSModules.crm.canSeeOpsComments()
           ? (function () {
