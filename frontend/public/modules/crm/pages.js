@@ -1201,8 +1201,7 @@ window.GreenOSModules.crm = {
         '<textarea id="crm-notes" rows="3" style="width:100%;margin-top:0.35rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:0.6rem">' +
         esc(s.notes || "") +
         "</textarea>" +
-        '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;margin:0.75rem 0 0.35rem">' +
-        "<h3 style=\"margin:0;font-size:1rem\">Files</h3>" +
+        '<div style="display:flex;align-items:center;justify-content:flex-end;gap:0.75rem;margin:0.75rem 0 0.35rem">' +
         '<button type="button" class="btn-secondary" id="crm-save-notes" style="width:auto;margin:0;flex-shrink:0">Save Notes</button>' +
         "</div>" +
         '<div class="crm-files-upload" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin:0 0 0.5rem">' +
