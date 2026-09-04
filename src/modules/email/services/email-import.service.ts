@@ -6,11 +6,18 @@ import {
     shipmentLeadRepository,
 } from "./repositories.js";
 import { shipmentLeadService } from "./shipment-lead.service.js";
-import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
+import {
+    applyUshipLifecycleEvent,
+    detectUshipLifecycleEvent,
+} from "../parsers/uship/uship-lifecycle.detector.js";
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { getCompanyImportAfter } from "./gmail-import-cutoff.service.js";
 import { canonicalUshipListingUrl, listingIdsFromText, resolveConcreteUshipListing } from "../parsers/uship/listing-url.js";
+import {
+    normalizeUshipTitle,
+    titlesFromQuestionAnsweredEmail,
+} from "../parsers/uship/uship-qa-match.js";
 
 function collectListingIds(...blobs: Array<string | null | undefined>): string[] {
     return listingIdsFromText(...blobs);
@@ -21,11 +28,11 @@ function extractUshipRefs(input: {
     bodyText?: string | null;
     bodyHtml?: string | null;
     snippet?: string | null;
-}): { externalId?: string; viewUrl?: string } {
+}): { externalId?: string; viewUrl?: string; listingIds: string[] } {
     const ids = collectListingIds(input.subject, input.bodyHtml, input.bodyText, input.snippet);
-    if (ids.length !== 1) return {};
-    const externalId = ids[0];
+    const externalId = ids.length === 1 ? ids[0] : undefined;
     return {
+        listingIds: ids,
         externalId,
         viewUrl: externalId ? canonicalUshipListingUrl(externalId) : undefined,
     };
@@ -38,6 +45,29 @@ async function findShipmentForLifecycle(input: {
     snippet?: string | null;
 }) {
     const refs = extractUshipRefs(input);
+    for (const listingId of refs.listingIds) {
+        const byExt = await shipmentLeadRepository.findByExternalId("USHIP", listingId);
+        if (byExt) return byExt;
+        const byView = await prisma.shipmentLead.findFirst({
+            where: {
+                OR: [
+                    { viewUrl: { contains: `/listing/${listingId}` } },
+                    { viewUrl: { contains: `/${listingId}/` } },
+                    { externalShipmentId: listingId },
+                ],
+                status: {
+                    notIn: [
+                        "CLOSED",
+                        "LOST",
+                        "DELETED_FROM_CUSTOMER",
+                        "ACCEPTED_ANOTHER_COMPANY",
+                        "COMPLETED",
+                    ],
+                },
+            },
+        });
+        if (byView) return byView;
+    }
     if (refs.viewUrl) {
         const byUrl = await shipmentLeadRepository.findByViewUrl(refs.viewUrl);
         if (byUrl) return byUrl;
@@ -59,6 +89,63 @@ async function findShipmentForLifecycle(input: {
     if (gosLegacy) {
         return prisma.shipmentLead.findUnique({
             where: { greenOsShipmentId: gosLegacy[0].toUpperCase() },
+        });
+    }
+
+    // Question Answered emails often omit listing IDs — match unique title / route.
+    const hinted = titlesFromQuestionAnsweredEmail(String(input.subject || ""), text);
+    const open = await prisma.shipmentLead.findMany({
+        where: {
+            status: {
+                notIn: [
+                    "CLOSED",
+                    "LOST",
+                    "DELETED_FROM_CUSTOMER",
+                    "ACCEPTED_ANOTHER_COMPANY",
+                    "COMPLETED",
+                ],
+            },
+        },
+        select: {
+            shipmentLeadId: true,
+            assignedBrokerId: true,
+            shipmentTitle: true,
+            pickupZip: true,
+            deliveryZip: true,
+            pickupCity: true,
+            deliveryCity: true,
+            greenOsShipmentId: true,
+            externalShipmentId: true,
+            viewUrl: true,
+            status: true,
+            source: true,
+        },
+        take: 400,
+    });
+    if (hinted.length) {
+        const titleHits = open.filter((lead) => {
+            const title = normalizeUshipTitle(String(lead.shipmentTitle || ""));
+            return title.length >= 4 && hinted.includes(title);
+        });
+        if (titleHits.length === 1) {
+            return prisma.shipmentLead.findUnique({
+                where: { shipmentLeadId: titleHits[0].shipmentLeadId },
+            });
+        }
+    }
+    const hay = text.toLowerCase();
+    const routeHits = open.filter((lead) => {
+        const pz = String(lead.pickupZip || "").trim();
+        const dz = String(lead.deliveryZip || "").trim();
+        if (pz.length >= 5 && dz.length >= 5) return hay.includes(pz) && hay.includes(dz);
+        const pc = String(lead.pickupCity || "").trim().toLowerCase();
+        const dc = String(lead.deliveryCity || "").trim().toLowerCase();
+        if (pc.length >= 3 && dc.length >= 3) return hay.includes(pc) && hay.includes(dc);
+        return false;
+    });
+    if (routeHits.length === 1) {
+        return prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId: routeHits[0].shipmentLeadId },
         });
     }
     return null;
@@ -174,7 +261,20 @@ export class EmailImportService {
                             snippet: raw.snippet,
                         });
                         if (existingShipment) {
-                            if (existingShipment.assignedBrokerId) {
+                            const blob = `${raw.subject}\n${raw.bodyText || ""}\n${raw.bodyHtml || ""}\n${raw.snippet || ""}`;
+                            const detected = detectUshipLifecycleEvent(raw.subject, blob);
+                            const customerReplyKinds = new Set([
+                                "CUSTOMER_RESPOND",
+                                "CUSTOMER_QUESTION",
+                                "CUSTOMER_REPLIED",
+                                "NEW_MESSAGE",
+                            ]);
+                            // After assignment, ignore most company-inbox follow-ups — but still
+                            // apply Question Answered / customer replies so the red lamp lights.
+                            if (
+                                existingShipment.assignedBrokerId &&
+                                !customerReplyKinds.has(detected.kind)
+                            ) {
                                 await emailMessageRepository.markProcessed(
                                     stored.emailMessageId,
                                     "IGNORED",
@@ -194,12 +294,12 @@ export class EmailImportService {
                                 continue;
                             }
 
-                            const blob = `${raw.subject}\n${raw.bodyText || ""}\n${raw.bodyHtml || ""}\n${raw.snippet || ""}`;
                             const lifecycle = await applyUshipLifecycleEvent({
                                 shipmentLeadId: existingShipment.shipmentLeadId,
                                 subject: raw.subject,
                                 body: blob,
                                 gmailMessageId,
+                                actorUserId: existingShipment.assignedBrokerId || undefined,
                                 source: "company_gmail",
                             });
                             await emailMessageRepository.markProcessed(

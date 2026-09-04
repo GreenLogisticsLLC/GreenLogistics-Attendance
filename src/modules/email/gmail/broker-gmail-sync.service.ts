@@ -5,10 +5,23 @@ import {
 } from "./broker-gmail-oauth.service.js";
 import type { RawEmailMessage } from "../models/types.js";
 import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
-import { canonicalUshipListingUrl, listingIdsFromText } from "../parsers/uship/listing-url.js";
+import {
+    canonicalUshipListingUrl,
+    followUshipToListingUrl,
+    listingIdFromText,
+    listingIdsFromText,
+    trackingUrlsFromText,
+} from "../parsers/uship/listing-url.js";
+import {
+    normalizeUshipTitle,
+    titlesFromQuestionAnsweredEmail,
+} from "../parsers/uship/uship-qa-match.js";
 
 const USHIP_QUERY =
     "from:(uship.com OR email.uship.com OR notifications.uship.com OR mail.uship.com) newer_than:21d";
+
+const CUSTOMER_REPLY_REMATCH =
+    /quote|bid\s+confirmation|bid\s+submitted|submitted\s+a\s+(?:quote|bid)|customer\s+respond|respond\s+to\s+question|customer\s+replied|new\s+message|question\s+answered|answered\s+your\s+question|a\s+customer\s+has\s+answered/i;
 
 function decodeBase64Url(data?: string | null): string {
     if (!data) return "";
@@ -83,21 +96,35 @@ function collectListingIds(...blobs: Array<string | null | undefined>): string[]
     return listingIdsFromText(...blobs);
 }
 
-function extractUshipRefs(input: {
+async function extractUshipRefs(input: {
     subject?: string | null;
     bodyText?: string | null;
     bodyHtml?: string | null;
     snippet?: string | null;
-}): { listingIds: string[]; externalId?: string; viewUrl?: string } {
-    const listingIds = collectListingIds(
-        input.subject,
-        input.bodyHtml,
-        input.bodyText,
-        input.snippet
+}): Promise<{ listingIds: string[]; externalId?: string; viewUrl?: string }> {
+    const listingIds = new Set(
+        collectListingIds(input.subject, input.bodyHtml, input.bodyText, input.snippet)
     );
-    const externalId = listingIds.length === 1 ? listingIds[0] : undefined;
+
+    // Question Answered / Q&A emails often wrap the listing behind track.uship.com.
+    if (!listingIds.size) {
+        const tracks = trackingUrlsFromText(
+            input.bodyHtml,
+            input.bodyText,
+            input.snippet,
+            input.subject
+        );
+        for (const track of tracks.slice(0, 3)) {
+            const resolved = await followUshipToListingUrl(track).catch(() => null);
+            const id = resolved ? listingIdFromText(resolved) : null;
+            if (id) listingIds.add(id);
+        }
+    }
+
+    const ids = [...listingIds];
+    const externalId = ids.length === 1 ? ids[0] : undefined;
     return {
-        listingIds,
+        listingIds: ids,
         externalId,
         viewUrl: externalId ? canonicalUshipListingUrl(externalId) : undefined,
     };
@@ -108,47 +135,52 @@ const STRONG_MATCH_METHODS = [
     "externalShipmentId",
     "greenOsShipmentId",
     "listingTitle",
+    "routeZip",
 ];
-
-function normalizeTitle(value: string): string {
-    return String(value || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-}
 
 async function matchExactListing(
     externalId: string,
     userId: string
 ): Promise<{ shipmentLeadId: string; assignedBrokerId: string | null } | null> {
-    const canonicalUrl = `https://www.uship.com/listing/${externalId}`;
+    const id = String(externalId || "").replace(/\D/g, "");
+    if (!id) return null;
     const rows = await prisma.shipmentLead.findMany({
         where: {
             assignedBrokerId: userId,
             OR: [
-                { viewUrl: canonicalUrl },
-                { viewUrl: { contains: `/listing/${externalId}` } },
-                { source: "USHIP", externalShipmentId: externalId },
-                { externalShipmentId: externalId },
+                { externalShipmentId: id },
+                { source: "USHIP", externalShipmentId: id },
+                { viewUrl: { contains: `/listing/${id}` } },
+                // Instant Alert cards: https://www.uship.com/shipment/{slug}/{id}/
+                { viewUrl: { contains: `/${id}/` } },
+                { viewUrl: { endsWith: `/${id}` } },
             ],
         },
-        select: { shipmentLeadId: true, assignedBrokerId: true },
-        take: 8,
+        select: {
+            shipmentLeadId: true,
+            assignedBrokerId: true,
+            viewUrl: true,
+            externalShipmentId: true,
+        },
+        take: 12,
     });
-    const unique = [...new Map(rows.map((r) => [r.shipmentLeadId, r])).values()];
+    const matched = rows.filter((row) => {
+        if (String(row.externalShipmentId || "") === id) return true;
+        const view = String(row.viewUrl || "");
+        if (!view) return false;
+        if (view.includes(`/listing/${id}`)) return true;
+        if (new RegExp(`uship\\.com/shipment/[^/?#]+/${id}(?:/|$|[?#])`, "i").test(view)) {
+            return true;
+        }
+        return view.includes(`/${id}/`) || view.endsWith(`/${id}`);
+    });
+    const unique = [...new Map(matched.map((r) => [r.shipmentLeadId, r])).values()];
     if (unique.length !== 1) return null;
     return unique[0];
 }
 
-async function matchByUniqueTitle(
-    userId: string,
-    subject: string,
-    body: string
-): Promise<{ shipmentLeadId: string; assignedBrokerId: string | null } | null> {
-    const hay = normalizeTitle(`${subject}\n${body.slice(0, 800)}`);
-    if (hay.length < 10) return null;
-    const leads = await prisma.shipmentLead.findMany({
+async function openBrokerLeads(userId: string) {
+    return prisma.shipmentLead.findMany({
         where: {
             assignedBrokerId: userId,
             status: {
@@ -161,12 +193,64 @@ async function matchByUniqueTitle(
                 ],
             },
         },
-        select: { shipmentLeadId: true, assignedBrokerId: true, shipmentTitle: true },
+        select: {
+            shipmentLeadId: true,
+            assignedBrokerId: true,
+            shipmentTitle: true,
+            pickupCity: true,
+            deliveryCity: true,
+            pickupZip: true,
+            deliveryZip: true,
+        },
         take: 250,
     });
+}
+
+async function matchByUniqueTitle(
+    userId: string,
+    subject: string,
+    body: string
+): Promise<{ shipmentLeadId: string; assignedBrokerId: string | null } | null> {
+    const hay = normalizeUshipTitle(`${subject}\n${body.slice(0, 2500)}`);
+    if (hay.length < 10) return null;
+    const hinted = titlesFromQuestionAnsweredEmail(subject, body);
+    const leads = await openBrokerLeads(userId);
+
+    if (hinted.length) {
+        const exact = leads.filter((lead) => {
+            const title = normalizeUshipTitle(String(lead.shipmentTitle || ""));
+            return title.length >= 4 && hinted.includes(title);
+        });
+        if (exact.length === 1) return exact[0];
+    }
+
     const hits = leads.filter((lead) => {
-        const title = normalizeTitle(String(lead.shipmentTitle || ""));
+        const title = normalizeUshipTitle(String(lead.shipmentTitle || ""));
         return title.length >= 8 && hay.includes(title);
+    });
+    if (hits.length !== 1) return null;
+    return hits[0];
+}
+
+async function matchByUniqueRoute(
+    userId: string,
+    subject: string,
+    body: string
+): Promise<{ shipmentLeadId: string; assignedBrokerId: string | null } | null> {
+    const hay = `${subject}\n${body}`.toLowerCase();
+    const leads = await openBrokerLeads(userId);
+    const hits = leads.filter((lead) => {
+        const pz = String(lead.pickupZip || "").trim();
+        const dz = String(lead.deliveryZip || "").trim();
+        if (pz.length >= 5 && dz.length >= 5) {
+            return hay.includes(pz) && hay.includes(dz);
+        }
+        const pc = String(lead.pickupCity || "").trim().toLowerCase();
+        const dc = String(lead.deliveryCity || "").trim().toLowerCase();
+        if (pc.length >= 3 && dc.length >= 3) {
+            return hay.includes(pc) && hay.includes(dc);
+        }
+        return false;
     });
     if (hits.length !== 1) return null;
     return hits[0];
@@ -185,13 +269,18 @@ async function matchShipment(input: {
     let candidate: { shipmentLeadId: string; assignedBrokerId: string | null } | null = null;
     let method = "";
 
+    const viewListingId = (() => {
+        if (!input.viewUrl) return undefined;
+        const listing = input.viewUrl.match(/\/(?:listing|l)\/(\d{6,12})/i)?.[1];
+        if (listing) return listing;
+        return input.viewUrl.match(/\/shipment\/[^/?#]+\/(\d{6,12})/i)?.[1];
+    })();
+
     const listingIds = [
         ...new Set(
-            [
-                input.externalId,
-                ...(input.listingIds || []),
-                input.viewUrl ? input.viewUrl.match(/\/listing\/(\d+)/i)?.[1] : undefined,
-            ].filter((id): id is string => Boolean(id))
+            [input.externalId, ...(input.listingIds || []), viewListingId].filter(
+                (id): id is string => Boolean(id)
+            )
         ),
     ];
 
@@ -248,6 +337,11 @@ async function matchShipment(input: {
     if (!candidate) {
         candidate = await matchByUniqueTitle(input.userId, input.subject, input.body);
         if (candidate) method = "listingTitle";
+    }
+
+    if (!candidate) {
+        candidate = await matchByUniqueRoute(input.userId, input.subject, input.body);
+        if (candidate) method = "routeZip";
     }
 
     // Hard routing boundary: a broker mailbox can update only that broker's assigned Shipment.
@@ -390,7 +484,7 @@ export class BrokerGmailSyncService {
             let method = row.matchMethod;
 
             if (!shipmentLeadId) {
-                const refs = extractUshipRefs({
+                const refs = await extractUshipRefs({
                     subject: row.subject,
                     bodyText: body,
                     snippet: row.snippet,
@@ -417,11 +511,8 @@ export class BrokerGmailSyncService {
                 });
             }
 
-            const looksQuoteOrBid =
-                /quote|bid\s+confirmation|bid\s+submitted|submitted\s+a\s+(?:quote|bid)|customer\s+respond|respond\s+to\s+question|customer\s+replied|new\s+message/i.test(
-                    `${row.subject}\n${body}`
-                );
-            // Re-apply for newly matched rows, or quote/bid confirmations that may have been UNKNOWN before.
+            const looksQuoteOrBid = CUSTOMER_REPLY_REMATCH.test(`${row.subject}\n${body}`);
+            // Re-apply for newly matched rows, or quote/bid / Question Answered that may have been UNKNOWN before.
             if (!row.shipmentLeadId || looksQuoteOrBid) {
                 await this.applyMatchedLifecycle({
                     shipmentLeadId,
@@ -467,7 +558,7 @@ export class BrokerGmailSyncService {
                         // Previously stored unmatched — try again with improved matcher/detector.
                         if (!existing.shipmentLeadId) {
                             const body = `${existing.bodyText || ""}\n${existing.snippet || ""}`;
-                            const refs = extractUshipRefs({
+                            const refs = await extractUshipRefs({
                                 subject: existing.subject,
                                 bodyText: body,
                                 snippet: existing.snippet,
@@ -515,7 +606,8 @@ export class BrokerGmailSyncService {
                     }
 
                     // Pull listing IDs from raw HTML hrefs before stripHtml removes them.
-                    const refs = extractUshipRefs({
+                    // Also follow track.uship.com wrappers used by Question Answered emails.
+                    const refs = await extractUshipRefs({
                         subject: raw.subject,
                         bodyText,
                         bodyHtml: raw.bodyHtml,

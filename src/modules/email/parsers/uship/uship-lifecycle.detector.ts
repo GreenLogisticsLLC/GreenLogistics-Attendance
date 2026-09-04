@@ -250,11 +250,23 @@ export async function applyUshipLifecycleEvent(input: {
 
     // Authoritative mailbox gate:
     // - before assignment: only company Gmail may mutate the card
-    // - after assignment: only the assigned broker's Gmail may mutate the card
+    // - after assignment: assigned broker Gmail is preferred
+    // - exception: customer Q&A replies ("Question Answered") may also arrive on
+    //   company Gmail; still light the red lamp and notify the assigned broker
     const source = input.source || "uship_email";
     const assignedBrokerId = shipment.assignedBrokerId || null;
+    const customerReplyKinds = new Set<UshipLifecycleKind>([
+        "CUSTOMER_RESPOND",
+        "CUSTOMER_QUESTION",
+        "CUSTOMER_REPLIED",
+        "NEW_MESSAGE",
+    ]);
     if (assignedBrokerId) {
-        if (source !== "broker_gmail" || input.actorUserId !== assignedBrokerId) {
+        const fromAssignedBroker =
+            source === "broker_gmail" && input.actorUserId === assignedBrokerId;
+        const fromCompanyCustomerReply =
+            source === "company_gmail" && customerReplyKinds.has(detected.kind);
+        if (!fromAssignedBroker && !fromCompanyCustomerReply) {
             return {
                 applied: false as const,
                 detected,
