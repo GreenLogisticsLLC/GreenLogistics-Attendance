@@ -973,6 +973,52 @@ window.GreenOSModules.crm = {
         );
       }
 
+      function qaArrowHtml(customerDone, brokerDone) {
+        var toCustomer = Boolean(customerDone);
+        var toBroker = !toCustomer && Boolean(brokerDone);
+        var cls = "crm-qa-arrow";
+        if (toCustomer) cls += " is-to-customer";
+        else if (toBroker) cls += " is-to-broker";
+        else cls += " is-idle";
+        // Customer (left) ← red ; Broker (right) → green
+        var head = toCustomer ? "◀" : "▶";
+        return (
+          '<div class="' +
+          cls +
+          '" aria-hidden="true">' +
+          (toCustomer
+            ? '<span class="crm-qa-arrow-head">' +
+              head +
+              "</span>" +
+              '<span class="crm-qa-arrow-line"></span>'
+            : '<span class="crm-qa-arrow-line"></span>' +
+              '<span class="crm-qa-arrow-head">' +
+              head +
+              "</span>") +
+          "</div>"
+        );
+      }
+
+      function qaPairHtml() {
+        var cust = customerR || { stage: "CUSTOMER_RESPOND", title: "Customer Respond", done: false };
+        var brok = brokerQ || {
+          stage: "BROKER_QUESTION",
+          title: "Broker Question",
+          done: false,
+          interactive: true,
+        };
+        return (
+          '<li class="crm-pipe-qa-row">' +
+          '<div class="crm-qa-pair' +
+          (cust.done ? " is-customer-active" : brok.done ? " is-broker-active" : "") +
+          '">' +
+          pipeNodeHtml(cust, { side: "is-customer" }) +
+          qaArrowHtml(cust.done, brok.done) +
+          pipeNodeHtml(brok, { side: "is-broker", interactive: true }) +
+          "</div></li>"
+        );
+      }
+
       var pipeline = "";
       var qaInserted = false;
       var afterLoadCreated = false;
@@ -981,21 +1027,7 @@ window.GreenOSModules.crm = {
         if (p.stage === "BROKER_QUESTION" || p.stage === "CUSTOMER_RESPOND") {
           if (qaInserted) return;
           qaInserted = true;
-          pipeline +=
-            '<li class="crm-pipe-qa-row">' +
-            '<div class="crm-qa-pair">' +
-            pipeNodeHtml(customerR || { stage: "CUSTOMER_RESPOND", title: "Customer Respond", done: false }, {
-              side: "is-customer",
-            }) +
-            '<div class="crm-qa-arrow" aria-hidden="true">' +
-            '<span class="crm-qa-arrow-line"></span>' +
-            '<span class="crm-qa-arrow-head">◀</span>' +
-            "</div>" +
-            pipeNodeHtml(brokerQ || { stage: "BROKER_QUESTION", title: "Broker Question", done: false, interactive: true }, {
-              side: "is-broker",
-              interactive: true,
-            }) +
-            "</div></li>";
+          pipeline += qaPairHtml();
           return;
         }
         pipeline +=
@@ -1021,21 +1053,7 @@ window.GreenOSModules.crm = {
           "<small>Carrier, Rate Con, Pickup, POD, Invoice — open the Loads section</small></div></li>";
       }
       if (!qaInserted && (brokerQ || customerR)) {
-        pipeline +=
-          '<li class="crm-pipe-qa-row">' +
-          '<div class="crm-qa-pair">' +
-          pipeNodeHtml(customerR || { stage: "CUSTOMER_RESPOND", title: "Customer Respond", done: false }, {
-            side: "is-customer",
-          }) +
-          '<div class="crm-qa-arrow" aria-hidden="true">' +
-          '<span class="crm-qa-arrow-line"></span>' +
-          '<span class="crm-qa-arrow-head">◀</span>' +
-          "</div>" +
-          pipeNodeHtml(brokerQ || { stage: "BROKER_QUESTION", title: "Broker Question", done: false, interactive: true }, {
-            side: "is-broker",
-            interactive: true,
-          }) +
-          "</div></li>";
+        pipeline += qaPairHtml();
       }
 
       var correspondence = Array.isArray(s.correspondence) ? s.correspondence : [];

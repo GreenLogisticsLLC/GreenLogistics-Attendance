@@ -1070,6 +1070,14 @@ a.crm-open-uship {
   border-radius: 14px;
   padding: 0.85rem 0.75rem;
 }
+.crm-qa-pair.is-customer-active {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.crm-qa-pair.is-broker-active {
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.28);
+}
 .crm-qa-node {
   display: flex;
   flex-direction: column;
@@ -1090,22 +1098,40 @@ a.crm-open-uship {
   gap: 0.15rem;
   flex: 0 0 auto;
   min-width: 3.5rem;
-  color: #34d399;
+  color: #64748b;
   font-size: 1.35rem;
   font-weight: 700;
+}
+.crm-qa-arrow.is-to-broker {
+  color: #34d399;
+}
+.crm-qa-arrow.is-to-customer {
+  color: #f87171;
 }
 .crm-qa-arrow-line {
   display: inline-block;
   width: 2.4rem;
   height: 3px;
   border-radius: 2px;
-  background: linear-gradient(90deg, #22c55e, #ef4444);
+  background: #475569;
   animation: crm-qa-flow 1.2s ease-in-out infinite;
+}
+.crm-qa-arrow.is-to-broker .crm-qa-arrow-line {
+  background: linear-gradient(90deg, #64748b, #22c55e);
+}
+.crm-qa-arrow.is-to-customer .crm-qa-arrow-line {
+  background: linear-gradient(90deg, #ef4444, #64748b);
 }
 .crm-qa-arrow-head {
   display: inline-block;
   line-height: 1;
   animation: crm-qa-blink 1.1s ease-in-out infinite;
+}
+.crm-qa-arrow.is-to-broker .crm-qa-arrow-head {
+  animation: crm-qa-blink-right 1.1s ease-in-out infinite;
+}
+.crm-qa-arrow.is-to-customer .crm-qa-arrow-head {
+  animation: crm-qa-blink-left 1.1s ease-in-out infinite;
 }
 .crm-qa-node.is-customer {
   order: 1;
@@ -1184,6 +1210,14 @@ a.crm-open-uship {
   50% { opacity: 1; }
 }
 @keyframes crm-qa-blink {
+  0%, 100% { opacity: 0.45; transform: translateX(0); }
+  50% { opacity: 1; transform: translateX(0); }
+}
+@keyframes crm-qa-blink-right {
+  0%, 100% { opacity: 0.45; transform: translateX(-2px); }
+  50% { opacity: 1; transform: translateX(2px); }
+}
+@keyframes crm-qa-blink-left {
   0%, 100% { opacity: 0.45; transform: translateX(2px); }
   50% { opacity: 1; transform: translateX(-2px); }
 }
