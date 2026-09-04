@@ -1201,7 +1201,57 @@ window.GreenOSModules.crm = {
         '<textarea id="crm-notes" rows="3" style="width:100%;margin-top:0.35rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:0.6rem">' +
         esc(s.notes || "") +
         "</textarea>" +
-        '<button type="button" class="btn-secondary" id="crm-save-notes" style="width:auto;margin-top:0.5rem">Save Notes</button>' +
+        "<h3 style=\"margin:0.75rem 0 0.35rem;font-size:1rem\">Files</h3>" +
+        '<div class="crm-files-upload" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin:0 0 0.5rem">' +
+        '<input type="file" id="crm-file-input" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp,.gif,.heic,.zip" style="max-width:100%">' +
+        '<span class="gos-muted" id="crm-upload-status" style="font-size:0.8rem"></span>' +
+        "</div>" +
+        '<ul class="gos-muted" id="crm-files" style="margin:0 0 0.5rem">' +
+        (Array.isArray(s.documents) && s.documents.length
+          ? s.documents
+              .map(function (d) {
+                var name = typeof d === "string" ? d : d.name || d.url || "file";
+                var url = typeof d === "object" && d.url ? d.url : null;
+                var fileId = typeof d === "object" && d.id ? d.id : null;
+                var size =
+                  typeof d === "object" && d.size
+                    ? " · " + Math.max(1, Math.round(d.size / 1024)) + " KB"
+                    : "";
+                var isImage =
+                  typeof d === "object" &&
+                  d.mimeType &&
+                  String(d.mimeType).indexOf("image/") === 0;
+                return (
+                  "<li style=\"margin-bottom:0.45rem\">" +
+                  (url
+                    ? '<a class="crm-file-open" href="' +
+                      esc(url) +
+                      '" data-url="' +
+                      esc(url) +
+                      '" target="_blank" rel="noopener">' +
+                      esc(name) +
+                      "</a>"
+                    : esc(name)) +
+                  '<small>' +
+                  esc(size) +
+                  "</small>" +
+                  (isImage && url
+                    ? '<div style="margin-top:0.35rem"><img class="crm-file-thumb" data-url="' +
+                      esc(url) +
+                      '" alt="" style="max-width:160px;max-height:100px;border-radius:6px;display:none;object-fit:cover"></div>'
+                    : "") +
+                  (fileId
+                    ? ' <button type="button" class="btn-secondary crm-file-del" data-file-id="' +
+                      esc(fileId) +
+                      '" style="width:auto;padding:0.15rem 0.45rem;font-size:0.72rem;margin-left:0.35rem">Remove</button>'
+                    : "") +
+                  "</li>"
+                );
+              })
+              .join("")
+          : "") +
+        "</ul>" +
+        '<button type="button" class="btn-secondary" id="crm-save-notes" style="width:auto;margin-top:0.25rem">Save Notes</button>' +
         "</div>" +
         (window.GreenOSModules.crm.canSeeOpsComments()
           ? (function () {
@@ -1250,57 +1300,6 @@ window.GreenOSModules.crm = {
               );
             })()
           : "") +
-        "<h3>Files</h3>" +
-        '<div class="crm-files-upload" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin:0.35rem 0 0.75rem">' +
-        '<input type="file" id="crm-file-input" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp,.gif,.heic,.zip" style="max-width:100%">' +
-        '<button type="button" class="btn-secondary" id="crm-upload-file" style="width:auto">Upload from computer</button>' +
-        '<span class="gos-muted" id="crm-upload-status" style="font-size:0.8rem"></span>' +
-        "</div>" +
-        '<ul class="gos-muted" id="crm-files">' +
-        (Array.isArray(s.documents) && s.documents.length
-          ? s.documents
-              .map(function (d) {
-                var name = typeof d === "string" ? d : d.name || d.url || "file";
-                var url = typeof d === "object" && d.url ? d.url : null;
-                var fileId = typeof d === "object" && d.id ? d.id : null;
-                var size =
-                  typeof d === "object" && d.size
-                    ? " · " + Math.max(1, Math.round(d.size / 1024)) + " KB"
-                    : "";
-                var isImage =
-                  typeof d === "object" &&
-                  d.mimeType &&
-                  String(d.mimeType).indexOf("image/") === 0;
-                return (
-                  "<li style=\"margin-bottom:0.45rem\">" +
-                  (url
-                    ? '<a class="crm-file-open" href="' +
-                      esc(url) +
-                      '" data-url="' +
-                      esc(url) +
-                      '" target="_blank" rel="noopener">' +
-                      esc(name) +
-                      "</a>"
-                    : esc(name)) +
-                  '<small>' +
-                  esc(size) +
-                  "</small>" +
-                  (isImage && url
-                    ? '<div style="margin-top:0.35rem"><img class="crm-file-thumb" data-url="' +
-                      esc(url) +
-                      '" alt="" style="max-width:160px;max-height:100px;border-radius:6px;display:none;object-fit:cover"></div>'
-                    : "") +
-                  (fileId
-                    ? ' <button type="button" class="btn-secondary crm-file-del" data-file-id="' +
-                      esc(fileId) +
-                      '" style="width:auto;padding:0.15rem 0.45rem;font-size:0.72rem;margin-left:0.35rem">Remove</button>'
-                    : "") +
-                  "</li>"
-                );
-              })
-              .join("")
-          : "") +
-        "</ul>" +
         '<div class="crm-actions">' +
         (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED" || s.status === "AGENT_OPEN"
           ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
@@ -1511,11 +1510,10 @@ window.GreenOSModules.crm = {
         img.style.display = "block";
       });
 
-      modal.querySelector("#crm-upload-file")?.addEventListener("click", async function () {
+      modal.querySelector("#crm-file-input")?.addEventListener("change", async function () {
         var input = modal.querySelector("#crm-file-input");
         var statusEl = modal.querySelector("#crm-upload-status");
         if (!input || !input.files || !input.files[0]) {
-          if (statusEl) statusEl.textContent = "Choose a file first";
           return;
         }
         var file = input.files[0];
