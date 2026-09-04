@@ -49,7 +49,17 @@ export async function getEmployeePresenceSessionsMap(
 
     for (const employeeId of uniqueIds) {
         let session = todayByEmployee.get(employeeId) ?? null;
-        if (!session && carryOver) {
+        // Before today's 17:00 board starts, keep overnight INSIDE from yesterday.
+        // A placeholder SCHEDULED row for "today" must NOT hide that carry-over —
+        // otherwise brokers still In Office get zero Instant Alerts (Gary fallback).
+        const todayNotReallyPresent =
+            !session ||
+            session.currentStatus === "SCHEDULED" ||
+            (session.currentStatus !== "INSIDE_OFFICE" &&
+                session.currentStatus !== "OUTSIDE_OFFICE" &&
+                session.currentStatus !== "COMPLETED" &&
+                !session.firstEntry);
+        if (todayNotReallyPresent && carryOver) {
             const previous = yesterdayByEmployee.get(employeeId);
             if (
                 previous?.currentStatus === "INSIDE_OFFICE" &&

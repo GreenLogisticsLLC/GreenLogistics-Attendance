@@ -1,0 +1,35 @@
+name: Rematch Customer Respond
+
+on:
+  workflow_dispatch:
+    inputs:
+      gos:
+        description: Green OS shipment id (e.g. GOS1000550)
+        required: true
+        default: "GOS1000550"
+        type: string
+
+jobs:
+  rematch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Rematch Question Answered → red lamp
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << EOF
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          npm run build
+          pm2 restart greenos --update-env || true
+          sleep 2
+          node scripts/rematch-customer-respond.mjs ${{ inputs.gos }}
+          EOF

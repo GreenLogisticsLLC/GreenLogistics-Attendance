@@ -940,6 +940,45 @@ export class AssignmentEngine {
                 mode: "in_office",
             };
         }
+
+        // Nobody linked+In Office. Surface Attendance badges that ARE In Office but
+        // not linked to a Broker user — those people will never receive Instant Alerts.
+        try {
+            const { getAttendanceWorkDate } = await import("../../utils/helpers.js");
+            const { config } = await import("../../config/env.js");
+            const workDate = getAttendanceWorkDate(new Date(), config.timezone);
+            const orphanInside = await prisma.attendanceSession.findMany({
+                where: {
+                    workDate,
+                    currentStatus: "INSIDE_OFFICE",
+                    employee: { status: "ACTIVE" },
+                    ...(employeeIdsToCheck.length
+                        ? { employeeId: { notIn: employeeIdsToCheck } }
+                        : {}),
+                },
+                include: {
+                    employee: {
+                        select: { firstName: true, lastName: true, employeeNumber: true },
+                    },
+                },
+                take: 20,
+            });
+            if (orphanInside.length) {
+                const names = orphanInside
+                    .map(
+                        (s) =>
+                            `${s.employee.firstName} ${s.employee.lastName}`.trim() ||
+                            s.employee.employeeNumber
+                    )
+                    .join(", ");
+                console.warn(
+                    `[assignment] In Office on Attendance but NOT linked to a Broker user (no Instant Alerts): ${names}`
+                );
+            }
+        } catch {
+            /* best-effort diagnostic */
+        }
+
         if (allLinked.length > 0) {
             console.info(
                 `[assignment] no broker In Office — falling back to round-robin across ${allLinked.length} broker(s), Gary first`
@@ -978,6 +1017,14 @@ export class AssignmentEngine {
                 e.lastName.trim().toLowerCase() === ln
         );
         if (matches.length === 1) return matches[0].employeeId;
+
+        // First-name-only when unique among ACTIVE employees (common badge mismatch).
+        if (fn.length >= 2) {
+            const byFirst = activeEmployees.filter(
+                (e) => e.firstName.trim().toLowerCase() === fn
+            );
+            if (byFirst.length === 1) return byFirst[0].employeeId;
+        }
         return null;
     }
 
@@ -1006,6 +1053,10 @@ export class AssignmentEngine {
             (e) => e.firstName.trim().toLowerCase() === fn && e.lastName.trim().toLowerCase() === ln
         );
         if (matches.length === 1) return matches[0].employeeId;
+        if (fn.length >= 2) {
+            const byFirst = all.filter((e) => e.firstName.trim().toLowerCase() === fn);
+            if (byFirst.length === 1) return byFirst[0].employeeId;
+        }
         return null;
     }
 

@@ -108,7 +108,7 @@ export class DashboardService {
                       workDate
                   )
                 : await getEmployeePresenceSession(emp.employeeId);
-            if (date && !session && now < currentBounds.scheduledStart) {
+            if (date && (!session || session.currentStatus === "SCHEDULED") && now < currentBounds.scheduledStart) {
                 const previous = await attendanceSessionRepository.findByEmployeeAndWorkDate(
                     emp.employeeId,
                     addDaysToDateString(workDate, -1)
