@@ -1102,11 +1102,12 @@ a.crm-open-uship {
   font-size: 1.35rem;
   font-weight: 700;
 }
+/* Red lamp → red arrow toward broker (right); green lamp → green arrow toward customer (left) */
 .crm-qa-arrow.is-to-broker {
-  color: #34d399;
+  color: #f87171;
 }
 .crm-qa-arrow.is-to-customer {
-  color: #f87171;
+  color: #34d399;
 }
 .crm-qa-arrow-line {
   display: inline-block;
@@ -1117,10 +1118,10 @@ a.crm-open-uship {
   animation: crm-qa-flow 1.2s ease-in-out infinite;
 }
 .crm-qa-arrow.is-to-broker .crm-qa-arrow-line {
-  background: linear-gradient(90deg, #64748b, #22c55e);
+  background: linear-gradient(90deg, #ef4444, #f87171);
 }
 .crm-qa-arrow.is-to-customer .crm-qa-arrow-line {
-  background: linear-gradient(90deg, #ef4444, #64748b);
+  background: linear-gradient(90deg, #22c55e, #34d399);
 }
 .crm-qa-arrow-head {
   display: inline-block;

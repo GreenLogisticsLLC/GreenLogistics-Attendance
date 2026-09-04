@@ -974,27 +974,28 @@ window.GreenOSModules.crm = {
       }
 
       function qaArrowHtml(customerDone, brokerDone) {
-        var toCustomer = Boolean(customerDone);
-        var toBroker = !toCustomer && Boolean(brokerDone);
+        // Red lamp (customer replied) → red arrow points to broker (right)
+        // Green lamp (broker asked) → green arrow points to customer (left)
+        var redToBroker = Boolean(customerDone);
+        var greenToCustomer = !redToBroker && Boolean(brokerDone);
         var cls = "crm-qa-arrow";
-        if (toCustomer) cls += " is-to-customer";
-        else if (toBroker) cls += " is-to-broker";
+        if (redToBroker) cls += " is-to-broker";
+        else if (greenToCustomer) cls += " is-to-customer";
         else cls += " is-idle";
-        // Customer (left) ← red ; Broker (right) → green
-        var head = toCustomer ? "◀" : "▶";
+        var head = redToBroker ? "▶" : "◀";
         return (
           '<div class="' +
           cls +
           '" aria-hidden="true">' +
-          (toCustomer
-            ? '<span class="crm-qa-arrow-head">' +
-              head +
-              "</span>" +
-              '<span class="crm-qa-arrow-line"></span>'
-            : '<span class="crm-qa-arrow-line"></span>' +
+          (redToBroker
+            ? '<span class="crm-qa-arrow-line"></span>' +
               '<span class="crm-qa-arrow-head">' +
               head +
-              "</span>") +
+              "</span>"
+            : '<span class="crm-qa-arrow-head">' +
+              head +
+              "</span>" +
+              '<span class="crm-qa-arrow-line"></span>') +
           "</div>"
         );
       }
