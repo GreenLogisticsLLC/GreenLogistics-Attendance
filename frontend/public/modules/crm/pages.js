@@ -1239,7 +1239,7 @@ window.GreenOSModules.crm = {
                 );
               })
               .join("")
-          : "<li>No files attached yet — upload a photo or document from your computer</li>") +
+          : "") +
         "</ul>" +
         '<div class="crm-actions">' +
         (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED" || s.status === "AGENT_OPEN"
