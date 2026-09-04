@@ -1020,21 +1020,12 @@ window.GreenOSModules.crm = {
         );
       }
 
-      var pipeline = "";
-      var qaInserted = false;
-      var afterLoadCreated = false;
-      pipeSteps.forEach(function (p) {
-        if (afterLoadCreated) return;
-        if (p.stage === "BROKER_QUESTION" || p.stage === "CUSTOMER_RESPOND") {
-          if (qaInserted) return;
-          qaInserted = true;
-          pipeline += qaPairHtml();
-          return;
-        }
-        pipeline +=
+      function stepLiHtml(p, extraClass) {
+        return (
           '<li class="' +
           (p.done ? "is-done" : "") +
           (p.stage === "AGENT_OPENED" ? " crm-pipe-uship" : "") +
+          (extraClass ? " " + extraClass : "") +
           '" data-stage="' +
           esc(p.stage) +
           '">' +
@@ -1043,9 +1034,78 @@ window.GreenOSModules.crm = {
           esc(p.title) +
           "</strong>" +
           (p.at ? "<small>" + window.GreenOSModules.crm.fmtDate(p.at) + "</small>" : "") +
-          "</div></li>";
+          "</div></li>"
+        );
+      }
+
+      var pipeline = "";
+      var qaInserted = false;
+      var afterLoadCreated = false;
+      var leadingDone = [];
+      var restHtml = "";
+
+      pipeSteps.forEach(function (p) {
+        if (afterLoadCreated) return;
+        if (p.stage === "BROKER_QUESTION" || p.stage === "CUSTOMER_RESPOND") {
+          if (qaInserted) return;
+          qaInserted = true;
+          if (leadingDone.length && restHtml.indexOf("__FLUSH_DONE__") < 0) {
+            restHtml += "__FLUSH_DONE__";
+          }
+          restHtml += qaPairHtml();
+          return;
+        }
+        if (p.done && !restHtml) {
+          leadingDone.push(p);
+        } else {
+          if (leadingDone.length && restHtml.indexOf("__FLUSH_DONE__") < 0) {
+            restHtml += "__FLUSH_DONE__";
+          }
+          restHtml += stepLiHtml(p);
+        }
         if (p.stage === "LOAD_CREATED") afterLoadCreated = true;
       });
+
+      function renderLeadingDone(doneSteps) {
+        if (!doneSteps.length) return "";
+        if (doneSteps.length === 1) return stepLiHtml(doneSteps[0]);
+        var earlier = doneSteps.slice(0, -1);
+        var latest = doneSteps[doneSteps.length - 1];
+        var earlierHtml = earlier.map(function (p) {
+          return stepLiHtml(p, "crm-pipe-earlier-item");
+        }).join("");
+        return (
+          '<li class="crm-pipe-done-group">' +
+          '<ol class="crm-pipe-earlier is-collapsed" hidden>' +
+          earlierHtml +
+          "</ol>" +
+          '<button type="button" class="crm-pipe-latest-done is-done" aria-expanded="false" title="Show earlier completed steps">' +
+          '<span class="crm-pipe-dot"></span>' +
+          "<div><strong>" +
+          esc(latest.title) +
+          '</strong><small class="crm-pipe-more-hint">' +
+          earlier.length +
+          " earlier step" +
+          (earlier.length === 1 ? "" : "s") +
+          " · click to show</small>" +
+          (latest.at
+            ? "<small>" + window.GreenOSModules.crm.fmtDate(latest.at) + "</small>"
+            : "") +
+          "</div></button>" +
+          "</li>"
+        );
+      }
+
+      if (restHtml.indexOf("__FLUSH_DONE__") >= 0) {
+        pipeline +=
+          renderLeadingDone(leadingDone) + restHtml.replace("__FLUSH_DONE__", "");
+        leadingDone = [];
+      } else {
+        pipeline += renderLeadingDone(leadingDone);
+        pipeline += restHtml;
+        leadingDone = [];
+      }
+
       if (afterLoadCreated || s.loadNumber) {
         pipeline +=
           '<li class="crm-pipe-loads-note">' +
@@ -1313,6 +1373,35 @@ window.GreenOSModules.crm = {
             window.GreenOSBrokerReloadCustomerRespond();
           }
         }
+      });
+
+      modal.querySelectorAll(".crm-pipe-latest-done").forEach(function (btn) {
+        btn.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          var group = btn.closest(".crm-pipe-done-group");
+          if (!group) return;
+          var earlier = group.querySelector(".crm-pipe-earlier");
+          if (!earlier) return;
+          var open = earlier.hasAttribute("hidden");
+          if (open) {
+            earlier.removeAttribute("hidden");
+            earlier.classList.remove("is-collapsed");
+            btn.setAttribute("aria-expanded", "true");
+            var hint = btn.querySelector(".crm-pipe-more-hint");
+            if (hint) hint.textContent = "click to hide earlier steps";
+          } else {
+            earlier.setAttribute("hidden", "");
+            earlier.classList.add("is-collapsed");
+            btn.setAttribute("aria-expanded", "false");
+            var n = earlier.querySelectorAll("li").length;
+            var hint2 = btn.querySelector(".crm-pipe-more-hint");
+            if (hint2) {
+              hint2.textContent =
+                n + " earlier step" + (n === 1 ? "" : "s") + " · click to show";
+            }
+          }
+        });
       });
 
       modal.querySelectorAll(".crm-open-uship, .crm-pipe-uship").forEach(function (link) {

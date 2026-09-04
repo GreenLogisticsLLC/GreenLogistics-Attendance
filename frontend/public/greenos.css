@@ -1020,6 +1020,57 @@ a.crm-open-uship {
 .crm-pipeline li.is-done {
   color: var(--gos-text);
 }
+.crm-pipe-done-group {
+  list-style: none;
+  padding: 0 !important;
+  margin: 0;
+  color: var(--gos-text);
+}
+.crm-pipe-done-group > .crm-pipe-earlier {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: none;
+}
+.crm-pipe-done-group > .crm-pipe-earlier.is-collapsed,
+.crm-pipe-done-group > .crm-pipe-earlier[hidden] {
+  display: none !important;
+}
+.crm-pipe-done-group .crm-pipe-earlier-item {
+  opacity: 0.85;
+}
+.crm-pipe-latest-done {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  position: relative;
+  padding: 0.45rem 0 0.45rem 1.1rem;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gos-text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.crm-pipe-latest-done:hover {
+  color: #86efac;
+}
+.crm-pipe-latest-done .crm-pipe-dot {
+  position: absolute;
+  left: -0.4rem;
+  top: 0.7rem;
+}
+.crm-pipe-latest-done strong {
+  display: block;
+}
+.crm-pipe-more-hint {
+  display: block;
+  color: #86efac;
+  font-size: 0.72rem;
+  margin-top: 0.1rem;
+}
 .crm-pipeline li.crm-pipe-uship {
   cursor: pointer;
 }
