@@ -32,6 +32,11 @@ jobs:
             "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
             "GMAIL_CLIENT_ID_B64='${GMAIL_CLIENT_ID_B64}' GMAIL_CLIENT_SECRET_B64='${GMAIL_CLIENT_SECRET_B64}' bash -s" << 'EOF'
           set -euo pipefail
+          mkdir -p /var/lock
+          exec 9>/var/lock/greenos-autodeploy.lock
+          echo "Waiting for greenos deploy lock..."
+          flock 9
+          echo "Acquired greenos deploy lock"
           cd /root/GreenLogistics-Attendance
           git fetch origin
           git reset --hard origin/main
@@ -41,10 +46,13 @@ jobs:
           # shellcheck disable=SC1091
           [ -f .env ] && . ./.env || true
           set +a
+          if [ ! -d node_modules/@prisma/client ]; then
+            echo "node_modules missing — skipping prisma diagnose (deploy may still be installing)"
+          fi
           echo "=== PM2 greenos status ==="
           pm2 describe greenos | sed -n '1,40p' || pm2 list || true
           echo "=== Recent email/assignment PM2 lines ==="
-          pm2 logs greenos --lines 80 --nostream | grep -Ei '\[email\]|assignment|invalid_grant|import|broker-gmail|GMAIL' || true
+          pm2 logs greenos --lines 120 --nostream | grep -Ei '\[email\]|assignment|invalid_grant|import|broker-gmail|GMAIL|company inbox' | tail -40 || true
           echo "=== diagnose-assignment-inbox.mjs ==="
           node scripts/diagnose-assignment-inbox.mjs
           EOF

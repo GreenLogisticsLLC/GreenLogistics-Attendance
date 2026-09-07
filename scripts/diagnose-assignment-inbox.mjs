@@ -188,10 +188,11 @@ async function main() {
       take: 5,
       select: {
         shipmentLeadId: true,
-        gosNumber: true,
+        loadNumber: true,
+        externalShipmentId: true,
         status: true,
         assignedAt: true,
-        title: true,
+        shipmentTitle: true,
       },
     });
     console.log("LIA_ASSIGNED_LAST_2D", assignedLast2d);
