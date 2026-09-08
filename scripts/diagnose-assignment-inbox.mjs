@@ -61,20 +61,14 @@ async function presenceSession(employeeId, workDate, localHour) {
   return session;
 }
 
-/** Same gate as getInOfficeEmployeeIds — Instant Alerts only while shift is live. */
-function isInOfficeForAssignment(session, workDate, now = new Date()) {
+/** Same gate as getInOfficeEmployeeIds — Instant Alerts only in shift window. */
+function isInOfficeForAssignment(session, _workDate, now = new Date()) {
   if (!session || session.currentStatus !== "INSIDE_OFFICE") return false;
-  const localParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ,
-    hour: "2-digit",
-    hour12: false,
-  }).formatToParts(now);
-  const hour = Number(localParts.find((p) => p.type === "hour")?.value || 0);
-  const beforeShift = hour < 17;
-  if (beforeShift) {
-    if (session.workDate === workDate) return false; // pre-shift ghost INSIDE
-    const otEnd = new Date(session.scheduledEnd.getTime() + 2 * 60 * 60 * 1000);
-    if (now > otEnd) return false;
+  const earlyFrom = new Date(session.scheduledStart.getTime() - 4 * 60 * 60 * 1000);
+  const otEnd = new Date(session.scheduledEnd.getTime() + 2 * 60 * 60 * 1000);
+  if (now < earlyFrom || now > otEnd) return false;
+  if (now < session.scheduledStart && (!session.firstEntry || session.firstEntry < earlyFrom)) {
+    return false;
   }
   return true;
 }
@@ -147,6 +141,7 @@ async function main() {
   console.log("NOW_UTC", new Date().toISOString());
   console.log("TZ", TZ, "LOCAL_HOUR", localHour, "LOCAL_SAMPLE", localIso);
   console.log("WORK_DATE", workDate);
+  console.log("ENV_TIMEZONE", process.env.TIMEZONE || "(unset → app default America/Los_Angeles)");
 
   const brokers = await prisma.user.findMany({
     where: { role: { roleName: "Broker" }, isActive: true },
@@ -201,6 +196,18 @@ async function main() {
       console.log("DIST_ENGINE_MODE_TYPE", /AssignmentPoolMode\s*=\s*"[^"]+"\s*\|\s*"[^"]+"/.test(src) ? "see source map" : "compiled");
     } else {
       console.log("DIST_ENGINE_MISSING", engPath);
+    }
+    const presencePath = resolve(process.cwd(), "dist/services/attendance-presence.service.js");
+    if (existsFs(presencePath)) {
+      const psrc = readFs(presencePath, "utf8");
+      console.log(
+        "DIST_PRESENCE_HAS_SHIFT_WINDOW",
+        psrc.includes("earlyArrivalFrom") ||
+          psrc.includes("overnightOtEnd") ||
+          psrc.includes("early-arrival")
+      );
+    } else {
+      console.log("DIST_PRESENCE_MISSING", presencePath);
     }
   } catch (err) {
     console.log("DIST_ENGINE_CHECK_FAILED", err instanceof Error ? err.message : String(err));

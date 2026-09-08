@@ -78,25 +78,25 @@ export async function getInOfficeEmployeeIds(employeeIds: string[]): Promise<Set
     const sessions = await getEmployeePresenceSessionsMap(employeeIds);
     const inOffice = new Set<string>();
     const now = new Date();
-    const workDate = getAttendanceWorkDate(now, config.timezone);
-    const bounds = getAttendanceDayBounds(workDate, config.timezone);
 
     for (const [employeeId, session] of sessions) {
         if (session?.currentStatus !== "INSIDE_OFFICE") continue;
 
-        // Instant Alerts only while the attendance day is actually running
-        // (17:00 → ~02:00, plus a short overnight OT buffer).
-        // Without this, forgotten EXIT / day-roll ghost INSIDE rows drain NEW
-        // shipments to brokers who are not physically working yet.
-        if (now < bounds.scheduledStart) {
-            if (session.workDate === workDate) {
-                // Same workDate marked INSIDE before shift start (auto-roll) — not eligible.
-                continue;
-            }
-            const overnightOtEnd = new Date(
-                session.scheduledEnd.getTime() + 2 * 60 * 60 * 1000
-            );
-            if (now > overnightOtEnd) continue;
+        // Session-relative window (not wall-clock guess): Instant Alerts only from
+        // early-arrival (~4h before scheduledStart) through scheduledEnd + 2h OT.
+        // Blocks morning ghost INSIDE (auto-roll / forgotten EXIT) before the shift.
+        const earlyArrivalFrom = new Date(
+            session.scheduledStart.getTime() - 4 * 60 * 60 * 1000
+        );
+        const overnightOtEnd = new Date(
+            session.scheduledEnd.getTime() + 2 * 60 * 60 * 1000
+        );
+        if (now < earlyArrivalFrom || now > overnightOtEnd) continue;
+        if (
+            now < session.scheduledStart &&
+            (!session.firstEntry || session.firstEntry < earlyArrivalFrom)
+        ) {
+            continue;
         }
 
         inOffice.add(employeeId);
