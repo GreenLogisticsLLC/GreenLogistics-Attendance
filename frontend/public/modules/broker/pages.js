@@ -291,14 +291,20 @@ window.GreenOSModules.broker = {
       '" data-ship-tab="accepted-another">Accepted to another company <span class="gos-queue-badge" id="broker-ship-count-aac">…</span></button>' +
       "</nav>" +
       '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0 0 0.75rem">' +
-      '<p class="gos-muted" id="broker-ship-sync" style="margin:0">Loading…</p>' +
+      '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +
       '<div style="display:flex;gap:0.5rem">' +
-      '<button type="button" class="btn-secondary" id="broker-ship-prev" style="width:auto" disabled>Previous</button>' +
-      '<button type="button" class="btn-secondary" id="broker-ship-next" style="width:auto" disabled>Next</button>' +
+      '<button type="button" class="btn-secondary broker-ship-prev" style="width:auto" disabled>Previous</button>' +
+      '<button type="button" class="btn-secondary broker-ship-next" style="width:auto" disabled>Next</button>' +
       "</div></div>" +
       '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
       "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Updated</th>" +
-      '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="7">Loading…</td></tr></tbody></table></div>';
+      '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="7">Loading…</td></tr></tbody></table></div>' +
+      '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0.75rem 0 0">' +
+      '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +
+      '<div style="display:flex;gap:0.5rem">' +
+      '<button type="button" class="btn-secondary broker-ship-prev" style="width:auto" disabled>Previous</button>' +
+      '<button type="button" class="btn-secondary broker-ship-next" style="width:auto" disabled>Next</button>' +
+      "</div></div>";
 
     body.querySelectorAll("[data-ship-tab]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -307,18 +313,22 @@ window.GreenOSModules.broker = {
         self.renderShipments(body, root);
       });
     });
-    body.querySelector("#broker-ship-prev")?.addEventListener("click", function () {
-      var p = Math.max(1, (self._shipmentsPage || 1) - 1);
-      if (p === (self._shipmentsPage || 1)) return;
-      self._shipmentsPage = p;
-      paint(true);
+    body.querySelectorAll(".broker-ship-prev").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var p = Math.max(1, (self._shipmentsPage || 1) - 1);
+        if (p === (self._shipmentsPage || 1)) return;
+        self._shipmentsPage = p;
+        paint(true);
+      });
     });
-    body.querySelector("#broker-ship-next")?.addEventListener("click", function () {
-      var totalPages = self._shipmentsTotalPages || 1;
-      var p = Math.min(totalPages, (self._shipmentsPage || 1) + 1);
-      if (p === (self._shipmentsPage || 1)) return;
-      self._shipmentsPage = p;
-      paint(true);
+    body.querySelectorAll(".broker-ship-next").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var totalPages = self._shipmentsTotalPages || 1;
+        var p = Math.min(totalPages, (self._shipmentsPage || 1) + 1);
+        if (p === (self._shipmentsPage || 1)) return;
+        self._shipmentsPage = p;
+        paint(true);
+      });
     });
 
     var paintGen = 0;
@@ -464,9 +474,9 @@ window.GreenOSModules.broker = {
 
     async function paint(force) {
       var tbody = document.getElementById("broker-ship-body");
-      var syncEl = document.getElementById("broker-ship-sync");
-      var prevBtn = document.getElementById("broker-ship-prev");
-      var nextBtn = document.getElementById("broker-ship-next");
+      var syncEls = body.querySelectorAll(".broker-ship-sync");
+      var prevBtns = body.querySelectorAll(".broker-ship-prev");
+      var nextBtns = body.querySelectorAll(".broker-ship-next");
       if (!tbody) return;
       var modal = document.getElementById("crm-modal");
       if (
@@ -485,7 +495,9 @@ window.GreenOSModules.broker = {
           page: self._shipmentsPage || 1,
           pageSize: self._shipmentsPageSize || 50,
         });
-        if (syncEl) syncEl.textContent = "Refreshing…";
+        syncEls.forEach(function (el) {
+          el.textContent = "Refreshing…";
+        });
       }
       try {
         var tab = self._shipmentsTab || "new";

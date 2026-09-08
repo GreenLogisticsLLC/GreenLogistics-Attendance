@@ -555,37 +555,56 @@ window.GreenOSModules.crm = {
         tabHelp +
         "</p>" +
         "</section>" +
-        '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0 0 0.75rem">' +
-        '<span class="gos-muted" id="crm-ship-page-meta">' +
-        (total
-          ? "Showing " + fromIdx + "–" + toIdx + " of " + total
-          : "No shipments") +
-        (totalPages > 1 ? " · Page " + page + " / " + totalPages : "") +
-        "</span>" +
-        '<div style="display:flex;gap:0.5rem">' +
-        '<button type="button" class="btn-secondary" id="crm-ship-prev" style="width:auto"' +
-        (page <= 1 ? " disabled" : "") +
-        ">Previous</button>" +
-        '<button type="button" class="btn-secondary" id="crm-ship-next" style="width:auto"' +
-        (page >= totalPages ? " disabled" : "") +
-        ">Next</button>" +
-        "</div></div>" +
-        '<div class="table-wrap crm-table-wrap"><table class="crm-table">' +
-        "<thead><tr>" +
-        "<th>#</th><th>Shipment</th><th>Customer</th><th>Broker</th><th>Pickup</th><th>Delivery</th>" +
-        "<th>Miles</th><th>Equipment</th><th>Price</th><th>Status</th><th>Priority</th>" +
-        "<th>Created</th><th>Updated</th>" +
-        "</tr></thead><tbody id=\"crm-ship-body\"></tbody></table></div>";
+        (function () {
+          var meta =
+            (total
+              ? "Showing " + fromIdx + "–" + toIdx + " of " + total
+              : "No shipments") +
+            (totalPages > 1 ? " · Page " + page + " / " + totalPages : "");
+          var btns =
+            '<div style="display:flex;gap:0.5rem">' +
+            '<button type="button" class="btn-secondary crm-ship-prev" style="width:auto"' +
+            (page <= 1 ? " disabled" : "") +
+            ">Previous</button>" +
+            '<button type="button" class="btn-secondary crm-ship-next" style="width:auto"' +
+            (page >= totalPages ? " disabled" : "") +
+            ">Next</button>" +
+            "</div>";
+          return (
+            '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0 0 0.75rem">' +
+            '<span class="gos-muted crm-ship-page-meta">' +
+            meta +
+            "</span>" +
+            btns +
+            "</div>" +
+            '<div class="table-wrap crm-table-wrap"><table class="crm-table">' +
+            "<thead><tr>" +
+            "<th>#</th><th>Shipment</th><th>Customer</th><th>Broker</th><th>Pickup</th><th>Delivery</th>" +
+            "<th>Miles</th><th>Equipment</th><th>Price</th><th>Status</th><th>Priority</th>" +
+            "<th>Created</th><th>Updated</th>" +
+            '</tr></thead><tbody id="crm-ship-body"></tbody></table></div>' +
+            '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0.75rem 0 0">' +
+            '<span class="gos-muted crm-ship-page-meta">' +
+            meta +
+            "</span>" +
+            btns +
+            "</div>"
+          );
+        })();
 
       var tbody = body.querySelector("#crm-ship-body");
       var self = this;
-      body.querySelector("#crm-ship-prev")?.addEventListener("click", function () {
-        if (page <= 1) return;
-        self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page - 1 }));
+      body.querySelectorAll(".crm-ship-prev").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          if (page <= 1) return;
+          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page - 1 }));
+        });
       });
-      body.querySelector("#crm-ship-next")?.addEventListener("click", function () {
-        if (page >= totalPages) return;
-        self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page + 1 }));
+      body.querySelectorAll(".crm-ship-next").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          if (page >= totalPages) return;
+          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page + 1 }));
+        });
       });
       if (!rows.length) {
         tbody.innerHTML =
