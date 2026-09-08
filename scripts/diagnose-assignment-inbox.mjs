@@ -18,9 +18,9 @@ function workDateTz(d = new Date(), timeZone = TZ) {
   const y = local.getFullYear();
   const m = String(local.getMonth() + 1).padStart(2, "0");
   const day = String(local.getDate()).padStart(2, "0");
-  // Attendance day rolls at 17:00 local (same as app helpers).
+  // Match src/utils/helpers getAttendanceWorkDate: board name flips at 02:00, not 17:00.
   let date = `${y}-${m}-${day}`;
-  if (hour < 17) {
+  if (hour < 2) {
     const prev = new Date(local);
     prev.setDate(prev.getDate() - 1);
     date = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}-${String(prev.getDate()).padStart(2, "0")}`;
@@ -59,6 +59,24 @@ async function presenceSession(employeeId, workDate, localHour) {
     }
   }
   return session;
+}
+
+/** Same gate as getInOfficeEmployeeIds — Instant Alerts only while shift is live. */
+function isInOfficeForAssignment(session, workDate, now = new Date()) {
+  if (!session || session.currentStatus !== "INSIDE_OFFICE") return false;
+  const localParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ,
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const hour = Number(localParts.find((p) => p.type === "hour")?.value || 0);
+  const beforeShift = hour < 17;
+  if (beforeShift) {
+    if (session.workDate === workDate) return false; // pre-shift ghost INSIDE
+    const otEnd = new Date(session.scheduledEnd.getTime() + 2 * 60 * 60 * 1000);
+    if (now > otEnd) return false;
+  }
+  return true;
 }
 
 function loadEnvRefreshToken() {
@@ -142,7 +160,7 @@ async function main() {
   for (const b of brokers) {
     const empId = b.employeeId || b.employee?.employeeId || null;
     const session = empId ? await presenceSession(empId, workDate, localHour) : null;
-    const inOffice = session?.currentStatus === "INSIDE_OFFICE";
+    const inOffice = isInOfficeForAssignment(session, workDate);
     if (inOffice) insideNames.push(`${b.firstName} ${b.lastName}`);
     const row = {
       name: `${b.firstName} ${b.lastName}`,

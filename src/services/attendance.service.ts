@@ -259,8 +259,10 @@ export class AttendanceService {
         });
 
         for (const session of expired) {
+            // Allow ~2h after 02:00 for true overnight wrap-up, then force COMPLETED.
+            // (Previously +15h kept forgotten EXIT brokers "In Office" until next 17:00.)
             const overtimeCutoff = new Date(
-                session.scheduledEnd.getTime() + 15 * 60 * 60 * 1000
+                session.scheduledEnd.getTime() + 2 * 60 * 60 * 1000
             );
             if (session.currentStatus === "INSIDE_OFFICE" && now < overtimeCutoff) {
                 continue;
@@ -300,73 +302,21 @@ export class AttendanceService {
                 });
             });
 
-            // Still In Office at day rollover → open the new attendance day as INSIDE
-            // so brokers keep receiving shipments without a redundant door swipe.
+            // Day is over → leave the Instant Alert queue. Next day requires a real ENTRY.
+            // Do NOT auto-roll INSIDE into the next workDate (that drained mail all morning).
+            await assignmentEngine
+                .onBrokerLeftOffice(session.employeeId)
+                .catch((err) =>
+                    console.error("[attendance→assignment] shift close failed:", err)
+                );
             if (wasInside) {
-                try {
-                    await this.rollInsideIntoNewWorkDay(session.employeeId, now);
-                    await assignmentEngine.onBrokerEnteredOffice(session.employeeId);
-                } catch (err) {
-                    console.error("[attendance→assignment] day roll-forward failed:", err);
-                    await assignmentEngine
-                        .onBrokerLeftOffice(session.employeeId)
-                        .catch(() => null);
-                }
-            } else {
-                await assignmentEngine
-                    .onBrokerLeftOffice(session.employeeId)
-                    .catch((err) =>
-                        console.error("[attendance→assignment] shift close failed:", err)
-                    );
+                console.info(
+                    `[attendance] closed INSIDE→COMPLETED for ${session.employeeId} — removed from assignment queue (no next-day roll)`
+                );
             }
         }
 
         return { checked: expired.length };
-    }
-
-    /**
-     * After overtime cutoff closes yesterday's INSIDE session, open today's
-     * attendance day already marked In Office (same physical presence).
-     */
-    private async rollInsideIntoNewWorkDay(employeeId: string, now: Date) {
-        const employee = await employeeRepository.findById(employeeId);
-        if (!employee?.shiftId) {
-            throw new Error("Employee has no shift — cannot roll attendance day");
-        }
-
-        const workDate = getAttendanceWorkDate(now, config.timezone);
-        const bounds = getAttendanceDayBounds(workDate, config.timezone);
-        let session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
-            employeeId,
-            workDate
-        );
-
-        if (!session) {
-            await attendanceSessionRepository.create({
-                employeeId,
-                shiftId: employee.shiftId,
-                workDate,
-                scheduledStart: bounds.scheduledStart,
-                scheduledEnd: bounds.scheduledEnd,
-            });
-            session = await attendanceSessionRepository.findByEmployeeAndWorkDate(
-                employeeId,
-                workDate
-            );
-        }
-
-        if (!session) {
-            throw new Error("Failed to create rolled attendance session");
-        }
-
-        if (session.currentStatus !== "INSIDE_OFFICE") {
-            await attendanceSessionRepository.update(session.sessionId, {
-                currentStatus: "INSIDE_OFFICE",
-                lastActivity: now,
-                firstEntry: session.firstEntry || now,
-                updatedAt: now,
-            });
-        }
     }
 
     private async sumAbsenceMinutes(sessionId: string): Promise<number> {
