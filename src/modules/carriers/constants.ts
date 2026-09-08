@@ -26,10 +26,11 @@ export const CARRIER_DOC_TYPES = {
     OTHER: "OTHER",
 } as const;
 
+/** Marked required on the carrier portal Documents step (red indicators). */
 export const REQUIRED_CARRIER_DOC_TYPES = [
     CARRIER_DOC_TYPES.MC_AUTHORITY,
-    CARRIER_DOC_TYPES.NOA,
     CARRIER_DOC_TYPES.W9,
+    CARRIER_DOC_TYPES.INSURANCE,
 ] as const;
 
 export const ALLOWED_UPLOAD_MIME = new Set([
@@ -54,5 +55,5 @@ export const ONBOARDING_PURPOSE = {
 export type OnboardingPurpose = (typeof ONBOARDING_PURPOSE)[keyof typeof ONBOARDING_PURPOSE];
 
 export { GREEN_LOGISTICS_AGREEMENT_V2 as DEFAULT_AGREEMENT_BODY } from "./agreement-template-v2.js";
-export const AGREEMENT_TEMPLATE_VERSION = "2.0";
+export const AGREEMENT_TEMPLATE_VERSION = "2.1";
 export const AGREEMENT_TEMPLATE_TITLE = "Broker - Carrier Agreement";

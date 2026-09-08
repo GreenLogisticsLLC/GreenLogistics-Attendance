@@ -803,6 +803,35 @@ export class CarrierService {
             where: { carrierId: session.carrierId, status: "CURRENT" },
             orderBy: { uploadedAt: "desc" },
         });
+        const docIds = documents.map((d) => d.documentId);
+        const aiJobs =
+            docIds.length === 0
+                ? []
+                : await prisma.aiDocumentJob.findMany({
+                      where: { documentId: { in: docIds }, documentSource: "CARRIER" },
+                      orderBy: { createdAt: "desc" },
+                      include: { validation: true },
+                  });
+        const latestAiByDoc = new Map<
+            string,
+            {
+                jobId: string;
+                status: string;
+                trafficLight: string | null;
+                overallStatus: string | null;
+                classifiedDocType: string | null;
+            }
+        >();
+        for (const job of aiJobs) {
+            if (latestAiByDoc.has(job.documentId)) continue;
+            latestAiByDoc.set(job.documentId, {
+                jobId: job.jobId,
+                status: job.status,
+                trafficLight: job.validation?.trafficLight || null,
+                overallStatus: job.validation?.overallStatus || null,
+                classifiedDocType: job.classifiedDocType,
+            });
+        }
         const agreement = await prisma.carrierAgreementSignature.findFirst({
             where: { carrierId: session.carrierId, sessionId: session.sessionId },
             orderBy: { signedAt: "desc" },
@@ -945,6 +974,7 @@ export class CarrierService {
                 fileSize: d.fileSize,
                 version: d.version,
                 uploadedAt: d.uploadedAt,
+                ai: latestAiByDoc.get(d.documentId) || null,
             })),
             agreementSigned: Boolean(agreement),
             agreementSignature: agreement
@@ -983,6 +1013,7 @@ export class CarrierService {
             city: string | null;
             state: string | null;
             zip: string | null;
+            paymentOption?: string | null;
         };
         documents: Array<{ documentType: string; status: string }>;
         agreementSigned: boolean;
@@ -993,17 +1024,17 @@ export class CarrierService {
     }) {
         const requireAgreement = input.requireAgreement !== false;
         const requireDocs = input.requireDocs !== false;
+        // Required fields match red indicators on the carrier portal Company step.
         const companyOk = Boolean(
             input.carrier.legalName &&
                 input.carrier.email &&
-                input.carrier.contactName &&
                 input.carrier.phone &&
-                input.carrier.mcNumber &&
                 input.carrier.dotNumber &&
                 input.carrier.address &&
                 input.carrier.city &&
                 input.carrier.state &&
-                input.carrier.zip
+                input.carrier.zip &&
+                input.carrier.paymentOption
         );
         const currentTypes = new Set(
             input.documents.filter((d) => d.status === "CURRENT").map((d) => d.documentType)
@@ -1015,6 +1046,7 @@ export class CarrierService {
         const missing: string[] = [];
         if (requireDocs || requireAgreement) {
             if (!companyOk) missing.push("Company Information");
+            if (!input.carrier.paymentOption) missing.push("Payment option");
         }
         if (requireAgreement && !input.agreementSigned) {
             missing.push("Carrier-Broker Agreement signature");
@@ -1024,8 +1056,9 @@ export class CarrierService {
             for (const d of docs) {
                 if (!d.ok) {
                     if (d.type === "MC_AUTHORITY") missing.push("MC Authority");
-                    else if (d.type === "NOA") missing.push("NOA");
                     else if (d.type === "W9") missing.push("W-9");
+                    else if (d.type === "INSURANCE") missing.push("Insurance");
+                    else if (d.type === "NOA") missing.push("NOA");
                 }
             }
         }
@@ -1072,13 +1105,57 @@ export class CarrierService {
             throw Object.assign(new Error("Valid email is required"), { status: 400 });
         }
 
+        const requireComplete =
+            body.requireComplete === true ||
+            body.requireComplete === "true" ||
+            body.requireComplete === 1;
+        if (requireComplete) {
+            const merged = {
+                legalName: (data.legalName as string | null | undefined) ?? session.carrier.legalName,
+                email: (data.email as string | null | undefined) ?? session.carrier.email,
+                phone: (data.phone as string | null | undefined) ?? session.carrier.phone,
+                dotNumber: (data.dotNumber as string | null | undefined) ?? session.carrier.dotNumber,
+                address: (data.address as string | null | undefined) ?? session.carrier.address,
+                city: (data.city as string | null | undefined) ?? session.carrier.city,
+                state: (data.state as string | null | undefined) ?? session.carrier.state,
+                zip: (data.zip as string | null | undefined) ?? session.carrier.zip,
+                paymentOption:
+                    (data.paymentOption as string | null | undefined) ??
+                    session.carrier.paymentOption,
+            };
+            const missingCompany: string[] = [];
+            if (!merged.legalName) missingCompany.push("Carrier Name");
+            if (!merged.email) missingCompany.push("Dispatch E-mail");
+            if (!merged.phone) missingCompany.push("Phone");
+            if (!merged.dotNumber) missingCompany.push("DOT#");
+            if (!merged.address) missingCompany.push("Address");
+            if (!merged.city) missingCompany.push("City");
+            if (!merged.state) missingCompany.push("State");
+            if (!merged.zip) missingCompany.push("ZIP");
+            if (!merged.paymentOption) missingCompany.push("Payment option");
+            if (missingCompany.length) {
+                throw Object.assign(
+                    new Error(`Please complete required fields:\n- ${missingCompany.join("\n- ")}`),
+                    { status: 400, missing: missingCompany }
+                );
+            }
+            const pay = String(merged.paymentOption || "").toUpperCase();
+            if (!["STANDARD", "QUICK_3", "QUICK_5", "FACTORING"].includes(pay)) {
+                throw Object.assign(new Error("Payment option is required"), { status: 400 });
+            }
+            data.paymentOption = pay;
+        }
+
         const progressJson =
             body.progress != null ? JSON.stringify(body.progress) : session.progressJson;
 
-        const carrier = await prisma.carrier.update({
-            where: { carrierId: session.carrierId },
-            data,
-        });
+        const carrier =
+            Object.keys(data).length > 0
+                ? await prisma.carrier.update({
+                      where: { carrierId: session.carrierId },
+                      data,
+                  })
+                : session.carrier;
         await prisma.carrierOnboardingSession.update({
             where: { sessionId: session.sessionId },
             data: { progressJson: progressJson || null },
@@ -1521,12 +1598,33 @@ export class CarrierService {
             });
         }
 
+        // Automatic Document AI bot — classify/validate every portal upload.
+        const botActorId = session.carrier.assignedBrokerId;
+        let aiJob: { jobId: string; status: string } | null = null;
+        if (botActorId) {
+            try {
+                const { documentAiJobService } = await import(
+                    "../../ai/documents/job.service.js"
+                );
+                aiJob = await documentAiJobService.enqueueCarrierUpload({
+                    documentId: doc.documentId,
+                    actorUserId: botActorId,
+                });
+            } catch (err) {
+                console.warn(
+                    `[doc-ai] carrier portal enqueue failed for ${doc.documentId}`,
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+
         return {
             documentId: doc.documentId,
             documentType: doc.documentType,
             version: doc.version,
             originalFilename: doc.originalFilename,
             uploadedAt: doc.uploadedAt,
+            aiJob,
         };
     }
 

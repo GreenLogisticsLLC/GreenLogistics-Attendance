@@ -41,7 +41,7 @@ function paymentLabel(code: string | null | undefined): string {
         case "QUICK_5":
             return "Quick Pay 5% (24hrs)";
         case "FACTORING":
-            return "Factoring company (LOR required)";
+            return "Factoring company";
         default:
             return code || "—";
     }
