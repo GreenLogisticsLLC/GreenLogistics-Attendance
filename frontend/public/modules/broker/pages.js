@@ -512,7 +512,9 @@ window.GreenOSModules.broker = {
         var data = await self.api("/shipments?" + params.join("&"));
         if (myGen !== paintGen) return;
         if (!data.success) {
-          if (syncEl) syncEl.textContent = data.message || "Failed to load";
+          syncEls.forEach(function (el) {
+            el.textContent = data.message || "Failed to load";
+          });
           return;
         }
         var payload = data.data || {};
@@ -550,32 +552,40 @@ window.GreenOSModules.broker = {
           /* counts are optional */
         }
 
-        if (prevBtn) prevBtn.disabled = page <= 1;
-        if (nextBtn) nextBtn.disabled = page >= totalPages;
-        if (syncEl) {
-          var query = searchQuery();
-          var fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
-          var toIdx = Math.min(total, (page - 1) * pageSize + rows.length);
-          syncEl.textContent = query
-            ? "ZIP " + query + " · filtering current page"
-            : "Showing " +
-              fromIdx +
-              "–" +
-              toIdx +
-              " of " +
-              total +
-              (totalPages > 1 ? " · Page " + page + " / " + totalPages : "") +
-              " · updated " +
-              new Date().toLocaleTimeString();
-        }
+        prevBtns.forEach(function (btn) {
+          btn.disabled = page <= 1;
+        });
+        nextBtns.forEach(function (btn) {
+          btn.disabled = page >= totalPages;
+        });
+        var query = searchQuery();
+        var fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
+        var toIdx = Math.min(total, (page - 1) * pageSize + rows.length);
+        var syncText = query
+          ? "ZIP " + query + " · filtering current page"
+          : "Showing " +
+            fromIdx +
+            "–" +
+            toIdx +
+            " of " +
+            total +
+            (totalPages > 1 ? " · Page " + page + " / " + totalPages : "") +
+            " · updated " +
+            new Date().toLocaleTimeString();
+        syncEls.forEach(function (el) {
+          el.textContent = syncText;
+        });
         renderRows(rows, { page: page, pageSize: pageSize });
       } catch (err) {
-        if (syncEl) {
-          syncEl.textContent =
-            "Refresh failed" +
-            (err && err.message ? " (" + err.message + ")" : "") +
-            (self._shipmentsCache && self._shipmentsCache.length ? " — showing cached list" : " — retrying…");
-        }
+        var failText =
+          "Refresh failed" +
+          (err && err.message ? " (" + err.message + ")" : "") +
+          (self._shipmentsCache && self._shipmentsCache.length
+            ? " — showing cached list"
+            : " — retrying…");
+        syncEls.forEach(function (el) {
+          el.textContent = failText;
+        });
       } finally {
         self._shipmentsPaintBusy = false;
       }
