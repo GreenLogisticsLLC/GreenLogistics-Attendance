@@ -172,6 +172,38 @@ async function main() {
       : ""
   );
 
+  // Prove which assignment code is actually running under dist/ (PM2).
+  try {
+    const { readFileSync: readFs, existsSync: existsFs } = await import("fs");
+    const engPath = resolve(process.cwd(), "dist/modules/assignment/assignment.engine.js");
+    if (existsFs(engPath)) {
+      const src = readFs(engPath, "utf8");
+      console.log("DIST_ENGINE_HAS_PARKING", src.includes("parking NEW shipments as UNASSIGNED"));
+      console.log("DIST_ENGINE_HAS_FALLBACK", src.includes("all_brokers_fallback") || src.includes("falling back to round-robin"));
+      console.log("DIST_ENGINE_MODE_TYPE", /AssignmentPoolMode\s*=\s*"[^"]+"\s*\|\s*"[^"]+"/.test(src) ? "see source map" : "compiled");
+    } else {
+      console.log("DIST_ENGINE_MISSING", engPath);
+    }
+  } catch (err) {
+    console.log("DIST_ENGINE_CHECK_FAILED", err instanceof Error ? err.message : String(err));
+  }
+
+  try {
+    const { assignmentEngine } = await import("../dist/modules/assignment/assignment.engine.js");
+    if (assignmentEngine?.resolveEligibleBrokers) {
+      const live = await assignmentEngine.resolveEligibleBrokers();
+      console.log("=== LIVE ENGINE resolveEligibleBrokers ===", {
+        mode: live.mode,
+        eligibleCount: live.eligible?.length ?? 0,
+        eligibleNames: (live.eligible || []).map((e) => e.displayName),
+      });
+    } else {
+      console.log("LIVE_ENGINE_IMPORT", "resolveEligibleBrokers missing on export");
+    }
+  } catch (err) {
+    console.log("LIVE_ENGINE_IMPORT_FAILED", err instanceof Error ? err.message : String(err));
+  }
+
   if (lia) {
     console.log("=== LIA TORRES ===", lia.row);
     const since = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
