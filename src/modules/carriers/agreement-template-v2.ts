@@ -67,7 +67,7 @@ PAYMENT OPTIONS (choose one in the portal):
 • Standard Payment: Receive payment within 20-25 days from receipt of Invoice and all required documents.
 • Quick Pay (3%): Receive payment within 3-5 business days. Fee is 3% deducted from the invoiced amount. ACH Direct Deposit.
 • Quick Pay (5%): Receive payment within 24hrs. Fee is 5% from the invoiced amount.
-• Factoring company: Available as a payment option in the portal (no LOR required).
+• Factoring company: Available as a payment option in the portal.
 
 Green Logistics LLC — Broker-Carrier Agreement Version 2.1
 `;
