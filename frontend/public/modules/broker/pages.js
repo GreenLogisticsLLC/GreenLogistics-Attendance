@@ -630,7 +630,12 @@ window.GreenOSModules.broker = {
       if (!tbody) return;
       var esc = self.esc.bind(self);
       var fmt = self.fmtDate.bind(self);
-      var badge = self.statusBadge.bind(self);
+      var statusCell =
+        window.GreenOSModules.crm && window.GreenOSModules.crm.statusCellHtml
+          ? window.GreenOSModules.crm.statusCellHtml.bind(window.GreenOSModules.crm)
+          : function (st) {
+              return self.statusBadge(st);
+            };
       var filtered = (rows || []).filter(isCustomerRespond);
       self._customerRespondCache = filtered;
       if (!filtered.length) {
@@ -658,7 +663,7 @@ window.GreenOSModules.broker = {
             "</td><td>" +
             esc(s.delivery) +
             "</td><td>" +
-            badge(s.status) +
+            statusCell(s.status, { customerReplied: true }) +
             "</td><td>" +
             fmt(s.updatedAt) +
             "</td></tr>"
@@ -941,7 +946,12 @@ window.GreenOSModules.broker = {
       var fin = d.financial || {};
       var esc = this.esc.bind(this);
       var fmt = this.fmtDate.bind(this);
-      var badge = this.statusBadge.bind(this);
+      var statusCell =
+        window.GreenOSModules.crm && window.GreenOSModules.crm.statusCellHtml
+          ? window.GreenOSModules.crm.statusCellHtml.bind(window.GreenOSModules.crm)
+          : function (st) {
+              return this.statusBadge(st);
+            }.bind(this);
       host.innerHTML =
         '<section class="gos-module-placeholder" style="margin-top:1rem">' +
         "<h2>" +
@@ -984,7 +994,7 @@ window.GreenOSModules.broker = {
               '"><td>' +
               esc(s.greenOsShipmentId || s.shipmentLeadId.slice(0, 8)) +
               "</td><td>" +
-              badge(s.status) +
+              statusCell(s.status, { customerReplied: Boolean(s.customerReplied) }) +
               "</td><td>" +
               esc(s.loadNumber || "—") +
               "</td><td>" +
