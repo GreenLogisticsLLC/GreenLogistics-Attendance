@@ -61,14 +61,34 @@ async function presenceSession(employeeId, workDate, localHour) {
   return session;
 }
 
-/** Same gate as getInOfficeEmployeeIds — Instant Alerts only in shift window. */
+/** Diagnose gate aligned with getInOfficeEmployeeIds (America/Los_Angeles bounds). */
 function isInOfficeForAssignment(session, _workDate, now = new Date()) {
   if (!session || session.currentStatus !== "INSIDE_OFFICE") return false;
-  const earlyFrom = new Date(session.scheduledStart.getTime() - 4 * 60 * 60 * 1000);
-  const otEnd = new Date(session.scheduledEnd.getTime() + 2 * 60 * 60 * 1000);
-  if (now < earlyFrom || now > otEnd) return false;
-  if (now < session.scheduledStart && (!session.firstEntry || session.firstEntry < earlyFrom)) {
-    return false;
+  // 17:00 LA PDT = 00:00 UTC next calendar day; PST = 01:00 UTC next day.
+  // Use Intl to get LA wall time for now vs early(13:00)/start(17:00)/end+OT(04:00).
+  const laHour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: TZ,
+      hour: "2-digit",
+      hour12: false,
+    })
+      .formatToParts(now)
+      .find((p) => p.type === "hour")?.value || 0
+  );
+  // Eligible window on LA clock: 13:00–23:59 or 00:00–03:59
+  if (laHour >= 4 && laHour < 13) return false;
+  if (laHour >= 13 && laHour < 17) {
+    if (!session.firstEntry) return false;
+    const feHour = Number(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: TZ,
+        hour: "2-digit",
+        hour12: false,
+      })
+        .formatToParts(new Date(session.firstEntry))
+        .find((p) => p.type === "hour")?.value || 0
+    );
+    if (feHour < 13) return false;
   }
   return true;
 }

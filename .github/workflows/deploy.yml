@@ -115,6 +115,13 @@ jobs:
             echo "Pinned DATABASE_URL=${ABS_URL}"
           fi
 
+          # Attendance / assignment board timezone — must match office (LA).
+          # A wrong TIMEZONE (e.g. Asia/Yerevan) makes Instant Alerts fire all morning.
+          grep -vE '^TIMEZONE=' .env > .env.tz.tmp || true
+          printf 'TIMEZONE=America/Los_Angeles\n' >> .env.tz.tmp
+          mv .env.tz.tmp .env
+          echo "Pinned TIMEZONE=America/Los_Angeles"
+
           # GreenOS AI Assistant — sync OpenAI from GitHub Actions secrets (base64)
           touch .env
           if [ -n "${OPENAI_KEY_B64:-}" ]; then

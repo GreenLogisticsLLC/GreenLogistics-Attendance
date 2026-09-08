@@ -82,18 +82,17 @@ export async function getInOfficeEmployeeIds(employeeIds: string[]): Promise<Set
     for (const [employeeId, session] of sessions) {
         if (session?.currentStatus !== "INSIDE_OFFICE") continue;
 
-        // Session-relative window (not wall-clock guess): Instant Alerts only from
-        // early-arrival (~4h before scheduledStart) through scheduledEnd + 2h OT.
-        // Blocks morning ghost INSIDE (auto-roll / forgotten EXIT) before the shift.
+        // Always derive the shift window from workDate + configured timezone.
+        // Do not trust session.scheduledStart/End — they may have been written
+        // under a wrong TIMEZONE (e.g. Asia/Yerevan) and would open Instant Alerts early.
+        const bounds = getAttendanceDayBounds(session.workDate, config.timezone);
         const earlyArrivalFrom = new Date(
-            session.scheduledStart.getTime() - 4 * 60 * 60 * 1000
+            bounds.scheduledStart.getTime() - 4 * 60 * 60 * 1000
         );
-        const overnightOtEnd = new Date(
-            session.scheduledEnd.getTime() + 2 * 60 * 60 * 1000
-        );
+        const overnightOtEnd = new Date(bounds.scheduledEnd.getTime() + 2 * 60 * 60 * 1000);
         if (now < earlyArrivalFrom || now > overnightOtEnd) continue;
         if (
-            now < session.scheduledStart &&
+            now < bounds.scheduledStart &&
             (!session.firstEntry || session.firstEntry < earlyArrivalFrom)
         ) {
             continue;
