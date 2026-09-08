@@ -1230,6 +1230,28 @@ export class CarrierService {
             });
         }
 
+        // Document AI bot — review signed Agreement PDF like other packet uploads.
+        if (pdfDocumentId) {
+            const botActorId =
+                session.carrier.assignedBrokerId || session.createdById || null;
+            if (botActorId) {
+                try {
+                    const { documentAiJobService } = await import(
+                        "../../ai/documents/job.service.js"
+                    );
+                    await documentAiJobService.enqueueCarrierUpload({
+                        documentId: pdfDocumentId,
+                        actorUserId: botActorId,
+                    });
+                } catch (err) {
+                    console.warn(
+                        `[doc-ai] agreement PDF enqueue failed for ${pdfDocumentId}`,
+                        err instanceof Error ? err.message : err
+                    );
+                }
+            }
+        }
+
         await this.emitEvent({
             carrierId: session.carrierId,
             sessionId: session.sessionId,
@@ -1599,7 +1621,7 @@ export class CarrierService {
         }
 
         // Automatic Document AI bot — classify/validate every portal upload.
-        const botActorId = session.carrier.assignedBrokerId;
+        const botActorId = session.carrier.assignedBrokerId || session.createdById || null;
         let aiJob: { jobId: string; status: string } | null = null;
         if (botActorId) {
             try {

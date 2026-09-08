@@ -15,13 +15,42 @@ export type CarrierReviewDoc = {
     sourceLoadNumber?: string | null;
 };
 
+/** Document AI bot verdict shown on Assign Carrier review rows. */
+export type CarrierReviewAiVerdict = {
+    jobId: string;
+    status: string;
+    trafficLight: string | null;
+    overallStatus: string | null;
+    classifiedDocType: string | null;
+    /** Broker-facing: Approved | Not Approved | Checking… | Pending | Failed */
+    verdict: string;
+};
+
 export type CarrierReviewSlot = {
     key: CarrierReviewSlotKey;
     label: string;
     source: CarrierReviewSource;
     present: boolean;
     document: CarrierReviewDoc | null;
+    ai: CarrierReviewAiVerdict | null;
 };
+
+export function carrierDocAiVerdict(input: {
+    status?: string | null;
+    trafficLight?: string | null;
+    overallStatus?: string | null;
+}): string {
+    const st = String(input.status || "").toUpperCase();
+    if (st === "QUEUED" || st === "PROCESSING") return "Checking…";
+    if (st === "FAILED") return "Failed";
+    const light = String(input.trafficLight || "").toUpperCase();
+    if (light === "GREEN") return "Approved";
+    if (light === "RED" || light === "YELLOW") return "Not Approved";
+    if (st === "SUCCEEDED" || st === "CACHED") {
+        return input.overallStatus === "VALID" ? "Approved" : "Not Approved";
+    }
+    return "Pending";
+}
 
 export const LOAD_CARRIER_REVIEW_SLOTS: Array<{
     key: CarrierReviewSlotKey;
@@ -97,6 +126,7 @@ export function buildCarrierReviewSlots(input: {
             source: slot.source,
             present: Boolean(document),
             document,
+            ai: null,
         };
     });
 }

@@ -282,6 +282,7 @@ export class LoadService {
                           legalName: true,
                           onboardingStatus: true,
                           status: true,
+                          assignedBrokerId: true,
                           documents: {
                               where: {
                                   status: "CURRENT",
@@ -379,6 +380,10 @@ export class LoadService {
                       carrierProfileId: s.carrierProfileId,
                       carrierMc: s.carrierMc,
                       packetDocs,
+                      botActorUserId:
+                          s.assignedBrokerId ||
+                          carrierProfile?.assignedBrokerId ||
+                          null,
                   })
                 : [];
         const loadCarrierApproved = isLoadCarrierApproved(s);
@@ -906,13 +911,15 @@ export class LoadService {
             }
             const profile = await prisma.carrier.findUnique({
                 where: { carrierId: profileId },
-                select: { onboardingStatus: true },
+                select: { onboardingStatus: true, assignedBrokerId: true },
             });
             const onboarding = String(profile?.onboardingStatus || "").toUpperCase();
             const reviewSlots = await buildLoadCarrierReviewPacket({
                 currentShipmentLeadId: shipmentLeadId,
                 carrierProfileId: profileId,
                 carrierMc: shipment.carrierMc || null,
+                botActorUserId:
+                    shipment.assignedBrokerId || profile?.assignedBrokerId || actorUserId || null,
                 packetDocs: (
                     await prisma.carrierDocument.findMany({
                         where: { carrierId: profileId, status: "CURRENT" },

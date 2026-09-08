@@ -88,6 +88,30 @@ window.GreenOSModules["dispatch"] = {
     URL.revokeObjectURL(obj);
   },
 
+  carrierDocBotVerdictHtml(ai) {
+    var self = this;
+    if (!ai) {
+      return '<span class="ld-carrier-doc-verdict is-pending">Pending</span>';
+    }
+    var verdict = String(ai.verdict || "").trim() || "Pending";
+    var light = String(ai.trafficLight || "").toUpperCase();
+    var cls = "is-pending";
+    if (verdict === "Approved" || light === "GREEN") cls = "is-approved";
+    else if (verdict === "Not Approved" || light === "RED" || light === "YELLOW") cls = "is-rejected";
+    else if (verdict === "Checking…" || verdict === "Checking...") cls = "is-checking";
+    else if (verdict === "Failed") cls = "is-failed";
+    var tip = [ai.overallStatus, ai.classifiedDocType, ai.status].filter(Boolean).join(" · ");
+    return (
+      '<span class="ld-carrier-doc-verdict ' +
+      cls +
+      '"' +
+      (tip ? ' title="' + self.esc(tip) + '"' : "") +
+      ">" +
+      self.esc(verdict) +
+      "</span>"
+    );
+  },
+
   carrierPacketDocsHtml(c) {
     var self = this;
     var skip = { RATE_CONFIRMATION: 1, BOL: 1, POD: 1 };
@@ -119,6 +143,7 @@ window.GreenOSModules["dispatch"] = {
             (d.uploadedBy ? " · " + self.esc(d.uploadedBy) : "") +
             "</span>" +
             "</div>" +
+            self.carrierDocBotVerdictHtml(d.ai) +
             '<div class="ld-carrier-doc-actions">' +
             '<button type="button" class="btn-primary ld-carrier-doc-view" data-id="' +
             self.esc(d.documentId) +
@@ -178,7 +203,7 @@ window.GreenOSModules["dispatch"] = {
       : "Review carrier documents for this load";
     var lead = loadApproved
       ? "Broker already approved this carrier for the current load. Rate Confirmation is unlocked."
-      : "Open MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement. Then click <strong>Approved Carrier</strong>. New Rate Confirmation and BOL are created on this load after that.";
+      : "Document bot shows <strong>Approved</strong> or <strong>Not Approved</strong> for each file. Open docs to review, then click <strong>Approved Carrier</strong>. New Rate Confirmation and BOL are created on this load after that.";
     var actions = "";
     if (!loadApproved && c.carrierProfileId) {
       actions =
@@ -203,6 +228,9 @@ window.GreenOSModules["dispatch"] = {
           .map(function (slot) {
             var doc = slot.document || null;
             var from = "Carrier packet — review only";
+            var verdictCell = doc
+              ? self.carrierDocBotVerdictHtml(slot.ai)
+              : '<span class="ld-carrier-doc-verdict is-pending">Missing</span>';
             var actionsCell = doc
               ? '<div class="ld-carrier-doc-actions">' +
                 '<button type="button" class="btn-primary ld-review-doc-open" data-source="' +
@@ -229,6 +257,7 @@ window.GreenOSModules["dispatch"] = {
                 : "") +
               "</span>" +
               "</div>" +
+              verdictCell +
               actionsCell +
               "</article>"
             );

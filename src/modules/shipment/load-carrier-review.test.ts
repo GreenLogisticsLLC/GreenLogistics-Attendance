@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
     buildCarrierReviewSlots,
+    carrierDocAiVerdict,
     isLoadCarrierApproved,
 } from "./load-carrier-review.js";
 import { buildLoadQuickActions } from "./load-quick-actions.js";
@@ -33,11 +34,31 @@ test("review slots are packet-only and ignore previous-load RC/BOL", () => {
     });
     assert.equal(slots.length, 4);
     assert.equal(slots.every((s) => s.present), true);
+    assert.equal(slots.every((s) => s.ai === null), true);
     assert.equal(slots.find((s) => s.key === "COI")?.label, "Certificate of Holder");
     assert.equal(
         slots.some((s) => String(s.key) === "RATE_CONFIRMATION" || String(s.key) === "BOL"),
         false
     );
+});
+
+test("carrierDocAiVerdict maps traffic lights for Assign Carrier", () => {
+    assert.equal(carrierDocAiVerdict({ status: "QUEUED" }), "Checking…");
+    assert.equal(carrierDocAiVerdict({ status: "PROCESSING" }), "Checking…");
+    assert.equal(carrierDocAiVerdict({ status: "FAILED" }), "Failed");
+    assert.equal(
+        carrierDocAiVerdict({ status: "SUCCEEDED", trafficLight: "GREEN" }),
+        "Approved"
+    );
+    assert.equal(
+        carrierDocAiVerdict({ status: "SUCCEEDED", trafficLight: "RED" }),
+        "Not Approved"
+    );
+    assert.equal(
+        carrierDocAiVerdict({ status: "SUCCEEDED", trafficLight: "YELLOW" }),
+        "Not Approved"
+    );
+    assert.equal(carrierDocAiVerdict({}), "Pending");
 });
 
 test("global onboarding APPROVED is not enough for Rate Con", () => {
