@@ -188,13 +188,13 @@
   function aiBadge(d) {
     if (!d) return "";
     var ai = d.ai;
-    if (!ai) return '<span class="badge warn">Bot queued…</span>';
-    if (ai.status === "QUEUED" || ai.status === "PROCESSING") return '<span class="badge warn">Bot checking…</span>';
-    if (ai.status === "FAILED") return '<span class="badge warn">Bot retry later</span>';
-    if (ai.trafficLight === "GREEN") return '<span class="badge ok">Bot ✓</span>';
-    if (ai.trafficLight === "YELLOW") return '<span class="badge warn">Bot review</span>';
-    if (ai.trafficLight === "RED") return '<span class="badge bad">Bot rejected</span>';
-    return '<span class="badge">Bot ' + esc(ai.status) + "</span>";
+    if (!ai) return '<span class="badge warn">( UNDER REVIEW )</span>';
+    if (ai.status === "QUEUED" || ai.status === "PROCESSING") return '<span class="badge warn">( UNDER REVIEW )</span>';
+    if (ai.status === "FAILED") return '<span class="badge warn">( UNDER REVIEW )</span>';
+    if (ai.trafficLight === "GREEN") return '<span class="badge ok">Approved</span>';
+    if (ai.trafficLight === "YELLOW") return '<span class="badge warn">( UNDER REVIEW )</span>';
+    if (ai.trafficLight === "RED") return '<span class="badge bad">Not Approved</span>';
+    return '<span class="badge warn">( UNDER REVIEW )</span>';
   }
 
   function docsForm() {
