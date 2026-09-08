@@ -235,6 +235,43 @@ test("factoring word on rate con is not NOA", () => {
     assert.equal(c.documentType, "RATE_CONFIRMATION");
 });
 
+test("NOA extracts circled carrier blocks (title, name, MC, signature name)", () => {
+    const text = `
+DocuSign Envelope ID: B342C704-CFB7-4B01-9A85-89B8832D3215
+Love's Solutions, LLC dba Love's Financial
+TUESDAY, JULY 15, 2025
+
+NOTICE OF ASSIGNMENT
+
+ARSEN TRUCKING LLC - STRONGSVILLE, OH 44136
+MC Number: 1645860
+
+We hereby notify you that ARSEN TRUCKING LLC has assigned its accounts receivable.
+Remittance: Love's Financial – QUICK FUNDING OFFICE
+
+ARSEN TRUCKING LLC
+EIN: 99-2297866
+`;
+    const c = classifyDocumentText({ text, declaredType: "NOA" });
+    assert.equal(c.documentType, "NOA");
+    const fields = extractFieldsForType("NOA", text);
+    const by = Object.fromEntries(fields.map((f) => [f.fieldKey, f.valueText]));
+    assert.equal(by.documentTitle, "NOTICE OF ASSIGNMENT");
+    assert.match(String(by.carrierLegalName || ""), /ARSEN\s+TRUCKING\s+LLC/i);
+    assert.equal(String(by.mcNumber || "").replace(/\D/g, ""), "1645860");
+    assert.match(String(by.carrierPrintedName || by.carrierLegalName || ""), /ARSEN\s+TRUCKING\s+LLC/i);
+    assert.equal(by.assignmentStatement, "assignment_language_detected");
+
+    const ok = validateDocument({
+        documentType: "NOA",
+        classifyConfidence: 0.95,
+        fields,
+        greenOs: { legalName: "ARSEN TRUCKING LLC", mcNumber: "1645860" },
+    });
+    assert.ok(["VALID", "REVIEW_REQUIRED"].includes(ok.overallStatus));
+    assert.notEqual(ok.overallStatus, "MISMATCH");
+});
+
 test("W9 extraction redacts TIN", () => {
     const text = `
 Form W-9 Request for Taxpayer Identification Number

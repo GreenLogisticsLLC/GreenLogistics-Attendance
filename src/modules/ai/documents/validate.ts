@@ -367,7 +367,7 @@ function requiredFieldsFor(type: DocAiType): string[] {
         case "MC_AUTHORITY":
             return ["legalName", "mcNumber", "certificateNumber"];
         case "NOA":
-            return ["assignmentStatement"];
+            return ["documentTitle", "assignmentStatement", "carrierLegalName", "mcNumber"];
         case "RATE_CONFIRMATION":
             return ["loadNumber", "carrier", "carrierMc", "flatRate"];
         case "BOL":

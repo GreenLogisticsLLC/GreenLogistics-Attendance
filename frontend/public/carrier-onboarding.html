@@ -49,10 +49,33 @@
     .sig-pad { border:1px dashed var(--border); border-radius:8px; background:#fff; width:100%; height:140px; touch-action:none; }
     .sig-pad.invalid { border-color:var(--danger); }
     .hidden { display:none !important; }
-    .doc-row { display:flex; flex-wrap:wrap; gap:0.5rem 0.75rem; align-items:center; justify-content:space-between; margin:0.65rem 0; }
-    .doc-row-main { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; flex:1 1 12rem; min-width:0; }
-    .doc-row input[type="file"] { margin-left:auto; flex:0 0 auto; max-width:100%; }
-    .badge { font-size:0.75rem; padding:0.2rem 0.45rem; border-radius:6px; background:#eef2f8; }
+    .doc-list { display:flex; flex-direction:column; gap:0.75rem; margin:0.85rem 0 0.35rem; }
+    .doc-row {
+      display:flex;
+      flex-wrap:nowrap;
+      align-items:center;
+      gap:0.55rem;
+      margin:0;
+      padding:0.7rem 0.85rem;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:#f8fafc;
+    }
+    .doc-label { flex:0 0 auto; min-width:7.5rem; }
+    .doc-file-name {
+      flex:1 1 auto;
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      max-width:min(42vw, 22rem);
+    }
+    .doc-row input[type="file"] {
+      margin-left:auto;
+      flex:0 0 auto;
+      max-width:11.5rem;
+    }
+    .badge { font-size:0.75rem; padding:0.2rem 0.45rem; border-radius:6px; background:#eef2f8; white-space:nowrap; }
     .badge.ok { background:rgba(5,150,105,0.15); color:var(--accent); }
     .badge.warn { background:rgba(217,119,6,0.15); color:#b45309; }
     .badge.bad { background:rgba(220,38,38,0.12); color:var(--danger); }
@@ -211,12 +234,19 @@
     (state.documents || []).forEach(function (d) { current[d.documentType] = d; });
     return '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Required Documents</h2>' +
       '<p class="muted">Our document bot checks each upload automatically.</p>' +
+      '<div class="doc-list">' +
       types.map(function (t) {
         var d = current[t.id];
-        return '<div class="doc-row"><div class="doc-row-main"><strong style="min-width:8rem">' + esc(t.label) + (t.required ? reqMark() : "") + "</strong>" +
-          (d ? '<span class="badge ok">✓ v' + d.version + " " + esc(d.originalFilename) + "</span>" + aiBadge(d) : '<span class="badge">Missing</span>') +
-          '</div><input type="file" data-type="' + t.id + '" accept=".pdf,image/*"></div>';
+        var status = d
+          ? '<span class="badge ok doc-file-name" title="' + esc(d.originalFilename) + '">✓ v' + d.version + " " + esc(d.originalFilename) + "</span>" + aiBadge(d)
+          : '<span class="badge">Missing</span>';
+        return '<div class="doc-row">' +
+          '<strong class="doc-label">' + esc(t.label) + (t.required ? reqMark() : "") + "</strong>" +
+          status +
+          '<input type="file" data-type="' + t.id + '" accept=".pdf,image/*">' +
+          "</div>";
       }).join("") +
+      "</div>" +
       '<div class="actions"><button type="button" class="btn-secondary" id="btn-back">Back</button><button type="button" class="btn-primary" id="btn-next">Continue</button></div><p id="msg" class="muted"></p></div>';
   }
 

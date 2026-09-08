@@ -233,18 +233,74 @@ function extractMcAuthority(t: string): ExtractedField[] {
 }
 
 function extractNoa(t: string): ExtractedField[] {
+    const hasTitle = /NOTICE\s+OF\s+ASSIGNMENT/i.test(t);
+    const hasAssign =
+        hasTitle ||
+        /hereby\s+assign/i.test(t) ||
+        /accounts?\s+receivable/i.test(t) ||
+        /\bassignment\b/i.test(t);
+
+    // "ARSEN TRUCKING LLC - STRONGSVILLE, OH 44136" under the title
+    const headerCarrier =
+        pick(t, /NOTICE\s+OF\s+ASSIGNMENT[\s\S]{0,120}?([A-Z][A-Z0-9 &\.'-]{2,80}(?:LLC|INC|CORP|CO\.?))\s*[-–—]\s*[A-Z][^\n]{2,60}/i) ||
+        pick(t, /\n([A-Z][A-Z0-9 &\.'-]{2,80}(?:LLC|INC|CORP|CO\.?))\s*[-–—]\s*[A-Z][A-Za-z .]+,\s*[A-Z]{2}\s+\d{5}/);
+
+    const mc =
+        normalizeMc(
+            pick(t, /MC\s*Number\s*[:#]?\s*([0-9]{4,})/i) ||
+                pick(t, /MC\s*#\s*([0-9]{4,})/i) ||
+                pick(t, /\bMC[#\s-]*([0-9]{4,})/i)
+        ) || null;
+
+    // Signature block carrier name (often above signature / near EIN)
+    const signedCarrier =
+        pick(t, /(?:^|\n)([A-Z][A-Z0-9 &\.'-]{2,80}(?:LLC|INC|CORP|CO\.?))\s*(?:\n|\r).*?\bEIN\b/i) ||
+        pick(t, /\bEIN\s*[:#]?\s*\d{2}-\d{7}[\s\S]{0,80}?([A-Z][A-Z0-9 &\.'-]{2,80}(?:LLC|INC|CORP|CO\.?))/i) ||
+        null;
+
+    const carrierLegalName =
+        headerCarrier ||
+        signedCarrier ||
+        pick(t, /Carrier[:\s]+([^\n]+)/i) ||
+        pick(t, /(I\s+GET\s+AROUND[^\n]*)/i);
+
+    const address =
+        pick(t, /(?:LLC|INC|CORP|CO\.?)\s*[-–—]\s*([A-Z][A-Za-z .]+,\s*[A-Z]{2}\s+\d{5})/) ||
+        pick(t, /\b([A-Z][A-Za-z .]+,\s*[A-Z]{2}\s+\d{5})\b/);
+
+    const ein =
+        pick(t, /\bEIN\s*[:#]?\s*(\d{2}\s*[-–]?\s*\d{7})\b/i) ||
+        pick(t, /\b(\d{2}-\d{7})\b/);
+
     return [
-        field(
-            "carrierLegalName",
-            pick(t, /Carrier[:\s]+([^\n]+)/i) || pick(t, /(I\s+GET\s+AROUND[^\n]*)/i)
-        ),
-        field("factoringCompany", pick(t, /(?:Factor|Assignee|Factoring\s+Company)[:\s]+([^\n]+)/i)),
+        field("documentTitle", hasTitle ? "NOTICE OF ASSIGNMENT" : null, {
+            confidence: hasTitle ? 0.99 : 0,
+            fieldStatus: hasTitle ? "FIELD_FOUND" : "FIELD_MISSING",
+        }),
         field(
             "assignmentStatement",
-            /assign/i.test(t) ? "assignment_language_detected" : null,
-            { confidence: /assign/i.test(t) ? 0.8 : 0, fieldStatus: /assign/i.test(t) ? "FIELD_FOUND" : "FIELD_MISSING" }
+            hasAssign ? "assignment_language_detected" : null,
+            {
+                confidence: hasAssign ? 0.9 : 0,
+                fieldStatus: hasAssign ? "FIELD_FOUND" : "FIELD_MISSING",
+            }
         ),
-        field("signatureDate", pick(t, /\b(\d{1,2}\/\d{1,2}\/\d{2,4})\b/)),
+        field("carrierLegalName", carrierLegalName, {
+            confidence: carrierLegalName ? 0.92 : 0,
+        }),
+        field("legalName", carrierLegalName, {
+            confidence: carrierLegalName ? 0.9 : 0,
+        }),
+        field("carrierAddress", address, { confidence: address ? 0.85 : 0 }),
+        field("mcNumber", mc, { normalized: mc, confidence: mc ? 0.99 : 0 }),
+        field("carrierPrintedName", signedCarrier || carrierLegalName, {
+            confidence: signedCarrier || carrierLegalName ? 0.88 : 0,
+        }),
+        field("factoringCompany", pick(t, /(?:Factor|Assignee|Factoring\s+Company)[:\s]+([^\n]+)/i) ||
+            pick(t, /(Love'?s\s+(?:Solutions|Financial)[^\n]*)/i)),
+        field("ein", ein, { confidence: ein ? 0.9 : 0 }),
+        field("signatureDate", pick(t, /\b(\d{1,2}\/\d{1,2}\/\d{2,4})\b/) ||
+            pick(t, /\b((?:MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY),\s+[A-Z]+\s+\d{1,2},\s+20\d{2})\b/i)),
     ];
 }
 
