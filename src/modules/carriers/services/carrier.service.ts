@@ -14,6 +14,11 @@ import {
     REQUIRED_CARRIER_DOC_TYPES,
     type OnboardingPurpose,
 } from "../constants.js";
+import {
+    computeCarrierSuperseded,
+    isSameCarrierIdentity,
+    normMc,
+} from "../carrier-superseded.js";
 import { carrierEmailService } from "./carrier-email.service.js";
 import { carrierStorageService } from "./carrier-storage.service.js";
 import { storeCarrierAgreementPdf } from "./carrier-agreement-pdf.service.js";
@@ -172,7 +177,201 @@ export class CarrierService {
             },
             take: 200,
         });
-        return rows;
+        return this.enrichListSuperseded(rows);
+    }
+
+    /**
+     * Mark carriers that were registered for a load but replaced by a newer official
+     * carrier (carrier change). Those names show red in the Carriers UI.
+     */
+    private async enrichListSuperseded<
+        T extends {
+            carrierId: string;
+            createdAt: Date;
+            mcNumber: string | null;
+            assignedBrokerId: string | null;
+        },
+    >(
+        rows: T[]
+    ): Promise<
+        Array<
+            T & {
+                isSuperseded: boolean;
+                isOfficialLoadCarrier: boolean;
+                supersededReason: string | null;
+            }
+        >
+    > {
+        if (!rows.length) {
+            return [] as Array<
+                T & {
+                    isSuperseded: boolean;
+                    isOfficialLoadCarrier: boolean;
+                    supersededReason: string | null;
+                }
+            >;
+        }
+        const ids = rows.map((r) => r.carrierId);
+
+        const [sessions, events, officialLeads] = await Promise.all([
+            prisma.carrierOnboardingSession.findMany({
+                where: { carrierId: { in: ids }, shipmentLeadId: { not: null } },
+                select: { carrierId: true, shipmentLeadId: true },
+            }),
+            prisma.carrierOnboardingEvent.findMany({
+                where: { carrierId: { in: ids }, shipmentLeadId: { not: null } },
+                select: { carrierId: true, shipmentLeadId: true },
+            }),
+            prisma.shipmentLead.findMany({
+                where: { carrierProfileId: { in: ids } },
+                select: { shipmentLeadId: true, carrierProfileId: true },
+            }),
+        ]);
+
+        const linkedByCarrier = new Map<string, Set<string>>();
+        const addLink = (carrierId: string, loadId: string | null) => {
+            if (!loadId) return;
+            if (!linkedByCarrier.has(carrierId)) linkedByCarrier.set(carrierId, new Set());
+            linkedByCarrier.get(carrierId)!.add(loadId);
+        };
+        for (const s of sessions) addLink(s.carrierId, s.shipmentLeadId);
+        for (const e of events) addLink(e.carrierId, e.shipmentLeadId);
+
+        const allLinkedLoadIds = [
+            ...new Set(
+                [...sessions, ...events]
+                    .map((x) => x.shipmentLeadId)
+                    .filter((id): id is string => Boolean(id))
+            ),
+        ];
+        const linkedLeads =
+            allLinkedLoadIds.length === 0
+                ? []
+                : await prisma.shipmentLead.findMany({
+                      where: { shipmentLeadId: { in: allLinkedLoadIds } },
+                      select: { shipmentLeadId: true, carrierProfileId: true },
+                  });
+
+        const officialByLoad: Record<string, string | null | undefined> = {};
+        for (const lead of linkedLeads) {
+            officialByLoad[lead.shipmentLeadId] = lead.carrierProfileId;
+        }
+
+        const officialOnByCarrier = new Map<string, string[]>();
+        for (const lead of officialLeads) {
+            const cid = lead.carrierProfileId;
+            if (!cid) continue;
+            if (!officialOnByCarrier.has(cid)) officialOnByCarrier.set(cid, []);
+            officialOnByCarrier.get(cid)!.push(lead.shipmentLeadId);
+        }
+
+        const brokerIds = [
+            ...new Set(rows.map((r) => r.assignedBrokerId).filter((id): id is string => Boolean(id))),
+        ];
+        const mcValues = [
+            ...new Set(rows.map((r) => normMc(r.mcNumber)).filter((mc) => Boolean(mc))),
+        ];
+
+        let peerPool: Array<{
+            carrierId: string;
+            createdAt: Date;
+            mcNumber: string | null;
+            assignedBrokerId: string | null;
+        }> = rows;
+
+        if (mcValues.length && brokerIds.length) {
+            const peers = await prisma.carrier.findMany({
+                where: {
+                    assignedBrokerId: { in: brokerIds },
+                    mcNumber: { not: null },
+                },
+                select: {
+                    carrierId: true,
+                    createdAt: true,
+                    mcNumber: true,
+                    assignedBrokerId: true,
+                },
+                take: 2000,
+            });
+            peerPool = peers.filter((p) => mcValues.includes(normMc(p.mcNumber)));
+        }
+
+        const officialIdSet = new Set(
+            [
+                ...officialLeads.map((l) => l.carrierProfileId),
+                ...Object.values(officialByLoad),
+            ].filter((id): id is string => Boolean(id))
+        );
+
+        if (peerPool.length) {
+            const peerIds = peerPool.map((p) => p.carrierId);
+            const peerOfficial = await prisma.shipmentLead.findMany({
+                where: { carrierProfileId: { in: peerIds } },
+                select: { carrierProfileId: true },
+            });
+            for (const p of peerOfficial) {
+                if (p.carrierProfileId) officialIdSet.add(p.carrierProfileId);
+            }
+        }
+
+        return rows.map((r) => {
+            const mc = normMc(r.mcNumber);
+            const mcPeers = peerPool
+                .filter(
+                    (p) =>
+                        Boolean(mc) &&
+                        normMc(p.mcNumber) === mc &&
+                        String(p.assignedBrokerId || "") === String(r.assignedBrokerId || "")
+                )
+                .map((p) => ({
+                    carrierId: p.carrierId,
+                    createdAt: p.createdAt,
+                    isOfficialOnAnyLoad: officialIdSet.has(p.carrierId),
+                }));
+
+            const flags = computeCarrierSuperseded({
+                carrierId: r.carrierId,
+                createdAt: r.createdAt,
+                mcNumber: r.mcNumber,
+                assignedBrokerId: r.assignedBrokerId,
+                officialOnLoadIds: officialOnByCarrier.get(r.carrierId) || [],
+                linkedLoadIds: [...(linkedByCarrier.get(r.carrierId) || [])],
+                officialByLoad,
+                mcPeers,
+            });
+
+            return {
+                ...r,
+                isSuperseded: flags.isSuperseded,
+                isOfficialLoadCarrier: flags.isOfficialLoadCarrier,
+                supersededReason: flags.reason,
+            };
+        });
+    }
+
+    /** When a newer carrier takes over a load, mark the previous registration as replaced. */
+    private async markCarrierSupersededOnLoad(input: {
+        previousCarrierId: string;
+        newCarrierId: string;
+        shipmentLeadId: string;
+        actor: Actor;
+    }) {
+        if (!input.previousCarrierId || input.previousCarrierId === input.newCarrierId) return;
+        await this.emitEvent({
+            carrierId: input.previousCarrierId,
+            shipmentLeadId: input.shipmentLeadId,
+            action: "CARRIER_SUPERSEDED",
+            title: "Carrier replaced on load (carrier change)",
+            message: `Replaced by carrier ${input.newCarrierId}. This carrier is no longer the official hauler for this load.`,
+            actorType: "BROKER",
+            actorId: input.actor.userId,
+            ip: input.actor.ip,
+            userAgent: input.actor.userAgent,
+            metadata: {
+                replacedByCarrierId: input.newCarrierId,
+                shipmentLeadId: input.shipmentLeadId,
+            },
+        });
     }
 
     async dashboard(actor: Actor) {
@@ -214,7 +413,21 @@ export class CarrierService {
         });
         if (!carrier) throw Object.assign(new Error("Carrier not found"), { status: 404 });
         const template = await this.ensureAgreementTemplate();
-        return { ...carrier, activeAgreementTemplate: template };
+        const [enriched] = await this.enrichListSuperseded([
+            {
+                carrierId: carrier.carrierId,
+                createdAt: carrier.createdAt,
+                mcNumber: carrier.mcNumber,
+                assignedBrokerId: carrier.assignedBrokerId,
+            },
+        ]);
+        return {
+            ...carrier,
+            activeAgreementTemplate: template,
+            isSuperseded: Boolean(enriched?.isSuperseded),
+            isOfficialLoadCarrier: Boolean(enriched?.isOfficialLoadCarrier),
+            supersededReason: enriched?.supersededReason ?? null,
+        };
     }
 
     async createAndInvite(
@@ -234,15 +447,17 @@ export class CarrierService {
                 : String(body.assignedBrokerId || actor.userId || "") || null;
 
         const shipmentLeadId = body.shipmentLeadId ? String(body.shipmentLeadId) : null;
+        let previousCarrierId: string | null = null;
         if (shipmentLeadId) {
             const lead = await prisma.shipmentLead.findUnique({
                 where: { shipmentLeadId },
-                select: { shipmentLeadId: true, assignedBrokerId: true },
+                select: { shipmentLeadId: true, assignedBrokerId: true, carrierProfileId: true },
             });
             if (!lead) throw Object.assign(new Error("Shipment not found"), { status: 404 });
             if (actor.role === "Broker" && lead.assignedBrokerId !== actor.userId) {
                 throw Object.assign(new Error("Shipment access denied"), { status: 403 });
             }
+            previousCarrierId = lead.carrierProfileId || null;
         }
 
         const carrier = await prisma.carrier.create({
@@ -274,8 +489,19 @@ export class CarrierService {
                     carrierPhone: carrier.phone,
                     carrierMc: carrier.mcNumber,
                     carrierDot: carrier.dotNumber,
+                    loadCarrierApprovedAt: null,
+                    loadCarrierApprovedById: null,
+                    loadCarrierApprovedProfileId: null,
                 },
             });
+            if (previousCarrierId && previousCarrierId !== carrier.carrierId) {
+                await this.markCarrierSupersededOnLoad({
+                    previousCarrierId,
+                    newCarrierId: carrier.carrierId,
+                    shipmentLeadId,
+                    actor,
+                });
+            }
         }
 
         await this.emitEvent({
@@ -334,16 +560,36 @@ export class CarrierService {
             throw Object.assign(new Error("Assigned broker is required"), { status: 400 });
         }
 
+        const desired = {
+            legalName,
+            email,
+            mcNumber: lead.carrierMc || null,
+        };
+        const previousCarrierId = lead.carrierProfileId || null;
+
         let carrier =
-            (lead.carrierProfileId
-                ? await prisma.carrier.findUnique({ where: { carrierId: lead.carrierProfileId } })
-                : null) ||
-            (await prisma.carrier.findFirst({
-                where: { email, assignedBrokerId: brokerId },
-                orderBy: { updatedAt: "desc" },
-            }));
+            previousCarrierId
+                ? await prisma.carrier.findUnique({ where: { carrierId: previousCarrierId } })
+                : null;
+
+        // Carrier change → keep previous profile + its documents; create a new official profile.
+        if (carrier && !isSameCarrierIdentity(carrier, desired)) {
+            carrier = null;
+        }
 
         if (!carrier) {
+            const byEmail = await prisma.carrier.findFirst({
+                where: { email, assignedBrokerId: brokerId },
+                orderBy: { updatedAt: "desc" },
+            });
+            if (byEmail && isSameCarrierIdentity(byEmail, desired)) {
+                carrier = byEmail;
+            }
+        }
+
+        let createdNew = false;
+        if (!carrier) {
+            createdNew = true;
             carrier = await prisma.carrier.create({
                 data: {
                     legalName,
@@ -368,23 +614,54 @@ export class CarrierService {
                 userAgent: actor.userAgent,
             });
         } else {
+            // Same identity — never overwrite name/email/MC (keeps document ownership clean).
             carrier = await prisma.carrier.update({
                 where: { carrierId: carrier.carrierId },
                 data: {
-                    legalName,
-                    email,
                     phone: lead.carrierPhone || carrier.phone,
-                    mcNumber: lead.carrierMc || carrier.mcNumber,
                     dotNumber: lead.carrierDot || carrier.dotNumber,
                     assignedBrokerId: brokerId,
                 },
             });
         }
 
+        const profileChanged = previousCarrierId !== carrier.carrierId;
         await prisma.shipmentLead.update({
             where: { shipmentLeadId },
-            data: { carrierProfileId: carrier.carrierId },
+            data: {
+                carrierProfileId: carrier.carrierId,
+                ...(profileChanged
+                    ? {
+                          loadCarrierApprovedAt: null,
+                          loadCarrierApprovedById: null,
+                          loadCarrierApprovedProfileId: null,
+                      }
+                    : {}),
+            },
         });
+
+        if (profileChanged && previousCarrierId) {
+            await this.markCarrierSupersededOnLoad({
+                previousCarrierId,
+                newCarrierId: carrier.carrierId,
+                shipmentLeadId,
+                actor,
+            });
+        }
+
+        if (createdNew || profileChanged) {
+            await this.emitEvent({
+                carrierId: carrier.carrierId,
+                shipmentLeadId,
+                action: "CARRIER_ASSIGNED_TO_LOAD",
+                title: "Official carrier for load",
+                message: `${legalName} is the official carrier for this load.`,
+                actorType: "BROKER",
+                actorId: actor.userId,
+                ip: actor.ip,
+                userAgent: actor.userAgent,
+            });
+        }
 
         if (String(carrier.onboardingStatus || "").toUpperCase() === "APPROVED") {
             return {

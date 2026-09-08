@@ -151,9 +151,26 @@ window.GreenOSModules.carriers = {
           var broker = r.assignedBroker
             ? self.esc(r.assignedBroker.firstName + " " + r.assignedBroker.lastName)
             : "—";
+          var nameStyle = r.isSuperseded
+            ? ' style="color:var(--gos-danger,#dc2626)"'
+            : "";
+          var nameTitle = r.isSuperseded
+            ? ' title="Replaced by a newer carrier registration — not the official hauler for the load"'
+            : r.isOfficialLoadCarrier
+              ? ' title="Official carrier for an assigned load"'
+              : "";
           return (
             "<tr>" +
-            "<td><strong>" + self.esc(r.legalName) + "</strong></td>" +
+            "<td><strong" +
+            nameStyle +
+            nameTitle +
+            ">" +
+            self.esc(r.legalName) +
+            "</strong>" +
+            (r.isSuperseded
+              ? ' <span class="gos-muted" style="font-size:0.75rem;color:var(--gos-danger,#dc2626)">(replaced)</span>'
+              : "") +
+            "</td>" +
             "<td>" + self.esc(r.mcNumber) + "</td>" +
             "<td>" + self.esc(r.dotNumber) + "</td>" +
             "<td>" + self.esc(r.email) + "</td>" +
@@ -166,6 +183,12 @@ window.GreenOSModules.carriers = {
           );
         }).join("") +
         "</tbody></table></div>";
+      if (rows.some(function (r) { return r.isSuperseded; })) {
+        main.insertAdjacentHTML(
+          "afterbegin",
+          '<p class="gos-muted" style="margin:0 0 0.75rem">Names in <span style="color:var(--gos-danger,#dc2626);font-weight:600">red</span> were replaced by a newer carrier registration (carrier change). Each carrier keeps only its own Documents.</p>'
+        );
+      }
       main.querySelectorAll("[data-open]").forEach(function (btn) {
         btn.addEventListener("click", function () {
           self._carrierId = btn.getAttribute("data-open");
@@ -270,9 +293,19 @@ window.GreenOSModules.carriers = {
         '<button type="button" class="btn-secondary" id="cr-changes">Request Changes</button>' +
         '<button type="button" class="btn-primary" id="cr-approve">Approve</button>' +
         "</div>" +
-        "<h2>" + self.esc(c.legalName) + "</h2>" +
+        "<h2" +
+        (c.isSuperseded ? ' style="color:var(--gos-danger,#dc2626)"' : "") +
+        ">" +
+        self.esc(c.legalName) +
+        (c.isSuperseded ? ' <span style="font-size:0.85rem">(replaced)</span>' : "") +
+        "</h2>" +
+        (c.isSuperseded
+          ? '<p class="error" style="margin:0.35rem 0 0.5rem">This carrier was replaced by a newer registration (carrier change). Documents below belong only to this carrier.</p>'
+          : "") +
         '<p class="gos-muted">Onboarding: <strong>' + self.esc(c.onboardingStatus) +
-        "</strong> · Broker: " + broker + "</p>" +
+        "</strong> · Broker: " + broker +
+        (c.isOfficialLoadCarrier ? " · <strong>Official load carrier</strong>" : "") +
+        "</p>" +
         '<nav class="gos-subnav" style="margin:0.75rem 0">' +
         tabs.map(function (t) {
           return (
@@ -396,7 +429,7 @@ window.GreenOSModules.carriers = {
           );
         }).join("") +
         "</tbody></table></div>" +
-        '<p class="gos-muted" style="margin-top:8px">Document AI: GREEN / REVIEW / RED — never auto-changes carrier master data.</p>';
+        '<p class="gos-muted" style="margin-top:8px">Documents for this carrier only. Carrier change creates a new registration — previous carriers keep their own files. Document AI: GREEN / REVIEW / RED — never auto-changes carrier master data.</p>';
 
     el.innerHTML =
       docsHtml +

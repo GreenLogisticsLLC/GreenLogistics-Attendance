@@ -748,6 +748,9 @@ export class LoadService {
             data.loadCarrierApprovedAt = null;
             data.loadCarrierApprovedById = null;
             data.loadCarrierApprovedProfileId = null;
+            // Force inviteAgreementFromLoad to create/link a new profile instead of
+            // renaming the previous carrier (which would mix documents across carriers).
+            data.carrierProfileId = null;
         }
 
         if (Object.keys(data).length) {
