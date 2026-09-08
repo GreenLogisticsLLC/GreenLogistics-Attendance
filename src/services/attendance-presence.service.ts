@@ -51,7 +51,7 @@ export async function getEmployeePresenceSessionsMap(
         let session = todayByEmployee.get(employeeId) ?? null;
         // Before today's 17:00 board starts, keep overnight INSIDE from yesterday.
         // A placeholder SCHEDULED row for "today" must NOT hide that carry-over —
-        // otherwise brokers still In Office get zero Instant Alerts (Gary fallback).
+        // otherwise brokers still wrapping overnight look Out of Office until 17:00.
         const todayNotReallyPresent =
             !session ||
             session.currentStatus === "SCHEDULED" ||
