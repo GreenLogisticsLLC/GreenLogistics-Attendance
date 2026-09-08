@@ -68,11 +68,13 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    // Another company booked this listing — before our-win "accepted" / generic "booked".
+    // Broker quote declined because customer took someone else's quote.
+    // ONLY this Decline Reason → Accepted to another company (not generic "another company" text).
     if (
-        /booked\s+by\s+another|accepted\s+by\s+another|another\s+(?:company|carrier|service\s+provider|transporter|provider|listing)|(?:company|carrier|provider)\s+other\s+than\s+(?:yours|us)|listing\s+(?:has\s+been\s+|was\s+)?(?:booked|accepted)\s+by\s+(?:a\s+)?(?:different|other|another)|this\s+(?:listing|shipment)\s+has\s+been\s+booked\s+by\s+another|a\s+listing\s+you\s+quoted.{0,80}booked\s+by\s+another/.test(
-            h
-        )
+        /decline\s*reason[\s\S]{0,160}?accepted\s+another\s+quote/.test(h) ||
+        (/this\s+quote\s+was\s+declined/.test(h) &&
+            /accepted\s+another\s+quote/.test(h) &&
+            /decline\s*reason/.test(h))
     ) {
         return {
             kind: "ACCEPTED_ANOTHER_COMPANY",
@@ -247,6 +249,19 @@ export async function applyUshipLifecycleEvent(input: {
         where: { shipmentLeadId: input.shipmentLeadId },
     });
     if (!shipment) return { applied: false as const, detected };
+
+    // AAC only from the assigned broker's Gmail Decline Reason email —
+    // never from company Instant Alert / loose "another company" body text.
+    if (
+        detected.kind === "ACCEPTED_ANOTHER_COMPANY" &&
+        input.source !== "broker_gmail"
+    ) {
+        return {
+            applied: false as const,
+            detected,
+            reason: "Accepted another company requires broker Gmail Decline Reason email",
+        };
+    }
 
     const customerReplyKinds = new Set<UshipLifecycleKind>([
         "CUSTOMER_RESPOND",

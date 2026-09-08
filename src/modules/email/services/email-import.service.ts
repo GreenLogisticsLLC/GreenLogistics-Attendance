@@ -268,9 +268,9 @@ export class EmailImportService {
                                 "CUSTOMER_QUESTION",
                                 "CUSTOMER_REPLIED",
                                 "NEW_MESSAGE",
-                                // Terminal outcomes must apply even if broker Gmail missed them.
+                                // Terminal delete still applies from company inbox if broker missed it.
                                 "SHIPMENT_DELETED_BY_CUSTOMER",
-                                "ACCEPTED_ANOTHER_COMPANY",
+                                // AAC only from broker Gmail Decline Reason — not company inbox.
                             ]);
                             // After assignment, ignore most company-inbox follow-ups — but still
                             // apply Question Answered / customer replies so the red lamp lights,
