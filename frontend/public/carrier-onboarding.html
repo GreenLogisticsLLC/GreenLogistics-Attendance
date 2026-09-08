@@ -49,7 +49,9 @@
     .sig-pad { border:1px dashed var(--border); border-radius:8px; background:#fff; width:100%; height:140px; touch-action:none; }
     .sig-pad.invalid { border-color:var(--danger); }
     .hidden { display:none !important; }
-    .doc-row { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; margin:0.65rem 0; }
+    .doc-row { display:flex; flex-wrap:wrap; gap:0.5rem 0.75rem; align-items:center; justify-content:space-between; margin:0.65rem 0; }
+    .doc-row-main { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; flex:1 1 12rem; min-width:0; }
+    .doc-row input[type="file"] { margin-left:auto; flex:0 0 auto; max-width:100%; }
     .badge { font-size:0.75rem; padding:0.2rem 0.45rem; border-radius:6px; background:#eef2f8; }
     .badge.ok { background:rgba(5,150,105,0.15); color:var(--accent); }
     .badge.warn { background:rgba(217,119,6,0.15); color:#b45309; }
@@ -211,9 +213,9 @@
       '<p class="muted">Our document bot checks each upload automatically.</p>' +
       types.map(function (t) {
         var d = current[t.id];
-        return '<div class="doc-row"><strong style="min-width:8rem">' + esc(t.label) + (t.required ? reqMark() : "") + "</strong>" +
+        return '<div class="doc-row"><div class="doc-row-main"><strong style="min-width:8rem">' + esc(t.label) + (t.required ? reqMark() : "") + "</strong>" +
           (d ? '<span class="badge ok">✓ v' + d.version + " " + esc(d.originalFilename) + "</span>" + aiBadge(d) : '<span class="badge">Missing</span>') +
-          '<input type="file" data-type="' + t.id + '" accept=".pdf,image/*"></div>';
+          '</div><input type="file" data-type="' + t.id + '" accept=".pdf,image/*"></div>';
       }).join("") +
       '<div class="actions"><button type="button" class="btn-secondary" id="btn-back">Back</button><button type="button" class="btn-primary" id="btn-next">Continue</button></div><p id="msg" class="muted"></p></div>';
   }
