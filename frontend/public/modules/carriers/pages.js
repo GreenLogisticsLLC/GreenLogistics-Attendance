@@ -274,11 +274,6 @@ window.GreenOSModules.carriers = {
         "<h2>" + self.esc(c.legalName) + "</h2>" +
         '<p class="gos-muted">Onboarding: <strong>' + self.esc(c.onboardingStatus) +
         "</strong> · Broker: " + broker + "</p>" +
-        '<aside id="cr-ai-ops" class="gos-card" style="margin:0.75rem 0;padding:0.75rem 1rem;border:1px solid var(--gos-border, #ddd)">' +
-        '<div style="font-weight:600;margin-bottom:0.35rem">AI Operational Summary</div>' +
-        '<p class="gos-muted" id="cr-ai-ops-status">Loading readiness…</p>' +
-        '<div id="cr-ai-ops-body" style="font-size:0.9rem;white-space:pre-wrap"></div>' +
-        "</aside>" +
         '<nav class="gos-subnav" style="margin:0.75rem 0">' +
         tabs.map(function (t) {
           return (
@@ -294,7 +289,6 @@ window.GreenOSModules.carriers = {
         self._carrierId = null;
         self.showList(main);
       });
-      self.loadCarrierAiOps(main, id);
       main.querySelectorAll("[data-tab]").forEach(function (btn) {
         btn.addEventListener("click", function () {
           self._tab = btn.getAttribute("data-tab");
@@ -836,163 +830,4 @@ window.GreenOSModules.carriers = {
       "</ul>";
   },
 
-  async loadCarrierAiOps(main, id) {
-    var statusEl = main.querySelector("#cr-ai-ops-status");
-    var bodyEl = main.querySelector("#cr-ai-ops-body");
-    if (!statusEl || !bodyEl) return;
-    try {
-      var token = localStorage.getItem("gl_token");
-      var res = await fetch("/api/ai/carriers/" + encodeURIComponent(id) + "/summary", {
-        headers: { Authorization: token ? "Bearer " + token : "" },
-        cache: "no-store",
-      });
-      var json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.message || "AI summary failed");
-      var d = json.data || {};
-      var commRes = await fetch("/api/ai/carriers/" + encodeURIComponent(id) + "/communications", {
-        headers: { Authorization: token ? "Bearer " + token : "" },
-        cache: "no-store",
-      });
-      var commJson = await commRes.json();
-      if (!commRes.ok || !commJson.success) {
-        throw new Error(commJson.message || "Communication status failed");
-      }
-      var comm = commJson.data || {};
-      statusEl.textContent =
-        "Readiness: " + (d.readiness || "—") + " · Compliance: " + ((d.compliance && d.compliance.light) || "—") +
-        " · Waiting: " + (comm.waitingFor || "—");
-      var lines = [];
-      (d.documents || []).forEach(function (doc) {
-        lines.push(doc.slot + " — " + doc.status);
-      });
-      if ((d.reviewItems || []).length) {
-        lines.push("");
-        lines.push("Problems:");
-        d.reviewItems.slice(0, 6).forEach(function (r, i) {
-          lines.push(i + 1 + ". " + r);
-        });
-      }
-      if ((d.nextBestActions || []).length) {
-        lines.push("");
-        lines.push("Recommendations (not executed):");
-        d.nextBestActions.slice(0, 5).forEach(function (a, i) {
-          lines.push(i + 1 + ". [" + a.priority + "] " + a.text);
-        });
-      }
-      lines.push("");
-      lines.push("COMMUNICATION STATUS");
-      lines.push("Waiting For: " + (comm.waitingFor || "—") + (comm.waitingSince ? " since " + comm.waitingSince : ""));
-      lines.push("Last Contact: " + (comm.lastContact ? comm.lastContact.at + " · " + comm.lastContact.direction + " · " + comm.lastContact.subject : "No linked contact"));
-      lines.push("Open Requests: " + ((comm.openRequests || []).length || 0));
-      if ((comm.recommendations || []).length) {
-        lines.push("Recommendation: [" + comm.recommendations[0].priority + "] " + comm.recommendations[0].text);
-      }
-      bodyEl.innerHTML = "";
-      var pre = document.createElement("pre");
-      pre.style.cssText = "font-size:0.9rem;white-space:pre-wrap;margin:0;font-family:inherit";
-      pre.textContent = lines.join("\n");
-      bodyEl.appendChild(pre);
-
-      var actions = (d.proposedActions || []).concat(comm.proposedActions || []);
-      if (actions.length) {
-        var wrap = document.createElement("div");
-        wrap.style.marginTop = "0.75rem";
-        wrap.innerHTML = "<strong>AI Actions (require confirmation)</strong>";
-        actions.forEach(function (act) {
-          var card = document.createElement("div");
-          card.style.cssText =
-            "margin:0.5rem 0;padding:0.6rem;border:1px solid var(--gos-border,#ddd);border-radius:6px;font-size:0.85rem";
-          var payload = act.payload || {};
-          var detail = "";
-          if (act.actionType === "SEND_EMAIL" || act.actionType === "REQUEST_DOCUMENT") {
-            detail =
-              "<div><b>To:</b> " +
-              this.esc(payload.to || "(GreenOS contact)") +
-              "</div>" +
-              "<div><b>Subject:</b> " +
-              this.esc(payload.subject || "—") +
-              "</div>" +
-              "<div style='white-space:pre-wrap;margin-top:0.35rem'>" +
-              this.esc(payload.bodyText || payload.body || "") +
-              "</div>";
-          } else {
-            detail =
-              "<div style='white-space:pre-wrap'>" +
-              this.esc(payload.noteText || payload.notes || act.reason || act.description || "") +
-              "</div>";
-          }
-          card.innerHTML =
-            "<div><b>" +
-            this.esc(act.title || act.actionType) +
-            "</b> · " +
-            this.esc(act.status) +
-            "</div>" +
-            "<div class='gos-muted' style='font-size:0.8rem;margin:0.25rem 0'>" +
-            this.esc(act.reason || "") +
-            "</div>" +
-            detail +
-            "<div style='margin-top:0.5rem'>" +
-            "<button type='button' class='gos-btn gos-btn-sm' data-ai-confirm='" +
-            this.esc(act.actionId) +
-            "'>Confirm &amp; Execute</button> " +
-            "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-ai-cancel='" +
-            this.esc(act.actionId) +
-            "'>Cancel</button>" +
-            "</div>";
-          wrap.appendChild(card);
-        }, this);
-        bodyEl.appendChild(wrap);
-        var self = this;
-        wrap.querySelectorAll("[data-ai-confirm]").forEach(function (btn) {
-          btn.addEventListener("click", async function () {
-            var actionId = btn.getAttribute("data-ai-confirm");
-            if (!actionId || !confirm("Confirm this AI action? It will execute now.")) return;
-            btn.disabled = true;
-            try {
-              var r = await fetch("/api/ai/actions/" + encodeURIComponent(actionId) + "/confirm", {
-                method: "POST",
-                headers: {
-                  Authorization: token ? "Bearer " + token : "",
-                  "Content-Type": "application/json",
-                },
-                body: "{}",
-              });
-              var j = await r.json();
-              if (!r.ok || !j.success) throw new Error(j.message || "Confirm failed");
-              alert("Action " + ((j.data && j.data.status) || "EXECUTED"));
-              self.loadCarrierAiOps(main, id);
-            } catch (e) {
-              alert(e.message || e);
-              btn.disabled = false;
-            }
-          });
-        });
-        wrap.querySelectorAll("[data-ai-cancel]").forEach(function (btn) {
-          btn.addEventListener("click", async function () {
-            var actionId = btn.getAttribute("data-ai-cancel");
-            if (!actionId) return;
-            btn.disabled = true;
-            try {
-              var r = await fetch("/api/ai/actions/" + encodeURIComponent(actionId) + "/cancel", {
-                method: "POST",
-                headers: {
-                  Authorization: token ? "Bearer " + token : "",
-                  "Content-Type": "application/json",
-                },
-                body: "{}",
-              });
-              var j = await r.json();
-              if (!r.ok || !j.success) throw new Error(j.message || "Cancel failed");
-              self.loadCarrierAiOps(main, id);
-            } catch (e) {
-              alert(e.message || e);
-              btn.disabled = false;
-            }
-          });
-        });
-      }
-    } catch (e) {
-      statusEl.textContent = e.message || "AI summary unavailable";
-    }
-  },
 };
