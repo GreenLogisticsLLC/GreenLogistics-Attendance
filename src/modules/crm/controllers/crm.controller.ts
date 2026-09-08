@@ -716,8 +716,14 @@ export async function crmMyNotificationsController(req: AuthRequest, res: Respon
     const { platformNotificationService } = await import(
         "../../shipment/services/platform-notification.service.js"
     );
-    const rows = await platformNotificationService.listForUser(userId, { limit: 100 });
-    const unread = await platformNotificationService.unreadCount(userId);
+    const brokerScoped = isDataScopedRole(req.user?.role || "");
+    const rows = await platformNotificationService.listForUser(userId, {
+        limit: 100,
+        onlyAssignedToUserId: brokerScoped ? userId : undefined,
+    });
+    const unread = brokerScoped
+        ? rows.filter((r) => r.status === "UNREAD").length
+        : await platformNotificationService.unreadCount(userId);
 
     return res.json(
         apiResponse(true, "Notifications", {

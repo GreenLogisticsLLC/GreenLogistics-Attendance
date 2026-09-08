@@ -585,6 +585,7 @@ export async function applyUshipLifecycleEvent(input: {
             shipmentNumber: shipment.greenOsShipmentId || input.shipmentLeadId.slice(0, 8),
             subject: input.subject,
             loadNumber: detected.loadNumber || shipment.loadNumber,
+            assignedBrokerId: shipment.assignedBrokerId || null,
             at: new Date().toISOString(),
         };
         if (shipment.assignedBrokerId) {

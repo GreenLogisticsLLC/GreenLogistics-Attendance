@@ -253,6 +253,7 @@ export class AssignmentEngine {
                 customer: leadRow?.customerName || lead.customerName || "",
                 assignedAt: new Date().toISOString(),
                 brokerName: broker.displayName,
+                assignedBrokerId: broker.userId,
                 message: `New Shipment Assigned — ${gosId || shipmentLeadId.slice(0, 8)}`,
             };
             sseEmitToUser(broker.userId, notifyPayload);
@@ -485,7 +486,7 @@ export class AssignmentEngine {
                     notificationType: "ACCEPTANCE_MISSED",
                     title: "Shipment reassigned",
                     message: `You did not accept shipment # ${gosId} within ${ACCEPTANCE_MINUTES} minutes — it was passed to the next broker`,
-                    shipmentLeadId: lead.shipmentLeadId,
+                    // No shipmentLeadId — card now belongs to another broker; avoid Forbidden on open.
                     meta: { greenOsShipmentId: lead.greenOsShipmentId },
                 })
                 .catch(() => null);

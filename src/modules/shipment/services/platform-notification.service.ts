@@ -89,14 +89,48 @@ export class PlatformNotificationService {
         return users;
     }
 
-    async listForUser(userId: string, options?: { unreadOnly?: boolean; limit?: number }) {
-        return prisma.platformNotification.findMany({
+    async listForUser(
+        userId: string,
+        options?: {
+            unreadOnly?: boolean;
+            limit?: number;
+            /** When set, hide notifications for shipments assigned to someone else. */
+            onlyAssignedToUserId?: string;
+        }
+    ) {
+        const rows = await prisma.platformNotification.findMany({
             where: {
                 userId,
                 ...(options?.unreadOnly ? { status: "UNREAD" } : {}),
             },
             orderBy: { createdAt: "desc" },
-            take: options?.limit ?? 100,
+            take: Math.min(300, Math.max(1, options?.limit ?? 100)),
+        });
+
+        if (!options?.onlyAssignedToUserId) return rows;
+
+        const ownerId = options.onlyAssignedToUserId;
+        const withLead = rows.filter((r) => r.shipmentLeadId);
+        if (!withLead.length) return rows;
+
+        const leads = await prisma.shipmentLead.findMany({
+            where: {
+                shipmentLeadId: {
+                    in: withLead.map((r) => r.shipmentLeadId!).filter(Boolean),
+                },
+            },
+            select: { shipmentLeadId: true, assignedBrokerId: true },
+        });
+        const ownerByLead = new Map(
+            leads.map((l) => [l.shipmentLeadId, l.assignedBrokerId || ""])
+        );
+
+        return rows.filter((r) => {
+            if (!r.shipmentLeadId) return true;
+            const assigned = ownerByLead.get(r.shipmentLeadId);
+            // Drop stale alerts for cards that moved to another broker (or were purged).
+            if (assigned == null) return false;
+            return assigned === ownerId;
         });
     }
 

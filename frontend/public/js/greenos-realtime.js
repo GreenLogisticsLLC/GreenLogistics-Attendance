@@ -21,6 +21,48 @@
       .replace(/"/g, "&quot;");
   }
 
+  function currentRole() {
+    if (window.GreenOS && typeof window.GreenOS.role === "function") {
+      var r = window.GreenOS.role();
+      if (r) return r;
+    }
+    return (
+      (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
+      (window.GreenOSUser && window.GreenOSUser.role) ||
+      ""
+    );
+  }
+
+  function currentUserId() {
+    return (
+      (window.GreenOS && window.GreenOS.user && window.GreenOS.user.userId) ||
+      (window.GreenOSUser && window.GreenOSUser.userId) ||
+      ""
+    );
+  }
+
+  function isBrokerRole() {
+    return currentRole() === "Broker";
+  }
+
+  /** Brokers must never toast/open cards for shipments owned by someone else. */
+  function brokerOwnsEvent(data) {
+    if (!isBrokerRole()) return true;
+    if (!data) return false;
+    var mine = currentUserId();
+    if (!mine) return false;
+    var assigned =
+      data.assignedBrokerId ||
+      data.brokerUserId ||
+      data.forUserId ||
+      data.userId ||
+      "";
+    // Events without an owner claim are OK only when explicitly targeted via SSE to this user
+    // (server already scoped). If another broker id is present and differs — hide.
+    if (assigned && assigned !== mine) return false;
+    return true;
+  }
+
   function loadSeenMap() {
     try {
       var raw = localStorage.getItem(TOAST_SEEN_KEY);
@@ -99,11 +141,7 @@
         hiddenToasts = 0;
         pill.remove();
         if (window.GreenOS) {
-          var role =
-            (window.GreenOS.user && window.GreenOS.user.role) ||
-            (window.GreenOSUser && window.GreenOSUser.role) ||
-            "";
-          if (role === "Broker") window.GreenOS.navigate("broker", "notifications");
+          if (isBrokerRole()) window.GreenOS.navigate("broker", "notifications");
           else window.GreenOS.navigate("crm", "shipments");
         }
       });
@@ -166,10 +204,7 @@
   /** Open shipment card from toast / notification click. */
   function openShipmentById(shipmentLeadId) {
     if (!shipmentLeadId) return;
-    var role =
-      (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
-      (window.GreenOSUser && window.GreenOSUser.role) ||
-      "";
+    var role = currentRole();
     var nav = window.GreenOSShell || window.GreenOS;
     if (nav && typeof nav.navigate === "function") {
       if (role === "Broker") nav.navigate("broker", "shipments");
@@ -415,13 +450,13 @@
   }
 
   function removeFromMyQueue(d) {
+    // After reassignment the card belongs to another broker — show info only, no open.
     var shown = showSimpleToast(
       d.title || "Removed from your queue",
       ((d.greenOsShipmentId || d.shipmentNumber)
         ? "Shipment # " + (d.greenOsShipmentId || d.shipmentNumber) + " — "
         : "") + (d.message || d.reason || "Passed to another broker"),
       {
-        shipmentLeadId: d.shipmentLeadId,
         greenOsShipmentId: d.greenOsShipmentId || d.shipmentNumber,
         kind: "REMOVED",
       }
@@ -487,7 +522,7 @@
     es.addEventListener("SHIPMENT_ASSIGNED_BROADCAST", function (ev) {
       try {
         var d = JSON.parse(ev.data);
-        if (window.GreenOSUser && window.GreenOSUser.role === "Broker") return;
+        if (isBrokerRole()) return;
         var shown = showSimpleToast(
           "New shipment → " + (d.brokerName || "broker"),
           (d.greenOsShipmentId || d.shipmentNumber
@@ -515,7 +550,7 @@
     es.addEventListener("SHIPMENT_UNASSIGNED", function (ev) {
       try {
         var d = JSON.parse(ev.data);
-        if (window.GreenOSUser && window.GreenOSUser.role === "Broker") {
+        if (isBrokerRole()) {
           removeFromMyQueue(
             Object.assign({}, d, {
               title: "Removed from your queue",
@@ -562,7 +597,7 @@
     es.addEventListener("ACCEPTANCE_MISSED_BROADCAST", function (ev) {
       try {
         var d = JSON.parse(ev.data);
-        if (window.GreenOSUser && window.GreenOSUser.role === "Broker") return;
+        if (isBrokerRole()) return;
         var shown = showSimpleToast(
           d.title || "Acceptance missed",
           d.message || "Reassigning shipment",
@@ -583,6 +618,7 @@
     });
 
     function onLifecycle(d) {
+      if (!brokerOwnsEvent(d)) return;
       var num = d.greenOsShipmentId || d.shipmentNumber || "";
       var shown = showSimpleToast(
         d.title || "Shipment update",
@@ -632,7 +668,7 @@
 
     es.addEventListener("SHIPMENT_LIFECYCLE_BROADCAST", function (ev) {
       try {
-        if (window.GreenOSUser && window.GreenOSUser.role === "Broker") return;
+        if (isBrokerRole()) return;
         onLifecycle(JSON.parse(ev.data));
       } catch (e) {
         /* ignore */
