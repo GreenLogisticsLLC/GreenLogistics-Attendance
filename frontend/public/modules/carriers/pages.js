@@ -259,11 +259,10 @@ window.GreenOSModules.carriers = {
       var tabs = [
         { id: "overview", label: "Overview" },
         { id: "documents", label: "Documents" },
-        { id: "agreement", label: "Agreement" },
-        { id: "rc", label: "RC/BOL" },
-        { id: "onboarding", label: "Onboarding" },
-        { id: "timeline", label: "Timeline" },
       ];
+      if (["agreement", "rc", "onboarding", "timeline"].indexOf(self._tab) >= 0) {
+        self._tab = "documents";
+      }
       main.innerHTML =
         '<div class="load-actions" style="margin-bottom:0.5rem">' +
         '<button type="button" class="btn-secondary" id="cr-back">← Carriers</button>' +
@@ -329,10 +328,6 @@ window.GreenOSModules.carriers = {
 
       var tab = main.querySelector("#cr-tab");
       if (self._tab === "documents") self.renderDocs(tab, c);
-      else if (self._tab === "agreement") self.renderAgreement(tab, c);
-      else if (self._tab === "rc") self.renderRc(tab, c);
-      else if (self._tab === "onboarding") self.renderOnboarding(tab, c);
-      else if (self._tab === "timeline") self.renderTimeline(tab, c);
       else self.renderOverview(tab, c);
     } catch (e) {
       main.innerHTML = '<p class="error">' + self.esc(e.message) + "</p>";
@@ -368,43 +363,48 @@ window.GreenOSModules.carriers = {
   renderDocs(el, c) {
     var self = this;
     var docs = c.documents || [];
-    if (!docs.length) {
-      el.innerHTML = '<p class="gos-muted">No documents uploaded yet.</p>';
-      return;
-    }
+    var docsHtml = !docs.length
+      ? '<p class="gos-muted">No packet documents uploaded yet.</p>'
+      : '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+        "<th>Type</th><th>File</th><th>Version</th><th>Status</th><th>AI</th><th>Uploaded</th><th></th>" +
+        "</tr></thead><tbody>" +
+        docs.map(function (d) {
+          return (
+            "<tr data-doc-id=\"" + self.esc(d.documentId) + "\">" +
+            "<td>" + self.esc(d.documentType) + "</td>" +
+            "<td>" + self.esc(d.originalFilename) + "</td>" +
+            "<td>" + d.version + "</td>" +
+            "<td>" + self.esc(d.status) + "</td>" +
+            '<td class="cr-doc-ai" data-id="' + self.esc(d.documentId) + '"><span class="gos-muted">—</span></td>' +
+            "<td>" + self.esc(d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "") + "</td>" +
+            '<td style="white-space:nowrap">' +
+            '<button type="button" class="btn-secondary cr-doc-view" data-id="' +
+            self.esc(d.documentId) +
+            '" data-name="' +
+            self.esc(d.originalFilename) +
+            '">View</button> ' +
+            '<button type="button" class="btn-secondary cr-doc-dl" data-id="' +
+            self.esc(d.documentId) +
+            '" data-name="' +
+            self.esc(d.originalFilename) +
+            '">Download</button> ' +
+            '<button type="button" class="btn-secondary cr-doc-ai-run" data-id="' +
+            self.esc(d.documentId) +
+            '">Validate AI</button>' +
+            "</td>" +
+            "</tr>"
+          );
+        }).join("") +
+        "</tbody></table></div>" +
+        '<p class="gos-muted" style="margin-top:8px">Document AI: GREEN / REVIEW / RED — never auto-changes carrier master data.</p>';
+
     el.innerHTML =
-      '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-      "<th>Type</th><th>File</th><th>Version</th><th>Status</th><th>AI</th><th>Uploaded</th><th></th>" +
-      "</tr></thead><tbody>" +
-      docs.map(function (d) {
-        return (
-          "<tr data-doc-id=\"" + self.esc(d.documentId) + "\">" +
-          "<td>" + self.esc(d.documentType) + "</td>" +
-          "<td>" + self.esc(d.originalFilename) + "</td>" +
-          "<td>" + d.version + "</td>" +
-          "<td>" + self.esc(d.status) + "</td>" +
-          '<td class="cr-doc-ai" data-id="' + self.esc(d.documentId) + '"><span class="gos-muted">—</span></td>' +
-          "<td>" + self.esc(d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "") + "</td>" +
-          '<td style="white-space:nowrap">' +
-          '<button type="button" class="btn-secondary cr-doc-view" data-id="' +
-          self.esc(d.documentId) +
-          '" data-name="' +
-          self.esc(d.originalFilename) +
-          '">View</button> ' +
-          '<button type="button" class="btn-secondary cr-doc-dl" data-id="' +
-          self.esc(d.documentId) +
-          '" data-name="' +
-          self.esc(d.originalFilename) +
-          '">Download</button> ' +
-          '<button type="button" class="btn-secondary cr-doc-ai-run" data-id="' +
-          self.esc(d.documentId) +
-          '">Validate AI</button>' +
-          "</td>" +
-          "</tr>"
-        );
-      }).join("") +
-      "</tbody></table></div>" +
-      '<p class="gos-muted" style="margin-top:8px">Document AI: GREEN / REVIEW / RED — never auto-changes carrier master data.</p>';
+      docsHtml +
+      '<section id="cr-rcbol-section" style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--gos-border)">' +
+      "<h3 style=\"margin:0 0 0.65rem\">RC / BOL</h3>" +
+      '<div id="cr-rcbol-body"></div>' +
+      "</section>";
+
     el.querySelectorAll(".cr-doc-view").forEach(function (btn) {
       btn.addEventListener("click", async function () {
         try {
@@ -461,6 +461,9 @@ window.GreenOSModules.carriers = {
     docs.forEach(function (d) {
       self.loadDocAiStatus(d.documentId, el.querySelector('.cr-doc-ai[data-id="' + d.documentId + '"]'));
     });
+
+    var rcBody = el.querySelector("#cr-rcbol-body");
+    if (rcBody) self.renderRc(rcBody, c);
   },
 
   async loadDocAiStatus(documentId, cell) {
@@ -526,111 +529,6 @@ window.GreenOSModules.carriers = {
       this.esc(status) +
       "</span>"
     );
-  },
-
-  renderAgreement(el, c) {
-    var self = this;
-    var signs = c.agreementSigns || [];
-    var pdfDocs = (c.documents || []).filter(function (d) {
-      return d.documentType === "BROKER_CARRIER_AGREEMENT";
-    });
-    var currentPdf = pdfDocs.find(function (d) { return d.status === "CURRENT"; }) || pdfDocs[0];
-
-    if (!signs.length && !currentPdf) {
-      el.innerHTML = '<p class="gos-muted">Agreement not signed yet.</p>';
-      return;
-    }
-
-    var pdfBlock =
-      '<div class="load-edit-panel" style="margin-bottom:0.75rem">' +
-      "<h3 style=\"margin:0 0 0.35rem\">Signed Agreement PDF</h3>" +
-      (currentPdf
-        ? '<p class="gos-muted">v' +
-          currentPdf.version +
-          " · " +
-          self.esc(currentPdf.originalFilename) +
-          " · " +
-          self.esc(currentPdf.uploadedAt ? new Date(currentPdf.uploadedAt).toLocaleString() : "") +
-          "</p>" +
-          '<div style="display:flex;flex-wrap:wrap;gap:0.45rem">' +
-          '<button type="button" class="btn-secondary" id="cr-view-agreement">View</button>' +
-          '<button type="button" class="btn-primary" id="cr-dl-agreement">Download PDF</button>' +
-          "</div>"
-        : '<p class="gos-muted">PDF not generated yet for this signature.</p>' +
-          '<button type="button" class="btn-secondary" id="cr-gen-agreement">Generate PDF</button>') +
-      '<p id="cr-agreement-msg" class="gos-muted" style="margin-top:0.5rem"></p>' +
-      "</div>";
-
-    el.innerHTML =
-      pdfBlock +
-      (signs.length
-        ? signs.map(function (s) {
-            return (
-              '<div class="load-edit-panel">' +
-              "<p><strong>" +
-              self.esc(s.signerName) +
-              "</strong> · " +
-              self.esc(s.signedAt ? new Date(s.signedAt).toLocaleString() : "") +
-              "</p>" +
-              '<p class="gos-muted">Template ' +
-              self.esc(s.template && s.template.version) +
-              " · IP " +
-              self.esc(s.ipAddress) +
-              "</p>" +
-              (s.signatureData && String(s.signatureData).indexOf("data:image") === 0
-                ? '<img alt="Signature" src="' +
-                  s.signatureData +
-                  '" style="max-width:320px;background:#fff;border:1px solid var(--gos-border);border-radius:8px">'
-                : "") +
-              "</div>"
-            );
-          }).join("")
-        : "");
-
-    async function openDoc(inline) {
-      await self.openCarrierDoc(
-        c.carrierId,
-        currentPdf.documentId,
-        (currentPdf && currentPdf.originalFilename) || "Broker-Carrier-Agreement.pdf",
-        inline
-      );
-    }
-
-    el.querySelector("#cr-view-agreement")?.addEventListener("click", async function () {
-      var msg = el.querySelector("#cr-agreement-msg");
-      try {
-        if (msg) msg.textContent = "Opening…";
-        await openDoc(true);
-        if (msg) msg.textContent = "";
-      } catch (e) {
-        if (msg) msg.textContent = e.message || "Failed to open";
-      }
-    });
-
-    el.querySelector("#cr-dl-agreement")?.addEventListener("click", async function () {
-      var msg = el.querySelector("#cr-agreement-msg");
-      try {
-        if (msg) msg.textContent = "Downloading…";
-        await openDoc(false);
-        if (msg) msg.textContent = "";
-      } catch (e) {
-        if (msg) msg.textContent = e.message || "Download failed";
-      }
-    });
-
-    el.querySelector("#cr-gen-agreement")?.addEventListener("click", async function () {
-      var msg = el.querySelector("#cr-agreement-msg");
-      try {
-        if (msg) msg.textContent = "Generating PDF…";
-        await self.api("/" + encodeURIComponent(c.carrierId) + "/agreement/regenerate-pdf", {
-          method: "POST",
-          body: "{}",
-        });
-        self.showDetail(document.getElementById("cr-main") || el.parentElement, c.carrierId);
-      } catch (e) {
-        if (msg) msg.textContent = e.message || "Generate failed";
-      }
-    });
   },
 
   renderRc(el, c) {
@@ -777,57 +675,12 @@ window.GreenOSModules.carriers = {
           method: "POST",
           body: "{}",
         });
-        self._tab = "rc";
+        self._tab = "documents";
         self.showDetail(document.getElementById("cr-main") || el.parentElement, c.carrierId);
       } catch (e) {
         if (msg) msg.textContent = e.message || "Generate failed";
       }
     });
-  },
-
-  renderOnboarding(el, c) {
-    var sessions = c.sessions || [];
-    el.innerHTML =
-      '<div class="load-grid">' +
-      this.field("Current status", c.onboardingStatus) +
-      "</div>" +
-      "<h3>Sessions</h3>" +
-      (sessions.length
-        ? '<ul>' +
-          sessions.map(function (s) {
-            return (
-              "<li>" +
-              this.esc(s.status) +
-              " · expires " +
-              this.esc(s.expiresAt ? new Date(s.expiresAt).toLocaleString() : "") +
-              (s.submittedAt ? " · submitted " + new Date(s.submittedAt).toLocaleString() : "") +
-              "</li>"
-            );
-          }, this).join("") +
-          "</ul>"
-        : '<p class="gos-muted">No sessions.</p>');
-  },
-
-  renderTimeline(el, c) {
-    var events = c.events || [];
-    if (!events.length) {
-      el.innerHTML = '<p class="gos-muted">No timeline events yet.</p>';
-      return;
-    }
-    el.innerHTML =
-      '<ul style="list-style:none;padding:0;margin:0">' +
-      events.map(function (e) {
-        return (
-          '<li style="padding:0.55rem 0;border-bottom:1px solid var(--gos-border)">' +
-          "<strong>" + this.esc(e.title) + "</strong>" +
-          '<div class="gos-muted" style="font-size:0.82rem">' +
-          this.esc(e.createdAt ? new Date(e.createdAt).toLocaleString() : "") +
-          " · " + this.esc(e.actorType) +
-          (e.message ? " — " + this.esc(e.message) : "") +
-          "</div></li>"
-        );
-      }, this).join("") +
-      "</ul>";
   },
 
 };
