@@ -299,6 +299,59 @@ export class ShipmentService {
 
         return updated;
     }
+
+    /**
+     * Hard-remove a shipment card and dependent rows (Gmail "listing deleted").
+     * Keeps optional import-log history when callers write logs with null lead id after purge.
+     */
+    async purgeShipmentLead(shipmentLeadId: string): Promise<boolean> {
+        const id = String(shipmentLeadId || "").trim();
+        if (!id) return false;
+        const existing = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId: id },
+            select: { shipmentLeadId: true },
+        });
+        if (!existing) return false;
+
+        const run = async (sql: string) => {
+            try {
+                await prisma.$executeRawUnsafe(sql, id);
+            } catch {
+                /* table may be missing on older DBs */
+            }
+        };
+
+        await run(`DELETE FROM shipment_import_logs WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM shipment_timeline_events WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM platform_notifications WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM domain_events WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM broker_response_problems WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM load_late_problems WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM shipment_ops_comments WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM assignment_logs WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM broker_mailbox_messages WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM load_documents WHERE shipment_lead_id = ?`);
+        await run(
+            `DELETE FROM tracking_positions WHERE tracking_id IN (SELECT tracking_id FROM shipment_trackings WHERE shipment_lead_id = ?)`
+        );
+        await run(
+            `DELETE FROM tracking_integration_events WHERE tracking_id IN (SELECT tracking_id FROM shipment_trackings WHERE shipment_lead_id = ?)`
+        );
+        await run(`DELETE FROM tracking_integration_events WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM shipment_trackings WHERE shipment_lead_id = ?`);
+        await run(`DELETE FROM ai_actions WHERE shipment_lead_id = ?`);
+        try {
+            await prisma.$executeRawUnsafe(
+                `UPDATE carrier_onboarding_sessions SET shipment_lead_id = NULL WHERE shipment_lead_id = ?`,
+                id
+            );
+        } catch {
+            /* optional */
+        }
+
+        await prisma.shipmentLead.delete({ where: { shipmentLeadId: id } });
+        return true;
+    }
 }
 
 export const shipmentService = new ShipmentService();

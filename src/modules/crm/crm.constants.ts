@@ -11,7 +11,14 @@ export {
 /** Waiting for a broker In Office (Assignment Engine). */
 export const UNASSIGNED_STATUSES: string[] = ["NEW", "UNASSIGNED"];
 
-export const CLOSED_STATUSES: string[] = ["WON", "LOST", "COMPLETED", "CLOSED", "ACCEPTED_ANOTHER_COMPANY"];
+export const CLOSED_STATUSES: string[] = [
+    "WON",
+    "LOST",
+    "COMPLETED",
+    "CLOSED",
+    "ACCEPTED_ANOTHER_COMPANY",
+    "DELETED_FROM_CUSTOMER",
+];
 
 /** @deprecated Prefer LIFECYCLE_PIPELINE from Domain Events. Kept for older UI. */
 export const TIMELINE_STAGES = [

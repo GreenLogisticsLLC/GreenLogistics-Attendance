@@ -263,17 +263,21 @@ export class EmailImportService {
                         if (existingShipment) {
                             const blob = `${raw.subject}\n${raw.bodyText || ""}\n${raw.bodyHtml || ""}\n${raw.snippet || ""}`;
                             const detected = detectUshipLifecycleEvent(raw.subject, blob);
-                            const customerReplyKinds = new Set([
+                            const companyInboxAlwaysKinds = new Set([
                                 "CUSTOMER_RESPOND",
                                 "CUSTOMER_QUESTION",
                                 "CUSTOMER_REPLIED",
                                 "NEW_MESSAGE",
+                                // Terminal outcomes must apply even if broker Gmail missed them.
+                                "SHIPMENT_DELETED_BY_CUSTOMER",
+                                "ACCEPTED_ANOTHER_COMPANY",
                             ]);
                             // After assignment, ignore most company-inbox follow-ups — but still
-                            // apply Question Answered / customer replies so the red lamp lights.
+                            // apply Question Answered / customer replies so the red lamp lights,
+                            // and apply deleted / accepted-another so CRM stays in sync.
                             if (
                                 existingShipment.assignedBrokerId &&
-                                !customerReplyKinds.has(detected.kind)
+                                !companyInboxAlwaysKinds.has(detected.kind)
                             ) {
                                 await emailMessageRepository.markProcessed(
                                     stored.emailMessageId,
@@ -302,23 +306,35 @@ export class EmailImportService {
                                 actorUserId: existingShipment.assignedBrokerId || undefined,
                                 source: "company_gmail",
                             });
+                            const purged =
+                                lifecycle.applied &&
+                                "purged" in lifecycle &&
+                                Boolean((lifecycle as { purged?: boolean }).purged);
                             await emailMessageRepository.markProcessed(
                                 stored.emailMessageId,
                                 lifecycle.applied ? "LIFECYCLE" : "IGNORED",
                                 "USHIP"
                             );
                             await shipmentImportLogRepository.create({
-                                eventType: lifecycle.applied ? "PipelineEvent" : "EmailIgnored",
-                                message: lifecycle.applied
-                                    ? `Lifecycle update from company Gmail: ${raw.subject}`
-                                    : `Company Gmail lifecycle skipped: ${
-                                          "reason" in lifecycle
-                                              ? lifecycle.reason
-                                              : "not applied"
-                                      }`,
+                                eventType: purged
+                                    ? "ShipmentPurged"
+                                    : lifecycle.applied
+                                      ? "PipelineEvent"
+                                      : "EmailIgnored",
+                                message: purged
+                                    ? `Deleted shipment removed from CRM (company Gmail): ${raw.subject}`
+                                    : lifecycle.applied
+                                      ? `Lifecycle update from company Gmail: ${raw.subject}`
+                                      : `Company Gmail lifecycle skipped: ${
+                                            "reason" in lifecycle
+                                                ? lifecycle.reason
+                                                : "not applied"
+                                        }`,
                                 gmailMessageId,
                                 emailMessageId: stored.emailMessageId,
-                                shipmentLeadId: existingShipment.shipmentLeadId,
+                                shipmentLeadId: purged
+                                    ? undefined
+                                    : existingShipment.shipmentLeadId,
                             });
                             await gmailListener.markProcessed(gmailMessageId);
                             if (lifecycle.applied) imported += 1;

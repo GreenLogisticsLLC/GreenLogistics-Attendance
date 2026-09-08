@@ -13,7 +13,12 @@ window.GreenOSModules.shipments = {
       return;
     }
 
-    var tab = subPageId === "other" ? "other" : "new";
+    var tab =
+      subPageId === "other"
+        ? "other"
+        : subPageId === "accepted-another"
+          ? "accepted-another"
+          : "new";
 
     root.innerHTML =
       '<div class="gos-module-layout">' +
@@ -24,6 +29,9 @@ window.GreenOSModules.shipments = {
       '<button type="button" class="gos-subnav-item' +
       (tab === "other" ? " is-active" : "") +
       '" data-subpage="other">Other Shipment</button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (tab === "accepted-another" ? " is-active" : "") +
+      '" data-subpage="accepted-another">Accepted to another company</button>' +
       "</nav>" +
       '<div class="gos-module-body" id="shipments-module-body"></div>' +
       "</div>";
@@ -31,6 +39,10 @@ window.GreenOSModules.shipments = {
     window.GreenOSCrmReloadBody = function () {
       /* Team Lead / ops Shipments list is manual — no push remount. */
     };
-    crm.renderShipments(body, root, null, { assignmentKind: tab });
+    var opts =
+      tab === "accepted-another"
+        ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
+        : { assignmentKind: tab, page: 1 };
+    crm.renderShipments(body, root, null, opts);
   },
 };

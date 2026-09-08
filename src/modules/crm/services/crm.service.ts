@@ -371,11 +371,15 @@ export class CrmService {
         brokerId?: string;
         status?: string;
         limit?: number;
+        page?: number;
+        pageSize?: number;
         teamLeadId?: string;
         /** Broker My Shipments — slim payload, no heavy blobs. */
         lite?: boolean;
         /** new | other — filter by first-time vs passed-from-another-broker assignment. */
         assignmentKind?: "new" | "other";
+        /** Include terminal deleted rows (default: hide — they are purged from CRM). */
+        includeDeleted?: boolean;
     }) {
         if (options?.lite || options?.assignmentKind) {
             try {
@@ -401,29 +405,61 @@ export class CrmService {
                 },
             ];
         }
-        if (options?.status) where.status = options.status;
+        if (options?.status) {
+            where.status = options.status;
+        } else if (!options?.includeDeleted) {
+            // Deleted-by-customer cards are purged; hide any leftover soft-deleted rows.
+            where.status = { not: "DELETED_FROM_CUSTOMER" };
+        }
+
         if (options?.assignmentKind === "new") {
             where.isReassignment = false;
             where.wasEverReassigned = false;
+            // Accepted-another lives in its own Shipments subsection.
+            where.AND = [
+                ...(Array.isArray(where.AND) ? where.AND : []),
+                { status: { notIn: ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"] } },
+            ];
+            delete where.status;
         } else if (options?.assignmentKind === "other") {
             const passed = {
                 OR: [{ isReassignment: true }, { wasEverReassigned: true }],
             };
-            where.AND = [...(Array.isArray(where.AND) ? where.AND : []), passed];
+            where.AND = [
+                ...(Array.isArray(where.AND) ? where.AND : []),
+                passed,
+                { status: { notIn: ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"] } },
+            ];
+            delete where.status;
         }
 
         const lite = options?.lite === true;
-        const rows = await prisma.shipmentLead.findMany({
-            where,
-            orderBy: { updatedAt: "desc" },
-            take: options?.limit ?? (lite ? 150 : 300),
-            select: SHIPMENT_LIST_SELECT,
-        });
+        const pageSizeRaw = options?.pageSize ?? options?.limit ?? (lite ? 50 : 50);
+        const pageSize = Math.min(200, Math.max(1, Number(pageSizeRaw) || 50));
+        const page = Math.max(1, Number(options?.page) || 1);
+        const skip = (page - 1) * pageSize;
+
+        const [total, rows] = await Promise.all([
+            prisma.shipmentLead.count({ where }),
+            prisma.shipmentLead.findMany({
+                where,
+                orderBy: { updatedAt: "desc" },
+                skip,
+                take: pageSize,
+                select: SHIPMENT_LIST_SELECT,
+            }),
+        ]);
         const brokers = await userMap(rows.map((r) => r.assignedBrokerId || ""));
-        if (lite) {
-            return rows.map((r) => toBrokerListRow(r as unknown as Record<string, unknown>, brokers));
-        }
-        return rows.map((r) => enrichLead(r as unknown as Record<string, unknown>, brokers));
+        const items = lite
+            ? rows.map((r) => toBrokerListRow(r as unknown as Record<string, unknown>, brokers))
+            : rows.map((r) => enrichLead(r as unknown as Record<string, unknown>, brokers));
+        return {
+            items,
+            total,
+            page,
+            pageSize,
+            totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        };
     }
 
     async getShipmentCard(id: string) {
@@ -901,7 +937,7 @@ export class CrmService {
         if (!user) return null;
 
         const stats = (await this.getBrokerWorkload()).find((b) => b.brokerId === brokerId);
-        const shipments = await this.listShipments({ brokerId, limit: 200 });
+        const shipments = await this.listShipments({ brokerId, limit: 200, pageSize: 200 });
 
         return {
             broker: {
@@ -921,7 +957,7 @@ export class CrmService {
                 won: 0,
                 lost: 0,
             },
-            shipments,
+            shipments: shipments.items,
         };
     }
 

@@ -38,6 +38,7 @@ window.GreenOSRegistry = [
     children: [
       { id: "new", title: "New Shipment" },
       { id: "other", title: "Other Shipment" },
+      { id: "accepted-another", title: "Accepted to another company" },
     ],
   },
   {

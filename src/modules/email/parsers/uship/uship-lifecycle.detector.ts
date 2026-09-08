@@ -636,5 +636,18 @@ export async function applyUshipLifecycleEvent(input: {
         });
     }
 
+    // Gmail "listing/shipment deleted" → remove the card from CRM entirely.
+    if (detected.kind === "SHIPMENT_DELETED_BY_CUSTOMER") {
+        try {
+            await shipmentService.purgeShipmentLead(input.shipmentLeadId);
+            return { applied: true as const, detected, purged: true as const };
+        } catch (err) {
+            console.warn(
+                "[lifecycle] purge after deleted-by-customer failed:",
+                err instanceof Error ? err.message : err
+            );
+        }
+    }
+
     return { applied: true as const, detected };
 }

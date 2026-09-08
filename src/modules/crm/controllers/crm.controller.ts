@@ -76,10 +76,17 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
         req.query.assignmentKind === "new" || req.query.assignmentKind === "other"
             ? req.query.assignmentKind
             : undefined;
+    const pageRaw = Number(req.query.page);
+    const pageSizeRaw = Number(req.query.pageSize ?? req.query.limit);
+    const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
+    const pageSize =
+        Number.isFinite(pageSizeRaw) && pageSizeRaw > 0 ? Math.floor(pageSizeRaw) : 50;
     const data = await crmService.listShipments({
         brokerId,
         status,
         assignmentKind,
+        page,
+        pageSize,
         teamLeadId: !brokerId && teamLeadId ? teamLeadId : undefined,
         lite: req.user?.role === "Broker",
     });

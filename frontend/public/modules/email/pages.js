@@ -92,12 +92,17 @@ window.GreenOSModules.email = {
     async function loadShipments() {
       try {
         body.innerHTML = '<tr><td colspan="10">Loading…</td></tr>';
-        const data = await api("/shipments");
+        const data = await api("/shipments?page=1&pageSize=100");
         if (!data.success) {
           body.innerHTML = '<tr><td colspan="10">' + esc(data.message || "Failed") + "</td></tr>";
           return;
         }
-        const rows = data.data || [];
+        const payload = data.data || {};
+        const rows = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload.items)
+            ? payload.items
+            : [];
         if (!rows.length) {
           body.innerHTML = '<tr><td colspan="10">No shipments imported yet</td></tr>';
           return;

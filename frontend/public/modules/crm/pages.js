@@ -493,6 +493,8 @@ window.GreenOSModules.crm = {
 
   async renderShipments(body, root, brokerId, options) {
     options = options || {};
+    var page = Math.max(1, Number(options.page) || 1);
+    var pageSize = Math.max(1, Number(options.pageSize) || 50);
     // Keep the current table on background reloads so the page does not blink.
     if (!body.querySelector("#crm-ship-body")) {
       body.innerHTML = "<p>Loading shipments…</p>";
@@ -503,32 +505,71 @@ window.GreenOSModules.crm = {
       if (options.assignmentKind === "new" || options.assignmentKind === "other") {
         params.push("assignmentKind=" + options.assignmentKind);
       }
+      if (options.status) {
+        params.push("status=" + encodeURIComponent(options.status));
+      }
+      params.push("page=" + encodeURIComponent(String(page)));
+      params.push("pageSize=" + encodeURIComponent(String(pageSize)));
       var q = params.length ? "?" + params.join("&") : "";
       var data = await this.api("/shipments" + q);
       if (!data.success) {
         body.innerHTML = "<p>" + this.esc(data.message || "Failed") + "</p>";
         return;
       }
-      var rows = data.data || [];
+      var payload = data.data || {};
+      var rows = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload.items)
+          ? payload.items
+          : [];
+      var total = Array.isArray(payload)
+        ? rows.length
+        : Number(payload.total != null ? payload.total : rows.length) || 0;
+      var totalPages = Array.isArray(payload)
+        ? 1
+        : Math.max(1, Number(payload.totalPages) || Math.ceil(total / pageSize) || 1);
       var tabLabel =
-        options.assignmentKind === "other"
-          ? "Other Shipment"
-          : options.assignmentKind === "new"
-            ? "New Shipment"
-            : "All Shipments";
+        options.status === "ACCEPTED_ANOTHER_COMPANY"
+          ? "Accepted to another company"
+          : options.assignmentKind === "other"
+            ? "Other Shipment"
+            : options.assignmentKind === "new"
+              ? "New Shipment"
+              : "All Shipments";
+      var tabHelp =
+        options.status === "ACCEPTED_ANOTHER_COMPANY"
+          ? "Listings booked by another company — moved here from New / Other."
+          : options.assignmentKind === "other"
+            ? "Loads passed from another broker who did not accept in time."
+            : options.assignmentKind === "new"
+              ? "Fresh imports and first-time assignments — prioritized in round-robin."
+              : "All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).";
+      var fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
+      var toIdx = Math.min(total, (page - 1) * pageSize + rows.length);
       body.innerHTML =
         '<section class="gos-dash-hero">' +
         "<h1>" +
         tabLabel +
         "</h1>" +
         "<p>" +
-        (options.assignmentKind === "other"
-          ? "Loads passed from another broker who did not accept in time."
-          : options.assignmentKind === "new"
-            ? "Fresh imports and first-time assignments — prioritized in round-robin."
-            : "All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).") +
+        tabHelp +
         "</p>" +
         "</section>" +
+        '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0 0 0.75rem">' +
+        '<span class="gos-muted" id="crm-ship-page-meta">' +
+        (total
+          ? "Showing " + fromIdx + "–" + toIdx + " of " + total
+          : "No shipments") +
+        (totalPages > 1 ? " · Page " + page + " / " + totalPages : "") +
+        "</span>" +
+        '<div style="display:flex;gap:0.5rem">' +
+        '<button type="button" class="btn-secondary" id="crm-ship-prev" style="width:auto"' +
+        (page <= 1 ? " disabled" : "") +
+        ">Previous</button>" +
+        '<button type="button" class="btn-secondary" id="crm-ship-next" style="width:auto"' +
+        (page >= totalPages ? " disabled" : "") +
+        ">Next</button>" +
+        "</div></div>" +
         '<div class="table-wrap crm-table-wrap"><table class="crm-table">' +
         "<thead><tr>" +
         "<th>#</th><th>Shipment</th><th>Customer</th><th>Broker</th><th>Pickup</th><th>Delivery</th>" +
@@ -537,8 +578,22 @@ window.GreenOSModules.crm = {
         "</tr></thead><tbody id=\"crm-ship-body\"></tbody></table></div>";
 
       var tbody = body.querySelector("#crm-ship-body");
+      var self = this;
+      body.querySelector("#crm-ship-prev")?.addEventListener("click", function () {
+        if (page <= 1) return;
+        self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page - 1 }));
+      });
+      body.querySelector("#crm-ship-next")?.addEventListener("click", function () {
+        if (page >= totalPages) return;
+        self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page + 1 }));
+      });
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="13">No shipments yet — import from Email Imports</td></tr>';
+        tbody.innerHTML =
+          '<tr><td colspan="13">' +
+          (options.status === "ACCEPTED_ANOTHER_COMPANY"
+            ? "No shipments accepted by another company"
+            : "No shipments yet — import from Email Imports") +
+          "</td></tr>";
         return;
       }
       var esc = this.esc.bind(this);
@@ -560,6 +615,7 @@ window.GreenOSModules.crm = {
               ? operationalDayKey(rows[index - 1].createdAt || rows[index - 1].receivedAt)
               : null;
           var isDayStart = index === 0 || (key && key !== prevKey);
+          var rowNum = (page - 1) * pageSize + index + 1;
           return (
             '<tr class="crm-row' +
             (isDayStart ? " lot-day-start" : "") +
@@ -567,7 +623,7 @@ window.GreenOSModules.crm = {
             s.shipmentLeadId +
             '">' +
             '<td class="lot-num">' +
-            (index + 1) +
+            rowNum +
             (isDayStart
               ? '<span class="lot-day-badge" title="Operational day: 17:00–16:59">17:00–16:59</span>'
               : "") +
