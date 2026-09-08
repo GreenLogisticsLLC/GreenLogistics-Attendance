@@ -55,5 +55,15 @@ export const ONBOARDING_PURPOSE = {
 export type OnboardingPurpose = (typeof ONBOARDING_PURPOSE)[keyof typeof ONBOARDING_PURPOSE];
 
 export { GREEN_LOGISTICS_AGREEMENT_V2 as DEFAULT_AGREEMENT_BODY } from "./agreement-template-v2.js";
-export const AGREEMENT_TEMPLATE_VERSION = "2.1";
+export const AGREEMENT_TEMPLATE_VERSION = "2.2";
 export const AGREEMENT_TEMPLATE_TITLE = "Broker - Carrier Agreement";
+
+/** Broker block used on signed Agreement PDFs. */
+export const BROKER_AGREEMENT_CONTACT = {
+    legalName: "GREEN LOGISTICS LLC",
+    signerName: "SPARTAK KAZARYAN",
+    title: "PRESIDENT",
+    address: "121 Frog Hollow Rd, Churchville, PA 18966",
+    phone: "(267) 703-5313",
+    email: "accounting@greengrouplogistics.com",
+} as const;

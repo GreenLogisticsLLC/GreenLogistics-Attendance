@@ -4,7 +4,7 @@
   "description": "Green Logistics Attendance Management System",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && mkdir -p dist/modules/carriers/assets && cp -f src/modules/carriers/assets/*.png dist/modules/carriers/assets/ 2>/dev/null || true",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "db:generate": "prisma generate",

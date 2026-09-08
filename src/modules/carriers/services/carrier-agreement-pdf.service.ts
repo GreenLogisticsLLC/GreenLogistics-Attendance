@@ -1,8 +1,28 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { fileURLToPath } from "url";
 import PDFDocument from "pdfkit";
+import { BROKER_AGREEMENT_CONTACT } from "../constants.js";
 import { carrierStorageService, CARRIER_UPLOADS_ROOT } from "./carrier-storage.service.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const BROKER_SIGNATURE_PNG = path.resolve(
+    __dirname,
+    "../assets/spartak-kazaryan-signature.png"
+);
+
+function resolveBrokerSignaturePng(): string | null {
+    const candidates = [
+        BROKER_SIGNATURE_PNG,
+        path.join(process.cwd(), "src/modules/carriers/assets/spartak-kazaryan-signature.png"),
+        path.join(process.cwd(), "dist/modules/carriers/assets/spartak-kazaryan-signature.png"),
+    ];
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return null;
+}
 
 export type AgreementPdfInput = {
     carrierId: string;
@@ -133,11 +153,32 @@ export function buildCarrierAgreementPdf(input: AgreementPdfInput): Promise<Buff
         );
         doc.moveDown(0.8);
 
-        doc.font("Helvetica-Bold").text("BROKER — GREEN LOGISTICS LLC");
-        doc.font("Helvetica").text("Authorized Signature / Printed Name: SPARTAK KAZARYAN");
-        doc.text("Title: PRESIDENT");
-        doc.text("91 N York Rd Apt 500-40, Willow Grove, PA 19090");
-        doc.text("Phone: (484) 929-1404  ·  Email: tbgreenlogistics@gmail.com");
+        doc.font("Helvetica-Bold").text(`BROKER — ${BROKER_AGREEMENT_CONTACT.legalName}`);
+        doc.font("Helvetica").text("Authorized Signature:");
+        const brokerSig = resolveBrokerSignaturePng();
+        if (brokerSig) {
+            try {
+                const y = doc.y;
+                doc.image(brokerSig, doc.page.margins.left, y, {
+                    fit: [260, 70],
+                    valign: "center",
+                });
+                doc.y = y + 74;
+            } catch {
+                doc.font("Times-Italic").fontSize(16).text("Spartak Kazaryan");
+                doc.fontSize(10);
+            }
+        } else {
+            doc.font("Times-Italic").fontSize(16).text("Spartak Kazaryan");
+            doc.fontSize(10);
+        }
+        doc.font("Helvetica").text(
+            `Printed Name: ${BROKER_AGREEMENT_CONTACT.signerName}  ·  Title: ${BROKER_AGREEMENT_CONTACT.title}`
+        );
+        doc.text(BROKER_AGREEMENT_CONTACT.address);
+        doc.text(
+            `Phone: ${BROKER_AGREEMENT_CONTACT.phone}  ·  Email: ${BROKER_AGREEMENT_CONTACT.email}`
+        );
         doc.moveDown(1);
 
         doc.font("Helvetica-Bold").text("CARRIER");
