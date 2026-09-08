@@ -538,7 +538,7 @@ window.GreenOSModules.crm = {
               : "All Shipments";
       var tabHelp =
         options.status === "ACCEPTED_ANOTHER_COMPANY"
-          ? "Listings booked by another company — moved here from New / Other."
+          ? "Broker Gmail Decline Reason = Accepted another quote — moved here automatically."
           : options.assignmentKind === "other"
             ? "Loads passed from another broker who did not accept in time."
             : options.assignmentKind === "new"
