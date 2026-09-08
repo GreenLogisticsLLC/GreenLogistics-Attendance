@@ -90,10 +90,21 @@ export async function getInOfficeEmployeeIds(employeeIds: string[]): Promise<Set
             bounds.scheduledStart.getTime() - 4 * 60 * 60 * 1000
         );
         const overnightOtEnd = new Date(bounds.scheduledEnd.getTime() + 2 * 60 * 60 * 1000);
-        if (now < earlyArrivalFrom || now > overnightOtEnd) continue;
-        if (
+
+        // Fresh door/ops ENTRY (lastActivity within 8h) still counts outside the
+        // nominal 17:00–02:00 window — needed for daytime ops check-in.
+        const lastActivityAt = session.lastActivity
+            ? new Date(session.lastActivity).getTime()
+            : 0;
+        const freshCheckIn =
+            lastActivityAt > 0 && now.getTime() - lastActivityAt < 8 * 60 * 60 * 1000;
+
+        if (now < earlyArrivalFrom || now > overnightOtEnd) {
+            if (!freshCheckIn) continue;
+        } else if (
             now < bounds.scheduledStart &&
-            (!session.firstEntry || session.firstEntry < earlyArrivalFrom)
+            (!session.firstEntry || session.firstEntry < earlyArrivalFrom) &&
+            !freshCheckIn
         ) {
             continue;
         }
