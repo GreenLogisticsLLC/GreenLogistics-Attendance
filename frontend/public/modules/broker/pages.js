@@ -401,7 +401,12 @@ window.GreenOSModules.broker = {
       if (!tbody) return;
       var esc = self.esc.bind(self);
       var fmt = self.fmtDate.bind(self);
-      var badge = self.statusBadge.bind(self);
+      var statusCell =
+        window.GreenOSModules.crm && window.GreenOSModules.crm.statusCellHtml
+          ? window.GreenOSModules.crm.statusCellHtml.bind(window.GreenOSModules.crm)
+          : function (st) {
+              return self.statusBadge(st);
+            };
       var query = searchQuery();
       var tab = self._shipmentsTab || "new";
       var page = pageMeta && pageMeta.page ? pageMeta.page : 1;
@@ -440,7 +445,7 @@ window.GreenOSModules.broker = {
             "</td><td>" +
             esc(s.delivery) +
             "</td><td>" +
-            badge(s.status) +
+            statusCell(s.status, { customerReplied: Boolean(s.customerReplied) }) +
             "</td><td>" +
             fmt(s.updatedAt) +
             "</td></tr>"

@@ -251,6 +251,31 @@ window.GreenOSModules.crm = {
     return '<span class="crm-badge ' + m.cls + '">' + m.label + "</span>";
   },
 
+  /**
+   * Status pill(s): primary status + red "Customer Replied" notice when the
+   * customer wrote back (status or pending broker-reply deadline / pipeline).
+   */
+  statusCellHtml(status, opts) {
+    opts = opts || {};
+    var st = String(status || "");
+    var customerReplied =
+      opts.customerReplied === true ||
+      st === "CUSTOMER_REPLIED" ||
+      st === "CUSTOMER_RESPOND";
+    var parts = [];
+    // Keep Shipment Accepted visible when the active notice is Customer Replied.
+    if (st === "CUSTOMER_REPLIED" || st === "CUSTOMER_RESPOND") {
+      parts.push(this.statusBadge("WORKING"));
+      parts.push('<span class="crm-badge crm-st-replied">🔴 Customer Replied</span>');
+    } else {
+      parts.push(this.statusBadge(st));
+      if (customerReplied) {
+        parts.push('<span class="crm-badge crm-st-replied">🔴 Customer Replied</span>');
+      }
+    }
+    return '<span class="crm-status-cell">' + parts.join("") + "</span>";
+  },
+
   async renderDashboard(body, root) {
     if (!body.querySelector(".crm-kpi-grid")) {
       body.innerHTML = "<p>Loading CRM dashboard…</p>";
@@ -617,7 +642,7 @@ window.GreenOSModules.crm = {
       }
       var esc = this.esc.bind(this);
       var fmt = this.fmtDate.bind(this);
-      var badge = this.statusBadge.bind(this);
+      var statusCell = this.statusCellHtml.bind(this);
       function operationalDayKey(v) {
         if (!v) return "";
         var d = new Date(v);
@@ -672,7 +697,7 @@ window.GreenOSModules.crm = {
             (s.price != null ? "$" + s.price : "—") +
             "</td>" +
             "<td>" +
-            badge(s.status) +
+            statusCell(s.status, { customerReplied: Boolean(s.customerReplied) }) +
             "</td>" +
             "<td>" +
             esc(s.priority || "NORMAL") +
@@ -842,7 +867,7 @@ window.GreenOSModules.crm = {
         return;
       }
       var esc = this.esc.bind(this);
-      var badge = this.statusBadge.bind(this);
+      var statusCell = this.statusCellHtml.bind(this);
       list.innerHTML = shipments
         .map(function (sh, i) {
           return (
@@ -860,7 +885,7 @@ window.GreenOSModules.crm = {
             " → " +
             esc(sh.delivery) +
             "</span>" +
-            badge(sh.status) +
+            statusCell(sh.status, { customerReplied: Boolean(sh.customerReplied) }) +
             "</button>"
           );
         })
@@ -1003,6 +1028,11 @@ window.GreenOSModules.crm = {
       if (customerR && customerR.done && brokerQ && brokerQ.done) {
         brokerQ = Object.assign({}, brokerQ, { done: false, at: null });
       }
+      var customerRepliedNotice =
+        Boolean(s.customerReplied) ||
+        String(s.status || "") === "CUSTOMER_REPLIED" ||
+        (customerR && customerR.done) ||
+        Boolean(s.brokerReplyDeadline);
 
       function pipeNodeHtml(p, opts) {
         opts = opts || {};
@@ -1208,7 +1238,7 @@ window.GreenOSModules.crm = {
         "</header>" +
         '<div class="crm-card-grid">' +
         "<div><span>Status</span>" +
-        this.statusBadge(s.status) +
+        this.statusCellHtml(s.status, { customerReplied: customerRepliedNotice }) +
         "</div>" +
         "<div><span>Load Number</span><strong>" +
         esc(s.loadNumber || "—") +

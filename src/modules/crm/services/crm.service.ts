@@ -97,6 +97,10 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
         opsPickupAt: lead.opsPickupAt || null,
         opsDeliveryAt: lead.opsDeliveryAt || null,
         ushipUrl: ushipListingUrlFromLead(lead),
+        brokerReplyDeadline: lead.brokerReplyDeadline || null,
+        customerReplied:
+            String(lead.status || "") === "CUSTOMER_REPLIED" ||
+            Boolean(lead.brokerReplyDeadline),
     };
 }
 
@@ -126,6 +130,7 @@ const SHIPMENT_LIST_SELECT = {
     assignedBrokerId: true,
     isReassignment: true,
     wasEverReassigned: true,
+    brokerReplyDeadline: true,
     createdAt: true,
     updatedAt: true,
     receivedAt: true,
@@ -144,6 +149,8 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         statusLabel: e.statusLabel,
         isReassignment: Boolean(lead.isReassignment || lead.wasEverReassigned),
         wasEverReassigned: Boolean(lead.wasEverReassigned || lead.isReassignment),
+        brokerReplyDeadline: lead.brokerReplyDeadline as Date | string | null,
+        customerReplied: Boolean(e.customerReplied),
         updatedAt: lead.updatedAt as Date | string | null,
     };
 }
