@@ -73,7 +73,7 @@ function sortBrokersForRoundRobin(brokers: EligibleBroker[]): EligibleBroker[] {
     });
 }
 
-export type AssignmentPoolMode = "in_office" | "all_brokers_fallback" | "none";
+export type AssignmentPoolMode = "in_office" | "none";
 
 /**
  * Assignment Engine v1.0 — Round Robin driven only by Attendance:
@@ -609,20 +609,18 @@ export class AssignmentEngine {
         const modeLabel =
             mode === "in_office"
                 ? "Checked-in brokers only"
-                : mode === "all_brokers_fallback"
-                  ? "Nobody In Office — round-robin all brokers (Gary first)"
-                  : "No eligible brokers";
+                : "No In Office brokers — new shipments stay Unassigned";
         return {
             version: "1.0",
             algorithm: "round_robin_sequential",
             assignmentMode: mode,
             assignmentModeLabel: modeLabel,
             rules: [
-                "NEW shipments go to checked-in (In Office) brokers only — sequential round-robin",
+                "NEW shipments go ONLY to brokers who are In Office (Attendance check-in)",
                 "Fresh NEW imports are assigned before passed-along (reassigned) loads",
-                "If nobody is In Office → all active brokers receive shipments in order (Gary first, then A→Z)",
-                "When someone checks in → only checked-in brokers receive new shipments",
-                "Waiting leads not accepted in 15 minutes go to the next broker — Open in uShip still passes; only Accept Shipment keeps the load",
+                "If nobody is In Office → shipments stay UNASSIGNED until someone checks in",
+                "When a broker checks in → they join the queue and pending NEW/UNASSIGNED drain to In Office brokers",
+                "Waiting leads not accepted in 15 minutes go to the next In Office broker — Open in uShip still passes; only Accept Shipment keeps the load",
                 "Gmail recommended for uShip updates but does not block receiving shipments",
             ],
             heart: "Attendance → Assignment Queue → CRM Shipment",
@@ -857,8 +855,8 @@ export class AssignmentEngine {
 
     /**
      * Eligible brokers for round-robin:
-     * 1) Prefer Brokers who are In Office (Attendance check-in).
-     * 2) If nobody is In Office → all active Brokers with a badge (Gary first, then A→Z).
+     * Only Brokers who are In Office (Attendance check-in).
+     * If nobody is In Office → empty pool; NEW shipments stay UNASSIGNED until check-in.
      * Gmail is NOT required. `availableForAssignment` is ignored.
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
@@ -980,15 +978,9 @@ export class AssignmentEngine {
             /* best-effort diagnostic */
         }
 
-        if (allLinked.length > 0) {
-            console.info(
-                `[assignment] no broker In Office — falling back to round-robin across ${allLinked.length} broker(s), Gary first`
-            );
-            return {
-                eligible: sortBrokersForRoundRobin(allLinked),
-                mode: "all_brokers_fallback",
-            };
-        }
+        console.info(
+            `[assignment] no broker In Office — parking NEW shipments as UNASSIGNED until check-in (${allLinked.length} linked broker(s) offline)`
+        );
         return { eligible: [], mode: "none" };
     }
 

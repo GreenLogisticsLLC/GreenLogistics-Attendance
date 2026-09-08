@@ -306,13 +306,11 @@ export class CrmService {
             .filter((b) => b.role === "Broker")
             .reduce((sum, b) => sum + (b.currentShipments || 0), 0);
         const assignmentMode =
-            presentBrokers.length > 0 ? "in_office" : "all_brokers_fallback";
-        // Owner "Active Loads": shipments currently with who should receive mail —
-        // checked-in brokers when anyone is present; otherwise all brokers who have work.
+            presentBrokers.length > 0 ? "in_office" : "none";
+        // Owner "Active Loads": shipments currently with checked-in brokers.
+        // If nobody is In Office, show 0 (new mail parks UNASSIGNED).
         const ownerActiveLoads =
-            presentBrokers.length > 0
-                ? shipmentsToPresentBrokers
-                : shipmentsToAllAssignedBrokers;
+            presentBrokers.length > 0 ? shipmentsToPresentBrokers : 0;
 
         return {
             version: "1.0",
@@ -796,11 +794,9 @@ export class CrmService {
             assignmentMode:
                 presentBrokers.length > 0
                     ? ("in_office" as const)
-                    : ("all_brokers_fallback" as const),
+                    : ("none" as const),
             ownerActiveLoads:
-                presentBrokers.length > 0
-                    ? shipmentsToPresentBrokers
-                    : shipmentsToAllAssignedBrokers,
+                presentBrokers.length > 0 ? shipmentsToPresentBrokers : 0,
             shipmentsToPresentBrokers,
         };
     }

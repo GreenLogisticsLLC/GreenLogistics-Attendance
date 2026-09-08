@@ -393,7 +393,7 @@
       root.innerHTML =
         `<section class="gos-dash-hero">` +
         `<h1>GreenOS Dashboard</h1>` +
-        `<p>Live operational overview — Active Loads = shipments with brokers who receive mail (checked-in when anyone is In Office; otherwise all brokers).</p>` +
+        `<p>Live operational overview — Active Loads = shipments with In Office brokers. New Instant Alerts only go to brokers who are checked in.</p>` +
         `</section>` +
         `<p class="gos-muted" id="gos-dash-status">Loading live metrics…</p>` +
         `<section class="gos-card-grid" id="gos-dash-cards"></section>` +
@@ -466,8 +466,8 @@
             hint:
               mode === "in_office"
                 ? "With checked-in brokers"
-                : mode === "all_brokers_fallback"
-                  ? "No one In Office — total across brokers (RR to all)"
+                : mode === "none"
+                  ? "Nobody In Office — new shipments stay Unassigned"
                   : "Assigned active shipments",
             tone: "accent-blue",
           },
@@ -524,16 +524,16 @@
             queueData.assignmentModeLabel ||
             (mode === "in_office"
               ? "Checked-in brokers only"
-              : mode === "all_brokers_fallback"
-                ? "Nobody In Office — all brokers (Gary first)"
+              : mode === "none"
+                ? "No In Office brokers — new shipments stay Unassigned"
                 : "No eligible brokers");
           const badgeClass =
-            mode === "all_brokers_fallback" ? "gos-queue-badge fallback" : "gos-queue-badge";
+            mode === "none" ? "gos-queue-badge idle" : "gos-queue-badge";
           const badgeText =
             mode === "in_office"
               ? "In Office"
-              : mode === "all_brokers_fallback"
-                ? "Fallback"
+              : mode === "none"
+                ? "Waiting"
                 : "Idle";
           queueModeEl.innerHTML =
             self.escapeHtml(modeLabel) + ` <span class="${badgeClass}">${badgeText}</span>`;
@@ -599,8 +599,8 @@
         statusEl.textContent =
           mode === "in_office"
             ? "Assignment: checked-in brokers only (round-robin)."
-            : mode === "all_brokers_fallback"
-              ? "Assignment: nobody In Office — round-robin across all brokers (Gary first)."
+            : mode === "none"
+              ? "Assignment: nobody In Office — new Instant Alerts stay Unassigned until check-in."
               : "Live metrics loaded.";
         statusEl.style.color = "";
       }

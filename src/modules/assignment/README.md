@@ -5,7 +5,7 @@ Attendance (card swipe)
     ↓
 In Office / Out of Office   ← only these two for eligibility
     ↓
-Assignment Queue (Round Robin)
+Assignment Queue (Round Robin among In Office only)
     ↓
 Shipment Card + Domain Event BROKER_ASSIGNED
     ↓
@@ -18,8 +18,9 @@ SSE: "New Shipment Assigned — GOS-…"
 |-----------------|--------|
 | **In Office**   | Joins end of queue; drains Unassigned/NEW via Round Robin |
 | **Out of Office** | Removed immediately — skipped |
+| **Nobody In Office** | NEW shipments stay **UNASSIGNED** until someone checks in |
 
-No Busy / Away / Available toggles. `availableForAssignment` on User is ignored by the engine (In Office from Attendance is the only gate).
+No Busy / Away / Available toggles. `availableForAssignment` on User is ignored by the engine (In Office from Attendance is the only gate). There is **no** “assign to all brokers / Gary fallback” when the office is empty.
 
 ## Notification
 

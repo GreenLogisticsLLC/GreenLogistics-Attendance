@@ -166,11 +166,10 @@ async function main() {
   console.log("=== IN OFFICE FOR ASSIGNMENT ===", insideNames);
   console.log(
     "=== ASSIGNMENT MODE ===",
-    insideNames.length > 0
-      ? "in_office"
-      : brokers.length
-        ? "all_brokers_fallback"
-        : "none"
+    insideNames.length > 0 ? "in_office" : "none",
+    insideNames.length === 0
+      ? "(nobody In Office → NEW shipments stay UNASSIGNED)"
+      : ""
   );
 
   if (lia) {
