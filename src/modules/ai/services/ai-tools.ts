@@ -126,7 +126,8 @@ export class AiTools {
         if (!q || q.length < 2) return notFound("findCarriers");
 
         const mcDigits = extractMcDigits(q);
-        let rows: Awaited<ReturnType<typeof carrierService.list>> = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let rows: any[] = [];
 
         if (mcDigits) {
             // Narrow MC search: match stored mc_number against digit / prefixed variants.
