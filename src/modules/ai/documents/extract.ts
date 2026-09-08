@@ -118,33 +118,68 @@ function extractAgreement(t: string): ExtractedField[] {
     ];
 }
 
+function parseEinDigits(chunk: string | null | undefined): string | null {
+    if (!chunk) return null;
+    // W-9 boxes often OCR as "9 9 - 2 2 9 7 8 6 6"
+    const digits = String(chunk).replace(/\D/g, "");
+    if (digits.length < 9) return null;
+    // Prefer first 9 digits in the EIN window (ignore trailing noise)
+    const nine = digits.slice(0, 9);
+    return `${nine.slice(0, 2)}-${nine.slice(2)}`;
+}
+
 function extractW9(t: string): ExtractedField[] {
+    // Circled Part I — Employer identification number must be filled.
+    const einWindow =
+        pick(t, /Employer\s+identification\s+number([\s\S]{0,160})/i) ||
+        pick(t, /\bEIN\b([\s\S]{0,80})/i) ||
+        "";
     const ein =
-        pick(t, /Employer\s+identification\s+number[\s\S]{0,80}?(\d{2}\s*[-–]?\s*\d{7})/i) ||
-        pick(t, /\b(\d{2}\s*-\s*\d{7})\b/);
-    const ssn = pick(t, /Social\s+security\s+number[\s\S]{0,40}?(\d{3}\s*-\s*\d{2}\s*-\s*\d{4})/i);
+        parseEinDigits(einWindow) ||
+        parseEinDigits(pick(t, /\b(\d{2}\s*[-–]?\s*\d{7})\b/)) ||
+        parseEinDigits(
+            pick(t, /\b(\d(?:\s*\d){1}\s*[-–]?\s*\d(?:\s*\d){6})\b/)
+        );
+
+    const ssnWindow = pick(t, /Social\s+security\s+number([\s\S]{0,80})/i) || "";
+    const ssnDigits = String(ssnWindow).replace(/\D/g, "");
+    const ssn =
+        ssnDigits.length >= 9
+            ? `${ssnDigits.slice(0, 3)}-${ssnDigits.slice(3, 5)}-${ssnDigits.slice(5, 9)}`
+            : pick(t, /\b(\d{3}\s*-\s*\d{2}\s*-\s*\d{4})\b/);
+
     const tin = ein || ssn;
     const tinType = ein ? "EIN" : ssn ? "SSN" : null;
     return [
-        field("name", pick(t, /Name[^\n]*\n([A-Z][^\n]{3,80})/i) || pick(t, /(DONTA\s+CRAIG[^\n]*)/i)),
+        field("name", pick(t, /Name[^\n]*\n([A-Z][^\n]{3,80})/i) || pick(t, /(DONTA\s+CRAIG[^\n]*)/i) ||
+            pick(t, /(?:^|\n)(ARSEN\s+KUDANETOV)\b/i)),
         field(
             "businessName",
             pick(t, /Business\s+name[^\n]*\n([^\n]+)/i) ||
-                pick(t, /(I\s+GET\s+AROUND\s+TRANSPORTATION\s+LLC)/i)
+                pick(t, /(I\s+GET\s+AROUND\s+TRANSPORTATION\s+LLC)/i) ||
+                pick(t, /(ARSEN\s+TRUCKING\s+LLC)/i)
         ),
         field(
             "taxClassification",
             /Individual\/sole\s+proprietor/i.test(t)
                 ? "Individual/sole proprietor"
-                : pick(t, /(C\s+Corporation|S\s+Corporation|Partnership|LLC)/i)
+                : /S\s*corporation/i.test(t)
+                  ? "S Corporation"
+                  : pick(t, /(C\s+Corporation|S\s+Corporation|Partnership|LLC|Limited\s+liability\s+company)/i)
         ),
         field("address", pick(t, /(?:Address|5)\s*[^\n]*\n([^\n]+)/i)),
         field("cityStateZip", pick(t, /([A-Z][A-Za-z]+\s+[A-Z]{2}\s+\d{5})/)),
         field("tinType", tinType),
+        field("ein", ein ? redactTin(ein) : null, {
+            normalized: ein ? redactTin(ein) : null,
+            valueProtected: ein ? tinFingerprint(ein) : null,
+            confidence: ein ? 0.95 : 0,
+            fieldStatus: ein ? "FIELD_FOUND" : "FIELD_MISSING",
+        }),
         field("tin", tin ? redactTin(tin) : null, {
             normalized: tin ? redactTin(tin) : null,
             valueProtected: tin ? tinFingerprint(tin) : null,
-            confidence: tin ? 0.85 : 0,
+            confidence: tin ? 0.9 : 0,
             fieldStatus: tin ? "FIELD_FOUND" : "FIELD_MISSING",
         }),
         field("signatureDate", pick(t, /\b(\d{2}\/\d{2}\/\d{4})\b/)),

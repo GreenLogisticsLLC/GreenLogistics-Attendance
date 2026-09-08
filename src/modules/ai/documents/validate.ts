@@ -360,7 +360,8 @@ function requiredFieldsFor(type: DocAiType): string[] {
         case "CARRIER_PROFILE":
             return ["legalName", "mcNumber", "dotNumber"];
         case "W9":
-            return ["tin", "taxClassification"];
+            // Circled Part I EIN box must be filled (not blank).
+            return ["ein", "tin", "taxClassification"];
         case "COI":
         case "INSURANCE":
             return ["autoLiabilityLimit", "cargoLimit", "policyExp", "certificateHolder"];

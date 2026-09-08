@@ -23,6 +23,8 @@ export async function extractW9FieldsWithVision(input: {
   "signaturePresent": boolean,
   "signatureDate": string|null
 }
+Focus on Part I Employer identification number (EIN) — if those boxes are blank, tinType and tinLast4 must be null.
+If EIN is filled, set tinType to "EIN" and tinLast4 to the last 4 digits only.
 Do not return full SSN/EIN — only last 4 digits in tinLast4.`;
     try {
         const res = await aiGateway.visionJson({
@@ -33,6 +35,7 @@ Do not return full SSN/EIN — only last 4 digits in tinLast4.`;
         const p = res.parsed || {};
         const last4 = p.tinLast4 ? String(p.tinLast4).replace(/\D/g, "").slice(-4) : "";
         const tinDisplay = last4 ? `******${last4}` : null;
+        const isEin = String(p.tinType || "").toUpperCase() === "EIN";
         const field = (
             key: string,
             value: string | null,
@@ -54,6 +57,17 @@ Do not return full SSN/EIN — only last 4 digits in tinLast4.`;
             field("address", p.address ? String(p.address) : null),
             field("cityStateZip", p.cityStateZip ? String(p.cityStateZip) : null),
             field("tinType", p.tinType ? String(p.tinType) : null),
+            {
+                fieldKey: "ein",
+                valueText: isEin ? tinDisplay : null,
+                valueNormalized: isEin ? tinDisplay : null,
+                valueProtected: isEin && last4 ? tinFingerprint(`000000${last4}`) : null,
+                confidence: isEin && tinDisplay ? 0.85 : 0,
+                page: 1,
+                source: "vision",
+                method: "vision",
+                fieldStatus: isEin && tinDisplay ? "FIELD_FOUND" : "FIELD_MISSING",
+            },
             {
                 fieldKey: "tin",
                 valueText: tinDisplay,
