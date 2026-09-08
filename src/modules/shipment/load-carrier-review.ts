@@ -24,6 +24,8 @@ export type CarrierReviewAiVerdict = {
     classifiedDocType: string | null;
     /** Broker-facing: Approved | Not Approved | Checking… | Pending | Failed */
     verdict: string;
+    /** ACCEPT | REJECT | REQUEST_CHANGES when a broker reviewed the AI job */
+    reviewDecision?: string | null;
 };
 
 export type CarrierReviewSlot = {

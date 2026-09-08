@@ -88,26 +88,38 @@ window.GreenOSModules["dispatch"] = {
     URL.revokeObjectURL(obj);
   },
 
-  carrierDocBotVerdictHtml(ai) {
+  carrierDocBotVerdictHtml(ai, opts) {
     var self = this;
+    opts = opts || {};
     if (!ai) {
       return '<span class="ld-carrier-doc-verdict is-pending">Pending</span>';
     }
     var verdict = String(ai.verdict || "").trim() || "Pending";
     var light = String(ai.trafficLight || "").toUpperCase();
+    var reviewDecision = String(ai.reviewDecision || "").toUpperCase();
     var cls = "is-pending";
     if (verdict === "Approved" || light === "GREEN") cls = "is-approved";
     else if (verdict === "Not Approved" || light === "RED" || light === "YELLOW") cls = "is-rejected";
     else if (verdict === "Checking…" || verdict === "Checking...") cls = "is-checking";
     else if (verdict === "Failed") cls = "is-failed";
     var tip = [ai.overallStatus, ai.classifiedDocType, ai.status].filter(Boolean).join(" · ");
+    var botNotApproved =
+      verdict === "Not Approved" || light === "RED" || light === "YELLOW";
+    var brokerOverride =
+      botNotApproved &&
+      (opts.brokerApproved === true || reviewDecision === "ACCEPT");
     return (
+      '<span class="ld-carrier-doc-verdict-wrap">' +
       '<span class="ld-carrier-doc-verdict ' +
       cls +
       '"' +
       (tip ? ' title="' + self.esc(tip) + '"' : "") +
       ">" +
       self.esc(verdict) +
+      "</span>" +
+      (brokerOverride
+        ? '<span class="ld-carrier-doc-broker-ok" title="Broker approved after bot review">(approved by Broker)</span>'
+        : "") +
       "</span>"
     );
   },
@@ -143,7 +155,9 @@ window.GreenOSModules["dispatch"] = {
             (d.uploadedBy ? " · " + self.esc(d.uploadedBy) : "") +
             "</span>" +
             "</div>" +
-            self.carrierDocBotVerdictHtml(d.ai) +
+            self.carrierDocBotVerdictHtml(d.ai, {
+              brokerApproved: c.loadCarrierApproved === true,
+            }) +
             '<div class="ld-carrier-doc-actions">' +
             '<button type="button" class="btn-primary ld-carrier-doc-view" data-id="' +
             self.esc(d.documentId) +
@@ -229,7 +243,7 @@ window.GreenOSModules["dispatch"] = {
             var doc = slot.document || null;
             var from = "Carrier packet — review only";
             var verdictCell = doc
-              ? self.carrierDocBotVerdictHtml(slot.ai)
+              ? self.carrierDocBotVerdictHtml(slot.ai, { brokerApproved: loadApproved })
               : '<span class="ld-carrier-doc-verdict is-pending">Missing</span>';
             var actionsCell = doc
               ? '<div class="ld-carrier-doc-actions">' +

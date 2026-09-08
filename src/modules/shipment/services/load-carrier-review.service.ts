@@ -47,6 +47,7 @@ async function latestAiByDocumentIds(
                 trafficLight: job.validation?.trafficLight,
                 overallStatus: job.validation?.overallStatus,
             }),
+            reviewDecision: job.validation?.reviewDecision || null,
         });
     }
     return out;
