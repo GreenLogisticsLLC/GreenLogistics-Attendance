@@ -18,6 +18,7 @@ import {
     assertQuickActionAllowed,
     quickActionIdForDocType,
 } from "../load-quick-actions.js";
+import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
 import { isLoadCarrierApproved } from "../load-carrier-review.js";
 import { buildCarrierOperationalSummary } from "../../ai/operational/carrier-context.js";
 import { documentAiJobService } from "../../ai/documents/job.service.js";
@@ -118,8 +119,22 @@ export class LoadDocumentsService {
                 (gmail?.isActive !== false && gmail?.gmailAddress) || u?.email || null;
         }
 
+        const profile = s.carrierProfileId
+            ? await prisma.carrier.findUnique({
+                  where: { carrierId: s.carrierProfileId },
+                  select: {
+                      dotNumber: true,
+                      mcNumber: true,
+                      phone: true,
+                      email: true,
+                      paymentOption: true,
+                  },
+              })
+            : null;
+
         const pickupAt = s.opsPickupAt || s.pickupFrom;
         const deliveryAt = s.opsDeliveryAt || s.deliveryFrom;
+        const paymentFromPacket = carrierPaymentOptionLabel(profile?.paymentOption) || null;
 
         return {
             loadNumber: s.loadNumber,
@@ -130,10 +145,10 @@ export class LoadDocumentsService {
             brokerName,
             brokerEmail,
             carrierName: s.carrierName,
-            carrierEmail: s.carrierEmail,
-            carrierMc: s.carrierMc,
-            carrierDot: s.carrierDot,
-            carrierPhone: s.carrierPhone,
+            carrierEmail: s.carrierEmail || profile?.email || null,
+            carrierMc: s.carrierMc || profile?.mcNumber || null,
+            carrierDot: s.carrierDot || profile?.dotNumber || null,
+            carrierPhone: s.carrierPhone || profile?.phone || null,
             driverName: s.driverName,
             driverPhone: s.driverPhone,
             truckNumber: s.truckNumber,
@@ -156,7 +171,7 @@ export class LoadDocumentsService {
             customerRate: s.customerRate ?? s.price,
             carrierRate: s.carrierRate,
             flatRate: s.carrierRate,
-            paymentOption: s.paymentStatus || null,
+            paymentOption: paymentFromPacket,
             deliveryNote: s.carrierNotes || null,
             specialNotes: s.specialInstructions || s.notes,
             confirmationDate: new Date().toLocaleDateString(),

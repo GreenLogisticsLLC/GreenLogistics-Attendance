@@ -1453,6 +1453,25 @@ export class CarrierService {
                       data,
                   })
                 : session.carrier;
+        // Sync mandatory packet fields onto linked loads so Rate Con can auto-fill DOT#.
+        if (data.dotNumber !== undefined || data.mcNumber !== undefined || data.phone !== undefined || data.email !== undefined) {
+            const leadPatch: {
+                carrierDot?: string | null;
+                carrierMc?: string | null;
+                carrierPhone?: string | null;
+                carrierEmail?: string | null;
+            } = {};
+            if (data.dotNumber !== undefined) leadPatch.carrierDot = (data.dotNumber as string | null) || null;
+            if (data.mcNumber !== undefined) leadPatch.carrierMc = (data.mcNumber as string | null) || null;
+            if (data.phone !== undefined) leadPatch.carrierPhone = (data.phone as string | null) || null;
+            if (data.email !== undefined) leadPatch.carrierEmail = (data.email as string | null) || null;
+            if (Object.keys(leadPatch).length) {
+                await prisma.shipmentLead.updateMany({
+                    where: { carrierProfileId: session.carrierId },
+                    data: leadPatch,
+                });
+            }
+        }
         await prisma.carrierOnboardingSession.update({
             where: { sessionId: session.sessionId },
             data: { progressJson: progressJson || null },

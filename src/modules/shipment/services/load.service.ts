@@ -15,6 +15,7 @@ import { isLoadCarrierApproved } from "../load-carrier-review.js";
 import { buildLoadCarrierReviewPacket } from "./load-carrier-review.service.js";
 import { sendLoadReviewEmail } from "./load-review-email.service.js";
 import { shipmentLifecycleService } from "../../ai/lifecycle/service.js";
+import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
 
 function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
@@ -283,6 +284,11 @@ export class LoadService {
                           onboardingStatus: true,
                           status: true,
                           assignedBrokerId: true,
+                          mcNumber: true,
+                          dotNumber: true,
+                          paymentOption: true,
+                          phone: true,
+                          email: true,
                           documents: {
                               where: {
                                   status: "CURRENT",
@@ -525,16 +531,20 @@ export class LoadService {
             },
             carrier: {
                 carrierName: s.carrierName,
-                carrierEmail: s.carrierEmail,
-                carrierPhone: s.carrierPhone,
-                mc: s.carrierMc,
-                dot: s.carrierDot,
+                carrierEmail: s.carrierEmail || carrierProfile?.email || null,
+                carrierPhone: s.carrierPhone || carrierProfile?.phone || null,
+                mc: s.carrierMc || carrierProfile?.mcNumber || null,
+                // Prefer load snapshot, fall back to onboarding packet DOT#.
+                dot: s.carrierDot || carrierProfile?.dotNumber || null,
                 insurance: s.carrierInsurance,
                 carrierStatus: s.carrierStatus,
                 driverName: s.driverName,
                 driverPhone: s.driverPhone,
                 truckNumber: s.truckNumber,
                 trailerNumber: s.trailerNumber,
+                // From carrier online packet (mandatory payment radios).
+                paymentOption: carrierProfile?.paymentOption || null,
+                paymentOptionLabel: carrierPaymentOptionLabel(carrierProfile?.paymentOption) || null,
                 carrierProfileId: s.carrierProfileId || carrierProfile?.carrierId || null,
                 onboardingStatus: carrierProfile?.onboardingStatus || null,
                 loadCarrierApproved: isLoadCarrierApproved(s),
@@ -827,6 +837,8 @@ export class LoadService {
                 carrierName: true,
                 carrierProfileId: true,
                 carrierMc: true,
+                carrierDot: true,
+                carrierPhone: true,
                 customerName: true,
                 customerEmail: true,
                 carrierEmail: true,
@@ -912,17 +924,24 @@ export class LoadService {
                     { status: 422, code: "CARRIER_PROFILE_REQUIRED" }
                 );
             }
-            const profile = await prisma.carrier.findUnique({
+            const profileFull = await prisma.carrier.findUnique({
                 where: { carrierId: profileId },
-                select: { onboardingStatus: true, assignedBrokerId: true },
+                select: {
+                    onboardingStatus: true,
+                    assignedBrokerId: true,
+                    dotNumber: true,
+                    mcNumber: true,
+                    phone: true,
+                    email: true,
+                },
             });
-            const onboarding = String(profile?.onboardingStatus || "").toUpperCase();
+            const onboarding = String(profileFull?.onboardingStatus || "").toUpperCase();
             const reviewSlots = await buildLoadCarrierReviewPacket({
                 currentShipmentLeadId: shipmentLeadId,
                 carrierProfileId: profileId,
-                carrierMc: shipment.carrierMc || null,
+                carrierMc: shipment.carrierMc || profileFull?.mcNumber || null,
                 botActorUserId:
-                    shipment.assignedBrokerId || profile?.assignedBrokerId || actorUserId || null,
+                    shipment.assignedBrokerId || profileFull?.assignedBrokerId || actorUserId || null,
                 packetDocs: (
                     await prisma.carrierDocument.findMany({
                         where: { carrierId: profileId, status: "CURRENT" },
@@ -964,6 +983,11 @@ export class LoadService {
                     loadCarrierApprovedById: actorUserId || null,
                     loadCarrierApprovedProfileId: profileId,
                     carrierStatus: "Approved",
+                    // Pull mandatory online-packet fields onto the load for Rate Con.
+                    carrierDot: shipment.carrierDot || profileFull?.dotNumber || null,
+                    carrierMc: shipment.carrierMc || profileFull?.mcNumber || null,
+                    carrierPhone: shipment.carrierPhone || profileFull?.phone || null,
+                    carrierEmail: shipment.carrierEmail || profileFull?.email || null,
                 },
             });
             await domainEventEngine.emit({

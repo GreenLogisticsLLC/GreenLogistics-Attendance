@@ -67,3 +67,19 @@ export const BROKER_AGREEMENT_CONTACT = {
     phone: "(267) 703-5313",
     email: "accounting@greengrouplogistics.com",
 } as const;
+
+/** Human-readable label for carrier portal payment option codes. */
+export function carrierPaymentOptionLabel(code: string | null | undefined): string {
+    switch (String(code || "").toUpperCase()) {
+        case "STANDARD":
+            return "Standard Payment (20-25 days)";
+        case "QUICK_3":
+            return "Quick Pay 3% (3-5 business days, ACH)";
+        case "QUICK_5":
+            return "Quick Pay 5% (24hrs)";
+        case "FACTORING":
+            return "Factoring company";
+        default:
+            return code ? String(code) : "";
+    }
+}
