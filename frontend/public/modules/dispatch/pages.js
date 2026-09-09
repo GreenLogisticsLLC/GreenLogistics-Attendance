@@ -464,6 +464,21 @@ window.GreenOSModules["dispatch"] = {
       .replace(/"/g, "&quot;");
   },
 
+  carrierPaymentOptionLabel(code) {
+    switch (String(code || "").toUpperCase()) {
+      case "STANDARD":
+        return "Standard Payment (20-25 days)";
+      case "QUICK_3":
+        return "Quick Pay 3% (3-5 business days, ACH)";
+      case "QUICK_5":
+        return "Quick Pay 5% (24hrs)";
+      case "FACTORING":
+        return "Factoring company";
+      default:
+        return code ? String(code) : "";
+    }
+  },
+
   money(n) {
     var v = Number(n);
     if (!Number.isFinite(v)) return "—";
@@ -2712,7 +2727,12 @@ window.GreenOSModules["dispatch"] = {
       '<label>Truck # <input id="rc-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
       '<label>Trailer # <input id="rc-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
       '<label class="full">Payment option <input id="rc-pay" value="' +
-      self.esc(pick("paymentOption", "")) +
+      self.esc(
+        pick(
+          "paymentOption",
+          c.paymentOptionLabel || self.carrierPaymentOptionLabel(c.paymentOption) || ""
+        )
+      ) +
       '" placeholder="QuickPay / Factoring / Net 30…"></label>' +
       '<label class="full">Delivery note <textarea id="rc-delnote" rows="2">' +
       self.esc(pick("deliveryNote", "")) +

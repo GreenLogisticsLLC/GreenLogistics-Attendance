@@ -3,7 +3,7 @@ import path from "path";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import PDFDocument from "pdfkit";
-import { BROKER_AGREEMENT_CONTACT } from "../constants.js";
+import { BROKER_AGREEMENT_CONTACT, carrierPaymentOptionLabel } from "../constants.js";
 import { carrierStorageService, CARRIER_UPLOADS_ROOT } from "./carrier-storage.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -53,18 +53,7 @@ export type AgreementPdfInput = {
 };
 
 function paymentLabel(code: string | null | undefined): string {
-    switch (String(code || "").toUpperCase()) {
-        case "STANDARD":
-            return "Standard Payment (20-25 days)";
-        case "QUICK_3":
-            return "Quick Pay 3% (3-5 business days, ACH)";
-        case "QUICK_5":
-            return "Quick Pay 5% (24hrs)";
-        case "FACTORING":
-            return "Factoring company";
-        default:
-            return code || "—";
-    }
+    return carrierPaymentOptionLabel(code) || "—";
 }
 
 function signatureBuffer(dataUrl: string): Buffer | null {
