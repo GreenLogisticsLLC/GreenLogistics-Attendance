@@ -51,6 +51,11 @@ carriersRouter.get(
     requireRole(...staff),
     carriersController.downloadDocument
 );
+carriersRouter.delete(
+    "/:id/documents/:documentId",
+    requireRole("Administrator", "Owner"),
+    carriersController.deleteDocument
+);
 
 /** Public carrier onboarding portal APIs (token = credential) */
 export const carrierOnboardingPublicRouter = Router();

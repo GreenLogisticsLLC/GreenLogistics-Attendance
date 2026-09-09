@@ -93,6 +93,16 @@ export class CarrierStorageService {
         }
         return resolved;
     }
+
+    /** Best-effort unlink of a stored carrier file (missing file is OK). */
+    tryUnlink(carrierId: string, storageKey: string): void {
+        try {
+            const absolutePath = this.absolutePath(carrierId, storageKey);
+            if (fs.existsSync(absolutePath)) fs.unlinkSync(absolutePath);
+        } catch {
+            /* ignore invalid key / missing file */
+        }
+    }
 }
 
 export const carrierStorageService = new CarrierStorageService();

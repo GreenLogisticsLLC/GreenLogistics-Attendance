@@ -396,6 +396,9 @@ window.GreenOSModules.carriers = {
   renderDocs(el, c) {
     var self = this;
     var docs = c.documents || [];
+    var role =
+      (window.GreenOSUser && (window.GreenOSUser.role || window.GreenOSUser.roleName)) || "";
+    var canDeleteDocs = role === "Owner" || role === "Administrator";
     var docsHtml = !docs.length
       ? '<p class="gos-muted">No packet documents uploaded yet.</p>'
       : '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
@@ -424,12 +427,23 @@ window.GreenOSModules.carriers = {
             '<button type="button" class="btn-secondary cr-doc-ai-run" data-id="' +
             self.esc(d.documentId) +
             '">Validate AI</button>' +
+            (canDeleteDocs
+              ? ' <button type="button" class="btn-secondary cr-doc-del" style="border-color:#b42318;color:#b42318" data-id="' +
+                self.esc(d.documentId) +
+                '" data-name="' +
+                self.esc(d.originalFilename) +
+                '">Delete</button>'
+              : "") +
             "</td>" +
             "</tr>"
           );
         }).join("") +
         "</tbody></table></div>" +
-        '<p class="gos-muted" style="margin-top:8px">Documents for this carrier only. Carrier change creates a new registration — previous carriers keep their own files. Document AI: GREEN / REVIEW / RED — never auto-changes carrier master data.</p>';
+        '<p class="gos-muted" style="margin-top:8px">Documents for this carrier only. Carrier change creates a new registration — previous carriers keep their own files. Document AI: GREEN / REVIEW / RED — never auto-changes carrier master data.' +
+        (canDeleteDocs
+          ? " Owner / Administrator can permanently delete documents."
+          : "") +
+        "</p>";
 
     el.innerHTML =
       docsHtml +
@@ -463,6 +477,48 @@ window.GreenOSModules.carriers = {
           );
         } catch (e) {
           alert(e.message);
+        }
+      });
+    });
+    el.querySelectorAll(".cr-doc-del").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        var docId = btn.getAttribute("data-id");
+        var name = btn.getAttribute("data-name") || "this document";
+        if (
+          !confirm(
+            "Permanently delete \"" +
+              name +
+              "\"?\n\nThis cannot be undone. If it is the current version, the latest archived file of the same type (if any) becomes CURRENT."
+          )
+        ) {
+          return;
+        }
+        btn.disabled = true;
+        try {
+          var token = localStorage.getItem("gl_token") || "";
+          var res = await fetch(
+            "/api/carriers/" +
+              encodeURIComponent(c.carrierId) +
+              "/documents/" +
+              encodeURIComponent(docId),
+            {
+              method: "DELETE",
+              headers: { Authorization: token ? "Bearer " + token : "" },
+            }
+          );
+          var json = await res.json().catch(function () {
+            return {};
+          });
+          if (!res.ok || !json.success) {
+            throw new Error(json.message || "Delete failed");
+          }
+          self._tab = "documents";
+          var mainEl = document.getElementById("cr-main");
+          if (!mainEl) throw new Error("Carrier panel not found");
+          await self.showDetail(mainEl, c.carrierId);
+        } catch (e) {
+          btn.disabled = false;
+          alert(e.message || "Delete failed");
         }
       });
     });
