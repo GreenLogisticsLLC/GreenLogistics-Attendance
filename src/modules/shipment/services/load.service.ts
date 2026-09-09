@@ -901,14 +901,14 @@ export class LoadService {
 
         if (action === "approve_carrier") {
             if (!String(shipment.carrierName || "").trim()) {
-                throw Object.assign(new Error("Assign a carrier before Approved Carrier"), {
+                throw Object.assign(new Error("Assign a carrier before Approve Carrier"), {
                     status: 422,
                 });
             }
             let profileId = shipment.carrierProfileId;
             if (!profileId) {
                 throw Object.assign(
-                    new Error("Save the carrier on this load first, then review documents and click Approved Carrier"),
+                    new Error("Save the carrier on this load first, then review documents and click Approve Carrier"),
                     { status: 422, code: "CARRIER_PROFILE_REQUIRED" }
                 );
             }
@@ -945,7 +945,7 @@ export class LoadService {
             if (!hasReviewMaterial && onboarding !== "APPROVED") {
                 throw Object.assign(
                     new Error(
-                        "No carrier packet documents found yet. Wait for MC Authority / W-9 / Certificate of Holder / Agreement, then click Approved Carrier."
+                        "No carrier packet documents found yet. Wait for MC Authority / W-9 / Certificate of Holder / Agreement, then click Approve Carrier."
                     ),
                     { status: 422, code: "CARRIER_REVIEW_DOCS_REQUIRED" }
                 );
@@ -969,7 +969,7 @@ export class LoadService {
             await domainEventEngine.emit({
                 shipmentLeadId,
                 eventType: "LOAD_CARRIER_APPROVED",
-                title: "Approved Carrier",
+                title: "Approve Carrier",
                 message: `Broker approved carrier documents for Load ${shipment.loadNumber || ""}`,
                 actorUserId,
                 payload: { carrierProfileId: profileId },
