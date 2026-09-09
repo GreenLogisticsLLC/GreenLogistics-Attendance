@@ -128,8 +128,18 @@ function parseEinDigits(chunk: string | null | undefined): string | null {
     return `${nine.slice(0, 2)}-${nine.slice(2)}`;
 }
 
+const W9_TITLE =
+    "Request for Taxpayer Identification Number and Certification";
+
 function extractW9(t: string): ExtractedField[] {
+    // Circled header — Form W-9 title must be present.
+    const hasTitle =
+        /Request\s+for\s+Taxpayer\s+Identification\s+Number\s+and\s+Certification/i.test(t) ||
+        /\bForm\s+W-?9\b/i.test(t) ||
+        /\bW-?9\b/.test(t);
+
     // Circled Part I — Employer identification number must be filled.
+    const hasEinLabel = /Employer\s+identification\s+number/i.test(t);
     const einWindow =
         pick(t, /Employer\s+identification\s+number([\s\S]{0,160})/i) ||
         pick(t, /\bEIN\b([\s\S]{0,80})/i) ||
@@ -151,6 +161,14 @@ function extractW9(t: string): ExtractedField[] {
     const tin = ein || ssn;
     const tinType = ein ? "EIN" : ssn ? "SSN" : null;
     return [
+        field("documentTitle", hasTitle ? W9_TITLE : null, {
+            confidence: hasTitle ? 0.99 : 0,
+            fieldStatus: hasTitle ? "FIELD_FOUND" : "FIELD_MISSING",
+        }),
+        field("einLabelPresent", hasEinLabel ? "Employer identification number" : null, {
+            confidence: hasEinLabel ? 0.99 : 0,
+            fieldStatus: hasEinLabel ? "FIELD_FOUND" : "FIELD_MISSING",
+        }),
         field("name", pick(t, /Name[^\n]*\n([A-Z][^\n]{3,80})/i) || pick(t, /(DONTA\s+CRAIG[^\n]*)/i) ||
             pick(t, /(?:^|\n)(ARSEN\s+KUDANETOV)\b/i)),
         field(
