@@ -548,10 +548,6 @@
           setMsg("Please upload required documents:\n- " + docsCheck.missing.join("\n- "), false);
           return;
         }
-        if (docsCheck.rejected.length) {
-          setMsg("Document bot rejected these files — please re-upload:\n- " + docsCheck.rejected.join("\n- "), false);
-          return;
-        }
         step = 3;
         await persistStep(3);
         await reload();
