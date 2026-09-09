@@ -80,16 +80,32 @@ async function loadGreenOsContext(input: {
         carrierName?: string | null;
         carrierMc?: string | null;
         carrierDot?: string | null;
+        address?: string | null;
+        city?: string | null;
+        state?: string | null;
+        zip?: string | null;
     } = {};
     if (input.carrierId) {
         const c = await prisma.carrier.findUnique({
             where: { carrierId: input.carrierId },
-            select: { legalName: true, mcNumber: true, dotNumber: true },
+            select: {
+                legalName: true,
+                mcNumber: true,
+                dotNumber: true,
+                address: true,
+                city: true,
+                state: true,
+                zip: true,
+            },
         });
         if (c) {
             out.legalName = c.legalName;
             out.mcNumber = c.mcNumber;
             out.dotNumber = c.dotNumber;
+            out.address = c.address;
+            out.city = c.city;
+            out.state = c.state;
+            out.zip = c.zip;
         }
     }
     if (input.shipmentLeadId) {
@@ -111,12 +127,24 @@ async function loadGreenOsContext(input: {
             if (s.carrierProfileId && !input.carrierId) {
                 const c = await prisma.carrier.findUnique({
                     where: { carrierId: s.carrierProfileId },
-                    select: { legalName: true, mcNumber: true, dotNumber: true },
+                    select: {
+                        legalName: true,
+                        mcNumber: true,
+                        dotNumber: true,
+                        address: true,
+                        city: true,
+                        state: true,
+                        zip: true,
+                    },
                 });
                 if (c) {
                     out.legalName = c.legalName;
                     out.mcNumber = c.mcNumber || out.carrierMc;
                     out.dotNumber = c.dotNumber || out.carrierDot;
+                    out.address = c.address;
+                    out.city = c.city;
+                    out.state = c.state;
+                    out.zip = c.zip;
                 }
             }
         }
