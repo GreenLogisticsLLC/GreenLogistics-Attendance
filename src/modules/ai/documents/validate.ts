@@ -54,6 +54,10 @@ export function validateDocument(input: {
         carrierName?: string | null;
         carrierMc?: string | null;
         carrierDot?: string | null;
+        address?: string | null;
+        city?: string | null;
+        state?: string | null;
+        zip?: string | null;
     };
 }): ValidationBundle {
     const map = fieldsToMap(input.fields);
@@ -91,6 +95,18 @@ export function validateDocument(input: {
         });
     }
 
+    // NOA: only check "NOTICE OF ASSIGNMENT" title + registered carrier match.
+    // Do not require assignment language, DOT, signatures, or show extra field noise.
+    if (input.documentType === "NOA") {
+        return validateNoaOnly({
+            map,
+            levels,
+            signatures,
+            classifyConfidence: input.classifyConfidence,
+            greenOs: input.greenOs,
+        });
+    }
+
     if (input.requiresBoundaryReview || input.documentType === "UNKNOWN") {
         warnings.push("Document boundary/type review required");
         return finish("REVIEW_REQUIRED", "YELLOW", true, input.classifyConfidence, {
@@ -125,9 +141,9 @@ export function validateDocument(input: {
         });
     }
 
-    // GreenOS matching
+    // GreenOS matching (NOA handled separately above)
     const gos = input.greenOs || {};
-    if (["CARRIER_PROFILE", "MC_AUTHORITY", "COI", "INSURANCE", "W9", "NOA", "BROKER_CARRIER_AGREEMENT"].includes(input.documentType)) {
+    if (["CARRIER_PROFILE", "MC_AUTHORITY", "COI", "INSURANCE", "W9", "BROKER_CARRIER_AGREEMENT"].includes(input.documentType)) {
         const mcCheck = checkExactId(
             "MATCH-MC",
             "MC",
@@ -368,7 +384,8 @@ function requiredFieldsFor(type: DocAiType): string[] {
         case "MC_AUTHORITY":
             return ["legalName", "mcNumber", "certificateNumber"];
         case "NOA":
-            return ["documentTitle", "assignmentStatement", "carrierLegalName", "mcNumber"];
+            // Only the title text is required; carrier match is enforced in validateNoaOnly.
+            return ["documentTitle"];
         case "RATE_CONFIRMATION":
             return ["loadNumber", "carrier", "carrierMc", "flatRate"];
         case "BOL":
@@ -380,6 +397,185 @@ function requiredFieldsFor(type: DocAiType): string[] {
         default:
             return [];
     }
+}
+
+/**
+ * NOA bot check (user-scoped):
+ * 1) Document must say "NOTICE OF ASSIGNMENT"
+ * 2) Carrier name / MC (and address when present) must match the registered carrier
+ */
+function validateNoaOnly(input: {
+    map: Record<string, string | null>;
+    levels: ValidationBundle["levels"];
+    signatures: SignatureResult[];
+    classifyConfidence: number;
+    greenOs?: {
+        legalName?: string | null;
+        mcNumber?: string | null;
+        dotNumber?: string | null;
+        carrierName?: string | null;
+        carrierMc?: string | null;
+        address?: string | null;
+        city?: string | null;
+        state?: string | null;
+        zip?: string | null;
+    };
+}): ValidationBundle {
+    const map = input.map;
+    const gos = input.greenOs || {};
+    const warnings: string[] = [];
+    const errors: string[] = [];
+    const checks: RuleCheck[] = [];
+    const matches: RuleCheck[] = [];
+    const levels = { ...input.levels };
+
+    const hasTitle = Boolean(map.documentTitle && /NOTICE\s+OF\s+ASSIGNMENT/i.test(map.documentTitle));
+    levels.completeness = {
+        ok: hasTitle,
+        detail: hasTitle ? "NOTICE OF ASSIGNMENT found" : "missing:NOTICE OF ASSIGNMENT",
+    };
+    levels.signature = { ok: true, detail: "n/a" };
+    levels.businessRules = { ok: true, detail: "n/a" };
+    levels.expiration = { ok: true, detail: "n/a" };
+
+    if (!hasTitle) {
+        errors.push("MISSING_REQUIRED_FIELD:documentTitle");
+        checks.push({
+            id: "NOA-TITLE",
+            ok: false,
+            status: "MISSING",
+            message: 'Document must say "NOTICE OF ASSIGNMENT"',
+        });
+        return finish("MISSING_REQUIRED_FIELD", "RED", true, input.classifyConfidence, {
+            documentType: "NOA",
+            levels,
+            checks,
+            matches,
+            warnings,
+            errors,
+            signatures: input.signatures,
+            classifyConfidence: input.classifyConfidence,
+        });
+    }
+
+    checks.push({
+        id: "NOA-TITLE",
+        ok: true,
+        status: "PASS",
+        message: 'Found "NOTICE OF ASSIGNMENT"',
+    });
+
+    const mcCheck = checkExactId(
+        "MATCH-MC",
+        "MC",
+        map.mcNumber || map.carrierMc,
+        gos.mcNumber || gos.carrierMc,
+        normalizeMc
+    );
+    matches.push(mcCheck);
+
+    const docName = map.carrierLegalName || map.legalName || map.carrierPrintedName || null;
+    const gosName = gos.legalName || gos.carrierName || null;
+    if (gosName && docName && !namesSoftEqual(docName, gosName)) {
+        matches.push({
+            id: "MATCH-NAME",
+            ok: false,
+            status: "CRITICAL_MISMATCH",
+            message: "Carrier name on NOA ≠ registered carrier",
+            documentValue: docName,
+            greenOsValue: gosName,
+        });
+    } else if (gosName && docName) {
+        matches.push({
+            id: "MATCH-NAME",
+            ok: true,
+            status: "PASS",
+            message: "Carrier name matches registered carrier",
+            documentValue: docName,
+            greenOsValue: gosName,
+        });
+    } else if (gosName && !docName) {
+        matches.push({
+            id: "MATCH-NAME",
+            ok: false,
+            status: "MISSING",
+            message: "Carrier name missing on NOA",
+            greenOsValue: gosName,
+        });
+    }
+
+    // Soft address check when both sides have city/state/zip (circled header line).
+    const docAddr = String(map.carrierAddress || "").toUpperCase();
+    const gosCity = String(gos.city || "").trim().toUpperCase();
+    const gosState = String(gos.state || "").trim().toUpperCase();
+    const gosZip = String(gos.zip || "").trim();
+    if (docAddr && (gosCity || gosZip)) {
+        const cityOk = !gosCity || docAddr.includes(gosCity);
+        const stateOk = !gosState || docAddr.includes(gosState);
+        const zipOk = !gosZip || docAddr.includes(gosZip);
+        if (cityOk && stateOk && zipOk) {
+            matches.push({
+                id: "MATCH-ADDRESS",
+                ok: true,
+                status: "PASS",
+                message: "Carrier address matches registered carrier",
+                documentValue: map.carrierAddress,
+                greenOsValue: [gos.address, gos.city, gos.state, gos.zip].filter(Boolean).join(", "),
+            });
+        } else {
+            matches.push({
+                id: "MATCH-ADDRESS",
+                ok: false,
+                status: "CRITICAL_MISMATCH",
+                message: "Carrier address on NOA ≠ registered carrier",
+                documentValue: map.carrierAddress,
+                greenOsValue: [gos.city, gos.state, gos.zip].filter(Boolean).join(", "),
+            });
+        }
+    }
+
+    const criticalMismatch = matches.some((m) => !m.ok && m.status === "CRITICAL_MISMATCH");
+    const missingMatch = matches.some((m) => m.status === "MISSING" && m.id !== "MATCH-ADDRESS");
+    levels.greenOsMatch = {
+        ok: !criticalMismatch && !missingMatch,
+        detail: criticalMismatch ? "CRITICAL_MISMATCH" : missingMatch ? "MISSING" : "ok",
+    };
+
+    if (criticalMismatch || (mcCheck.status === "MISSING" && (gos.mcNumber || gos.carrierMc))) {
+        return finish("MISMATCH", "RED", true, input.classifyConfidence, {
+            documentType: "NOA",
+            levels,
+            checks,
+            matches,
+            warnings,
+            errors: [...errors, "CRITICAL_MISMATCH"],
+            signatures: input.signatures,
+            classifyConfidence: input.classifyConfidence,
+        });
+    }
+    if (missingMatch) {
+        return finish("MISSING_REQUIRED_FIELD", "RED", true, input.classifyConfidence, {
+            documentType: "NOA",
+            levels,
+            checks,
+            matches,
+            warnings,
+            errors: [...errors, "MISSING_CARRIER_FIELDS"],
+            signatures: input.signatures,
+            classifyConfidence: input.classifyConfidence,
+        });
+    }
+
+    return finish("VALID", "GREEN", false, input.classifyConfidence, {
+        documentType: "NOA",
+        levels,
+        checks,
+        matches,
+        warnings,
+        errors,
+        signatures: input.signatures,
+        classifyConfidence: input.classifyConfidence,
+    });
 }
 
 function finish(
