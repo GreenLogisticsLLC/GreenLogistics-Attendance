@@ -3,6 +3,66 @@ import { processDocumentJob } from "./processor.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+let didRequeueRedNoa = false;
+
+/**
+ * After extractor/OCR fixes, re-run CURRENT NOA docs that previously got RED
+ * so carriers do not have to re-upload the same file.
+ */
+async function requeueRedNoaOnce() {
+    if (didRequeueBadNoaFlag()) return;
+    didRequeueRedNoa = true;
+    try {
+        const currentNoa = await prisma.carrierDocument.findMany({
+            where: { documentType: "NOA", status: "CURRENT" },
+            orderBy: { uploadedAt: "desc" },
+            take: 25,
+            select: {
+                documentId: true,
+                carrierId: true,
+                shipmentLeadId: true,
+                checksum: true,
+                documentType: true,
+            },
+        });
+        let queued = 0;
+        for (const doc of currentNoa) {
+            const latest = await prisma.aiDocumentJob.findFirst({
+                where: { documentId: doc.documentId, documentSource: "CARRIER" },
+                orderBy: { createdAt: "desc" },
+                include: { validation: true },
+            });
+            if (!latest?.validation || latest.validation.trafficLight !== "RED") continue;
+            if (latest.status === "QUEUED" || latest.status === "PROCESSING") continue;
+            const carrier = await prisma.carrier.findUnique({
+                where: { carrierId: doc.carrierId },
+                select: { assignedBrokerId: true },
+            });
+            const actorUserId = carrier?.assignedBrokerId || latest.actorUserId;
+            if (!actorUserId) continue;
+            await prisma.aiDocumentJob.create({
+                data: {
+                    documentSource: "CARRIER",
+                    documentId: doc.documentId,
+                    carrierId: doc.carrierId,
+                    shipmentLeadId: doc.shipmentLeadId,
+                    actorUserId,
+                    checksum: doc.checksum || latest.checksum || "pending",
+                    declaredDocType: doc.documentType,
+                    status: "QUEUED",
+                },
+            });
+            queued += 1;
+        }
+        if (queued) console.log(`[doc-ai] re-queued ${queued} RED NOA document(s) for re-check`);
+    } catch (err) {
+        console.warn("[doc-ai] RED NOA requeue failed:", err);
+    }
+}
+
+function didRequeueBadNoaFlag() {
+    return didRequeueRedNoa;
+}
 
 /**
  * Drain queued Document AI jobs using the same setInterval pattern as other GreenOS schedulers.
@@ -14,6 +74,7 @@ export function startDocumentAiScheduler(intervalMs = 15_000) {
         if (running) return;
         running = true;
         try {
+            await requeueRedNoaOnce();
             const queued = await prisma.aiDocumentJob.findMany({
                 where: { status: "QUEUED" },
                 orderBy: { createdAt: "asc" },
