@@ -1090,6 +1090,14 @@ export class CarrierService {
                       orderBy: { createdAt: "desc" },
                       include: { validation: true },
                   });
+        const safeJson = (raw: string | null | undefined) => {
+            if (!raw) return null;
+            try {
+                return JSON.parse(raw);
+            } catch {
+                return null;
+            }
+        };
         const latestAiByDoc = new Map<
             string,
             {
@@ -1097,16 +1105,27 @@ export class CarrierService {
                 status: string;
                 trafficLight: string | null;
                 overallStatus: string | null;
+                requiresReview: boolean | null;
+                levels: unknown;
+                checks: unknown;
+                warnings: unknown;
+                errors: unknown;
                 classifiedDocType: string | null;
             }
         >();
         for (const job of aiJobs) {
             if (latestAiByDoc.has(job.documentId)) continue;
+            const v = job.validation;
             latestAiByDoc.set(job.documentId, {
                 jobId: job.jobId,
                 status: job.status,
-                trafficLight: job.validation?.trafficLight || null,
-                overallStatus: job.validation?.overallStatus || null,
+                trafficLight: v?.trafficLight || null,
+                overallStatus: v?.overallStatus || null,
+                requiresReview: v?.requiresReview ?? null,
+                levels: safeJson(v?.levelsJson),
+                checks: safeJson(v?.checksJson),
+                warnings: safeJson(v?.warningsJson),
+                errors: safeJson(v?.errorsJson),
                 classifiedDocType: job.classifiedDocType,
             });
         }

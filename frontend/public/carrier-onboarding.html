@@ -222,6 +222,50 @@
     return '<span class="badge warn">( UNDER REVIEW )</span>';
   }
 
+  function aiWhy(ai) {
+    if (!ai) return "";
+    if (ai.status === "QUEUED" || ai.status === "PROCESSING") {
+      return '<div class="muted" style="font-size:0.75rem;white-space:pre-wrap">Bot is checking this file…</div>';
+    }
+    if (ai.status === "FAILED") {
+      return '<div class="muted" style="font-size:0.75rem;white-space:pre-wrap">Bot processing failed — please re-upload</div>';
+    }
+    if (ai.trafficLight === "GREEN") return "";
+
+    var lines = [];
+    if (Array.isArray(ai.errors) && ai.errors.length) {
+      lines.push("Bot says: " + ai.errors.slice(0, 3).join(" · "));
+    } else if (Array.isArray(ai.warnings) && ai.warnings.length) {
+      lines.push("Bot says (needs review): " + ai.warnings.slice(0, 3).join(" · "));
+    }
+
+    if (ai.levels && typeof ai.levels === "object") {
+      var badLevels = Object.keys(ai.levels)
+        .map(function (k) { return { k: k, v: ai.levels[k] }; })
+        .filter(function (x) { return x.v && x.v.ok === false && x.v.detail; })
+        .slice(0, 4)
+        .map(function (x) { return x.k + ": " + x.v.detail; });
+      if (badLevels.length) lines.push("Fields: " + badLevels.join(" · "));
+    }
+
+    if (Array.isArray(ai.checks) && ai.checks.length) {
+      var badChecks = ai.checks
+        .filter(function (c) { return c && c.ok === false && c.message; })
+        .slice(0, 3)
+        .map(function (c) { return c.message; });
+      if (badChecks.length) lines.push("Details: " + badChecks.join(" · "));
+    }
+
+    if (!lines.length && ai.overallStatus) lines.push("Bot overall: " + String(ai.overallStatus));
+
+    var txt = lines.join("\n");
+    return (
+      '<div class="muted" style="font-size:0.75rem;white-space:pre-wrap;max-width:min(42vw,22rem)">' +
+      esc(txt) +
+      "</div>"
+    );
+  }
+
   function docsForm() {
     var types = [
       { id: "MC_AUTHORITY", label: "MC Authority", required: true },
@@ -238,7 +282,11 @@
       types.map(function (t) {
         var d = current[t.id];
         var status = d
-          ? '<span class="badge ok doc-file-name" title="' + esc(d.originalFilename) + '">✓ v' + d.version + " " + esc(d.originalFilename) + "</span>" + aiBadge(d)
+          ? '<div style="display:flex;flex-direction:column;align-items:flex-start;gap:0.25rem;flex:1 1 auto">' +
+            '<span class="badge ok doc-file-name" title="' + esc(d.originalFilename) + '">✓ v' + d.version + " " + esc(d.originalFilename) + "</span>" +
+            aiBadge(d) +
+            aiWhy(d.ai) +
+            "</div>"
           : '<span class="badge">Missing</span>';
         return '<div class="doc-row">' +
           '<strong class="doc-label">' + esc(t.label) + (t.required ? reqMark() : "") + "</strong>" +
