@@ -48,6 +48,19 @@ test("Phase 10 RC compliance gate blocks RED carriers", () => {
     );
 });
 
+test("Phase 10 RC compliance gate allows RED when broker Approved Carrier", () => {
+    assert.doesNotThrow(() =>
+        assertRateConfirmationCompliance(
+            {
+                readiness: "NOT_READY",
+                compliance: { light: "RED", summary: "Insurance expired" },
+            },
+            false,
+            { brokerApprovedForLoad: true }
+        )
+    );
+});
+
 test("Phase 10 closeout checklist rejects unsigned POD", () => {
     const checklist = _lifecycleTestUtils.buildCloseoutChecklist({
         status: "POD_UPLOADED",

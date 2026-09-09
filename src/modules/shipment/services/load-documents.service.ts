@@ -26,8 +26,13 @@ import type { CarrierOperationalSummary } from "../../ai/operational/types.js";
 
 export function assertRateConfirmationCompliance(
     summary: Pick<CarrierOperationalSummary, "readiness" | "compliance">,
-    acknowledged: boolean
+    acknowledged: boolean,
+    options?: { brokerApprovedForLoad?: boolean }
 ) {
+    // Broker "Approved Carrier" on this load is the intentional human override of bot RED/REVIEW.
+    if (options?.brokerApprovedForLoad === true) {
+        return;
+    }
     if (summary.readiness === "NOT_READY" || summary.compliance.light === "RED") {
         throw Object.assign(
             new Error(
@@ -288,7 +293,8 @@ export class LoadDocumentsService {
             );
             assertRateConfirmationCompliance(
                 summary,
-                input.acknowledgeComplianceReview === true
+                input.acknowledgeComplianceReview === true,
+                { brokerApprovedForLoad: isLoadCarrierApproved(lead) }
             );
         }
 
