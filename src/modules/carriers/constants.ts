@@ -55,7 +55,7 @@ export const ONBOARDING_PURPOSE = {
 export type OnboardingPurpose = (typeof ONBOARDING_PURPOSE)[keyof typeof ONBOARDING_PURPOSE];
 
 export { GREEN_LOGISTICS_AGREEMENT_V2 as DEFAULT_AGREEMENT_BODY } from "./agreement-template-v2.js";
-export const AGREEMENT_TEMPLATE_VERSION = "2.2";
+export const AGREEMENT_TEMPLATE_VERSION = "2.3";
 export const AGREEMENT_TEMPLATE_TITLE = "Broker - Carrier Agreement";
 
 /** Broker block used on signed Agreement PDFs. */

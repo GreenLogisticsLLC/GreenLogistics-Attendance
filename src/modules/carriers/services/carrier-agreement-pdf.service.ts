@@ -77,7 +77,59 @@ function signatureBuffer(dataUrl: string): Buffer | null {
     }
 }
 
-/** Build Broker–Carrier Agreement PDF (full text + carrier profile + signature). */
+/** Split template body so signature blocks can be drawn as real images. */
+function splitAgreementBody(body: string): { before: string; after: string } {
+    const raw = String(body || "");
+    const markers = [
+        /\nIN WITNESS WHEREOF:?\s*\n/i,
+        /\n\(BROKER\)\s*[\u2013\u2014-]\s*GREEN LOGISTICS LLC/i,
+        /\nAuthorized Signature:\s*\n/i,
+    ];
+    for (const re of markers) {
+        const m = raw.match(re);
+        if (m && typeof m.index === "number") {
+            const cut = m.index;
+            // Keep "IN WITNESS WHEREOF:" heading in the before section when present.
+            const witness = raw.slice(cut).match(/^\s*IN WITNESS WHEREOF:?\s*/i);
+            if (witness) {
+                return {
+                    before: raw.slice(0, cut + witness[0].length).trimEnd(),
+                    after: extractPaymentTail(raw.slice(cut + witness[0].length)),
+                };
+            }
+            return {
+                before: raw.slice(0, cut).trimEnd() + "\n\nIN WITNESS WHEREOF:",
+                after: extractPaymentTail(raw.slice(cut)),
+            };
+        }
+    }
+    return { before: raw.trimEnd(), after: "" };
+}
+
+function extractPaymentTail(rest: string): string {
+    const m = rest.match(/\nPAYMENT OPTIONS[\s\S]*$/i);
+    return m ? m[0].trim() : "";
+}
+
+function drawSignatureImage(
+    doc: InstanceType<typeof PDFDocument>,
+    source: string | Buffer,
+    opts: { maxW?: number; maxH?: number } = {}
+) {
+    const maxW = opts.maxW ?? 240;
+    const maxH = opts.maxH ?? 64;
+    const y = doc.y;
+    const x = doc.page.margins.left;
+    try {
+        doc.image(source, x, y, { fit: [maxW, maxH], valign: "center" });
+        doc.y = y + maxH + 6;
+    } catch {
+        doc.fillColor("#152033").font("Times-Italic").fontSize(14).text("Spartak Kazaryan");
+        doc.font("Helvetica").fontSize(9);
+    }
+}
+
+/** Build Broker–Carrier Agreement PDF (full text + both signatures on the form). */
 export function buildCarrierAgreementPdf(input: AgreementPdfInput): Promise<Buffer> {
     return new Promise((resolve, reject) => {
         const doc = new PDFDocument({
@@ -137,11 +189,86 @@ export function buildCarrierAgreementPdf(input: AgreementPdfInput): Promise<Buff
         doc.moveDown(0.8);
         doc.fontSize(11).font("Helvetica-Bold").text("Agreement");
         doc.moveDown(0.35);
-        doc.fontSize(8.5).font("Helvetica").fillColor("#152033").text(input.agreementBody || "", {
+
+        const { before, after } = splitAgreementBody(input.agreementBody || "");
+        doc.fontSize(8.5).font("Helvetica").fillColor("#152033").text(before, {
             align: "left",
             lineGap: 1.5,
         });
 
+        // --- Signature blocks on the agreement form (not only a trailing page) ---
+        doc.moveDown(0.6);
+        if (doc.y > doc.page.height - 280) doc.addPage();
+
+        doc.fontSize(10).font("Helvetica-Bold").fillColor("#152033").text("(BROKER) – GREEN LOGISTICS LLC");
+        doc.font("Helvetica").fontSize(9).text("Authorized Signature:");
+        doc.moveDown(0.2);
+        const brokerSig = resolveBrokerSignaturePng();
+        if (brokerSig) {
+            drawSignatureImage(doc, brokerSig, { maxW: 260, maxH: 70 });
+        } else {
+            doc.font("Times-Italic").fontSize(16).text(BROKER_AGREEMENT_CONTACT.signerName);
+            doc.font("Helvetica").fontSize(9);
+        }
+        doc.font("Helvetica").fontSize(9).fillColor("#152033");
+        doc.text(
+            `Printed Name – ${BROKER_AGREEMENT_CONTACT.signerName} / Title – ${BROKER_AGREEMENT_CONTACT.title}`
+        );
+        doc.text(`Company Address: ${BROKER_AGREEMENT_CONTACT.address}`);
+        doc.text(`Phone – ${BROKER_AGREEMENT_CONTACT.phone}`);
+        doc.text(`E-Mail ${BROKER_AGREEMENT_CONTACT.email}`);
+
+        doc.moveDown(0.9);
+        if (doc.y > doc.page.height - 200) doc.addPage();
+
+        const carrierAddr = [input.address, input.city, input.state, input.zip]
+            .filter(Boolean)
+            .join(", ");
+        doc.fontSize(10).font("Helvetica-Bold").text(`(CARRIER) – ${input.legalName || "CARRIER"}`);
+        doc.font("Helvetica").fontSize(9).text("Authorized Signature (electronic — Green OS portal):");
+        doc.moveDown(0.2);
+        const carrierImg = signatureBuffer(input.signatureDataUrl);
+        if (carrierImg) {
+            try {
+                const y = doc.y;
+                doc.rect(doc.page.margins.left, y, 280, 78).stroke("#d5dde9");
+                doc.image(carrierImg, doc.page.margins.left + 6, y + 6, {
+                    fit: [268, 66],
+                    valign: "center",
+                });
+                doc.y = y + 84;
+            } catch {
+                doc.fillColor("#5b6b84").text("(Carrier signature image could not be embedded)");
+                doc.fillColor("#152033");
+            }
+        } else {
+            doc.fillColor("#5b6b84").text("(No carrier signature image on file)");
+            doc.fillColor("#152033");
+        }
+        doc.font("Helvetica").fontSize(9);
+        doc.text(`Printed Name – ${input.signerName || input.contactName || "—"}`);
+        doc.text(`Title – Authorized Signer`);
+        if (carrierAddr) doc.text(`Company Address: ${carrierAddr}`);
+        if (input.phone) doc.text(`Phone – ${input.phone}`);
+        if (input.email || input.signerEmail) {
+            doc.text(`E-Mail ${input.email || input.signerEmail}`);
+        }
+        doc.text(`Signed at: ${input.signedAt.toISOString()}`);
+
+        if (after) {
+            doc.moveDown(0.8);
+            doc.fontSize(8.5).font("Helvetica").fillColor("#152033").text(after, {
+                align: "left",
+                lineGap: 1.5,
+            });
+        } else {
+            doc.moveDown(0.8);
+            doc.fontSize(9).font("Helvetica-Bold").text("PAYMENT OPTIONS (choose one in the portal):");
+            doc.font("Helvetica").fontSize(8.5);
+            doc.text(`Selected: ${paymentLabel(input.paymentOption)}`);
+        }
+
+        // Audit / acknowledgement page (kept for trail + large signature preview)
         doc.addPage();
         doc.fillColor("#059669").fontSize(14).font("Helvetica-Bold").text("Signature & Acknowledgement", {
             align: "center",
@@ -155,22 +282,11 @@ export function buildCarrierAgreementPdf(input: AgreementPdfInput): Promise<Buff
 
         doc.font("Helvetica-Bold").text(`BROKER — ${BROKER_AGREEMENT_CONTACT.legalName}`);
         doc.font("Helvetica").text("Authorized Signature:");
-        const brokerSig = resolveBrokerSignaturePng();
         if (brokerSig) {
-            try {
-                const y = doc.y;
-                doc.image(brokerSig, doc.page.margins.left, y, {
-                    fit: [260, 70],
-                    valign: "center",
-                });
-                doc.y = y + 74;
-            } catch {
-                doc.font("Times-Italic").fontSize(16).text("Spartak Kazaryan");
-                doc.fontSize(10);
-            }
+            drawSignatureImage(doc, brokerSig, { maxW: 260, maxH: 70 });
         } else {
-            doc.font("Times-Italic").fontSize(16).text("Spartak Kazaryan");
-            doc.fontSize(10);
+            doc.font("Times-Italic").fontSize(16).text(BROKER_AGREEMENT_CONTACT.signerName);
+            doc.fontSize(10).font("Helvetica");
         }
         doc.font("Helvetica").text(
             `Printed Name: ${BROKER_AGREEMENT_CONTACT.signerName}  ·  Title: ${BROKER_AGREEMENT_CONTACT.title}`
@@ -191,12 +307,11 @@ export function buildCarrierAgreementPdf(input: AgreementPdfInput): Promise<Buff
         doc.font("Helvetica-Bold").text("Electronic signature:");
         doc.moveDown(0.3);
 
-        const img = signatureBuffer(input.signatureDataUrl);
-        if (img) {
+        if (carrierImg) {
             try {
                 const y = doc.y;
                 doc.rect(doc.page.margins.left, y, 280, 90).stroke("#d5dde9");
-                doc.image(img, doc.page.margins.left + 8, y + 8, {
+                doc.image(carrierImg, doc.page.margins.left + 8, y + 8, {
                     fit: [264, 74],
                     valign: "center",
                 });
