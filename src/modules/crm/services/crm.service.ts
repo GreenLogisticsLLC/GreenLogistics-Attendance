@@ -2,7 +2,10 @@ import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { getInOfficeEmployeeIds } from "../../../services/attendance-presence.service.js";
 import { ACTIVE_STATUSES } from "../crm.constants.js";
-import { AUTO_PIPELINE_STATUSES } from "../../shipment/shipment.constants.js";
+import {
+    AUTO_PIPELINE_STATUSES,
+    compareShipmentsForBoard,
+} from "../../shipment/shipment.constants.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { ensureGreenOsShipmentId } from "../../shipment/shipment.id.js";
@@ -444,20 +447,38 @@ export class CrmService {
         const page = Math.max(1, Number(options?.page) || 1);
         const skip = (page - 1) * pageSize;
 
-        const [total, rows] = await Promise.all([
-            prisma.shipmentLead.count({ where }),
-            prisma.shipmentLead.findMany({
+        // Broker My Shipments: priority board order must apply across pages
+        // (Waiting → BROKER REPLY / Bid Submitted → Shipment Accepted), not only
+        // within the current page after a client-side re-sort.
+        const priorityBoard = Boolean(options?.brokerId || lite || options?.assignmentKind);
+        let total: number;
+        let rows: Array<Record<string, unknown>>;
+        if (priorityBoard) {
+            const all = await prisma.shipmentLead.findMany({
                 where,
-                orderBy: { updatedAt: "desc" },
-                skip,
-                take: pageSize,
                 select: SHIPMENT_LIST_SELECT,
-            }),
-        ]);
-        const brokers = await userMap(rows.map((r) => r.assignedBrokerId || ""));
+            });
+            all.sort(compareShipmentsForBoard);
+            total = all.length;
+            rows = all.slice(skip, skip + pageSize) as Array<Record<string, unknown>>;
+        } else {
+            const [count, pageRows] = await Promise.all([
+                prisma.shipmentLead.count({ where }),
+                prisma.shipmentLead.findMany({
+                    where,
+                    orderBy: { updatedAt: "desc" },
+                    skip,
+                    take: pageSize,
+                    select: SHIPMENT_LIST_SELECT,
+                }),
+            ]);
+            total = count;
+            rows = pageRows as Array<Record<string, unknown>>;
+        }
+        const brokers = await userMap(rows.map((r) => (r.assignedBrokerId as string) || ""));
         const items = lite
-            ? rows.map((r) => toBrokerListRow(r as unknown as Record<string, unknown>, brokers))
-            : rows.map((r) => enrichLead(r as unknown as Record<string, unknown>, brokers));
+            ? rows.map((r) => toBrokerListRow(r, brokers))
+            : rows.map((r) => enrichLead(r, brokers));
         return {
             items,
             total,
