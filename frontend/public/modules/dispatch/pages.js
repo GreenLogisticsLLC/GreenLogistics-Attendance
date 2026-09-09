@@ -233,18 +233,20 @@ window.GreenOSModules["dispatch"] = {
         : "Document bot shows <strong>Approved</strong> or <strong>Not Approved</strong> for each file. Open docs to review, then click <strong>Approve Carrier</strong>. Rate Confirmation stays locked until the broker confirms.";
 
     function approveActionsHtml(place) {
-      if (loadApproved || !c.carrierProfileId) {
-        if (!c.carrierProfileId) return "";
+      if (!c.carrierProfileId) return "";
+      var suffix = place === "bottom" ? "-bottom" : "";
+      if (loadApproved) {
         return (
           '<div class="load-actions ld-approve-carrier-actions" data-place="' +
           place +
-          '" style="margin:0.75rem 0">' +
-          (loadApproved
-            ? '<span class="ld-carrier-doc-broker-ok" style="margin-right:0.75rem">✓ Carrier approved for this load</span>'
-            : "") +
+          '" style="margin:0.75rem 0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">' +
+          '<button type="button" class="btn-primary" id="ld-approved-carrier-next' +
+          suffix +
+          '" style="background:#067647;border-color:#067647">Approved Carrier</button>' +
           '<button type="button" class="btn-secondary" id="ld-open-carrier-record' +
-          (place === "bottom" ? "-bottom" : "") +
+          suffix +
           '">Open full carrier record</button>' +
+          '<span class="gos-muted" style="flex:1 1 12rem">Click to continue — Generate Rate Confirmation.</span>' +
           "</div>"
         );
       }
@@ -253,10 +255,10 @@ window.GreenOSModules["dispatch"] = {
         place +
         '" style="margin:0.75rem 0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">' +
         '<button type="button" class="btn-primary" id="ld-approve-carrier' +
-        (place === "bottom" ? "-bottom" : "") +
-        '">Approve Carrier</button>' +
+        suffix +
+        '">Approved Carrier</button>' +
         '<button type="button" class="btn-secondary" id="ld-open-carrier-record' +
-        (place === "bottom" ? "-bottom" : "") +
+        suffix +
         '">Open full carrier record</button>' +
         '<span class="gos-muted" style="flex:1 1 12rem">Required even when the bot shows Approved on every file.</span>' +
         "</div>"
@@ -397,10 +399,28 @@ window.GreenOSModules["dispatch"] = {
         }
       });
     });
+    async function openRateConNext(loadId) {
+      var host = document.querySelector("#load-tms-body");
+      if (!host || !loadId) return;
+      // Reload load details on Documents tab, then open Rate Con wizard.
+      await self.openLoad(host, loadId, "documents");
+      setTimeout(function () {
+        var mainEl = document.querySelector("#load-details-main") || document.querySelector(".load-details-main");
+        var genBtn = document.querySelector('[data-action="generate_rate_con"]');
+        if (genBtn && genBtn.getAttribute("data-state") !== "locked") {
+          genBtn.click();
+          return;
+        }
+        if (genBtn) {
+          genBtn.scrollIntoView({ behavior: "smooth", block: "center" });
+          genBtn.focus();
+        }
+      }, 120);
+    }
     async function runApproveCarrier() {
       if (
         !confirm(
-          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement for THIS load?\n\nBot Approved is not enough — this broker confirmation unlocks Rate Confirmation."
+          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement for THIS load?\n\nAfter Approved Carrier you can generate Rate Confirmation."
         )
       ) {
         return;
@@ -412,10 +432,7 @@ window.GreenOSModules["dispatch"] = {
           method: "POST",
           body: "{}",
         });
-        alert("Carrier approved for this load. Generate Rate Confirmation is now available.");
-        var host = document.querySelector("#load-tms-body");
-        var tab = (reloadTab && reloadTab.tab) || "carrier";
-        self.openLoad(host, loadId, tab);
+        await openRateConNext(loadId);
       } catch (err) {
         alert(err.message || err);
       }
@@ -423,6 +440,17 @@ window.GreenOSModules["dispatch"] = {
     root.querySelectorAll("#ld-approve-carrier, #ld-approve-carrier-bottom").forEach(function (btn) {
       btn.addEventListener("click", function () {
         runApproveCarrier();
+      });
+    });
+    root.querySelectorAll("#ld-approved-carrier-next, #ld-approved-carrier-next-bottom").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        try {
+          var loadId = (reloadTab && reloadTab.loadId) || self._loadId;
+          if (!loadId) throw new Error("Load id missing");
+          await openRateConNext(loadId);
+        } catch (err) {
+          alert(err.message || err);
+        }
       });
     });
   },
