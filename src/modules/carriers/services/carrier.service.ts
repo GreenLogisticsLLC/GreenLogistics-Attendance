@@ -1680,7 +1680,7 @@ export class CarrierService {
         if (!signature) {
             throw Object.assign(new Error("No agreement signature on file"), { status: 400 });
         }
-        const template = signature.template || (await this.ensureAgreementTemplate());
+        const template = await this.ensureAgreementTemplate();
         const pdfDocumentId = await this.archiveSignedAgreementPdf({
             carrierId,
             signature,
@@ -1698,6 +1698,54 @@ export class CarrierService {
             userAgent: actor.userAgent,
         });
         return { pdfDocumentId };
+    }
+
+    /**
+     * One-shot after deploy: rebuild signed agreement PDFs so broker + carrier
+     * signatures appear on the form (not only blank placeholder lines).
+     */
+    async regenerateAllSignedAgreementPdfsOnce(): Promise<number> {
+        const template = await this.ensureAgreementTemplate();
+        const allSignatures = await prisma.carrierAgreementSignature.findMany({
+            orderBy: { signedAt: "desc" },
+        });
+        const seen = new Set<string>();
+        const signatures = allSignatures.filter((s) => {
+            if (seen.has(s.carrierId)) return false;
+            seen.add(s.carrierId);
+            return true;
+        });
+        let done = 0;
+        for (const signature of signatures) {
+            const carrier = await prisma.carrier.findUnique({
+                where: { carrierId: signature.carrierId },
+            });
+            if (!carrier) continue;
+            if (!signature.signatureData || !String(signature.signatureData).startsWith("data:image")) {
+                console.warn(
+                    `[agreement-pdf] skip ${carrier.legalName}: no signature image data`
+                );
+                continue;
+            }
+            try {
+                await this.archiveSignedAgreementPdf({
+                    carrierId: carrier.carrierId,
+                    signature,
+                    template,
+                    carrier,
+                });
+                done += 1;
+            } catch (err) {
+                console.warn(
+                    `[agreement-pdf] regenerate failed for ${carrier.carrierId}:`,
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+        if (done) {
+            console.log(`[agreement-pdf] regenerated ${done} signed agreement PDF(s) with signatures`);
+        }
+        return done;
     }
 
     async publicSignRc(
