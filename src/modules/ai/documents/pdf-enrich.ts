@@ -84,7 +84,8 @@ export async function ocrPdfFirstPageImage(filePath: string): Promise<string> {
     }
 }
 
-async function renderPdfFirstEmbeddedImagePng(filePath: string): Promise<Buffer | null> {
+/** PNG bytes of the first embedded full-page image (scanned NOA/W-9 style PDFs). */
+export async function renderPdfFirstEmbeddedImagePng(filePath: string): Promise<Buffer | null> {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const data = new Uint8Array(fs.readFileSync(filePath));
     const doc = await pdfjs.getDocument({ data, useSystemFonts: true }).promise;

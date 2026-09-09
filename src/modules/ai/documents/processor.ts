@@ -180,19 +180,20 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
 
         const checksum = sha256File(file.absPath);
 
-        // Checksum cache — reuse prior successful job for same document+checksum
+        // Checksum cache — reuse prior SUCCESSFUL (GREEN) job only. Never reuse RED/YELLOW
+        // so re-uploads after extractor fixes are re-evaluated.
         const prior = await prisma.aiDocumentJob.findFirst({
             where: {
                 documentId: job.documentId,
                 checksum,
                 status: { in: ["SUCCEEDED", "CACHED"] },
                 jobId: { not: jobId },
-                validation: { isNot: null },
+                validation: { trafficLight: "GREEN" },
             },
             orderBy: { completedAt: "desc" },
             include: { validation: true, extraction: { include: { fields: true } } },
         });
-        if (prior?.validation && prior.extraction) {
+        if (prior?.validation && prior.extraction && prior.validation.trafficLight === "GREEN") {
             await cloneCachedResult(jobId, prior);
             return {
                 jobId,
@@ -204,22 +205,55 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
         }
 
         const textResult = await extractDocumentText(file.absPath);
+        const declaredType = file.declaredType || job.declaredDocType || null;
         const classified = classifyDocumentText({
             text: textResult.text,
-            declaredType: file.declaredType || job.declaredDocType,
+            declaredType,
             fileName: file.fileName,
         });
 
-        let fields = extractFieldsForType(classified.documentType as DocAiType, textResult.text);
+        // Prefer the carrier-declared packet type for NOA/W9 (user-scoped checks).
+        const documentType: DocAiType =
+            declaredType === "NOA" || declaredType === "W9"
+                ? (declaredType as DocAiType)
+                : (classified.documentType as DocAiType);
+
+        let fields = extractFieldsForType(documentType, textResult.text);
         let signatures: SignatureResult[] = analyzeSignaturesFromText({
             text: textResult.text,
-            documentType: classified.documentType,
+            documentType,
         });
+
+        // Scanned NOA: if title still missing after OCR, use OpenAI vision on the page image.
+        const noaTitleMissing =
+            documentType === "NOA" &&
+            !fields.some((f) => f.fieldKey === "documentTitle" && f.valueText);
+        if (noaTitleMissing && aiGateway.isConfigured()) {
+            try {
+                const { renderPdfFirstEmbeddedImagePng } = await import("./pdf-enrich.js");
+                const { extractNoaFieldsWithVision } = await import("./vision-extract.js");
+                const png = await renderPdfFirstEmbeddedImagePng(file.absPath);
+                if (png) {
+                    const visionFields = await extractNoaFieldsWithVision({
+                        imageBase64: png.toString("base64"),
+                        mimeType: "image/png",
+                    });
+                    if (visionFields.some((f) => f.fieldKey === "documentTitle" && f.valueText)) {
+                        fields = visionFields;
+                    }
+                }
+            } catch (err) {
+                console.warn(
+                    "[doc-ai] NOA vision fallback failed:",
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
 
         // Vision when enabled — inspect image pages for signatures (never OCR-name alone).
         const needsVision =
             !textResult.adequate ||
-            (["POD", "W9", "BOL", "NOA"].includes(classified.documentType) &&
+            (["POD", "W9", "BOL", "NOA"].includes(documentType) &&
                 signatures.some((s) => s.status === "UNCERTAIN" || s.status === "MISSING"));
         if (needsVision && aiGateway.isConfigured() && process.env.DOC_AI_VISION === "true") {
             try {
@@ -235,7 +269,7 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
                               : ext === ".gif"
                                 ? "image/gif"
                                 : "image/jpeg";
-                    if (classified.documentType === "W9" && !textResult.adequate) {
+                    if (documentType === "W9" && !textResult.adequate) {
                         const { extractW9FieldsWithVision } = await import("./vision-extract.js");
                         const visionFields = await extractW9FieldsWithVision({
                             imageBase64: b64,
@@ -243,7 +277,7 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
                         });
                         if (visionFields.length) fields = visionFields;
                     }
-                    const role = signatures[0]?.role || (classified.documentType === "W9" ? "TAXPAYER" : "RECEIVER");
+                    const role = signatures[0]?.role || (documentType === "W9" ? "TAXPAYER" : "RECEIVER");
                     const visionSig = await analyzeSignatureWithVision({
                         role,
                         imageBase64: b64,
@@ -276,7 +310,7 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
             shipmentLeadId: file.shipmentLeadId || job.shipmentLeadId,
         });
         const validation = validateDocument({
-            documentType: classified.documentType,
+            documentType,
             classifyConfidence: classified.confidence,
             requiresBoundaryReview: classified.requiresBoundaryReview || !textResult.adequate,
             fields,
@@ -287,7 +321,7 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
         const extraction = await prisma.aiDocumentExtraction.create({
             data: {
                 jobId,
-                documentType: classified.documentType,
+                documentType,
                 pageCount: textResult.pageCount,
                 textCharCount: textResult.text.length,
                 overallConfidence: validation.confidence,
@@ -296,6 +330,8 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
                     classifyReasons: classified.reasons,
                     textMethod: textResult.method,
                     textAdequate: textResult.adequate,
+                    declaredType,
+                    noaVisionUsed: noaTitleMissing,
                 }),
                 fields: {
                     create: fields.map((f) => ({
@@ -333,7 +369,7 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
                 status: "SUCCEEDED",
                 checksum,
                 declaredDocType: file.declaredType || job.declaredDocType,
-                classifiedDocType: classified.documentType,
+                classifiedDocType: documentType,
                 carrierId: file.carrierId || job.carrierId,
                 shipmentLeadId: file.shipmentLeadId || job.shipmentLeadId,
                 providerModel: aiGateway.getModel(),
@@ -348,7 +384,7 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
             status: "SUCCEEDED",
             overallStatus: validation.overallStatus,
             trafficLight: validation.trafficLight,
-            classifiedDocType: classified.documentType,
+            classifiedDocType: documentType,
         };
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Document AI processing failed";

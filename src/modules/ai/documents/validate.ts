@@ -505,16 +505,26 @@ function validateNoaOnly(input: {
             greenOsValue: gosName,
         });
     } else if (gosName && !docName) {
-        matches.push({
-            id: "MATCH-NAME",
-            ok: false,
-            status: "MISSING",
-            message: "Carrier name missing on NOA",
-            greenOsValue: gosName,
-        });
+        if (mcCheck.ok) {
+            matches.push({
+                id: "MATCH-NAME",
+                ok: true,
+                status: "PASS",
+                message: "Carrier name not read on NOA; MC matched registered carrier",
+                greenOsValue: gosName,
+            });
+        } else {
+            matches.push({
+                id: "MATCH-NAME",
+                ok: false,
+                status: "MISSING",
+                message: "Carrier name missing on NOA",
+                greenOsValue: gosName,
+            });
+        }
     }
 
-    // Soft address check when both sides have city/state/zip (circled header line).
+    // Address is informational only — do not block Approved (title + name/MC are the gate).
     const docAddr = String(map.carrierAddress || "").toUpperCase();
     const gosCity = String(gos.city || "").trim().toUpperCase();
     const gosState = String(gos.state || "").trim().toUpperCase();
@@ -535,15 +545,17 @@ function validateNoaOnly(input: {
         } else {
             matches.push({
                 id: "MATCH-ADDRESS",
-                ok: false,
-                status: "CRITICAL_MISMATCH",
-                message: "Carrier address on NOA ≠ registered carrier",
+                ok: true,
+                status: "PASS",
+                message: "Carrier address differs (ignored for NOA approval)",
                 documentValue: map.carrierAddress,
                 greenOsValue: [gos.city, gos.state, gos.zip].filter(Boolean).join(", "),
             });
+            warnings.push("NOA address line differs from registered carrier (not blocking)");
         }
     }
 
+    const nameOk = matches.some((m) => m.id === "MATCH-NAME" && m.ok);
     const criticalMismatch = matches.some((m) => !m.ok && m.status === "CRITICAL_MISMATCH");
     const missingMatch = matches.some((m) => m.status === "MISSING" && m.id !== "MATCH-ADDRESS");
     levels.greenOsMatch = {
@@ -551,7 +563,13 @@ function validateNoaOnly(input: {
         detail: criticalMismatch ? "CRITICAL_MISMATCH" : missingMatch ? "MISSING" : "ok",
     };
 
-    if (criticalMismatch || (mcCheck.status === "MISSING" && (gos.mcNumber || gos.carrierMc))) {
+    // MC missing is OK when carrier name already matched the registered carrier.
+    const mcMissingBlocking =
+        mcCheck.status === "MISSING" &&
+        Boolean(gos.mcNumber || gos.carrierMc) &&
+        !nameOk;
+
+    if (criticalMismatch || mcMissingBlocking) {
         return finish("MISMATCH", "RED", true, input.classifyConfidence, {
             documentType: "NOA",
             levels,

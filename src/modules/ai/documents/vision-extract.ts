@@ -94,4 +94,69 @@ Do not return full SSN/EIN — only last 4 digits in tinLast4.`;
     }
 }
 
+/**
+ * Vision extraction for scanned Notice of Assignment PDFs.
+ */
+export async function extractNoaFieldsWithVision(input: {
+    imageBase64: string;
+    mimeType?: string;
+}): Promise<ExtractedField[]> {
+    if (!aiGateway.isConfigured()) return [];
+    const prompt = `This is a carrier Notice of Assignment (factoring) document image. Extract JSON only:
+{
+  "hasNoticeOfAssignmentTitle": boolean,
+  "carrierLegalName": string|null,
+  "carrierAddress": string|null,
+  "mcNumber": string|null,
+  "ein": string|null,
+  "factoringCompany": string|null
+}
+Set hasNoticeOfAssignmentTitle true only if the document clearly says "NOTICE OF ASSIGNMENT".
+mcNumber should be digits only (e.g. "1645860").
+carrierAddress is the city/state/ZIP line near the carrier name when present.`;
+    try {
+        const res = await aiGateway.visionJson({
+            prompt,
+            imageBase64: input.imageBase64,
+            mimeType: input.mimeType || "image/png",
+        });
+        const p = res.parsed || {};
+        const field = (
+            key: string,
+            value: string | null,
+            conf = 0.9
+        ): ExtractedField => ({
+            fieldKey: key,
+            valueText: value,
+            valueNormalized: value,
+            confidence: value ? conf : 0,
+            page: 1,
+            source: "vision",
+            method: "vision",
+            fieldStatus: value ? "FIELD_FOUND" : "FIELD_MISSING",
+        });
+        const hasTitle = Boolean(p.hasNoticeOfAssignmentTitle);
+        const mc = p.mcNumber ? String(p.mcNumber).replace(/\D/g, "") : null;
+        const name = p.carrierLegalName ? String(p.carrierLegalName).trim() : null;
+        const address = p.carrierAddress ? String(p.carrierAddress).trim() : null;
+        return [
+            field("documentTitle", hasTitle ? "NOTICE OF ASSIGNMENT" : null, hasTitle ? 0.99 : 0),
+            field("carrierLegalName", name),
+            field("legalName", name),
+            field("carrierAddress", address, 0.85),
+            field("mcNumber", mc, mc ? 0.95 : 0),
+            field("carrierPrintedName", name, name ? 0.85 : 0),
+            field("factoringCompany", p.factoringCompany ? String(p.factoringCompany) : null, 0.8),
+            field("ein", p.ein ? String(p.ein) : null, 0.8),
+            field(
+                "assignmentStatement",
+                hasTitle ? "assignment_language_detected" : null,
+                hasTitle ? 0.9 : 0
+            ),
+        ];
+    } catch {
+        return [];
+    }
+}
+
 void redactTin;
