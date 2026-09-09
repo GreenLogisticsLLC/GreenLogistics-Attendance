@@ -13,6 +13,7 @@ export async function extractW9FieldsWithVision(input: {
     if (!aiGateway.isConfigured()) return [];
     const prompt = `This is an IRS Form W-9 image. Extract JSON only:
 {
+  "hasW9Title": boolean,
   "name": string|null,
   "businessName": string|null,
   "taxClassification": string|null,
@@ -23,6 +24,7 @@ export async function extractW9FieldsWithVision(input: {
   "signaturePresent": boolean,
   "signatureDate": string|null
 }
+Set hasW9Title true if the header shows Form W-9 / "Request for Taxpayer Identification Number and Certification".
 Focus on Part I Employer identification number (EIN) — if those boxes are blank, tinType and tinLast4 must be null.
 If EIN is filled, set tinType to "EIN" and tinLast4 to the last 4 digits only.
 Do not return full SSN/EIN — only last 4 digits in tinLast4.`;
@@ -50,7 +52,13 @@ Do not return full SSN/EIN — only last 4 digits in tinLast4.`;
             method: "vision",
             fieldStatus: value ? "FIELD_FOUND" : "FIELD_MISSING",
         });
+        const hasTitle = p.hasW9Title !== false; // vision W-9 images are Form W-9 unless model says otherwise
         return [
+            field(
+                "documentTitle",
+                hasTitle ? "Request for Taxpayer Identification Number and Certification" : null,
+                hasTitle ? 0.95 : 0
+            ),
             field("name", p.name ? String(p.name) : null),
             field("businessName", p.businessName ? String(p.businessName) : null),
             field("taxClassification", p.taxClassification ? String(p.taxClassification) : null),

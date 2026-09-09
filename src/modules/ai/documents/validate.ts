@@ -107,6 +107,16 @@ export function validateDocument(input: {
         });
     }
 
+    // W-9: only check circled sections — form title + Employer identification number (EIN).
+    if (input.documentType === "W9") {
+        return validateW9Only({
+            map,
+            levels,
+            signatures,
+            classifyConfidence: input.classifyConfidence,
+        });
+    }
+
     if (input.requiresBoundaryReview || input.documentType === "UNKNOWN") {
         warnings.push("Document boundary/type review required");
         return finish("REVIEW_REQUIRED", "YELLOW", true, input.classifyConfidence, {
@@ -143,7 +153,7 @@ export function validateDocument(input: {
 
     // GreenOS matching (NOA handled separately above)
     const gos = input.greenOs || {};
-    if (["CARRIER_PROFILE", "MC_AUTHORITY", "COI", "INSURANCE", "W9", "BROKER_CARRIER_AGREEMENT"].includes(input.documentType)) {
+    if (["CARRIER_PROFILE", "MC_AUTHORITY", "COI", "INSURANCE", "BROKER_CARRIER_AGREEMENT"].includes(input.documentType)) {
         const mcCheck = checkExactId(
             "MATCH-MC",
             "MC",
@@ -264,7 +274,7 @@ export function validateDocument(input: {
             });
         }
     } else if (receiver && (receiver.status === "UNCERTAIN" || receiver.status === "MISSING")) {
-        if (["W9", "BROKER_CARRIER_AGREEMENT", "RATE_CONFIRMATION", "BOL"].includes(input.documentType)) {
+        if (["BROKER_CARRIER_AGREEMENT", "RATE_CONFIRMATION", "BOL"].includes(input.documentType)) {
             levels.signature = { ok: false, detail: receiver.status };
             warnings.push(receiver.reason);
         }
@@ -376,8 +386,8 @@ function requiredFieldsFor(type: DocAiType): string[] {
         case "CARRIER_PROFILE":
             return ["legalName", "mcNumber", "dotNumber"];
         case "W9":
-            // Circled Part I EIN box must be filled (not blank).
-            return ["ein", "tin", "taxClassification"];
+            // Title + EIN enforced in validateW9Only.
+            return ["documentTitle", "ein"];
         case "COI":
         case "INSURANCE":
             return ["autoLiabilityLimit", "cargoLimit", "policyExp", "certificateHolder"];
@@ -568,6 +578,109 @@ function validateNoaOnly(input: {
 
     return finish("VALID", "GREEN", false, input.classifyConfidence, {
         documentType: "NOA",
+        levels,
+        checks,
+        matches,
+        warnings,
+        errors,
+        signatures: input.signatures,
+        classifyConfidence: input.classifyConfidence,
+    });
+}
+
+/**
+ * W-9 bot check (user-scoped circled sections):
+ * 1) Title: "Request for Taxpayer Identification Number and Certification"
+ * 2) Part I: Employer identification number (EIN) filled
+ * → Approved (GREEN). No signature / name / tax-class noise.
+ */
+function validateW9Only(input: {
+    map: Record<string, string | null>;
+    levels: ValidationBundle["levels"];
+    signatures: SignatureResult[];
+    classifyConfidence: number;
+}): ValidationBundle {
+    const map = input.map;
+    const warnings: string[] = [];
+    const errors: string[] = [];
+    const checks: RuleCheck[] = [];
+    const matches: RuleCheck[] = [];
+    const levels = { ...input.levels };
+
+    const titleRaw = String(map.documentTitle || "");
+    const hasTitle =
+        Boolean(titleRaw) &&
+        (/Request\s+for\s+Taxpayer\s+Identification\s+Number\s+and\s+Certification/i.test(titleRaw) ||
+            /\bForm\s+W-?9\b/i.test(titleRaw) ||
+            /\bW-?9\b/i.test(titleRaw));
+
+    const hasEin =
+        Boolean(map.ein) ||
+        String(map.tinType || "").toUpperCase() === "EIN";
+
+    levels.completeness = {
+        ok: hasTitle && hasEin,
+        detail: [
+            hasTitle ? "W-9 title found" : "missing:W-9 title",
+            hasEin ? "EIN found" : "missing:Employer identification number",
+        ].join("; "),
+    };
+    levels.signature = { ok: true, detail: "n/a" };
+    levels.businessRules = { ok: true, detail: "n/a" };
+    levels.expiration = { ok: true, detail: "n/a" };
+    levels.greenOsMatch = { ok: true, detail: "n/a" };
+
+    if (!hasTitle) {
+        errors.push("MISSING_REQUIRED_FIELD:documentTitle");
+        checks.push({
+            id: "W9-TITLE",
+            ok: false,
+            status: "MISSING",
+            message:
+                'Document must say "Request for Taxpayer Identification Number and Certification"',
+        });
+    } else {
+        checks.push({
+            id: "W9-TITLE",
+            ok: true,
+            status: "PASS",
+            message: 'Found "Request for Taxpayer Identification Number and Certification"',
+        });
+    }
+
+    if (!hasEin) {
+        errors.push("MISSING_REQUIRED_FIELD:ein");
+        checks.push({
+            id: "W9-EIN",
+            ok: false,
+            status: "MISSING",
+            message: 'Document must have "Employer identification number" filled',
+        });
+    } else {
+        checks.push({
+            id: "W9-EIN",
+            ok: true,
+            status: "PASS",
+            message: 'Found "Employer identification number"',
+            documentValue: map.ein,
+        });
+    }
+
+    if (!hasTitle || !hasEin) {
+        return finish("MISSING_REQUIRED_FIELD", "RED", true, input.classifyConfidence, {
+            documentType: "W9",
+            levels,
+            checks,
+            matches,
+            warnings,
+            errors,
+            signatures: input.signatures,
+            classifyConfidence: input.classifyConfidence,
+        });
+    }
+
+    return finish("VALID", "GREEN", false, input.classifyConfidence, {
+        documentType: "W9",
         levels,
         checks,
         matches,
