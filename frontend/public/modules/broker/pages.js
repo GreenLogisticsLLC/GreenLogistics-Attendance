@@ -363,11 +363,17 @@ window.GreenOSModules.broker = {
     }
 
     function sortRows(rows) {
+      // Waiting → Open in uShip → BROKER REPLY → Bid Submitted → Shipment Accepted → rest
       var priority = {
         AWAITING_ACCEPTANCE: 0,
+        ASSIGNED: 0,
         AGENT_OPEN: 1,
-        ASSIGNED: 2,
-        WORKING: 3,
+        BROKER_REPLY: 2,
+        FOLLOW_UP: 2,
+        CUSTOMER_REPLIED: 2,
+        BID_SUBMITTED: 3,
+        QUOTE_SENT: 3,
+        WORKING: 4,
       };
       return rows.slice().sort(function (a, b) {
         var pa = priority[a.status] != null ? priority[a.status] : 9;
