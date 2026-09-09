@@ -243,6 +243,22 @@ export const carriersController = {
             });
         }
     },
+
+    async deleteDocument(req: AuthRequest, res: Response) {
+        try {
+            const data = await carrierService.deleteDocument(
+                String(req.params.id),
+                String(req.params.documentId),
+                actorFrom(req)
+            );
+            res.json({ success: true, data, message: "Document deleted" });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to delete document",
+            });
+        }
+    },
 };
 
 export const carrierOnboardingPublicController = {

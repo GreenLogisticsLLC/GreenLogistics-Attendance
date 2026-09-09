@@ -238,6 +238,11 @@ export function canManageBrokers(role: string): boolean {
     );
 }
 
+/** Main GreenOS accounts may permanently delete carrier packet documents. */
+export function canDeleteCarrierDocuments(role: string): boolean {
+    return role === Roles.Owner || role === Roles.Administrator;
+}
+
 /** Who can open Employees → Platform users and change account roles. */
 export function canManageUserRoles(role: string): boolean {
     return (

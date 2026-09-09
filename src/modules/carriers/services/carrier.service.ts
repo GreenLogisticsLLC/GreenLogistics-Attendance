@@ -24,6 +24,7 @@ import { carrierStorageService } from "./carrier-storage.service.js";
 import { storeCarrierAgreementPdf } from "./carrier-agreement-pdf.service.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { normalizeStatus } from "../../shipment/shipment.lifecycle.js";
+import { canDeleteCarrierDocuments } from "../../../auth/roles.js";
 
 type Actor = { userId?: string; role?: string; ip?: string; userAgent?: string };
 
@@ -2098,6 +2099,71 @@ export class CarrierService {
         if (!doc) throw Object.assign(new Error("Document not found"), { status: 404 });
         const absolutePath = carrierStorageService.absolutePath(carrierId, doc.storageKey);
         return { doc, absolutePath };
+    }
+
+    /**
+     * Permanently delete a carrier packet document (Owner / Administrator only).
+     * Removes DB row, related Document AI jobs, and the file on disk.
+     * If the deleted row was CURRENT, promotes the latest ARCHIVED of that type.
+     */
+    async deleteDocument(carrierId: string, documentId: string, actor: Actor) {
+        if (!canDeleteCarrierDocuments(String(actor.role || ""))) {
+            throw Object.assign(
+                new Error("Only Owner / Administrator can delete carrier documents"),
+                { status: 403 }
+            );
+        }
+        await this.assertCarrierAccess(carrierId, actor);
+        const doc = await prisma.carrierDocument.findFirst({
+            where: { documentId, carrierId },
+        });
+        if (!doc) throw Object.assign(new Error("Document not found"), { status: 404 });
+
+        const aiJobs = await prisma.aiDocumentJob.findMany({
+            where: { documentId, documentSource: "CARRIER" },
+            select: { jobId: true },
+        });
+        if (aiJobs.length) {
+            await prisma.aiDocumentJob.deleteMany({
+                where: { jobId: { in: aiJobs.map((j) => j.jobId) } },
+            });
+        }
+
+        await prisma.carrierDocument.delete({ where: { documentId } });
+        carrierStorageService.tryUnlink(carrierId, doc.storageKey);
+
+        let promotedDocumentId: string | null = null;
+        if (doc.status === "CURRENT") {
+            const next = await prisma.carrierDocument.findFirst({
+                where: {
+                    carrierId,
+                    documentType: doc.documentType,
+                    status: "ARCHIVED",
+                },
+                orderBy: { version: "desc" },
+            });
+            if (next) {
+                await prisma.carrierDocument.update({
+                    where: { documentId: next.documentId },
+                    data: { status: "CURRENT" },
+                });
+                promotedDocumentId = next.documentId;
+            }
+        }
+
+        console.log(
+            `[carriers] document deleted by ${actor.role || "?"} ${actor.userId || "?"}:`,
+            documentId,
+            doc.documentType,
+            doc.originalFilename
+        );
+
+        return {
+            deleted: true,
+            documentId,
+            documentType: doc.documentType,
+            promotedDocumentId,
+        };
     }
 
     /** Public RC/BOL PDF download for carrier portal (token-scoped). */
