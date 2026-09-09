@@ -23,6 +23,7 @@ import { isLoadCarrierApproved } from "../load-carrier-review.js";
 import { buildCarrierOperationalSummary } from "../../ai/operational/carrier-context.js";
 import { documentAiJobService } from "../../ai/documents/job.service.js";
 import type { CarrierOperationalSummary } from "../../ai/operational/types.js";
+import { carrierEmailService } from "../../carriers/services/carrier-email.service.js";
 
 export function assertRateConfirmationCompliance(
     summary: Pick<CarrierOperationalSummary, "readiness" | "compliance">,
@@ -516,7 +517,63 @@ export class LoadDocumentsService {
             // Books (carrierRate / customerRate / profit) = Accounting + Owner.
         }
 
-        return row;
+        let emailDelivery: {
+            sent: boolean;
+            to?: string;
+            from?: string;
+            via?: string;
+            error?: string;
+        } | null = null;
+
+        if (docType === "RATE_CONFIRMATION") {
+            const to = String(content.carrierEmail || "").trim();
+            const brokerUserId = input.actorUserId || lead.assignedBrokerId || null;
+            if (!to) {
+                emailDelivery = {
+                    sent: false,
+                    error: "Carrier email is missing — Rate Confirmation was saved but not emailed.",
+                };
+            } else if (!brokerUserId) {
+                emailDelivery = {
+                    sent: false,
+                    to,
+                    error: "No assigned broker — Rate Confirmation was saved but not emailed.",
+                };
+            } else {
+                try {
+                    const abs = path.join(LOAD_DOCS_ROOT, input.shipmentLeadId, pdf.storedName);
+                    const pdfBytes = fs.readFileSync(abs);
+                    const sent = await carrierEmailService.sendRateConfirmationPdf({
+                        brokerUserId,
+                        to,
+                        contactName: String(content.carrierName || "Carrier Partner"),
+                        carrierLegalName: String(content.carrierName || "Carrier"),
+                        loadNumber: lead.loadNumber,
+                        brokerName: content.brokerName || undefined,
+                        pdf: {
+                            filename: pdf.fileName || `Rate_Confirmation_${lead.loadNumber || "load"}.pdf`,
+                            content: pdfBytes,
+                        },
+                    });
+                    await this.markSent(row.documentId, input.actorUserId);
+                    emailDelivery = {
+                        sent: true,
+                        to,
+                        from: sent.from,
+                        via: sent.via,
+                    };
+                } catch (err) {
+                    emailDelivery = {
+                        sent: false,
+                        to,
+                        error: err instanceof Error ? err.message : String(err),
+                    };
+                }
+            }
+        }
+
+        return emailDelivery ? { ...row, emailDelivery } : row;
+
     }
 
     /** Edit content → new version + regenerate PDF (never overwrite). */

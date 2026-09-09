@@ -2705,7 +2705,7 @@ window.GreenOSModules["dispatch"] = {
 
     box.innerHTML =
       "<h3>Generate Rate Confirmation</h3>" +
-      '<p class="gos-muted">Fields auto-fill from this Load. Add contacts, times, rate and notes — then create the PDF (new version, never overwrite).</p>' +
+      '<p class="gos-muted">Fields auto-fill from this Load. Add contacts, times, rate and notes — then create the PDF. Green OS emails the RC PDF from your Gmail to the carrier automatically.</p>' +
       '<div class="load-form-grid">' +
       '<label>Load No <input id="rc-load" value="' + self.esc(g.loadNumber || "") + '" readonly></label>' +
       '<label>Shipment <input id="rc-ship" value="' + self.esc(g.shipmentNumber || "") + '" readonly></label>' +
@@ -2873,7 +2873,7 @@ window.GreenOSModules["dispatch"] = {
           ),
         });
 
-        if (statusEl) statusEl.textContent = "Generating Rate Confirmation PDF…";
+        if (statusEl) statusEl.textContent = "Generating Rate Confirmation PDF and emailing carrier…";
         var pickupTime24 = self.readAmPmTime(box, "rc-ptime");
         var deliveryTime24 = self.readAmPmTime(box, "rc-dtime");
         var content = {
@@ -2929,7 +2929,21 @@ window.GreenOSModules["dispatch"] = {
           }),
         });
 
-        if (statusEl) statusEl.textContent = "Done — opening PDF…";
+        var emailInfo = row && row.emailDelivery ? row.emailDelivery : null;
+        if (statusEl) {
+          statusEl.textContent = emailInfo && emailInfo.sent
+            ? ("RC emailed to " + (emailInfo.to || "carrier") + " — opening PDF…")
+            : "Done — opening PDF…";
+        }
+        if (emailInfo && emailInfo.sent) {
+          /* ok */
+        } else if (emailInfo && emailInfo.error) {
+          alert(
+            "Rate Confirmation saved, but email to carrier failed:\n" +
+              emailInfo.error +
+              "\n\nConnect Broker Gmail in My Workspace, then regenerate or resend."
+          );
+        }
         await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
         if (row && row.documentId) {
           try {

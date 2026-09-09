@@ -22,6 +22,11 @@ export class CarrierEmailService {
         text: string;
         html: string;
         allowSystemFallback?: boolean;
+        attachments?: Array<{
+            filename: string;
+            content: Buffer;
+            contentType?: string;
+        }>;
     }): Promise<{ from: string; via: "broker-gmail" | "system" }> {
         if (input.brokerUserId) {
             try {
@@ -30,6 +35,7 @@ export class CarrierEmailService {
                     subject: input.subject,
                     text: input.text,
                     html: input.html,
+                    attachments: input.attachments,
                 });
                 return { from: sent.from, via: "broker-gmail" };
             } catch (err) {
@@ -40,6 +46,14 @@ export class CarrierEmailService {
             throw Object.assign(
                 new Error(
                     "Broker Gmail is required to email the carrier. Connect Gmail in My Workspace first."
+                ),
+                { status: 400, code: "BROKER_GMAIL_REQUIRED" }
+            );
+        }
+        if (input.attachments?.length) {
+            throw Object.assign(
+                new Error(
+                    "Broker Gmail is required to email documents with PDF attachments. Connect Gmail in My Workspace first."
                 ),
                 { status: 400, code: "BROKER_GMAIL_REQUIRED" }
             );
@@ -110,6 +124,64 @@ export class CarrierEmailService {
             text,
             html,
             allowSystemFallback: false,
+        });
+    }
+
+    /** Email the Rate Confirmation PDF to the carrier from broker Gmail. */
+    async sendRateConfirmationPdf(input: {
+        brokerUserId: string;
+        to: string;
+        contactName: string;
+        carrierLegalName: string;
+        loadNumber?: string | null;
+        brokerName?: string;
+        pdf: { filename: string; content: Buffer };
+    }) {
+        const name = input.contactName || "Carrier Partner";
+        const loadLabel = input.loadNumber ? ` (${input.loadNumber})` : "";
+        const subject = `Green Logistics — Rate Confirmation${loadLabel}`;
+        const text = [
+            `Hello ${name},`,
+            "",
+            "Please find attached your Rate Confirmation from Green Logistics.",
+            input.loadNumber ? `Load: ${input.loadNumber}` : "",
+            `Carrier: ${input.carrierLegalName}`,
+            "",
+            "Review the attached PDF. Reply to this email if you have questions.",
+            "",
+            "Thank you,",
+            input.brokerName || "Green Logistics",
+        ]
+            .filter(Boolean)
+            .join("\n");
+
+        const html = `
+          <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
+            <h2 style="color:#059669;margin:0 0 12px">Green Logistics</h2>
+            <p>Hello ${esc(name)},</p>
+            <p>Your <strong>Rate Confirmation</strong> for <strong>${esc(
+                input.carrierLegalName
+            )}</strong>${
+                input.loadNumber ? ` (Load <strong>${esc(input.loadNumber)}</strong>)` : ""
+            } is attached as a PDF.</p>
+            <p>Please review the attached document. Reply to this email if you have questions.</p>
+            <p>Thank you,<br/>${esc(input.brokerName || "Green Logistics")}</p>
+          </div>`;
+
+        return this.sendAsBrokerOrSystem({
+            brokerUserId: input.brokerUserId,
+            to: input.to,
+            subject,
+            text,
+            html,
+            allowSystemFallback: false,
+            attachments: [
+                {
+                    filename: input.pdf.filename || "Rate_Confirmation.pdf",
+                    content: input.pdf.content,
+                    contentType: "application/pdf",
+                },
+            ],
         });
     }
 
