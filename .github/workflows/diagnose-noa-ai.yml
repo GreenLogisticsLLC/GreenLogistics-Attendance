@@ -1,0 +1,130 @@
+name: Diagnose NOA AI (Arsen)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Inspect latest NOA AI jobs + OCR smoke
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          echo "=== HEAD ==="
+          git rev-parse --short HEAD
+          ls -la dist/modules/ai/documents/pdf-enrich.js 2>/dev/null || echo "MISSING pdf-enrich.js in dist"
+          ls node_modules/tesseract.js/package.json node_modules/pdfjs-dist/package.json 2>/dev/null || echo "MISSING deps"
+          echo "=== DB latest NOA jobs ==="
+          node --input-type=module <<'NODE'
+          import { PrismaClient } from "@prisma/client";
+          const prisma = new PrismaClient();
+          const carriers = await prisma.carrier.findMany({
+            where: { OR: [
+              { legalName: { contains: "ARSEN" } },
+              { mcNumber: { contains: "1645860" } },
+            ]},
+            take: 5,
+          });
+          console.log("carriers", carriers.map(c => ({ id: c.carrierId, name: c.legalName, mc: c.mcNumber, city: c.city, state: c.state, zip: c.zip, address: c.address })));
+          for (const c of carriers) {
+            const docs = await prisma.carrierDocument.findMany({
+              where: { carrierId: c.carrierId, documentType: "NOA" },
+              orderBy: { uploadedAt: "desc" },
+              take: 5,
+            });
+            console.log("docs", docs.map(d => ({ id: d.documentId, status: d.status, ver: d.version, file: d.originalFilename, path: d.storedPath || d.filePath })));
+            for (const d of docs) {
+              const jobs = await prisma.aiDocumentJob.findMany({
+                where: { documentId: d.documentId },
+                orderBy: { createdAt: "desc" },
+                take: 3,
+                include: { validation: true, extraction: true },
+              });
+              for (const j of jobs) {
+                console.log("JOB", {
+                  jobId: j.jobId,
+                  status: j.status,
+                  classified: j.classifiedDocType,
+                  checksum: j.checksum?.slice(0,12),
+                  err: j.errorMessage,
+                  light: j.validation?.trafficLight,
+                  overall: j.validation?.overallStatus,
+                  errors: j.validation?.errorsJson,
+                  levels: j.validation?.levelsJson,
+                  warnings: j.validation?.warningsJson,
+                  textChars: j.extraction?.textCharCount,
+                  meta: j.extraction?.metaJson,
+                });
+                const fields = await prisma.aiDocumentField.findMany({
+                  where: { extractionId: j.extraction?.extractionId || "__none__" },
+                }).catch(() => []);
+                if (j.extraction) {
+                  const f = await prisma.aiDocumentField.findMany({ where: { extractionId: j.extraction.extractionId } });
+                  console.log("FIELDS", f.filter(x => x.valueText).map(x => x.fieldKey + "=" + x.valueText));
+                }
+              }
+            }
+          }
+          await prisma.$disconnect();
+          NODE
+          echo "=== OCR smoke on latest NOA file if present ==="
+          node --input-type=module <<'NODE'
+          import { PrismaClient } from "@prisma/client";
+          import fs from "fs";
+          import path from "path";
+          const prisma = new PrismaClient();
+          const doc = await prisma.carrierDocument.findFirst({
+            where: { documentType: "NOA", originalFilename: { contains: "Love" } },
+            orderBy: { uploadedAt: "desc" },
+          });
+          console.log("doc", doc && { id: doc.documentId, file: doc.originalFilename, stored: doc.storedPath, filePath: doc.filePath, abs: doc.absolutePath });
+          const candidates = [];
+          if (doc) {
+            for (const k of ["storedPath","filePath","absolutePath","storagePath"]) {
+              if (doc[k]) candidates.push(doc[k]);
+            }
+          }
+          // also search uploads dirs
+          for (const root of ["uploads", "data/uploads", "storage", "data"]) {
+            if (!fs.existsSync(root)) continue;
+            const walk = (dir, depth=0) => {
+              if (depth>4) return;
+              for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+                const p = path.join(dir, ent.name);
+                if (ent.isDirectory()) walk(p, depth+1);
+                else if (/NOA|Love|Arsen/i.test(ent.name) && /\.pdf$/i.test(ent.name)) candidates.push(p);
+              }
+            };
+            walk(root);
+          }
+          console.log("candidates", [...new Set(candidates)].slice(0,10));
+          const { extractDocumentText } = await import("./dist/modules/ai/documents/text-extract.js");
+          const { extractFieldsForType } = await import("./dist/modules/ai/documents/extract.js");
+          const { validateDocument } = await import("./dist/modules/ai/documents/validate.js");
+          for (const p of [...new Set(candidates)].slice(0,3)) {
+            const abs = path.isAbsolute(p) ? p : path.resolve(p);
+            if (!fs.existsSync(abs)) { console.log("missing", abs); continue; }
+            console.log("testing", abs, fs.statSync(abs).size);
+            const t0 = Date.now();
+            const text = await extractDocumentText(abs);
+            console.log({ method: text.method, chars: text.text.length, adequate: text.adequate, ms: Date.now()-t0, snippet: text.text.slice(0,200) });
+            const fields = extractFieldsForType("NOA", text.text);
+            const carrier = await prisma.carrier.findFirst({ where: { legalName: { contains: "ARSEN" } } });
+            const greenOs = carrier ? { legalName: carrier.legalName, mcNumber: carrier.mcNumber, city: carrier.city, state: carrier.state, zip: carrier.zip, address: carrier.address } : {};
+            console.log("greenOs", greenOs);
+            const v = validateDocument({ documentType: "NOA", classifyConfidence: 0.95, fields, greenOs });
+            console.log("verdict", v.trafficLight, v.overallStatus, v.errors, v.matches.filter(m=>!m.ok));
+          }
+          await prisma.$disconnect();
+          NODE
+          EOF
