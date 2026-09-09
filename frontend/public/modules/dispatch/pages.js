@@ -212,26 +212,55 @@ window.GreenOSModules["dispatch"] = {
       signMeta = "Signed";
     }
     var loadApproved = c.loadCarrierApproved === true;
+    var slots = reviewSlots.length ? reviewSlots : null;
+    var botAllApproved = false;
+    if (slots && slots.length) {
+      botAllApproved = slots.every(function (slot) {
+        if (!slot.present || !slot.document) return false;
+        var ai = slot.ai || {};
+        var light = String(ai.trafficLight || "").toUpperCase();
+        var verdict = String(ai.verdict || "").trim();
+        return light === "GREEN" || verdict === "Approved";
+      });
+    }
     var headline = loadApproved
       ? "Carrier documents — approved for this load"
       : "Review carrier documents for this load";
     var lead = loadApproved
       ? "Broker already approved this carrier for the current load. Rate Confirmation is unlocked."
-      : "Document bot shows <strong>Approved</strong> or <strong>Not Approved</strong> for each file. Open docs to review, then click <strong>Approved Carrier</strong>. New Rate Confirmation and BOL are created on this load after that.";
-    var actions = "";
-    if (!loadApproved && c.carrierProfileId) {
-      actions =
-        '<div class="load-actions" style="margin:0.75rem 0">' +
-        '<button type="button" class="btn-primary" id="ld-approve-carrier">Approved Carrier</button>' +
-        (c.carrierProfileId
-          ? '<button type="button" class="btn-secondary" id="ld-open-carrier-record">Open full carrier record</button>'
-          : "") +
-        "</div>";
-    } else if (c.carrierProfileId) {
-      actions =
-        '<div class="load-actions" style="margin:0.75rem 0">' +
-        '<button type="button" class="btn-secondary" id="ld-open-carrier-record">Open full carrier record</button>' +
-        "</div>";
+      : botAllApproved
+        ? "Document bot marked every file <strong>Approved</strong> — still click <strong>Approve Carrier</strong> after you review. Rate Confirmation stays locked until then."
+        : "Document bot shows <strong>Approved</strong> or <strong>Not Approved</strong> for each file. Open docs to review, then click <strong>Approve Carrier</strong>. Rate Confirmation stays locked until the broker confirms.";
+
+    function approveActionsHtml(place) {
+      if (loadApproved || !c.carrierProfileId) {
+        if (!c.carrierProfileId) return "";
+        return (
+          '<div class="load-actions ld-approve-carrier-actions" data-place="' +
+          place +
+          '" style="margin:0.75rem 0">' +
+          (loadApproved
+            ? '<span class="ld-carrier-doc-broker-ok" style="margin-right:0.75rem">✓ Carrier approved for this load</span>'
+            : "") +
+          '<button type="button" class="btn-secondary" id="ld-open-carrier-record' +
+          (place === "bottom" ? "-bottom" : "") +
+          '">Open full carrier record</button>' +
+          "</div>"
+        );
+      }
+      return (
+        '<div class="load-actions ld-approve-carrier-actions" data-place="' +
+        place +
+        '" style="margin:0.75rem 0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">' +
+        '<button type="button" class="btn-primary" id="ld-approve-carrier' +
+        (place === "bottom" ? "-bottom" : "") +
+        '">Approve Carrier</button>' +
+        '<button type="button" class="btn-secondary" id="ld-open-carrier-record' +
+        (place === "bottom" ? "-bottom" : "") +
+        '">Open full carrier record</button>' +
+        '<span class="gos-muted" style="flex:1 1 12rem">Required even when the bot shows Approved on every file.</span>' +
+        "</div>"
+      );
     }
 
     var slotsHtml = "";
@@ -293,11 +322,12 @@ window.GreenOSModules["dispatch"] = {
       '<div class="load-grid">' +
       field("Onboarding", status || "—") +
       field("Agreement", signMeta) +
-      field("Approved for this load", loadApproved ? "Yes" : "No — review required") +
+      field("Approved for this load", loadApproved ? "Yes" : "No — broker must click Approve Carrier") +
       field("Carrier status", c.carrierStatus || "—") +
       "</div>" +
-      actions +
+      approveActionsHtml("top") +
       slotsHtml +
+      approveActionsHtml("bottom") +
       "</section>"
     );
   },
@@ -353,22 +383,24 @@ window.GreenOSModules["dispatch"] = {
         }
       });
     });
-    root.querySelector("#ld-open-carrier-record")?.addEventListener("click", function () {
-      if (!carrierId) return;
-      if (window.GreenOSModules && window.GreenOSModules.carriers) {
-        window.GreenOSModules.carriers._carrierId = carrierId;
-        window.GreenOSModules.carriers._tab = "documents";
-      }
-      if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
-        window.GreenOS.navigate("carriers");
-      } else {
-        window.location.hash = "#/carriers";
-      }
+    root.querySelectorAll("#ld-open-carrier-record, #ld-open-carrier-record-bottom").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (!carrierId) return;
+        if (window.GreenOSModules && window.GreenOSModules.carriers) {
+          window.GreenOSModules.carriers._carrierId = carrierId;
+          window.GreenOSModules.carriers._tab = "documents";
+        }
+        if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
+          window.GreenOS.navigate("carriers");
+        } else {
+          window.location.hash = "#/carriers";
+        }
+      });
     });
-    root.querySelector("#ld-approve-carrier")?.addEventListener("click", async function () {
+    async function runApproveCarrier() {
       if (
         !confirm(
-          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement for THIS load?"
+          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement for THIS load?\n\nBot Approved is not enough — this broker confirmation unlocks Rate Confirmation."
         )
       ) {
         return;
@@ -387,6 +419,11 @@ window.GreenOSModules["dispatch"] = {
       } catch (err) {
         alert(err.message || err);
       }
+    }
+    root.querySelectorAll("#ld-approve-carrier, #ld-approve-carrier-bottom").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        runApproveCarrier();
+      });
     });
   },
 
@@ -998,7 +1035,7 @@ window.GreenOSModules["dispatch"] = {
     var nowLabel = qaCurrent
       ? "Now: " + self.esc(qaCurrent.label)
       : waitingCarrierApproval
-        ? "Now: Approved Carrier"
+        ? "Now: Approve Carrier"
         : qaDone === qaSteps.length
           ? "All steps complete"
           : "In progress";
@@ -1520,7 +1557,7 @@ window.GreenOSModules["dispatch"] = {
       var nextStepHint = !c.carrierName
         ? "Next: assign carrier."
         : !carrierApproved
-          ? "Next: review carrier packet documents below, then click <strong>Approved Carrier</strong> — Rate Confirmation stays locked until then."
+          ? "Next: review carrier packet documents below, then click <strong>Approve Carrier</strong> — Rate Confirmation stays locked until then."
           : "Next: Generate Rate Confirmation.";
       main.innerHTML =
         "<h2>Assign Carrier</h2>" +
@@ -1666,7 +1703,7 @@ window.GreenOSModules["dispatch"] = {
                 (invJson.message || "Connect Broker Gmail, then Resend from Carriers.");
             } else if (invJson.data && invJson.data.invite && invJson.data.invite.skipped) {
               inviteMsg =
-                "\n\nRegistered carrier linked. Review packet documents below, then click Approved Carrier.";
+                "\n\nRegistered carrier linked. Review packet documents below, then click Approve Carrier.";
             } else {
               inviteMsg =
                 "\n\nSecure Agreement link emailed to the carrier from your Gmail.";

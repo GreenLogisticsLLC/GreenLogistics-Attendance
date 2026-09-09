@@ -15,7 +15,7 @@ export type LoadQuickAction = {
 export type LoadQuickActionInput = {
     status: string;
     carrierName?: string | null;
-    /** True only after broker clicks Approved Carrier on THIS load. */
+    /** True only after broker clicks Approve Carrier on THIS load. */
     loadCarrierApproved?: boolean | null;
     customerPaidAt?: Date | string | null;
     carrierPaidAt?: Date | string | null;
@@ -112,7 +112,7 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
     const rateConNeed = !carrierDone
         ? "Assign Carrier first"
         : !carrierApproved
-          ? "Review carrier packet documents, then click Approved Carrier"
+          ? "Review carrier packet documents, then click Approve Carrier"
           : "Assign Carrier first";
 
     const defs: Array<{
@@ -133,7 +133,7 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
         },
         {
             id: "approve_carrier",
-            label: "Approved Carrier",
+            label: "Approve Carrier",
             done: carrierApproved,
             need: "Assign Carrier first",
         },
