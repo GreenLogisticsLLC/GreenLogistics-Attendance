@@ -222,9 +222,163 @@ export class LoadDocumentsService {
     }
 
     async listCurrent(shipmentLeadId: string) {
+        // If carrier already signed via portal but PDF was never stamped, fix on open.
+        await this.ensureCarrierSignatureOnRateCon(shipmentLeadId).catch((err) => {
+            console.warn(
+                `[rc-sign] ensure stamp failed for load ${shipmentLeadId}:`,
+                err instanceof Error ? err.message : err
+            );
+        });
         return prisma.loadDocument.findMany({
             where: { shipmentLeadId, isCurrent: true, status: { not: "ARCHIVED" } },
             orderBy: [{ docType: "asc" }, { version: "desc" }],
+        });
+    }
+
+    /**
+     * Stamp the latest portal carrier RC signature onto the current load Rate Confirmation PDF.
+     * Creates a new version (never overwrites). No-op when already stamped or nothing to stamp.
+     */
+    async stampCarrierSignatureOnRateCon(input: {
+        shipmentLeadId: string;
+        signerName: string;
+        signatureData: string;
+        signedAt?: Date | null;
+        actorUserId?: string | null;
+    }) {
+        const shipmentLeadId = input.shipmentLeadId;
+        const signatureData = String(input.signatureData || "").trim();
+        const signerName = String(input.signerName || "").trim();
+        if (!shipmentLeadId || !signatureData || !signerName) return null;
+        if (!signatureData.startsWith("data:image")) {
+            throw Object.assign(new Error("Invalid carrier signature image"), { status: 400 });
+        }
+
+        const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!lead?.loadNumber) return null;
+
+        const current = await prisma.loadDocument.findFirst({
+            where: {
+                shipmentLeadId,
+                docType: "RATE_CONFIRMATION",
+                isCurrent: true,
+                status: { not: "ARCHIVED" },
+            },
+            orderBy: { version: "desc" },
+        });
+        if (!current) return null;
+
+        let content: LoadDocumentContent = {};
+        try {
+            content = JSON.parse(current.contentJson || "{}") as LoadDocumentContent;
+        } catch {
+            content = {};
+        }
+
+        const signedAt = input.signedAt || new Date();
+        const signedDate = signedAt.toISOString().slice(0, 10);
+        const already =
+            content.carrierSignatureDataUrl === signatureData &&
+            content.carrierSignerName === signerName;
+        if (already) return current;
+
+        content = {
+            ...content,
+            carrierSignatureDataUrl: signatureData,
+            carrierSignerName: signerName,
+            carrierSignedAt: signedDate,
+        };
+
+        const version = (current.version || 0) + 1;
+        if (current.isCurrent) {
+            await prisma.loadDocument.update({
+                where: { documentId: current.documentId },
+                data: { isCurrent: false },
+            });
+        }
+
+        const pdf = await generateLoadDocumentPdf({
+            shipmentLeadId,
+            docType: "RATE_CONFIRMATION",
+            version,
+            content,
+        });
+
+        const title = `${LOAD_DOC_TYPE_LABELS.RATE_CONFIRMATION || "Rate Confirmation"} v${version}`;
+        const row = await prisma.loadDocument.create({
+            data: {
+                shipmentLeadId,
+                docType: "RATE_CONFIRMATION",
+                version,
+                changeReason: "FINAL_SIGNED",
+                title,
+                status: "READY",
+                isCurrent: true,
+                contentJson: JSON.stringify(content),
+                fileName: pdf.fileName,
+                mimeType: pdf.mimeType,
+                storedName: pdf.storedName,
+                fileUrl: pdf.fileUrl,
+                fileSize: pdf.fileSize,
+                createdById: input.actorUserId || null,
+            },
+        });
+
+        await domainEventEngine.emit({
+            shipmentLeadId,
+            eventType: "RATE_CONFIRMATION_EDITED",
+            title: `${title} (Final Signed)`,
+            message: `Carrier signature stamped on Rate Confirmation for Load ${lead.loadNumber}`,
+            actorUserId: input.actorUserId || undefined,
+            payload: {
+                documentId: row.documentId,
+                docType: "RATE_CONFIRMATION",
+                version,
+                changeReason: "FINAL_SIGNED",
+                fileUrl: row.fileUrl,
+                carrierSignerName: signerName,
+            },
+            timelineStage: "RATE_CONFIRMATION_GENERATED",
+        });
+
+        return row;
+    }
+
+    /**
+     * If a portal RC signature exists for this load but the current PDF has none, stamp it.
+     */
+    async ensureCarrierSignatureOnRateCon(shipmentLeadId: string) {
+        const current = await prisma.loadDocument.findFirst({
+            where: {
+                shipmentLeadId,
+                docType: "RATE_CONFIRMATION",
+                isCurrent: true,
+                status: { not: "ARCHIVED" },
+            },
+            orderBy: { version: "desc" },
+            select: { documentId: true, contentJson: true },
+        });
+        if (!current) return null;
+
+        let content: LoadDocumentContent = {};
+        try {
+            content = JSON.parse(current.contentJson || "{}") as LoadDocumentContent;
+        } catch {
+            content = {};
+        }
+        if (content.carrierSignatureDataUrl) return null;
+
+        const sig = await prisma.carrierRcSignature.findFirst({
+            where: { shipmentLeadId },
+            orderBy: { signedAt: "desc" },
+        });
+        if (!sig?.signatureData || !sig.signerName) return null;
+
+        return this.stampCarrierSignatureOnRateCon({
+            shipmentLeadId,
+            signerName: sig.signerName,
+            signatureData: sig.signatureData,
+            signedAt: sig.signedAt,
         });
     }
 
@@ -239,6 +393,14 @@ export class LoadDocumentsService {
     async getById(documentId: string) {
         const row = await prisma.loadDocument.findUnique({ where: { documentId } });
         if (!row) throw Object.assign(new Error("Document not found"), { status: 404 });
+        if (row.docType === "RATE_CONFIRMATION" && row.isCurrent) {
+            const stamped = await this.ensureCarrierSignatureOnRateCon(row.shipmentLeadId).catch(
+                () => null
+            );
+            if (stamped && stamped.documentId !== documentId) {
+                return stamped;
+            }
+        }
         return row;
     }
 
@@ -320,6 +482,21 @@ export class LoadDocumentsService {
         const content: LoadDocumentContent = { ...base, ...(input.contentOverrides || {}) };
 
         if (docType === "RATE_CONFIRMATION") {
+            // Keep portal carrier signature on regenerated / broker-edited Rate Cons.
+            if (!content.carrierSignatureDataUrl) {
+                const latestSig = await prisma.carrierRcSignature.findFirst({
+                    where: { shipmentLeadId: input.shipmentLeadId },
+                    orderBy: { signedAt: "desc" },
+                });
+                if (latestSig?.signatureData && latestSig.signerName) {
+                    content.carrierSignatureDataUrl = latestSig.signatureData;
+                    content.carrierSignerName =
+                        content.carrierSignerName || latestSig.signerName;
+                    content.carrierSignedAt =
+                        content.carrierSignedAt ||
+                        latestSig.signedAt.toISOString().slice(0, 10);
+                }
+            }
             const required: Array<[string, unknown]> = [
                 ["Customer email", content.customerEmail],
                 ["Carrier", content.carrierName],

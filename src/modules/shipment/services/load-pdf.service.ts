@@ -112,6 +112,11 @@ export type LoadDocumentContent = {
     deliveredInGoodOrder?: boolean | string | null;
     exceptionsNotes?: string | null;
     receiverName?: string | null;
+    /** Carrier electronic signature on Rate Confirmation (data URL). */
+    carrierSignatureDataUrl?: string | null;
+    carrierSignerName?: string | null;
+    /** ISO date or display date when carrier signed. */
+    carrierSignedAt?: string | null;
     /** Customer Invoice (matches Green Logistics INVOICE template). */
     invoiceNumber?: string | null;
     invoiceDate?: string | null;
@@ -173,6 +178,17 @@ function formatStops(stops: string[]): string {
     if (!stops.length) return "—";
     if (stops.length === 1) return stops[0];
     return stops.map((s, i) => `${i + 1}. ${s}`).join("\n");
+}
+
+/** Decode portal signature data URL (PNG/JPEG) for PDFKit embedding. */
+function signatureBufferFromDataUrl(dataUrl: string | null | undefined): Buffer | null {
+    const m = String(dataUrl || "").match(/^data:image\/\w+;base64,(.+)$/);
+    if (!m) return null;
+    try {
+        return Buffer.from(m[1], "base64");
+    } catch {
+        return null;
+    }
 }
 
 function line(doc: PDFKit.PDFDocument, label: string, value: string | null | undefined) {
@@ -367,9 +383,36 @@ function renderRateConfirmationPdf(
         y = 50;
     }
     drawBox(doc, left, y, usable / 2 - 4, 70);
+    const carrierBoxW = usable / 2 - 4;
     doc.font("Helvetica-Bold").fontSize(8).text("CARRIER SIGNATURE:", left + 8, y + 8);
+    const carrierPrinted = txt(c.carrierSignerName) || txt(c.carrierName);
+    if (carrierPrinted) {
+        doc.font("Helvetica").fontSize(8).fillColor("#222222").text(carrierPrinted, left + 8, y + 22, {
+            width: carrierBoxW - 130,
+        });
+    }
+    const carrierImg = signatureBufferFromDataUrl(c.carrierSignatureDataUrl);
+    if (carrierImg) {
+        try {
+            const sigMaxW = 118;
+            const sigMaxH = 34;
+            const sigX = left + carrierBoxW - sigMaxW - 10;
+            doc.image(carrierImg, sigX, y + 14, {
+                fit: [sigMaxW, sigMaxH],
+                align: "right",
+                valign: "bottom",
+            });
+        } catch {
+            /* keep printed name if image fails */
+        }
+    }
     doc.moveTo(left + 8, y + 48).lineTo(left + usable / 2 - 16, y + 48).stroke("#666666");
-    doc.font("Helvetica").fontSize(7).text("DATE:", left + 8, y + 54);
+    const carrierDate = txt(c.carrierSignedAt);
+    doc.font("Helvetica").fontSize(7).fillColor("#222222").text(
+        carrierDate ? `DATE: ${carrierDate}` : "DATE:",
+        left + 8,
+        y + 54
+    );
 
     drawBox(doc, left + usable / 2 + 4, y, usable / 2 - 4, 70);
     const brokerBoxX = left + usable / 2 + 4;

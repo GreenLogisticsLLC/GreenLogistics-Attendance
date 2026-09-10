@@ -23,6 +23,7 @@ import { carrierEmailService } from "./carrier-email.service.js";
 import { carrierStorageService } from "./carrier-storage.service.js";
 import { storeCarrierAgreementPdf } from "./carrier-agreement-pdf.service.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
+import { loadDocumentsService } from "../../shipment/services/load-documents.service.js";
 import { normalizeStatus } from "../../shipment/shipment.lifecycle.js";
 import { canDeleteCarrierDocuments } from "../../../auth/roles.js";
 
@@ -1864,6 +1865,21 @@ export class CarrierService {
                 documentHash,
             },
         });
+        let stampedDocumentId: string | null = null;
+        try {
+            const stamped = await loadDocumentsService.stampCarrierSignatureOnRateCon({
+                shipmentLeadId: session.shipmentLeadId,
+                signerName,
+                signatureData,
+                signedAt: row.signedAt,
+            });
+            stampedDocumentId = stamped?.documentId || null;
+        } catch (err) {
+            console.warn(
+                `[rc-sign] failed to stamp load Rate Confirmation PDF for ${session.shipmentLeadId}:`,
+                err instanceof Error ? err.message : err
+            );
+        }
         const archived = await this.archiveSignedRcBolPdfs({
             carrierId: session.carrierId,
             shipmentLeadId: session.shipmentLeadId,
@@ -1880,7 +1896,7 @@ export class CarrierService {
             actorType: "CARRIER",
             ip: meta.ip,
             userAgent: meta.userAgent,
-            metadata: { documentHash, ...archived },
+            metadata: { documentHash, stampedDocumentId, ...archived },
         });
         const shipmentStatus = normalizeStatus(lead.status);
         if (["CARRIER_ASSIGNED", "RATE_CON_GENERATED"].includes(shipmentStatus)) {
@@ -1889,7 +1905,7 @@ export class CarrierService {
                 status: "CARRIER_ACCEPTED",
             });
         }
-        return { ...row, ...archived };
+        return { ...row, stampedDocumentId, ...archived };
     }
 
     /**
@@ -1913,7 +1929,7 @@ export class CarrierService {
         return { rateConDocumentId: null, bolDocumentId: null };
     }
 
-    /** Backfill RC/BOL PDFs for an existing carrier signature from the linked load. */
+    /** Backfill: stamp the latest portal RC signature onto the load Rate Confirmation PDF. */
     async regenerateRcBolPdfs(carrierId: string, actor: Actor) {
         await this.assertCarrierAccess(carrierId, actor);
         const latest = await prisma.carrierRcSignature.findFirst({
@@ -1923,18 +1939,27 @@ export class CarrierService {
         if (!latest?.shipmentLeadId) {
             throw Object.assign(new Error("No RC signature with a linked load found"), { status: 404 });
         }
-        await this.archiveSignedRcBolPdfs({
-            carrierId,
+        const stamped = await loadDocumentsService.stampCarrierSignatureOnRateCon({
             shipmentLeadId: latest.shipmentLeadId,
-            sessionId: latest.sessionId,
-            uploadedBy: "STAFF",
+            signerName: latest.signerName,
+            signatureData: latest.signatureData,
+            signedAt: latest.signedAt,
+            actorUserId: actor.userId || null,
         });
-        throw Object.assign(
-            new Error(
-                "Rate Confirmation and BOL stay on the load that created them. Open Documents on that load number — they are not copied onto the carrier packet."
-            ),
-            { status: 422 }
-        );
+        if (!stamped) {
+            throw Object.assign(
+                new Error(
+                    "No Rate Confirmation on that load to stamp. Open Documents on the load and generate Rate Con first."
+                ),
+                { status: 422 }
+            );
+        }
+        return {
+            shipmentLeadId: latest.shipmentLeadId,
+            rateConDocumentId: stamped.documentId,
+            version: stamped.version,
+            changeReason: stamped.changeReason,
+        };
     }
 
     async publicUpload(
