@@ -62,6 +62,10 @@ export type LoadDocumentContent = {
     vinNumber?: string | null;
     pickupAddress?: string | null;
     deliveryAddress?: string | null;
+    /** Extra pickup stops beyond the primary origin (Rate Con / BOL). */
+    additionalOrigins?: string[] | null;
+    /** Extra delivery stops beyond the primary destination (Rate Con / BOL). */
+    additionalDestinations?: string[] | null;
     pickupWindow?: string | null;
     deliveryWindow?: string | null;
     pickupDate?: string | null;
@@ -149,6 +153,26 @@ function txt(v: string | number | null | undefined): string {
     if (v == null) return "";
     const s = String(v).trim();
     return s;
+}
+
+function stopList(
+    primary: string | null | undefined,
+    extras: string[] | null | undefined
+): string[] {
+    const out: string[] = [];
+    const first = txt(primary);
+    if (first) out.push(first);
+    for (const x of extras || []) {
+        const s = txt(x);
+        if (s && !out.includes(s)) out.push(s);
+    }
+    return out;
+}
+
+function formatStops(stops: string[]): string {
+    if (!stops.length) return "—";
+    if (stops.length === 1) return stops[0];
+    return stops.map((s, i) => `${i + 1}. ${s}`).join("\n");
 }
 
 function line(doc: PDFKit.PDFDocument, label: string, value: string | null | undefined) {
@@ -257,27 +281,40 @@ function renderRateConfirmationPdf(
     fieldRow(doc, "Flat Rate: $USD", rateVal || "—", left + 240, y + 64, 120);
     y += 102;
 
-    // Origin
-    drawBox(doc, left, y, usable / 2 - 4, 92);
-    doc.font("Helvetica-Bold").fontSize(9).text("ORIGIN:", left + 8, y + 6);
-    doc.font("Helvetica").fontSize(10).text(txt(c.pickupAddress) || "—", left + 8, y + 20, {
+    // Origin / Destination (supports multiple stops)
+    const origins = stopList(c.pickupAddress, c.additionalOrigins);
+    const destinations = stopList(c.deliveryAddress, c.additionalDestinations);
+    const stopLines = Math.max(origins.length, destinations.length, 1);
+    const stopBoxH = Math.max(92, 56 + stopLines * 14);
+    drawBox(doc, left, y, usable / 2 - 4, stopBoxH);
+    doc.font("Helvetica-Bold").fontSize(9).text(
+        origins.length > 1 ? "ORIGINS:" : "ORIGIN:",
+        left + 8,
+        y + 6
+    );
+    doc.font("Helvetica").fontSize(9).text(formatStops(origins), left + 8, y + 20, {
         width: usable / 2 - 20,
+        height: stopBoxH - 52,
     });
-    fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, y + 52, 100);
-    fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, y + 52, 80);
-    fieldRow(doc, "CONTACT:", txt(c.pickupContact), left + 8, y + 72, usable / 2 - 24);
+    fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, y + stopBoxH - 36, 100);
+    fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, y + stopBoxH - 36, 80);
+    fieldRow(doc, "CONTACT:", txt(c.pickupContact), left + 8, y + stopBoxH - 18, usable / 2 - 24);
 
-    // Destination
     const dx = left + usable / 2 + 4;
-    drawBox(doc, dx, y, usable / 2 - 4, 92);
-    doc.font("Helvetica-Bold").fontSize(9).text("Final Destination", dx + 8, y + 6);
-    doc.font("Helvetica").fontSize(10).text(txt(c.deliveryAddress) || "—", dx + 8, y + 20, {
+    drawBox(doc, dx, y, usable / 2 - 4, stopBoxH);
+    doc.font("Helvetica-Bold").fontSize(9).text(
+        destinations.length > 1 ? "Final Destinations" : "Final Destination",
+        dx + 8,
+        y + 6
+    );
+    doc.font("Helvetica").fontSize(9).text(formatStops(destinations), dx + 8, y + 20, {
         width: usable / 2 - 20,
+        height: stopBoxH - 52,
     });
-    fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, y + 52, 100);
-    fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, y + 52, 80);
-    fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, y + 72, usable / 2 - 24);
-    y += 104;
+    fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, y + stopBoxH - 36, 100);
+    fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, y + stopBoxH - 36, 80);
+    fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, y + stopBoxH - 18, usable / 2 - 24);
+    y += stopBoxH + 12;
 
     // Driver / payment / notes
     drawBox(doc, left, y, usable, 70);
@@ -420,19 +457,28 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 380, y + 13, { width: 170 });
     y += 34;
 
-    // SHIPS FROM | Freight terms
-    const rowH = 78;
-    drawBox(doc, left, y, 300, rowH);
-    doc.font("Helvetica-Bold").fontSize(8).text("SHIPS FROM", left + 4, y + 3);
-    doc.font("Helvetica").fontSize(9).text(txt(c.pickupAddress) || "—", left + 4, y + 14, { width: 200, height: 36 });
-    doc.font("Helvetica-Bold").fontSize(7).text("SHIPPER ID NO.", left + 4, y + 52);
-    doc.font("Helvetica").fontSize(8).text(txt(c.shipperIdNo) || "—", left + 4, y + 62);
-    doc.font("Helvetica-Bold").fontSize(7).text("SEAL NO.", left + 150, y + 52);
-    doc.font("Helvetica").fontSize(8).text(txt(c.sealNo) || "—", left + 150, y + 62);
-    doc.font("Helvetica-Bold").fontSize(7).text("FOB", left + 250, y + 52);
-    doc.font("Helvetica").fontSize(8).text(txt(c.fob) || "", left + 250, y + 62);
+    // SHIPS FROM | Freight terms (supports multiple origins)
+    const bolOrigins = stopList(c.pickupAddress, c.additionalOrigins);
+    const bolDestinations = stopList(c.deliveryAddress, c.additionalDestinations);
+    const fromH = Math.max(78, 42 + Math.max(bolOrigins.length, 1) * 14);
+    drawBox(doc, left, y, 300, fromH);
+    doc.font("Helvetica-Bold").fontSize(8).text(
+        bolOrigins.length > 1 ? "SHIPS FROM (multi)" : "SHIPS FROM",
+        left + 4,
+        y + 3
+    );
+    doc.font("Helvetica").fontSize(8).text(formatStops(bolOrigins), left + 4, y + 14, {
+        width: 290,
+        height: fromH - 42,
+    });
+    doc.font("Helvetica-Bold").fontSize(7).text("SHIPPER ID NO.", left + 4, y + fromH - 26);
+    doc.font("Helvetica").fontSize(8).text(txt(c.shipperIdNo) || "—", left + 4, y + fromH - 16);
+    doc.font("Helvetica-Bold").fontSize(7).text("SEAL NO.", left + 150, y + fromH - 26);
+    doc.font("Helvetica").fontSize(8).text(txt(c.sealNo) || "—", left + 150, y + fromH - 16);
+    doc.font("Helvetica-Bold").fontSize(7).text("FOB", left + 250, y + fromH - 26);
+    doc.font("Helvetica").fontSize(8).text(txt(c.fob) || "", left + 250, y + fromH - 16);
 
-    drawBox(doc, left + 300, y, usable - 300, rowH);
+    drawBox(doc, left + 300, y, usable - 300, fromH);
     doc.font("Helvetica-Bold").fontSize(8).text("FREIGHT CHARGE TERMS", left + 306, y + 3);
     const prepaid = terms.includes("PREPAID") ? "X" : "";
     const collect = terms.includes("COLLECT") && !terms.includes("3RD") ? "X" : "";
@@ -443,18 +489,30 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.text(`[${third || " "}] 3RD PARTY`, left + 310, y + 52);
     doc.font("Helvetica").fontSize(7).text("MASTER BILL OF LADING", left + 420, y + 20, { width: 150 });
     doc.text("(UNDERLYING BOL ATTACHED)", left + 420, y + 32, { width: 150 });
-    y += rowH;
+    y += fromH;
 
-    // SHIPS TO | Carrier
-    drawBox(doc, left, y, 300, 88);
-    doc.font("Helvetica-Bold").fontSize(8).text("SHIPS TO", left + 4, y + 3);
-    doc.font("Helvetica").fontSize(9).text(txt(c.deliveryAddress) || "—", left + 4, y + 14, { width: 200, height: 36 });
-    doc.font("Helvetica-Bold").fontSize(7).text("CONSIGNEE ID NO.", left + 4, y + 52);
-    doc.font("Helvetica").fontSize(8).text(txt(c.consigneeIdNo) || "—", left + 4, y + 62);
-    doc.font("Helvetica-Bold").fontSize(7).text("CONTACT", left + 150, y + 52);
-    doc.font("Helvetica").fontSize(8).text(txt(c.deliveryContact) || txt(c.pickupContact) || "—", left + 150, y + 62);
+    // SHIPS TO | Carrier (supports multiple destinations)
+    const toH = Math.max(88, 48 + Math.max(bolDestinations.length, 1) * 14);
+    drawBox(doc, left, y, 300, toH);
+    doc.font("Helvetica-Bold").fontSize(8).text(
+        bolDestinations.length > 1 ? "SHIPS TO (multi)" : "SHIPS TO",
+        left + 4,
+        y + 3
+    );
+    doc.font("Helvetica").fontSize(8).text(formatStops(bolDestinations), left + 4, y + 14, {
+        width: 290,
+        height: toH - 42,
+    });
+    doc.font("Helvetica-Bold").fontSize(7).text("CONSIGNEE ID NO.", left + 4, y + toH - 26);
+    doc.font("Helvetica").fontSize(8).text(txt(c.consigneeIdNo) || "—", left + 4, y + toH - 16);
+    doc.font("Helvetica-Bold").fontSize(7).text("CONTACT", left + 150, y + toH - 26);
+    doc.font("Helvetica").fontSize(8).text(
+        txt(c.deliveryContact) || txt(c.pickupContact) || "—",
+        left + 150,
+        y + toH - 16
+    );
 
-    drawBox(doc, left + 300, y, usable - 300, 88);
+    drawBox(doc, left + 300, y, usable - 300, toH);
     doc.font("Helvetica-Bold").fontSize(8).text("CARRIER", left + 306, y + 3);
     doc.font("Helvetica").fontSize(9).text(txt(c.carrierName) || "—", left + 306, y + 14, { width: 240 });
     doc.font("Helvetica").fontSize(8);
@@ -465,7 +523,7 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.text(`CONTACT: ${txt(c.carrierPhone) || txt(c.driverPhone) || txt(c.driverName) || "—"}`, left + 306, y + 64, {
         width: 240,
     });
-    y += 88;
+    y += toH;
 
     // Third party
     drawBox(doc, left, y, usable, 32);

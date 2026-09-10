@@ -523,6 +523,69 @@ window.GreenOSModules["dispatch"] = {
     return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6, 10);
   },
 
+  /** Collect extra Origin / Destination inputs for RC and BOL wizards. */
+  collectExtraStops(box, wrapSel) {
+    var wrap = box.querySelector(wrapSel);
+    if (!wrap) return [];
+    var out = [];
+    wrap.querySelectorAll("input[data-extra-stop]").forEach(function (el) {
+      var v = String(el.value || "").trim();
+      if (v) out.push(v);
+    });
+    return out;
+  },
+
+  /** Render one removable extra stop row. */
+  extraStopRowHtml(value, kind) {
+    return (
+      '<div class="load-extra-stop" style="display:flex;gap:0.4rem;align-items:center;margin-top:0.35rem">' +
+      '<input data-extra-stop="' +
+      kind +
+      '" class="full" style="flex:1" placeholder="' +
+      (kind === "origin" ? "Additional origin / pickup" : "Additional destination") +
+      '" value="' +
+      this.esc(value || "") +
+      '">' +
+      '<button type="button" class="btn-secondary extra-stop-remove" style="flex:0 0 auto">Remove</button>' +
+      "</div>"
+    );
+  },
+
+  /** Wire + Add Origin / + Add Destination buttons and restore saved extras. */
+  bindExtraStops(box, opts) {
+    var self = this;
+    var originWrap = box.querySelector(opts.originWrap);
+    var destWrap = box.querySelector(opts.destWrap);
+    var addOrigin = box.querySelector(opts.addOriginBtn);
+    var addDest = box.querySelector(opts.addDestBtn);
+    function addRow(wrap, kind, value) {
+      if (!wrap) return;
+      wrap.insertAdjacentHTML("beforeend", self.extraStopRowHtml(value, kind));
+    }
+    (opts.initialOrigins || []).forEach(function (v) {
+      addRow(originWrap, "origin", v);
+    });
+    (opts.initialDests || []).forEach(function (v) {
+      addRow(destWrap, "dest", v);
+    });
+    addOrigin?.addEventListener("click", function () {
+      addRow(originWrap, "origin", "");
+      var inputs = originWrap.querySelectorAll("input[data-extra-stop]");
+      if (inputs.length) inputs[inputs.length - 1].focus();
+    });
+    addDest?.addEventListener("click", function () {
+      addRow(destWrap, "dest", "");
+      var inputs = destWrap.querySelectorAll("input[data-extra-stop]");
+      if (inputs.length) inputs[inputs.length - 1].focus();
+    });
+    box.addEventListener("click", function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest(".extra-stop-remove") : null;
+      if (!btn) return;
+      var row = btn.closest(".load-extra-stop");
+      if (row) row.remove();
+    });
+  },
+
   /** Normalize text for carrier-form change detection (trim + lower). */
   normCarrierText(raw) {
     return String(raw == null ? "" : raw).trim().toLowerCase();
@@ -2799,7 +2862,11 @@ window.GreenOSModules["dispatch"] = {
       "<label>Flat Rate $USD *" +
       self.moneyFieldHtml("rc-rate", p.carrierRate || "", "1000.00") +
       "</label>" +
-      '<label class="full">Origin (pickup address) * <input id="rc-origin" value="' + self.esc(place(g.pickup)) + '" required></label>' +
+      '<label class="full">Origin (pickup address) * <input id="rc-origin" value="' +
+      self.esc(pick("pickupAddress", place(g.pickup))) +
+      '" required></label>' +
+      '<div id="rc-extra-origins" class="full"></div>' +
+      '<div class="full" style="margin:0.15rem 0 0.35rem"><button type="button" class="btn-secondary" id="rc-add-origin">+ Add Origin</button></div>' +
       '<label>Pickup date * <input id="rc-pdate" type="date" value="' + self.esc(self.toInputDate(pickupSrc)) + '" required></label>' +
       "<label>Pickup time" +
       self.timeFieldHtml("rc-ptime", pickupSrc) +
@@ -2807,7 +2874,11 @@ window.GreenOSModules["dispatch"] = {
       '<label class="full">Pickup contact <input id="rc-pcontact" placeholder="Name / phone at shipper" value="' +
       self.esc(pick("pickupContact", "")) +
       '"></label>' +
-      '<label class="full">Final destination * <input id="rc-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '" required></label>' +
+      '<label class="full">Final destination * <input id="rc-dest" value="' +
+      self.esc(pick("deliveryAddress", place(g.delivery))) +
+      '" required></label>' +
+      '<div id="rc-extra-dests" class="full"></div>' +
+      '<div class="full" style="margin:0.15rem 0 0.35rem"><button type="button" class="btn-secondary" id="rc-add-dest">+ Add Destination</button></div>' +
       '<label>Delivery date * <input id="rc-ddate" type="date" value="' + self.esc(self.toInputDate(deliverySrc)) + '" required></label>' +
       "<label>Delivery time" +
       self.timeFieldHtml("rc-dtime", deliverySrc) +
@@ -2849,6 +2920,14 @@ window.GreenOSModules["dispatch"] = {
     box.scrollIntoView({ behavior: "smooth", block: "start" });
     self.bindUsPhoneInput(box.querySelector("#rc-cphone"));
     self.bindUsPhoneInput(box.querySelector("#rc-dphone"));
+    self.bindExtraStops(box, {
+      originWrap: "#rc-extra-origins",
+      destWrap: "#rc-extra-dests",
+      addOriginBtn: "#rc-add-origin",
+      addDestBtn: "#rc-add-dest",
+      initialOrigins: Array.isArray(prev.additionalOrigins) ? prev.additionalOrigins : [],
+      initialDests: Array.isArray(prev.additionalDestinations) ? prev.additionalDestinations : [],
+    });
 
     box.querySelector("#rc-cancel")?.addEventListener("click", function () {
       box.classList.add("hidden");
@@ -2961,10 +3040,12 @@ window.GreenOSModules["dispatch"] = {
           flatRate: rate,
           carrierRate: rate,
           pickupAddress: box.querySelector("#rc-origin").value,
+          additionalOrigins: self.collectExtraStops(box, "#rc-extra-origins"),
           pickupDate: box.querySelector("#rc-pdate").value,
           pickupTime: self.formatAmPmLabel(pickupTime24) || pickupTime24,
           pickupContact: box.querySelector("#rc-pcontact").value,
           deliveryAddress: box.querySelector("#rc-dest").value,
+          additionalDestinations: self.collectExtraStops(box, "#rc-extra-dests"),
           deliveryDate: box.querySelector("#rc-ddate").value,
           deliveryTime: self.formatAmPmLabel(deliveryTime24) || deliveryTime24,
           deliveryContact: box.querySelector("#rc-dcontact").value,
@@ -3095,6 +3176,8 @@ window.GreenOSModules["dispatch"] = {
       '"></label>' +
       '<label>Customer <input id="bol-customer" value="' + self.esc(g.customer || "") + '"></label>' +
       '<label class="full">SHIPS FROM (origin) * <input id="bol-origin" value="' + self.esc(pick("pickupAddress", place(g.pickup))) + '" required></label>' +
+      '<div id="bol-extra-origins" class="full"></div>' +
+      '<div class="full" style="margin:0.15rem 0 0.35rem"><button type="button" class="btn-secondary" id="bol-add-origin">+ Add Origin</button></div>' +
       '<label>Shipper ID No. <input id="bol-shipper-id" value="' + self.esc(pick("shipperIdNo", "")) + '"></label>' +
       '<label>Seal No. <input id="bol-seal" value="' + self.esc(pick("sealNo", "")) + '"></label>' +
       '<label>FOB <input id="bol-fob" value="' + self.esc(pick("fob", "")) + '"></label>' +
@@ -3104,6 +3187,8 @@ window.GreenOSModules["dispatch"] = {
       '<option value="3RD_PARTY">3RD PARTY</option>' +
       "</select></label>" +
       '<label class="full">SHIPS TO (destination) * <input id="bol-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '" required></label>' +
+      '<div id="bol-extra-dests" class="full"></div>' +
+      '<div class="full" style="margin:0.15rem 0 0.35rem"><button type="button" class="btn-secondary" id="bol-add-dest">+ Add Destination</button></div>' +
       '<label>Consignee ID No. <input id="bol-consignee-id" value="' + self.esc(pick("consigneeIdNo", "")) + '"></label>' +
       '<label>Delivery contact <input id="bol-dcontact" value="' + self.esc(pick("deliveryContact", "")) + '"></label>' +
       '<label>Carrier <input id="bol-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
@@ -3158,6 +3243,15 @@ window.GreenOSModules["dispatch"] = {
     if (box.querySelector("#bol-ptype") && prev.packageType) {
       box.querySelector("#bol-ptype").value = prev.packageType;
     }
+    self.bindExtraStops(box, {
+      originWrap: "#bol-extra-origins",
+      destWrap: "#bol-extra-dests",
+      addOriginBtn: "#bol-add-origin",
+      addDestBtn: "#bol-add-dest",
+      initialOrigins: Array.isArray(prev.additionalOrigins) ? prev.additionalOrigins : [],
+      initialDests: Array.isArray(prev.additionalDestinations) ? prev.additionalDestinations : [],
+    });
+
     box.querySelector("#bol-cancel")?.addEventListener("click", function () {
       box.classList.add("hidden");
       box.innerHTML = "";
@@ -3222,7 +3316,9 @@ window.GreenOSModules["dispatch"] = {
           trailerNumber: box.querySelector("#bol-trailer").value,
           vinNumber: box.querySelector("#bol-vin").value,
           pickupAddress: origin,
+          additionalOrigins: self.collectExtraStops(box, "#bol-extra-origins"),
           deliveryAddress: dest,
+          additionalDestinations: self.collectExtraStops(box, "#bol-extra-dests"),
           shipperIdNo: box.querySelector("#bol-shipper-id").value,
           consigneeIdNo: box.querySelector("#bol-consignee-id").value,
           sealNo: box.querySelector("#bol-seal").value,
