@@ -523,6 +523,30 @@ window.GreenOSModules["dispatch"] = {
     return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6, 10);
   },
 
+  /** Normalize text for carrier-form change detection (trim + lower). */
+  normCarrierText(raw) {
+    return String(raw == null ? "" : raw).trim().toLowerCase();
+  },
+
+  /** Digits-only phone compare so formatting alone is not a "change". */
+  normCarrierPhone(raw) {
+    var d = String(raw == null ? "" : raw).replace(/\D/g, "");
+    if (d.length === 11 && d.charAt(0) === "1") d = d.slice(1);
+    return d;
+  },
+
+  /** Stable ISO compare for pickup/delivery timestamps. */
+  normCarrierIso(raw) {
+    if (raw == null || raw === "") return "";
+    try {
+      var d = new Date(raw);
+      if (Number.isNaN(d.getTime())) return String(raw);
+      return d.toISOString();
+    } catch (e) {
+      return String(raw);
+    }
+  },
+
   /** E.164 for APIs (CarrierView SMS): +1XXXXXXXXXX */
   toE164UsPhone(raw) {
     var d = String(raw == null ? "" : raw).replace(/\D/g, "");
@@ -1674,7 +1698,7 @@ window.GreenOSModules["dispatch"] = {
         "</button>" +
         '<p class="gos-muted" style="margin-top:0.5rem">' +
         (c.carrierName
-          ? "You can change the carrier or details. Status stays where the load already is."
+          ? "You can change the carrier or details. Status stays where the load already is. The onboarding link is resent only when filled fields change (2nd / 3rd / later save)."
           : "After save → status <strong>Carrier Assigned</strong>. Green OS emails the Agreement + MC/NOA/W-9 link from <strong>your Gmail</strong> to the carrier.") +
         "</p>" +
         "</div>";
@@ -1715,45 +1739,88 @@ window.GreenOSModules["dispatch"] = {
             opsDeliveryAt: deliveryIso,
           };
           var curStatus = String((data.identity && data.identity.status) || "").toUpperCase();
-          if (!c.carrierName || curStatus === "LOAD_CREATED" || curStatus === "DISPATCH") {
+          var isFirstAssign = !c.carrierName;
+          if (isFirstAssign || curStatus === "LOAD_CREATED" || curStatus === "DISPATCH") {
             carrierPayload.status = "CARRIER_ASSIGNED";
           }
           if (showMoney && main.querySelector("#ld-carr-price")) {
             carrierPayload.carrierRate = self.parseMoneyInput(main.querySelector("#ld-carr-price").value);
           }
+
+          // 2nd / 3rd / later "Save Carrier Changes": resend online link only if fields changed.
+          var prevPickup = (g.pickup && (g.pickup.from || g.pickup.opsAt)) || null;
+          var prevDelivery = (g.delivery && (g.delivery.from || g.delivery.opsAt)) || null;
+          var fieldChanges = [
+            self.normCarrierText(carrierPayload.carrierName) !== self.normCarrierText(c.carrierName),
+            self.normCarrierText(carrierPayload.carrierEmail) !== self.normCarrierText(c.carrierEmail),
+            self.normCarrierPhone(carrierPayload.carrierPhone) !== self.normCarrierPhone(c.carrierPhone),
+            self.normCarrierText(carrierPayload.carrierMc) !== self.normCarrierText(c.mc),
+            self.normCarrierText(carrierPayload.carrierDot) !== self.normCarrierText(c.dot),
+            self.normCarrierText(carrierPayload.carrierInsurance) !== self.normCarrierText(c.insurance),
+            self.normCarrierText(carrierPayload.driverName) !== self.normCarrierText(c.driverName),
+            self.normCarrierPhone(carrierPayload.driverPhone) !== self.normCarrierPhone(c.driverPhone),
+            self.normCarrierText(carrierPayload.truckNumber) !== self.normCarrierText(c.truckNumber),
+            self.normCarrierText(carrierPayload.trailerNumber) !== self.normCarrierText(c.trailerNumber),
+            self.normCarrierText(carrierPayload.carrierStatus) !==
+              self.normCarrierText(c.carrierStatus || "Assigned"),
+            self.normCarrierIso(pickupIso) !== self.normCarrierIso(prevPickup),
+            self.normCarrierIso(deliveryIso) !== self.normCarrierIso(prevDelivery),
+          ];
+          if (showMoney && main.querySelector("#ld-carr-price")) {
+            var prevRate =
+              p.carrierRate != null && p.carrierRate !== "" ? Number(p.carrierRate) : null;
+            var nextRate =
+              carrierPayload.carrierRate != null && carrierPayload.carrierRate !== ""
+                ? Number(carrierPayload.carrierRate)
+                : null;
+            var prevRateKey = Number.isFinite(prevRate) ? prevRate.toFixed(2) : "";
+            var nextRateKey = Number.isFinite(nextRate) ? nextRate.toFixed(2) : "";
+            fieldChanges.push(prevRateKey !== nextRateKey);
+          }
+          var hasCarrierFieldChanges = fieldChanges.some(Boolean);
+          var shouldResendInvite = isFirstAssign || hasCarrierFieldChanges;
+
           await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
             body: JSON.stringify(carrierPayload),
           });
           var inviteMsg = "";
-          try {
-            var token = localStorage.getItem("gl_token") || "";
-            var invRes = await fetch(
-              "/api/carriers/from-load/" + encodeURIComponent(id) + "/invite-agreement",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: "Bearer " + token,
-                },
-                body: "{}",
-              }
-            );
-            var invJson = await invRes.json().catch(function () { return {}; });
-            if (!invRes.ok || invJson.success === false) {
-              inviteMsg =
-                "\n\nCarrier saved, but onboarding email failed:\n" +
-                (invJson.message || "Connect Broker Gmail, then Resend from Carriers.");
-            } else if (invJson.data && invJson.data.invite && invJson.data.invite.skipped) {
-              inviteMsg =
-                "\n\nRegistered carrier linked. Review packet documents below, then click Approve Carrier.";
-            } else {
-              inviteMsg =
-                "\n\nSecure Agreement link emailed to the carrier from your Gmail.";
-            }
-          } catch (inviteErr) {
+          if (!shouldResendInvite) {
             inviteMsg =
-              "\n\nCarrier saved, but onboarding email failed. Connect Broker Gmail and resend.";
+              "\n\nNo field changes — onboarding link was not resent to the same carrier.";
+          } else {
+            try {
+              var token = localStorage.getItem("gl_token") || "";
+              var invRes = await fetch(
+                "/api/carriers/from-load/" + encodeURIComponent(id) + "/invite-agreement",
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: "Bearer " + token,
+                  },
+                  body: JSON.stringify({ reason: isFirstAssign ? "assign" : "carrier_fields_changed" }),
+                }
+              );
+              var invJson = await invRes.json().catch(function () { return {}; });
+              if (!invRes.ok || invJson.success === false) {
+                inviteMsg =
+                  "\n\nCarrier saved, but onboarding email failed:\n" +
+                  (invJson.message || "Connect Broker Gmail, then Resend from Carriers.");
+              } else if (invJson.data && invJson.data.invite && invJson.data.invite.skipped) {
+                inviteMsg =
+                  "\n\nRegistered carrier linked. Review packet documents below, then click Approve Carrier.";
+              } else if (isFirstAssign) {
+                inviteMsg =
+                  "\n\nSecure Agreement link emailed to the carrier from your Gmail.";
+              } else {
+                inviteMsg =
+                  "\n\nFields changed — secure Agreement link emailed again to the carrier from your Gmail.";
+              }
+            } catch (inviteErr) {
+              inviteMsg =
+                "\n\nCarrier saved, but onboarding email failed. Connect Broker Gmail and resend.";
+            }
           }
           alert((c.carrierName ? "Carrier updated." : "Carrier assigned.") + inviteMsg);
           var host = document.querySelector("#load-tms-body");
