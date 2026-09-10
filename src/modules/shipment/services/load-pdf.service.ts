@@ -39,7 +39,7 @@ export const DEFAULT_RATE_CON_TERMS = [
     "Truck Ordered Not Used pays $150. If the carrier picked up a partial load instead of the full load the deduction may apply. For the shipments with the rate less than $1000 TONU pays $100.",
     "If the shipment got damaged/scratched or the carrier picked up the shipment in damaged condition without confirming, the customer have the right to apply charges even if the damage was not mentioned on the BOL.",
     "This is a rate confirmation not a BOL. If you use this as BOL you may not be paid. Send the clear picture of POD after delivery within 24 hours. No pictures or dark images accepted.",
-].join("\n\n");
+].join("\n");
 
 export type LoadDocumentContent = {
     loadNumber?: string | null;
@@ -230,110 +230,114 @@ function renderRateConfirmationPdf(
     const left = 40;
     const pageW = 612;
     const usable = pageW - left * 2;
-    let y = 36;
+    // Keep signatures + footer on page 1 (LETTER height 792).
+    const footerY = 778;
+    const sigBoxH = 58;
+    const sigY = footerY - 12 - sigBoxH;
+    let y = 28;
 
-    doc.font("Helvetica-Bold").fontSize(14).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, left, y);
-    y += 16;
-    doc.font("Helvetica").fontSize(9).fillColor("#222222");
+    doc.font("Helvetica-Bold").fontSize(13).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, left, y);
+    y += 14;
+    doc.font("Helvetica").fontSize(8).fillColor("#222222");
     doc.text(GREEN_LOGISTICS_RC.addressLine1, left, y);
-    y += 11;
+    y += 10;
     doc.text(GREEN_LOGISTICS_RC.addressLine2, left, y);
-    y += 11;
+    y += 10;
     doc.text(`MC # ${GREEN_LOGISTICS_RC.mc}`, left, y);
 
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f3d1f");
-    doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 180, 36, {
+    doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 180, 28, {
         width: 180,
         align: "right",
     });
-    doc.font("Helvetica").fontSize(9).fillColor("#222222");
-    doc.text(txt(c.confirmationDate) || new Date().toLocaleDateString(), left + usable - 180, 50, {
+    doc.font("Helvetica").fontSize(8).fillColor("#222222");
+    doc.text(txt(c.confirmationDate) || new Date().toLocaleDateString(), left + usable - 180, 42, {
         width: 180,
         align: "right",
     });
     if (c.shipmentNumber) {
-        doc.text(`Shipment: ${txt(c.shipmentNumber)}`, left + usable - 180, 62, {
+        doc.text(`Shipment: ${txt(c.shipmentNumber)}`, left + usable - 180, 54, {
             width: 180,
             align: "right",
         });
     }
-    doc.text(`v${version}`, left + usable - 180, 74, { width: 180, align: "right" });
+    doc.text(`v${version}`, left + usable - 180, 66, { width: 180, align: "right" });
 
-    y = 88;
-    doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111");
+    y = 78;
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111");
     doc.text("LOAD CONFIRMATION AND PAYMENT AGREEMENT — PLEASE SIGN & RETURN ASAP", left, y, {
         width: usable,
         align: "center",
     });
-    y += 22;
+    y += 16;
 
     // Email contacts — Broker Gmail / Customer / Carrier
-    drawBox(doc, left, y, usable, 42);
-    fieldRow(doc, "BROKER GMAIL:", txt(c.brokerEmail), left + 8, y + 6, 170);
-    fieldRow(doc, "CUSTOMER EMAIL:", txt(c.customerEmail), left + 190, y + 6, 170);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 370, y + 6, 160);
+    drawBox(doc, left, y, usable, 36);
+    fieldRow(doc, "BROKER GMAIL:", txt(c.brokerEmail), left + 8, y + 4, 170);
+    fieldRow(doc, "CUSTOMER EMAIL:", txt(c.customerEmail), left + 190, y + 4, 170);
+    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 370, y + 4, 160);
     if (c.customerName) {
         doc.font("Helvetica").fontSize(7).fillColor("#555555").text(
             `Customer: ${txt(c.customerName)}`,
             left + 190,
-            y + 30,
+            y + 24,
             { width: 170 }
         );
     }
-    y += 52;
+    y += 42;
 
     // Carrier / equipment / rate block
-    drawBox(doc, left, y, usable, 90);
-    fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 6, 220);
-    fieldRow(doc, "MC#", txt(c.carrierMc), left + 240, y + 6, 90);
-    fieldRow(doc, "DOT#", txt(c.carrierDot), left + 340, y + 6, 90);
-    fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 440, y + 6, 90);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 8, y + 40, 220);
+    drawBox(doc, left, y, usable, 78);
+    fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 4, 220);
+    fieldRow(doc, "MC#", txt(c.carrierMc), left + 240, y + 4, 90);
+    fieldRow(doc, "DOT#", txt(c.carrierDot), left + 340, y + 4, 90);
+    fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 440, y + 4, 90);
+    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 8, y + 32, 220);
 
-    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 240, y + 40, 120);
-    fieldRow(doc, "Weight:", txt(c.weight), left + 370, y + 40, 70);
-    fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 64, 220);
+    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 240, y + 32, 120);
+    fieldRow(doc, "Weight:", txt(c.weight), left + 370, y + 32, 70);
+    fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 54, 220);
     const rateVal = money(c.flatRate ?? c.carrierRate);
-    fieldRow(doc, "Flat Rate: $USD", rateVal || "—", left + 240, y + 64, 120);
-    y += 102;
+    fieldRow(doc, "Flat Rate: $USD", rateVal || "—", left + 240, y + 54, 120);
+    y += 86;
 
     // Origin / Destination (supports multiple stops)
     const origins = stopList(c.pickupAddress, c.additionalOrigins);
     const destinations = stopList(c.deliveryAddress, c.additionalDestinations);
     const stopLines = Math.max(origins.length, destinations.length, 1);
-    const stopBoxH = Math.max(92, 56 + stopLines * 14);
+    const stopBoxH = Math.max(78, 48 + stopLines * 12);
     drawBox(doc, left, y, usable / 2 - 4, stopBoxH);
-    doc.font("Helvetica-Bold").fontSize(9).text(
+    doc.font("Helvetica-Bold").fontSize(8).text(
         origins.length > 1 ? "ORIGINS:" : "ORIGIN:",
         left + 8,
-        y + 6
+        y + 4
     );
-    doc.font("Helvetica").fontSize(9).text(formatStops(origins), left + 8, y + 20, {
+    doc.font("Helvetica").fontSize(8).text(formatStops(origins), left + 8, y + 16, {
         width: usable / 2 - 20,
-        height: stopBoxH - 52,
+        height: stopBoxH - 46,
     });
-    fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, y + stopBoxH - 36, 100);
-    fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, y + stopBoxH - 36, 80);
-    fieldRow(doc, "CONTACT:", txt(c.pickupContact), left + 8, y + stopBoxH - 18, usable / 2 - 24);
+    fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, y + stopBoxH - 32, 100);
+    fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, y + stopBoxH - 32, 80);
+    fieldRow(doc, "CONTACT:", txt(c.pickupContact), left + 8, y + stopBoxH - 16, usable / 2 - 24);
 
     const dx = left + usable / 2 + 4;
     drawBox(doc, dx, y, usable / 2 - 4, stopBoxH);
-    doc.font("Helvetica-Bold").fontSize(9).text(
+    doc.font("Helvetica-Bold").fontSize(8).text(
         destinations.length > 1 ? "Final Destinations" : "Final Destination",
         dx + 8,
-        y + 6
+        y + 4
     );
-    doc.font("Helvetica").fontSize(9).text(formatStops(destinations), dx + 8, y + 20, {
+    doc.font("Helvetica").fontSize(8).text(formatStops(destinations), dx + 8, y + 16, {
         width: usable / 2 - 20,
-        height: stopBoxH - 52,
+        height: stopBoxH - 46,
     });
-    fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, y + stopBoxH - 36, 100);
-    fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, y + stopBoxH - 36, 80);
-    fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, y + stopBoxH - 18, usable / 2 - 24);
-    y += stopBoxH + 12;
+    fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, y + stopBoxH - 32, 100);
+    fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, y + stopBoxH - 32, 80);
+    fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, y + stopBoxH - 16, usable / 2 - 24);
+    y += stopBoxH + 8;
 
     // Driver / payment / notes
-    drawBox(doc, left, y, usable, 70);
+    drawBox(doc, left, y, usable, 56);
     fieldRow(
         doc,
         "DRIVER INFORMATION:",
@@ -341,63 +345,74 @@ function renderRateConfirmationPdf(
             .filter(Boolean)
             .join(" · ") || "—",
         left + 8,
-        y + 6,
+        y + 4,
         usable - 16
     );
-    fieldRow(doc, "PAYMENT OPTION:", txt(c.paymentOption) || "—", left + 8, y + 36, usable / 2 - 16);
-    fieldRow(doc, "DELIVERY NOTE:", txt(c.deliveryNote) || "—", left + usable / 2, y + 36, usable / 2 - 16);
-    y += 82;
+    fieldRow(doc, "PAYMENT OPTION:", txt(c.paymentOption) || "—", left + 8, y + 30, usable / 2 - 16);
+    fieldRow(doc, "DELIVERY NOTE:", txt(c.deliveryNote) || "—", left + usable / 2, y + 30, usable / 2 - 16);
+    y += 64;
 
-    drawBox(doc, left, y, usable, 48);
-    doc.font("Helvetica-Bold").fontSize(8).text("SPECIAL NOTES:", left + 8, y + 6);
-    doc.font("Helvetica").fontSize(9).text(
+    drawBox(doc, left, y, usable, 36);
+    doc.font("Helvetica-Bold").fontSize(8).text("SPECIAL NOTES:", left + 8, y + 4);
+    doc.font("Helvetica").fontSize(8).text(
         txt(c.specialNotes) || txt(c.specialInstructions) || "—",
         left + 8,
-        y + 18,
-        { width: usable - 16, height: 26 }
+        y + 16,
+        { width: usable - 16, height: 16 }
     );
-    y += 58;
+    y += 42;
 
-    // Terms / notes from current RC
-    doc.font("Helvetica-Bold").fontSize(8).fillColor("#111111").text("Note: Please take a note:", left, y);
-    y += 12;
-    doc.font("Helvetica").fontSize(7.5).fillColor("#222222");
-    const terms = txt(c.terms) || DEFAULT_RATE_CON_TERMS;
-    doc.text(terms, left, y, { width: usable, align: "left" });
-    y = doc.y + 10;
+    // Terms + dispatch/billing must fit above the fixed signature band (one page).
+    const dispatchBlockH = 36;
+    const termsMaxBottom = sigY - 8 - dispatchBlockH;
+    doc.font("Helvetica-Bold").fontSize(7).fillColor("#111111").text("Note: Please take a note:", left, y);
+    y += 10;
+    const terms = String(txt(c.terms) || DEFAULT_RATE_CON_TERMS).replace(/\n\n+/g, "\n");
+    const termsH = Math.max(40, termsMaxBottom - y);
+    doc.font("Helvetica").fontSize(6.5).fillColor("#222222");
+    doc.text(terms, left, y, {
+        width: usable,
+        align: "left",
+        height: termsH,
+        lineGap: 0.5,
+        ellipsis: true,
+    });
+    y = Math.min(doc.y + 6, termsMaxBottom);
 
-    doc.font("Helvetica-Bold").fontSize(8).text("Please have driver call for dispatch.", left, y);
-    y += 11;
-    doc.font("Helvetica").fontSize(8).text(`Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`, left, y);
-    y += 11;
-    doc.text("Confirmation must be signed and returned before driver can be dispatched.", left, y);
-    y += 14;
-    doc.font("Helvetica-Bold").fontSize(8).text("For billing use", left, y);
-    y += 11;
-    doc.font("Helvetica").fontSize(8).text(`Email: ${GREEN_LOGISTICS_RC.billingEmails.join("  ·  ")}`, left, y);
-    y += 18;
+    doc.font("Helvetica-Bold").fontSize(7).fillColor("#111111");
+    doc.text(
+        `Please have driver call for dispatch · Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`,
+        left,
+        y,
+        { width: usable }
+    );
+    y += 10;
+    doc.font("Helvetica").fontSize(7).fillColor("#222222");
+    doc.text(
+        `Confirmation must be signed and returned before dispatch. Billing: ${GREEN_LOGISTICS_RC.billingEmails.join(" · ")}`,
+        left,
+        y,
+        { width: usable }
+    );
 
-    // Signatures
-    if (y > 680) {
-        doc.addPage();
-        y = 50;
-    }
-    drawBox(doc, left, y, usable / 2 - 4, 70);
+    // Signatures — always on page 1, just above footer
+    const ySig = sigY;
+    drawBox(doc, left, ySig, usable / 2 - 4, sigBoxH);
     const carrierBoxW = usable / 2 - 4;
-    doc.font("Helvetica-Bold").fontSize(8).text("CARRIER SIGNATURE:", left + 8, y + 8);
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#111111").text("CARRIER SIGNATURE:", left + 8, ySig + 6);
     const carrierPrinted = txt(c.carrierSignerName) || txt(c.carrierName);
     if (carrierPrinted) {
-        doc.font("Helvetica").fontSize(8).fillColor("#222222").text(carrierPrinted, left + 8, y + 22, {
-            width: carrierBoxW - 130,
+        doc.font("Helvetica").fontSize(8).fillColor("#222222").text(carrierPrinted, left + 8, ySig + 18, {
+            width: carrierBoxW - 120,
         });
     }
     const carrierImg = signatureBufferFromDataUrl(c.carrierSignatureDataUrl);
     if (carrierImg) {
         try {
-            const sigMaxW = 118;
-            const sigMaxH = 34;
-            const sigX = left + carrierBoxW - sigMaxW - 10;
-            doc.image(carrierImg, sigX, y + 14, {
+            const sigMaxW = 110;
+            const sigMaxH = 30;
+            const sigX = left + carrierBoxW - sigMaxW - 8;
+            doc.image(carrierImg, sigX, ySig + 10, {
                 fit: [sigMaxW, sigMaxH],
                 align: "right",
                 valign: "bottom",
@@ -406,42 +421,44 @@ function renderRateConfirmationPdf(
             /* keep printed name if image fails */
         }
     }
-    doc.moveTo(left + 8, y + 48).lineTo(left + usable / 2 - 16, y + 48).stroke("#666666");
+    doc.moveTo(left + 8, ySig + 42).lineTo(left + usable / 2 - 16, ySig + 42).stroke("#666666");
     const carrierDate = txt(c.carrierSignedAt);
     doc.font("Helvetica").fontSize(7).fillColor("#222222").text(
         carrierDate ? `DATE: ${carrierDate}` : "DATE:",
         left + 8,
-        y + 54
+        ySig + 46
     );
 
-    drawBox(doc, left + usable / 2 + 4, y, usable / 2 - 4, 70);
+    drawBox(doc, left + usable / 2 + 4, ySig, usable / 2 - 4, sigBoxH);
     const brokerBoxX = left + usable / 2 + 4;
     const brokerBoxW = usable / 2 - 4;
-    doc.font("Helvetica-Bold").fontSize(8).text("BROKER SIGNATURE:", brokerBoxX + 8, y + 8);
-    doc.font("Helvetica").fontSize(9).text(GREEN_LOGISTICS_RC.legalName, brokerBoxX + 8, y + 22);
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#111111").text("BROKER SIGNATURE:", brokerBoxX + 8, ySig + 6);
+    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(GREEN_LOGISTICS_RC.legalName, brokerBoxX + 8, ySig + 18);
     const brokerPrinted = txt(c.brokerName) || "Lia Torres";
-    doc.text(brokerPrinted, brokerBoxX + 8, y + 34);
-    // Signature image sits on the right of the broker signature line (authorized signer).
+    doc.text(brokerPrinted, brokerBoxX + 8, ySig + 28);
     const sigPath = resolveLiaTorresSignaturePng();
-    const sigMaxW = 118;
-    const sigMaxH = 34;
-    const sigX = brokerBoxX + brokerBoxW - sigMaxW - 10;
-    const sigY = y + 14;
+    const brokerSigMaxW = 110;
+    const brokerSigMaxH = 30;
+    const brokerSigX = brokerBoxX + brokerBoxW - brokerSigMaxW - 8;
     if (sigPath) {
         try {
-            doc.image(sigPath, sigX, sigY, { fit: [sigMaxW, sigMaxH], align: "right", valign: "bottom" });
+            doc.image(sigPath, brokerSigX, ySig + 10, {
+                fit: [brokerSigMaxW, brokerSigMaxH],
+                align: "right",
+                valign: "bottom",
+            });
         } catch {
             /* keep printed name if image fails */
         }
     }
     doc
-        .moveTo(brokerBoxX + 8, y + 48)
-        .lineTo(left + usable - 8, y + 48)
+        .moveTo(brokerBoxX + 8, ySig + 42)
+        .lineTo(left + usable - 8, ySig + 42)
         .stroke("#666666");
-    doc.font("Helvetica").fontSize(7).text("DATE:", brokerBoxX + 8, y + 54);
+    doc.font("Helvetica").fontSize(7).text("DATE:", brokerBoxX + 8, ySig + 46);
 
     doc.font("Helvetica").fontSize(7).fillColor("#666666");
-    doc.text(`${GREEN_LOGISTICS_RC.legalName}  ·  Page 1 of 1  ·  Generated by GreenOS`, left, 760, {
+    doc.text(`${GREEN_LOGISTICS_RC.legalName}  ·  Page 1 of 1  ·  Generated by GreenOS`, left, footerY, {
         width: usable,
         align: "center",
     });
