@@ -241,6 +241,122 @@ export class CarrierEmailService {
         });
     }
 
+    /** After Generate Rate Con — secure link for carrier to sign RC only. */
+    async sendRcSignInvite(input: {
+        brokerUserId: string;
+        to: string;
+        contactName: string;
+        carrierLegalName: string;
+        onboardingUrl: string;
+        brokerName?: string;
+        loadNumber?: string | null;
+    }) {
+        const name = input.contactName || "Carrier Partner";
+        const subject = `Green Logistics — Sign Rate Confirmation${
+            input.loadNumber ? ` (${input.loadNumber})` : ""
+        }`;
+        const text = [
+            `Hello ${name},`,
+            "",
+            "Your Rate Confirmation is ready to review and sign in Green OS.",
+            input.loadNumber ? `Load: ${input.loadNumber}` : "",
+            "",
+            "Open the secure link to review the electronic Rate Confirmation and sign:",
+            input.onboardingUrl,
+            "",
+            "Thank you,",
+            input.brokerName || "Green Logistics",
+        ]
+            .filter(Boolean)
+            .join("\n");
+
+        const html = `
+          <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
+            <h2 style="color:#059669;margin:0 0 12px">Green Logistics</h2>
+            <p>Hello ${esc(name)},</p>
+            <p>Your <strong>Rate Confirmation</strong> for <strong>${esc(
+                input.carrierLegalName
+            )}</strong>${
+                input.loadNumber ? ` (Load <strong>${esc(input.loadNumber)}</strong>)` : ""
+            } is ready for electronic signature.</p>
+            <p>Open the secure link, review the RC, and click <strong>I Agree &amp; Sign Rate Confirmation</strong>.</p>
+            <p style="margin:24px 0">
+              <a href="${esc(input.onboardingUrl)}" style="background:#059669;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;font-weight:600">
+                Sign Rate Confirmation
+              </a>
+            </p>
+            <p>Thank you,<br/>${esc(input.brokerName || "Green Logistics")}</p>
+          </div>`;
+
+        return this.sendAsBrokerOrSystem({
+            brokerUserId: input.brokerUserId,
+            to: input.to,
+            subject,
+            text,
+            html,
+            allowSystemFallback: false,
+        });
+    }
+
+    /** After Generate BOL — BOL / POD link without Rate Confirmation. */
+    async sendBolPodInvite(input: {
+        brokerUserId: string;
+        to: string;
+        contactName: string;
+        carrierLegalName: string;
+        onboardingUrl: string;
+        brokerName?: string;
+        loadNumber?: string | null;
+    }) {
+        const name = input.contactName || "Carrier Partner";
+        const subject = `Green Logistics — BOL for delivery / POD${
+            input.loadNumber ? ` (${input.loadNumber})` : ""
+        }`;
+        const text = [
+            `Hello ${name},`,
+            "",
+            "Your Bill of Lading is ready. Use this BOL for pickup and delivery.",
+            "After delivery, the receiver-signed BOL is your Proof of Delivery (POD).",
+            input.loadNumber ? `Load: ${input.loadNumber}` : "",
+            "",
+            "Open the secure link (BOL / POD — no Rate Confirmation):",
+            input.onboardingUrl,
+            "",
+            "Thank you,",
+            input.brokerName || "Green Logistics",
+        ]
+            .filter(Boolean)
+            .join("\n");
+
+        const html = `
+          <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
+            <h2 style="color:#059669;margin:0 0 12px">Green Logistics</h2>
+            <p>Hello ${esc(name)},</p>
+            <p>Your <strong>Bill of Lading</strong> for <strong>${esc(
+                input.carrierLegalName
+            )}</strong>${
+                input.loadNumber ? ` (Load <strong>${esc(input.loadNumber)}</strong>)` : ""
+            } is ready for delivery.</p>
+            <p>This link is for <strong>BOL / POD only</strong> — it does not include the Rate Confirmation.</p>
+            <p>After delivery, return the receiver-signed BOL as POD to your broker.</p>
+            <p style="margin:24px 0">
+              <a href="${esc(input.onboardingUrl)}" style="background:#059669;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;font-weight:600">
+                Open BOL / POD
+              </a>
+            </p>
+            <p>Thank you,<br/>${esc(input.brokerName || "Green Logistics")}</p>
+          </div>`;
+
+        return this.sendAsBrokerOrSystem({
+            brokerUserId: input.brokerUserId,
+            to: input.to,
+            subject,
+            text,
+            html,
+            allowSystemFallback: false,
+        });
+    }
+
     async sendBrokerPackageReady(input: {
         to: string;
         brokerUserId?: string | null;

@@ -689,9 +689,22 @@ export class CarrierService {
     }
 
     /**
-     * Step 2 — after BOL Save: email RC+BOL review link FROM broker Gmail.
+     * After RC or BOL generate: email the matching secure carrier link FROM broker Gmail.
+     * - rc_sign → Rate Confirmation only (carrier signs RC)
+     * - bol_pod → BOL / POD only (no Rate Confirmation)
      */
-    async inviteRcBolFromLoad(shipmentLeadId: string, actor: Actor) {
+    async inviteRcBolFromLoad(
+        shipmentLeadId: string,
+        actor: Actor & { kind?: "rc_sign" | "bol_pod" | "rc_bol" }
+    ) {
+        const kind = actor.kind || "bol_pod";
+        const purpose =
+            kind === "rc_sign"
+                ? ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                : kind === "rc_bol"
+                  ? ONBOARDING_PURPOSE.RC_BOL_PACKET
+                  : ONBOARDING_PURPOSE.BOL_POD_PACKET;
+
         const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!lead) throw Object.assign(new Error("Load not found"), { status: 404 });
         if (actor.role === "Broker" && lead.assignedBrokerId && lead.assignedBrokerId !== actor.userId) {
@@ -702,7 +715,7 @@ export class CarrierService {
             const legalName = String(lead.carrierName || "").trim();
             if (!legalName || !email) {
                 throw Object.assign(
-                    new Error("Carrier name and email are required on the load before RC/BOL link"),
+                    new Error("Carrier name and email are required on the load before the carrier link"),
                     { status: 400 }
                 );
             }
@@ -728,20 +741,33 @@ export class CarrierService {
         if (!refreshed?.carrierProfileId) {
             throw Object.assign(new Error("Carrier profile missing on load"), { status: 400 });
         }
-        const bol = await prisma.loadDocument.findFirst({
-            where: { shipmentLeadId, docType: "BOL", isCurrent: true },
-        });
-        if (!bol) {
-            throw Object.assign(new Error("Save BOL first, then the RC/BOL link can be sent"), {
-                status: 400,
+
+        if (purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET) {
+            const rc = await prisma.loadDocument.findFirst({
+                where: { shipmentLeadId, docType: "RATE_CONFIRMATION", isCurrent: true },
             });
+            if (!rc) {
+                throw Object.assign(new Error("Generate Rate Confirmation first, then the RC sign link can be sent"), {
+                    status: 400,
+                });
+            }
+        } else {
+            const bol = await prisma.loadDocument.findFirst({
+                where: { shipmentLeadId, docType: "BOL", isCurrent: true },
+            });
+            if (!bol) {
+                throw Object.assign(new Error("Save BOL first, then the BOL / POD link can be sent"), {
+                    status: 400,
+                });
+            }
         }
+
         const invite = await this.createSessionAndSendInvite(refreshed.carrierProfileId, {
             ...actor,
             shipmentLeadId,
-            purpose: ONBOARDING_PURPOSE.RC_BOL_PACKET,
+            purpose,
         });
-        return { invite, carrierId: refreshed.carrierProfileId };
+        return { invite, carrierId: refreshed.carrierProfileId, purpose };
     }
 
     async createSessionAndSendInvite(
@@ -810,26 +836,23 @@ export class CarrierService {
         let warning: string | undefined;
         let sentVia = "broker-gmail";
         try {
+            const invitePayload = {
+                brokerUserId: carrier.assignedBrokerId,
+                to: carrier.email,
+                contactName: carrier.contactName || "",
+                carrierLegalName: carrier.legalName,
+                onboardingUrl: url,
+                brokerName,
+                loadNumber,
+            };
             const mail =
-                purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                    ? await carrierEmailService.sendRcBolInvite({
-                          brokerUserId: carrier.assignedBrokerId,
-                          to: carrier.email,
-                          contactName: carrier.contactName || "",
-                          carrierLegalName: carrier.legalName,
-                          onboardingUrl: url,
-                          brokerName,
-                          loadNumber,
-                      })
-                    : await carrierEmailService.sendAgreementInvite({
-                          brokerUserId: carrier.assignedBrokerId,
-                          to: carrier.email,
-                          contactName: carrier.contactName || "",
-                          carrierLegalName: carrier.legalName,
-                          onboardingUrl: url,
-                          brokerName,
-                          loadNumber,
-                      });
+                purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                    ? await carrierEmailService.sendRcSignInvite(invitePayload)
+                    : purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET
+                      ? await carrierEmailService.sendBolPodInvite(invitePayload)
+                      : purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                        ? await carrierEmailService.sendRcBolInvite(invitePayload)
+                        : await carrierEmailService.sendAgreementInvite(invitePayload);
             sentVia = mail.via;
         } catch (err) {
             warning = err instanceof Error ? err.message : "Failed to send invite email";
@@ -845,7 +868,9 @@ export class CarrierService {
             data: {
                 onboardingStatus:
                     carrier.onboardingStatus === "REQUEST_CHANGES" ||
-                    purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                    purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+                    purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET ||
+                    purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET
                         ? carrier.onboardingStatus === "APPROVED"
                             ? "APPROVED"
                             : carrier.onboardingStatus === "SUBMITTED"
@@ -855,18 +880,28 @@ export class CarrierService {
             },
         });
 
+        const loadPacket =
+            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+            purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET ||
+            purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET;
         await this.emitEvent({
             carrierId,
             sessionId: session.sessionId,
             shipmentLeadId: session.shipmentLeadId,
-            action:
-                purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                    ? "RC_BOL_INVITATION_SENT"
-                    : "INVITATION_SENT",
-            title:
-                purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                    ? "RC/BOL invitation sent from broker Gmail"
-                    : "Agreement invitation sent from broker Gmail",
+            action: loadPacket
+                ? purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                    ? "RC_SIGN_INVITATION_SENT"
+                    : purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET
+                      ? "BOL_POD_INVITATION_SENT"
+                      : "RC_BOL_INVITATION_SENT"
+                : "INVITATION_SENT",
+            title: loadPacket
+                ? purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                    ? "RC sign invitation sent from broker Gmail"
+                    : purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET
+                      ? "BOL / POD invitation sent from broker Gmail"
+                      : "RC/BOL invitation sent from broker Gmail"
+                : "Agreement invitation sent from broker Gmail",
             message: `Emailed ${carrier.email} via ${sentVia}`,
             actorType: "BROKER",
             actorId: actor.userId,
@@ -1191,7 +1226,11 @@ export class CarrierService {
         const purpose = session.purpose || ONBOARDING_PURPOSE.AGREEMENT_PACKET;
         let rateConDoc: Record<string, unknown> | null = null;
         let bolDoc: Record<string, unknown> | null = null;
-        if (purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET && session.shipmentLeadId) {
+        const isLoadPacket =
+            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+            purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET ||
+            purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET;
+        if (isLoadPacket && session.shipmentLeadId) {
             const [rcRow, bolRow] = await Promise.all([
                 prisma.loadDocument.findFirst({
                     where: {
@@ -1241,9 +1280,8 @@ export class CarrierService {
         const requireDocs = purpose === ONBOARDING_PURPOSE.AGREEMENT_PACKET;
         const requireAgreement = purpose === ONBOARDING_PURPOSE.AGREEMENT_PACKET;
         const requireRc =
-            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                ? true
-                : Boolean(session.shipmentLeadId) && purpose !== ONBOARDING_PURPOSE.AGREEMENT_PACKET;
+            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+            purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET;
 
         return {
             session: {
@@ -1252,7 +1290,8 @@ export class CarrierService {
                 shipmentLeadId: session.shipmentLeadId,
                 changeRequestNote: session.changeRequestNote,
                 purpose,
-                requireRc: purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET || Boolean(session.shipmentLeadId && purpose !== ONBOARDING_PURPOSE.AGREEMENT_PACKET),
+                requireRc,
+                requireBolPod: purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET,
                 requireAgreement,
                 requireDocs,
             },
@@ -1291,7 +1330,9 @@ export class CarrierService {
                 documents,
                 agreementSigned: Boolean(agreement),
                 rcSigned: Boolean(rc),
-                requireRc: purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET,
+                requireRc:
+                    purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+                    purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET,
                 requireAgreement,
                 requireDocs,
             }),
@@ -2074,9 +2115,17 @@ export class CarrierService {
             },
         });
 
-        const isRcBol = (session.purpose || "") === ONBOARDING_PURPOSE.RC_BOL_PACKET;
+        const purposeNow = session.purpose || "";
+        const isRcBol =
+            purposeNow === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+            purposeNow === ONBOARDING_PURPOSE.RC_SIGN_PACKET ||
+            purposeNow === ONBOARDING_PURPOSE.BOL_POD_PACKET;
         const docs = isRcBol
-            ? ["Rate Confirmation signed", "BOL acknowledged"]
+            ? purposeNow === ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                ? ["Rate Confirmation signed"]
+                : purposeNow === ONBOARDING_PURPOSE.BOL_POD_PACKET
+                  ? ["BOL / POD acknowledged"]
+                  : ["Rate Confirmation signed", "BOL acknowledged"]
             : [
                   ...(carrier?.agreementSigns?.length ? ["Broker-Carrier Agreement signed"] : []),
                   ...(carrier?.documents || []).map(
@@ -2121,7 +2170,14 @@ export class CarrierService {
                     mcNumber: carrier.mcNumber,
                     dotNumber: carrier.dotNumber,
                     carrierUrl: carrierEmailService.carrierRecordUrl(carrier.carrierId),
-                    purposeLabel: isRcBol ? "RC / BOL signed by carrier" : "Agreement package SUBMITTED by carrier",
+                    purposeLabel:
+                        purposeNow === ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                            ? "Rate Confirmation signed by carrier"
+                            : purposeNow === ONBOARDING_PURPOSE.BOL_POD_PACKET
+                              ? "BOL / POD acknowledged by carrier"
+                              : purposeNow === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                                ? "RC / BOL signed by carrier"
+                                : "Agreement package SUBMITTED by carrier",
                     docs: docs.length ? docs : ["Package submitted"],
                     packageFields,
                     signedBy: latestSign?.signerName || null,

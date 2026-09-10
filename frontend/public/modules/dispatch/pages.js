@@ -2772,7 +2772,7 @@ window.GreenOSModules["dispatch"] = {
 
     box.innerHTML =
       "<h3>Generate Rate Confirmation</h3>" +
-      '<p class="gos-muted">Fields auto-fill from this Load. Add contacts, times, rate and notes — then create the PDF. Green OS emails the RC PDF from your Gmail to the carrier automatically.</p>' +
+      '<p class="gos-muted">Fields auto-fill from this Load. Add contacts, times, rate and notes — then create the PDF. Green OS emails a secure link from your Gmail so the carrier can sign the Rate Confirmation.</p>' +
       '<div class="load-form-grid">' +
       '<label>Load No <input id="rc-load" value="' + self.esc(g.loadNumber || "") + '" readonly></label>' +
       '<label>Shipment <input id="rc-ship" value="' + self.esc(g.shipmentNumber || "") + '" readonly></label>' +
@@ -2940,7 +2940,7 @@ window.GreenOSModules["dispatch"] = {
           ),
         });
 
-        if (statusEl) statusEl.textContent = "Generating Rate Confirmation PDF and emailing carrier…";
+        if (statusEl) statusEl.textContent = "Generating Rate Confirmation PDF…";
         var pickupTime24 = self.readAmPmTime(box, "rc-ptime");
         var deliveryTime24 = self.readAmPmTime(box, "rc-dtime");
         var content = {
@@ -2996,21 +2996,31 @@ window.GreenOSModules["dispatch"] = {
           }),
         });
 
-        var emailInfo = row && row.emailDelivery ? row.emailDelivery : null;
-        if (statusEl) {
-          statusEl.textContent = emailInfo && emailInfo.sent
-            ? ("RC emailed to " + (emailInfo.to || "carrier") + " — opening PDF…")
-            : "Done — opening PDF…";
-        }
-        if (emailInfo && emailInfo.sent) {
-          /* ok */
-        } else if (emailInfo && emailInfo.error) {
-          alert(
-            "Rate Confirmation saved, but email to carrier failed:\n" +
-              emailInfo.error +
-              "\n\nConnect Broker Gmail in My Workspace, then regenerate or resend."
+                if (statusEl) statusEl.textContent = "Sending Rate Confirmation sign link to carrier…";
+        try {
+          var rcToken = localStorage.getItem("gl_token") || "";
+          var rcInvRes = await fetch(
+            "/api/carriers/from-load/" + encodeURIComponent(id) + "/invite-rc-bol",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + rcToken,
+              },
+              body: JSON.stringify({ kind: "rc_sign" }),
+            }
           );
+          var rcInvJson = await rcInvRes.json().catch(function () { return {}; });
+          if (!rcInvRes.ok || rcInvJson.success === false) {
+            alert(
+              "Rate Confirmation saved, but RC sign email failed:\n" +
+                (rcInvJson.message || "Connect Broker Gmail and retry.")
+            );
+          }
+        } catch (rcInvErr) {
+          alert("Rate Confirmation saved, but RC sign email failed. Connect Broker Gmail.");
         }
+        if (statusEl) statusEl.textContent = "Done — opening PDF…";
         await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
         if (row && row.documentId) {
           try {
@@ -3121,7 +3131,7 @@ window.GreenOSModules["dispatch"] = {
       "</div>" +
       '<div class="load-actions" style="margin-top:0.75rem">' +
       '<button type="button" class="btn-primary" id="bol-generate">Save &amp; Generate BOL PDF</button>' +
-      '<p class="gos-muted" style="margin:0.35rem 0 0">After Save, Green OS emails the filled RC + BOL secure link from your Gmail to the carrier.</p>' +
+      '<p class="gos-muted" style="margin:0.35rem 0 0">After Save, Green OS emails a BOL / POD secure link from your Gmail (no Rate Confirmation).</p>' +
       '<button type="button" class="btn-secondary" id="bol-cancel">Cancel</button>' +
       "</div>" +
       '<p id="bol-status" class="gos-muted" style="margin-top:0.5rem"></p>';
@@ -3245,7 +3255,7 @@ window.GreenOSModules["dispatch"] = {
           method: "POST",
           body: JSON.stringify({ changeReason: changeReason || "GENERATED", content: content }),
         });
-        if (statusEl) statusEl.textContent = "Sending RC/BOL secure link to carrier…";
+        if (statusEl) statusEl.textContent = "Sending BOL / POD secure link to carrier…";
         try {
           var bolToken = localStorage.getItem("gl_token") || "";
           var bolInvRes = await fetch(
@@ -3256,18 +3266,18 @@ window.GreenOSModules["dispatch"] = {
                 "Content-Type": "application/json",
                 Authorization: "Bearer " + bolToken,
               },
-              body: "{}",
+              body: JSON.stringify({ kind: "bol_pod" }),
             }
           );
           var bolInvJson = await bolInvRes.json().catch(function () { return {}; });
           if (!bolInvRes.ok || bolInvJson.success === false) {
             alert(
-              "BOL saved, but RC/BOL email failed:\n" +
+              "BOL saved, but BOL / POD email failed:\n" +
                 (bolInvJson.message || "Connect Broker Gmail and retry.")
             );
           }
         } catch (bolInvErr) {
-          alert("BOL saved, but RC/BOL email failed. Connect Broker Gmail.");
+          alert("BOL saved, but BOL / POD email failed. Connect Broker Gmail.");
         }
         if (statusEl) statusEl.textContent = "Done — opening PDF…";
         await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");

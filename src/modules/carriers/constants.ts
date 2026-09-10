@@ -49,7 +49,12 @@ export const DEFAULT_ONBOARDING_EXPIRY_DAYS = 7;
 
 export const ONBOARDING_PURPOSE = {
     AGREEMENT_PACKET: "AGREEMENT_PACKET",
+    /** @deprecated Prefer RC_SIGN_PACKET / BOL_POD_PACKET */
     RC_BOL_PACKET: "RC_BOL_PACKET",
+    /** After Generate Rate Con — carrier signs RC only */
+    RC_SIGN_PACKET: "RC_SIGN_PACKET",
+    /** After Generate BOL — BOL / POD link without Rate Confirmation */
+    BOL_POD_PACKET: "BOL_POD_PACKET",
 } as const;
 
 export type OnboardingPurpose = (typeof ONBOARDING_PURPOSE)[keyof typeof ONBOARDING_PURPOSE];

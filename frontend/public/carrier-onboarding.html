@@ -105,7 +105,13 @@
     return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
   function reqMark() { return '<span class="req" title="Required" aria-label="Required">●</span>'; }
-  function isRcBol() { return state && state.session && state.session.purpose === "RC_BOL_PACKET"; }
+  function purpose() { return (state && state.session && state.session.purpose) || ""; }
+  function isRcBol() {
+    var p = purpose();
+    return p === "RC_BOL_PACKET" || p === "RC_SIGN_PACKET" || p === "BOL_POD_PACKET";
+  }
+  function isRcSignOnly() { return purpose() === "RC_SIGN_PACKET"; }
+  function isBolPodOnly() { return purpose() === "BOL_POD_PACKET"; }
   async function api(path, opts) {
     var res = await fetch("/api/carrier-onboarding/" + encodeURIComponent(token) + path, opts);
     var data = await res.json().catch(function () { return {}; });
@@ -144,10 +150,16 @@
   function setMsg(text, ok){ var el=document.getElementById("msg"); if(!el)return; el.className=ok?"ok":"error"; el.textContent=text||""; }
 
   function labels() {
+    if (isRcSignOnly()) return ["Rate Confirmation", "Sign", "Done"];
+    if (isBolPodOnly()) return ["BOL / POD", "Done"];
     if (isRcBol()) return ["RC & BOL", "Sign", "Done"];
     return ["Company", "Agreement", "Documents", "Review", "Done"];
   }
-  function maxStep() { return isRcBol() ? 1 : 3; }
+  function maxStep() {
+    if (isBolPodOnly()) return 0;
+    if (isRcBol()) return 1;
+    return 3;
+  }
   function stepsHtml() {
     return labels().map(function (l, i) {
       var cls = "step" + (i < step ? " done" : "") + (i === step ? " active" : "");
@@ -421,17 +433,44 @@
     var bol = (bolMeta && bolMeta.content) || {};
     var hasRc = rc && (rc.loadNumber || rc.carrierName || rc.pickupAddress || rc.flatRate != null || rc.carrierRate != null);
     var hasBol = bol && (bol.bolNumber || bol.loadNumber || bol.pickupAddress || bol.deliveryAddress);
-    return '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Rate Confirmation</h2>' +
-      '<p class="muted">Pre-filled from Green OS — review only.</p>' +
-      (hasRc ? renderRcSheet(rc, rcMeta) : '<p class="error">Rate Confirmation is not available yet. Ask your broker to generate it in Green OS.</p>') +
-      '<h2 style="margin:1rem 0 0.5rem;font-size:1.1rem">Bill of Lading</h2>' +
-      (hasBol ? renderBolSheet(bol, bolMeta) : '<p class="error">Bill of Lading is not available yet. Ask your broker to generate it in Green OS.</p>') +
-      (state.rcSigned
-        ? '<p class="ok">✓ Already signed</p><div class="actions"><button type="button" class="btn-primary" id="btn-submit">Finish</button></div>'
-        : '<label style="margin-top:0.75rem">Full Legal Name<input id="sig-name" value="' + esc(state.carrier.contactName || "") + '"></label>' +
-          '<canvas id="sig-canvas" class="sig-pad" width="640" height="140"></canvas>' +
-          '<div class="actions"><button type="button" class="btn-secondary" id="btn-clear-sig">Clear</button><button type="button" class="btn-primary" id="btn-sign-rc">I Agree &amp; Sign RC / BOL</button></div>') +
-      '<p id="msg" class="muted"></p></div>';
+    var showRc = !isBolPodOnly();
+    var showBol = !isRcSignOnly();
+    var title = isRcSignOnly()
+      ? "Rate Confirmation"
+      : isBolPodOnly()
+        ? "Bill of Lading / POD"
+        : "Rate Confirmation & BOL";
+    var html = '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">' + esc(title) + "</h2>";
+    if (isBolPodOnly()) {
+      html += '<p class="muted">BOL for delivery. After delivery, the receiver-signed BOL is your Proof of Delivery (POD). This link does <strong>not</strong> include Rate Confirmation.</p>';
+    } else if (isRcSignOnly()) {
+      html += '<p class="muted">Electronic Rate Confirmation — review and sign. BOL / POD is sent separately after BOL is generated.</p>';
+    } else {
+      html += '<p class="muted">Pre-filled from Green OS — review only.</p>';
+    }
+    if (showRc) {
+      html += '<h2 style="margin:1rem 0 0.5rem;font-size:1.1rem">Rate Confirmation</h2>' +
+        (hasRc ? renderRcSheet(rc, rcMeta) : '<p class="error">Rate Confirmation is not available yet. Ask your broker to generate it in Green OS.</p>');
+    }
+    if (showBol) {
+      html += '<h2 style="margin:1rem 0 0.5rem;font-size:1.1rem">Bill of Lading</h2>' +
+        (hasBol ? renderBolSheet(bol, bolMeta) : '<p class="error">Bill of Lading is not available yet. Ask your broker to generate it in Green OS.</p>');
+    }
+    if (isBolPodOnly()) {
+      html += state.rcSigned || (state.progress && state.progress.bolPodAck)
+        ? '<p class="ok">✓ BOL / POD acknowledged</p><div class="actions"><button type="button" class="btn-primary" id="btn-submit">Finish</button></div>'
+        : '<p class="muted" style="margin-top:0.75rem">Confirm you received the BOL for this load. After delivery, send the signed BOL (POD) to your broker.</p>' +
+          '<div class="actions"><button type="button" class="btn-primary" id="btn-ack-bol-pod">Acknowledge BOL / POD</button></div>';
+    } else if (state.rcSigned) {
+      html += '<p class="ok">✓ Already signed</p><div class="actions"><button type="button" class="btn-primary" id="btn-submit">Finish</button></div>';
+    } else {
+      var btnLabel = isRcSignOnly() ? "I Agree &amp; Sign Rate Confirmation" : "I Agree &amp; Sign RC / BOL";
+      html += '<label style="margin-top:0.75rem">Full Legal Name<input id="sig-name" value="' + esc(state.carrier.contactName || "") + '"></label>' +
+        '<canvas id="sig-canvas" class="sig-pad" width="640" height="140"></canvas>' +
+        '<div class="actions"><button type="button" class="btn-secondary" id="btn-clear-sig">Clear</button><button type="button" class="btn-primary" id="btn-sign-rc">' + btnLabel + "</button></div>";
+    }
+    html += '<p id="msg" class="muted"></p></div>';
+    return html;
   }
 
   function companyPayload(extra) {
@@ -491,13 +530,19 @@
     document.getElementById("boot").classList.add("hidden");
     var app = document.getElementById("app");
     app.classList.remove("hidden");
-    document.getElementById("hdr-sub").textContent = isRcBol() ? "Review RC & BOL" : "Carrier-Broker Agreement Packet";
+    document.getElementById("hdr-sub").textContent = isRcSignOnly()
+      ? "Sign Rate Confirmation"
+      : isBolPodOnly()
+        ? "BOL / POD"
+        : isRcBol()
+          ? "Review RC & BOL"
+          : "Carrier-Broker Agreement Packet";
     var c = state.carrier || {};
     var note = state.session.changeRequestNote ? '<div class="card"><p class="error"><strong>Changes requested:</strong> ' + esc(state.session.changeRequestNote) + "</p></div>" : "";
     var body = "";
     if (isRcBol()) {
       if (step === 0) body = rcBolForm();
-      else body = '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">Thank you. Your RC/BOL signature was submitted to Green Logistics.</p></div>';
+      else body = '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">Thank you. Your response was submitted to Green Logistics.</p></div>';
     } else {
       if (step === 0) body = companyForm();
       else if (step === 1) body = agreementForm();
@@ -584,17 +629,38 @@
         await reload();
       } catch (e) { setMsg(e.message, false); }
     });
+    document.getElementById("btn-ack-bol-pod")?.addEventListener("click", async function () {
+      try {
+        await api("/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ progress: { step: 1, bolPodAck: true } }),
+        });
+        var data = await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body: "{}" });
+        step = 1;
+        var extra = data.brokerNotified
+          ? '<p class="ok" style="margin-top:0.75rem">Your broker was emailed the BOL / POD confirmation.</p>'
+          : (data.warning ? '<p class="error" style="margin-top:0.75rem">' + esc(data.warning) + "</p>" : "");
+        document.getElementById("app").innerHTML =
+          '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">' +
+          esc(data.message || "Thank you. BOL / POD was acknowledged in Green Logistics.") +
+          "</p>" + extra + "</div>";
+      } catch (e) { setMsg(e.message, false); await reload(); }
+    });
     document.getElementById("btn-sign-rc")?.addEventListener("click", async function () {
       try {
         await api("/sign-rc", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ signerName: val("sig-name"), signatureData: sigData() }) });
         var data = await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body: "{}" });
         step = 2;
+        var doneMsg = isRcSignOnly()
+          ? "Thank you. Your Rate Confirmation signature was submitted to Green Logistics."
+          : "Thank you. Your RC/BOL signature was submitted to Green Logistics.";
         var extra = data.brokerNotified
-          ? '<p class="ok" style="margin-top:0.75rem">Your broker was emailed the filled RC/BOL package.</p>'
+          ? '<p class="ok" style="margin-top:0.75rem">Your broker was emailed your signed package.</p>'
           : (data.warning ? '<p class="error" style="margin-top:0.75rem">' + esc(data.warning) + "</p>" : "");
         document.getElementById("app").innerHTML =
           '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">' +
-          esc(data.message || "Thank you. Your RC/BOL signature was submitted to Green Logistics.") +
+          esc(data.message || doneMsg) +
           "</p>" + extra + "</div>";
       } catch (e) { setMsg(e.message, false); await reload(); }
     });

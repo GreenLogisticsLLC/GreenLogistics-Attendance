@@ -146,16 +146,23 @@ export const carriersController = {
 
     async inviteRcBolFromLoad(req: AuthRequest, res: Response) {
         try {
+            const rawKind = String(req.body?.kind || req.query?.kind || "bol_pod").toLowerCase();
+            const kind =
+                rawKind === "rc_sign" || rawKind === "rc"
+                    ? ("rc_sign" as const)
+                    : rawKind === "rc_bol"
+                      ? ("rc_bol" as const)
+                      : ("bol_pod" as const);
             const data = await carrierService.inviteRcBolFromLoad(
                 String(req.params.shipmentLeadId),
-                actorFrom(req)
+                { ...actorFrom(req), kind }
             );
             res.json({ success: true, data });
         } catch (err) {
             res.status(errStatus(err)).json({
                 success: false,
                 code: (err as { code?: string }).code,
-                message: err instanceof Error ? err.message : "Failed to send RC/BOL link",
+                message: err instanceof Error ? err.message : "Failed to send carrier document link",
             });
         }
     },
