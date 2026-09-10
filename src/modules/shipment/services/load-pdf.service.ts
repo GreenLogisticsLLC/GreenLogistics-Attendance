@@ -599,12 +599,15 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     drawBox(doc, left, y, usable, 36);
     doc.font("Helvetica-Bold").fontSize(7).text("RECEIVING STAMP SPACE", left + 4, y + 4);
     doc.font("Helvetica").fontSize(8).fillColor("#888888").text("(stamp here)", left + 4, y + 16);
+    y += 42;
 
+    // Keep company line directly under content so standard BOL stays on one page
+    // (do not pin to the physical bottom — that left a large empty gap).
     doc.font("Helvetica").fontSize(6.5).fillColor("#666666");
     doc.text(
         `${GREEN_LOGISTICS_RC.legalName}  ·  MC# ${GREEN_LOGISTICS_RC.mc}  ·  ${GREEN_LOGISTICS_RC.addressLine1}, ${GREEN_LOGISTICS_RC.addressLine2}  ·  GreenOS Load Document`,
         left,
-        772,
+        y,
         { width: usable, align: "center" }
     );
 }
@@ -712,12 +715,13 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     drawBox(doc, left, y, usable, 50);
     doc.font("Helvetica-Bold").fontSize(7).text("RECEIVING STAMP SPACE", left + 4, y + 4);
     doc.font("Helvetica").fontSize(8).fillColor("#888888").text("(stamp / photo POD reference)", left + 4, y + 18);
+    y += 56;
 
     doc.font("Helvetica").fontSize(6.5).fillColor("#666666");
     doc.text(
         `${GREEN_LOGISTICS_RC.legalName}  ·  Clear POD photo required within 24 hours  ·  GreenOS Load Document`,
         left,
-        772,
+        y,
         { width: usable, align: "center" }
     );
 }
