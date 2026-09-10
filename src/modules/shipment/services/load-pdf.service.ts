@@ -28,6 +28,10 @@ export const GREEN_LOGISTICS_RC = {
     addressLine1: "121 Frog Hollow RD",
     addressLine2: "Churchville, PA 18966",
     mc: "1237784",
+    /** Main company phone shown on Rate Confirmation header. */
+    mainPhone: "267 703 5313",
+    /** Main company email shown on Rate Confirmation header. */
+    mainEmail: "info@greengrouplogistics.com",
     dispatchPhone: "(267) 703-5313",
     billingEmails: ["greenlogisticsllc20@gmail.com", "info@greengrouplogistics.com"],
 };
@@ -75,6 +79,8 @@ export type LoadDocumentContent = {
     deliveryTime?: string | null;
     deliveryContact?: string | null;
     equipment?: string | null;
+    /** Truck / trailer type (e.g. Dry Van, Reefer, Flatbed) on Rate Confirmation. */
+    truckTrailerType?: string | null;
     commodity?: string | null;
     weight?: string | null;
     pieces?: string | number | null;
@@ -244,6 +250,10 @@ function renderRateConfirmationPdf(
     doc.text(GREEN_LOGISTICS_RC.addressLine2, left, y);
     y += 10;
     doc.text(`MC # ${GREEN_LOGISTICS_RC.mc}`, left, y);
+    y += 10;
+    doc.text(`Phone: ${GREEN_LOGISTICS_RC.mainPhone}`, left, y);
+    y += 10;
+    doc.text(`Email: ${GREEN_LOGISTICS_RC.mainEmail}`, left, y);
 
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f3d1f");
     doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 180, 28, {
@@ -263,28 +273,19 @@ function renderRateConfirmationPdf(
     }
     doc.text(`v${version}`, left + usable - 180, 66, { width: 180, align: "right" });
 
-    y = 78;
+    y += 12;
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111");
     doc.text("LOAD CONFIRMATION AND PAYMENT AGREEMENT — PLEASE SIGN & RETURN ASAP", left, y, {
         width: usable,
         align: "center",
     });
-    y += 16;
+    y += 14;
 
-    // Email contacts — Broker Gmail / Customer / Carrier
-    drawBox(doc, left, y, usable, 36);
-    fieldRow(doc, "BROKER GMAIL:", txt(c.brokerEmail), left + 8, y + 4, 170);
-    fieldRow(doc, "CUSTOMER EMAIL:", txt(c.customerEmail), left + 190, y + 4, 170);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 370, y + 4, 160);
-    if (c.customerName) {
-        doc.font("Helvetica").fontSize(7).fillColor("#555555").text(
-            `Customer: ${txt(c.customerName)}`,
-            left + 190,
-            y + 24,
-            { width: 170 }
-        );
-    }
-    y += 42;
+    // Email contacts — Broker Gmail / Carrier only (no customer on RC PDF)
+    drawBox(doc, left, y, usable, 28);
+    fieldRow(doc, "BROKER GMAIL:", txt(c.brokerEmail), left + 8, y + 4, usable / 2 - 20);
+    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + usable / 2 + 4, y + 4, usable / 2 - 20);
+    y += 34;
 
     // Carrier / equipment / rate block
     drawBox(doc, left, y, usable, 78);
@@ -292,10 +293,11 @@ function renderRateConfirmationPdf(
     fieldRow(doc, "MC#", txt(c.carrierMc), left + 240, y + 4, 90);
     fieldRow(doc, "DOT#", txt(c.carrierDot), left + 340, y + 4, 90);
     fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 440, y + 4, 90);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 8, y + 32, 220);
+    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 8, y + 32, 200);
 
-    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 240, y + 32, 120);
-    fieldRow(doc, "Weight:", txt(c.weight), left + 370, y + 32, 70);
+    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 220, y + 32, 90);
+    fieldRow(doc, "TRUCK/TRAILER TYPE:", txt(c.truckTrailerType), left + 320, y + 32, 130);
+    fieldRow(doc, "Weight:", txt(c.weight), left + 460, y + 32, 70);
     fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 54, 220);
     const rateVal = money(c.flatRate ?? c.carrierRate);
     fieldRow(doc, "Flat Rate: $USD", rateVal || "—", left + 240, y + 54, 120);

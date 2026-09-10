@@ -2856,7 +2856,10 @@ window.GreenOSModules["dispatch"] = {
       '<label>Carrier phone <input id="rc-cphone" type="tel" value="' +
       self.esc(self.formatUsPhone(c.carrierPhone || "")) +
       '" placeholder="(XXX) XXX-XXXX"></label>' +
-      '<label>Equipment <input id="rc-equip" value="' + self.esc(g.equipment || "") + '"></label>' +
+      '<label>Equipment <input id="rc-equip" value="' + self.esc(g.equipment || "") + '" placeholder="FTL / LTL"></label>' +
+      '<label>Truck / Trailer type <input id="rc-truck-type" value="' +
+      self.esc(pick("truckTrailerType", "")) +
+      '" placeholder="Dry Van, Reefer, Flatbed…"></label>' +
       '<label>Weight * <input id="rc-weight" value="' + self.esc(g.weight || "") + '" required></label>' +
       '<label>Commodity * <input id="rc-commodity" value="' + self.esc(g.commodity || "") + '" required></label>' +
       "<label>Flat Rate $USD *" +
@@ -3035,6 +3038,7 @@ window.GreenOSModules["dispatch"] = {
           carrierDot: box.querySelector("#rc-dot").value,
           carrierPhone: self.formatUsPhone(box.querySelector("#rc-cphone").value) || box.querySelector("#rc-cphone").value,
           equipment: box.querySelector("#rc-equip").value,
+          truckTrailerType: (box.querySelector("#rc-truck-type").value || "").trim() || null,
           weight: box.querySelector("#rc-weight").value,
           commodity: box.querySelector("#rc-commodity").value,
           flatRate: rate,
