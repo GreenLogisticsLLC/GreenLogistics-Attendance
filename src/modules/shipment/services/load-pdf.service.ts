@@ -81,9 +81,9 @@ export type LoadDocumentContent = {
     pickupAddress?: string | null;
     deliveryAddress?: string | null;
     /** Extra pickup stops beyond the primary origin (Rate Con / BOL). */
-    additionalOrigins?: string[] | null;
+    additionalOrigins?: Array<string | { address?: string | null; date?: string | null; time?: string | null }> | null;
     /** Extra delivery stops beyond the primary destination (Rate Con / BOL). */
-    additionalDestinations?: string[] | null;
+    additionalDestinations?: Array<string | { address?: string | null; date?: string | null; time?: string | null }> | null;
     pickupWindow?: string | null;
     deliveryWindow?: string | null;
     pickupDate?: string | null;
@@ -180,15 +180,32 @@ function txt(v: string | number | null | undefined): string {
     return s;
 }
 
+/** Format one extra stop for PDF (address + optional date/time). */
+function formatExtraStop(
+    x: string | { address?: string | null; date?: string | null; time?: string | null } | null | undefined
+): string {
+    if (x == null) return "";
+    if (typeof x === "string") return txt(x);
+    const address = txt(x.address);
+    if (!address) return "";
+    const date = txt(x.date);
+    const time = txt(x.time);
+    const when = [date, time].filter(Boolean).join(" ");
+    return when ? `${address} (${when})` : address;
+}
+
 function stopList(
     primary: string | null | undefined,
-    extras: string[] | null | undefined
+    extras:
+        | Array<string | { address?: string | null; date?: string | null; time?: string | null }>
+        | null
+        | undefined
 ): string[] {
     const out: string[] = [];
     const first = txt(primary);
     if (first) out.push(first);
     for (const x of extras || []) {
-        const s = txt(x);
+        const s = formatExtraStop(x);
         if (s && !out.includes(s)) out.push(s);
     }
     return out;

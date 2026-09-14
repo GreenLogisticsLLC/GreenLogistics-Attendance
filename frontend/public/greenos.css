@@ -2029,6 +2029,48 @@ button.load-review-choice:hover {
 }
 .load-form-grid label.full,
 .load-form-grid .full { grid-column: 1 / -1; }
+.load-form-grid .load-extra-stops {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+.load-form-grid .load-extra-stops-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin: 0.45rem 0 0.65rem;
+  padding-left: 0.75rem;
+  position: relative;
+  z-index: 2;
+  clear: both;
+}
+.load-form-grid .load-extra-stops-actions .btn-secondary {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.load-form-grid .load-extra-stop {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(8rem, 0.75fr) minmax(10rem, 1fr) auto;
+  gap: 0.4rem 0.5rem;
+  align-items: end;
+  width: 100%;
+}
+.load-form-grid .load-extra-stop > label {
+  margin: 0;
+}
+.load-form-grid .load-extra-stop .extra-stop-remove {
+  margin-bottom: 0.2rem;
+  flex: 0 0 auto;
+  justify-self: end;
+}
+@media (max-width: 720px) {
+  .load-form-grid .load-extra-stop {
+    grid-template-columns: 1fr;
+  }
+}
 .load-form-grid .cu-billing-head {
   display: flex;
   flex-wrap: wrap;

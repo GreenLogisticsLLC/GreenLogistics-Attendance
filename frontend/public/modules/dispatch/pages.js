@@ -525,28 +525,64 @@ window.GreenOSModules["dispatch"] = {
 
   /** Collect extra Origin / Destination inputs for RC and BOL wizards. */
   collectExtraStops(box, wrapSel) {
+    var self = this;
     var wrap = box.querySelector(wrapSel);
     if (!wrap) return [];
     var out = [];
-    wrap.querySelectorAll("input[data-extra-stop]").forEach(function (el) {
-      var v = String(el.value || "").trim();
-      if (v) out.push(v);
+    wrap.querySelectorAll(".load-extra-stop").forEach(function (row) {
+      var addrEl = row.querySelector("[data-extra-field=\"address\"]");
+      var dateEl = row.querySelector("[data-extra-field=\"date\"]");
+      var prefix = row.getAttribute("data-time-prefix") || "";
+      var address = String((addrEl && addrEl.value) || "").trim();
+      if (!address) return;
+      var time24 = prefix ? self.readAmPmTime(row, prefix) : "";
+      out.push({
+        address: address,
+        date: String((dateEl && dateEl.value) || "").trim() || null,
+        time: self.formatAmPmLabel(time24) || time24 || null,
+      });
     });
     return out;
   },
 
-  /** Render one removable extra stop row. */
-  extraStopRowHtml(value, kind) {
+  /** Normalize saved extra stop (string or {address,date,time}). */
+  normalizeExtraStop(raw) {
+    if (raw && typeof raw === "object") {
+      var dateRaw = String(raw.date || raw.pickupDate || raw.deliveryDate || "").trim();
+      return {
+        address: String(raw.address || raw.pickupAddress || raw.deliveryAddress || "").trim(),
+        date: this.toInputDate(dateRaw) || dateRaw,
+        time: String(raw.time || raw.pickupTime || raw.deliveryTime || "").trim(),
+      };
+    }
+    return { address: String(raw == null ? "" : raw).trim(), date: "", time: "" };
+  },
+
+  /** Render one removable extra stop row with address + date + time. */
+  extraStopRowHtml(value, kind, seq) {
+    var stop = this.normalizeExtraStop(value);
+    var prefix = "extra-" + kind + "-" + String(seq || Date.now());
     return (
-      '<div class="load-extra-stop" style="display:flex;gap:0.4rem;align-items:center;margin-top:0.35rem">' +
-      '<input data-extra-stop="' +
+      '<div class="load-extra-stop" data-time-prefix="' +
+      this.esc(prefix) +
+      '">' +
+      '<label>Address<input data-extra-field="address" data-extra-stop="' +
       kind +
-      '" class="full" style="flex:1" placeholder="' +
+      '" placeholder="' +
       (kind === "origin" ? "Additional origin / pickup" : "Additional destination") +
       '" value="' +
-      this.esc(value || "") +
-      '">' +
-      '<button type="button" class="btn-secondary extra-stop-remove" style="flex:0 0 auto">Remove</button>' +
+      this.esc(stop.address || "") +
+      '"></label>' +
+      '<label>' +
+      (kind === "origin" ? "Pickup date" : "Delivery date") +
+      '<input type="date" data-extra-field="date" value="' +
+      this.esc(stop.date || "") +
+      '"></label>' +
+      "<label>" +
+      (kind === "origin" ? "Pickup time" : "Delivery time") +
+      this.timeFieldHtml(prefix, stop.time || "") +
+      "</label>" +
+      '<button type="button" class="btn-secondary extra-stop-remove">Remove</button>' +
       "</div>"
     );
   },
@@ -558,9 +594,11 @@ window.GreenOSModules["dispatch"] = {
     var destWrap = box.querySelector(opts.destWrap);
     var addOrigin = box.querySelector(opts.addOriginBtn);
     var addDest = box.querySelector(opts.addDestBtn);
+    var seq = 0;
     function addRow(wrap, kind, value) {
       if (!wrap) return;
-      wrap.insertAdjacentHTML("beforeend", self.extraStopRowHtml(value, kind));
+      seq += 1;
+      wrap.insertAdjacentHTML("beforeend", self.extraStopRowHtml(value, kind, seq));
     }
     (opts.initialOrigins || []).forEach(function (v) {
       addRow(originWrap, "origin", v);
@@ -569,14 +607,18 @@ window.GreenOSModules["dispatch"] = {
       addRow(destWrap, "dest", v);
     });
     addOrigin?.addEventListener("click", function () {
-      addRow(originWrap, "origin", "");
-      var inputs = originWrap.querySelectorAll("input[data-extra-stop]");
-      if (inputs.length) inputs[inputs.length - 1].focus();
+      addRow(originWrap, "origin", { address: "", date: "", time: "" });
+      var rows = originWrap.querySelectorAll(".load-extra-stop");
+      var last = rows[rows.length - 1];
+      var focusEl = last && last.querySelector("[data-extra-field=\"address\"]");
+      if (focusEl) focusEl.focus();
     });
     addDest?.addEventListener("click", function () {
-      addRow(destWrap, "dest", "");
-      var inputs = destWrap.querySelectorAll("input[data-extra-stop]");
-      if (inputs.length) inputs[inputs.length - 1].focus();
+      addRow(destWrap, "dest", { address: "", date: "", time: "" });
+      var rows = destWrap.querySelectorAll(".load-extra-stop");
+      var last = rows[rows.length - 1];
+      var focusEl = last && last.querySelector("[data-extra-field=\"address\"]");
+      if (focusEl) focusEl.focus();
     });
     box.addEventListener("click", function (ev) {
       var btn = ev.target && ev.target.closest ? ev.target.closest(".extra-stop-remove") : null;
@@ -2868,26 +2910,26 @@ window.GreenOSModules["dispatch"] = {
       '<label class="full">Origin (pickup address) * <input id="rc-origin" value="' +
       self.esc(pick("pickupAddress", place(g.pickup))) +
       '" required></label>' +
-      '<div id="rc-extra-origins" class="full" style="grid-column:1/-1"></div>' +
-      '<div class="full" style="grid-column:1/-1;margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
-      '<button type="button" class="btn-secondary" id="rc-add-origin">+ Add Origin</button></div>' +
       '<label>Pickup date * <input id="rc-pdate" type="date" value="' + self.esc(self.toInputDate(pickupSrc)) + '" required></label>' +
       "<label>Pickup time" +
       self.timeFieldHtml("rc-ptime", pickupSrc) +
       "</label>" +
+      '<div id="rc-extra-origins" class="load-extra-stops"></div>' +
+      '<div class="load-extra-stops-actions">' +
+      '<button type="button" class="btn-secondary" id="rc-add-origin">+ Add Origin</button></div>' +
       '<label class="full">Pickup contact <input id="rc-pcontact" placeholder="Name / phone at shipper" value="' +
       self.esc(pick("pickupContact", "")) +
       '"></label>' +
       '<label class="full">Final destination * <input id="rc-dest" value="' +
       self.esc(pick("deliveryAddress", place(g.delivery))) +
       '" required></label>' +
-      '<div id="rc-extra-dests" class="full" style="grid-column:1/-1"></div>' +
-      '<div class="full" style="grid-column:1/-1;margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
-      '<button type="button" class="btn-secondary" id="rc-add-dest">+ Add Destination</button></div>' +
       '<label>Delivery date * <input id="rc-ddate" type="date" value="' + self.esc(self.toInputDate(deliverySrc)) + '" required></label>' +
       "<label>Delivery time" +
       self.timeFieldHtml("rc-dtime", deliverySrc) +
       "</label>" +
+      '<div id="rc-extra-dests" class="load-extra-stops"></div>' +
+      '<div class="load-extra-stops-actions">' +
+      '<button type="button" class="btn-secondary" id="rc-add-dest">+ Add Destination</button></div>' +
       '<label class="full">Delivery contact <input id="rc-dcontact" placeholder="Name / phone at consignee" value="' +
       self.esc(pick("deliveryContact", "")) +
       '"></label>' +
@@ -3182,8 +3224,8 @@ window.GreenOSModules["dispatch"] = {
       '"></label>' +
       '<label>Customer <input id="bol-customer" value="' + self.esc(g.customer || "") + '"></label>' +
       '<label class="full">SHIPS FROM (origin) * <input id="bol-origin" value="' + self.esc(pick("pickupAddress", place(g.pickup))) + '" required></label>' +
-      '<div id="bol-extra-origins" class="full" style="grid-column:1/-1"></div>' +
-      '<div class="full" style="grid-column:1/-1;margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
+      '<div id="bol-extra-origins" class="load-extra-stops"></div>' +
+      '<div class="load-extra-stops-actions">' +
       '<button type="button" class="btn-secondary" id="bol-add-origin">+ Add Origin</button></div>' +
       '<label>Shipper ID No. <input id="bol-shipper-id" value="' + self.esc(pick("shipperIdNo", "")) + '"></label>' +
       '<label>Seal No. <input id="bol-seal" value="' + self.esc(pick("sealNo", "")) + '"></label>' +
@@ -3194,8 +3236,8 @@ window.GreenOSModules["dispatch"] = {
       '<option value="3RD_PARTY">3RD PARTY</option>' +
       "</select></label>" +
       '<label class="full">SHIPS TO (destination) * <input id="bol-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '" required></label>' +
-      '<div id="bol-extra-dests" class="full" style="grid-column:1/-1"></div>' +
-      '<div class="full" style="grid-column:1/-1;margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
+      '<div id="bol-extra-dests" class="load-extra-stops"></div>' +
+      '<div class="load-extra-stops-actions">' +
       '<button type="button" class="btn-secondary" id="bol-add-dest">+ Add Destination</button></div>' +
       '<label>Consignee ID No. <input id="bol-consignee-id" value="' + self.esc(pick("consigneeIdNo", "")) + '"></label>' +
       '<label>Delivery contact <input id="bol-dcontact" value="' + self.esc(pick("deliveryContact", "")) + '"></label>' +
