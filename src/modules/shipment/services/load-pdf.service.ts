@@ -392,13 +392,19 @@ function renderRateConfirmationPdf(
     );
     y += 34;
 
-    // Flat Rate — separate larger section under Special Notes (not in carrier block).
+    // Flat Rate + Total Amount — same sum, split left/right under Special Notes.
     const rateVal = money(c.flatRate ?? c.carrierRate) || "—";
     const flatBoxH = 48;
-    drawBox(doc, left, y, usable, flatBoxH);
+    const halfW = usable / 2 - 4;
+    drawBox(doc, left, y, halfW, flatBoxH);
     doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111").text("FLAT RATE ($USD):", left + 10, y + 8);
     doc.font("Helvetica-Bold").fontSize(18).fillColor("#0f3d1f").text(rateVal, left + 10, y + 24, {
-        width: usable - 20,
+        width: halfW - 20,
+    });
+    drawBox(doc, left + usable / 2 + 4, y, halfW, flatBoxH);
+    doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111").text("TOTAL AMOUNT ($USD):", left + usable / 2 + 14, y + 8);
+    doc.font("Helvetica-Bold").fontSize(18).fillColor("#0f3d1f").text(rateVal, left + usable / 2 + 14, y + 24, {
+        width: halfW - 20,
     });
     y += flatBoxH + 6;
 
