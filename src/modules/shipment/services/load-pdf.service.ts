@@ -382,16 +382,6 @@ function renderRateConfirmationPdf(
     fieldRow(doc, "DELIVERY NOTE:", txt(c.deliveryNote) || "—", left + usable / 2, y + 28, usable / 2 - 16);
     y += 56;
 
-    // Flat Rate — larger dedicated band between driver info and special notes.
-    const rateVal = money(c.flatRate ?? c.carrierRate) || "—";
-    const flatBoxH = 44;
-    drawBox(doc, left, y, usable, flatBoxH);
-    doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111").text("FLAT RATE:", left + 10, y + 8);
-    doc.font("Helvetica-Bold").fontSize(16).fillColor("#0f3d1f").text(rateVal, left + 10, y + 22, {
-        width: usable - 20,
-    });
-    y += flatBoxH + 6;
-
     drawBox(doc, left, y, usable, 30);
     doc.font("Helvetica-Bold").fontSize(7.5).text("SPECIAL NOTES:", left + 8, y + 3);
     doc.font("Helvetica").fontSize(7.5).text(
@@ -401,6 +391,16 @@ function renderRateConfirmationPdf(
         { width: usable - 16, height: 12 }
     );
     y += 34;
+
+    // Flat Rate — separate larger section under Special Notes (not in carrier block).
+    const rateVal = money(c.flatRate ?? c.carrierRate) || "—";
+    const flatBoxH = 48;
+    drawBox(doc, left, y, usable, flatBoxH);
+    doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111").text("FLAT RATE ($USD):", left + 10, y + 8);
+    doc.font("Helvetica-Bold").fontSize(18).fillColor("#0f3d1f").text(rateVal, left + 10, y + 24, {
+        width: usable - 20,
+    });
+    y += flatBoxH + 6;
 
     // Terms + dispatch stay compact; signatures follow immediately (no large blank gap).
     const sigBoxH = 62;
