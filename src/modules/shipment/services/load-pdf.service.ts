@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import PDFDocument from "pdfkit";
+import { PDFDocument as PdfLibDocument } from "pdf-lib";
 import { fileURLToPath } from "url";
 import type { LoadDocType } from "../load.constants.js";
 import { LOAD_DOC_TYPE_LABELS } from "../load.constants.js";
@@ -233,93 +234,99 @@ function renderRateConfirmationPdf(
     version: number
 ) {
     const c = content;
-    const left = 40;
+    const left = 36;
     const pageW = 612;
     const usable = pageW - left * 2;
-    // Keep signatures + footer on page 1 (LETTER height 792).
-    const footerY = 778;
-    const sigBoxH = 58;
-    const sigY = footerY - 12 - sigBoxH;
-    let y = 28;
+    // Stay inside LETTER (792) with tight bottom margin — footer must not spill to page 2.
+    doc.page.margins.top = 18;
+    doc.page.margins.bottom = 12;
+    doc.page.margins.left = left;
+    doc.page.margins.right = left;
+    const pageH = doc.page.height; // 792
+    const footerY = pageH - 20;
+    const sigBoxH = 50;
+    const sigY = footerY - 8 - sigBoxH;
+    let y = 22;
 
-    doc.font("Helvetica-Bold").fontSize(13).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, left, y);
-    y += 14;
-    doc.font("Helvetica").fontSize(8).fillColor("#222222");
+    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, left, y);
+    y += 12;
+    doc.font("Helvetica").fontSize(7.5).fillColor("#222222");
     doc.text(GREEN_LOGISTICS_RC.addressLine1, left, y);
-    y += 10;
+    y += 9;
     doc.text(GREEN_LOGISTICS_RC.addressLine2, left, y);
-    y += 10;
-    doc.text(`MC # ${GREEN_LOGISTICS_RC.mc}`, left, y);
-    y += 10;
-    doc.text(`Phone: ${GREEN_LOGISTICS_RC.mainPhone}`, left, y);
-    y += 10;
-    doc.text(`Email: ${GREEN_LOGISTICS_RC.mainEmail}`, left, y);
+    y += 9;
+    doc.text(
+        `MC # ${GREEN_LOGISTICS_RC.mc}  ·  Phone: ${GREEN_LOGISTICS_RC.mainPhone}  ·  ${GREEN_LOGISTICS_RC.mainEmail}`,
+        left,
+        y,
+        { width: usable - 150 }
+    );
 
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f3d1f");
-    doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 180, 28, {
-        width: 180,
+    doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 170, 22, {
+        width: 170,
         align: "right",
     });
-    doc.font("Helvetica").fontSize(8).fillColor("#222222");
-    doc.text(txt(c.confirmationDate) || new Date().toLocaleDateString(), left + usable - 180, 42, {
-        width: 180,
+    doc.font("Helvetica").fontSize(7.5).fillColor("#222222");
+    doc.text(txt(c.confirmationDate) || new Date().toLocaleDateString(), left + usable - 170, 34, {
+        width: 170,
         align: "right",
     });
     if (c.shipmentNumber) {
-        doc.text(`Shipment: ${txt(c.shipmentNumber)}`, left + usable - 180, 54, {
-            width: 180,
+        doc.text(`Shipment: ${txt(c.shipmentNumber)}`, left + usable - 170, 44, {
+            width: 170,
             align: "right",
         });
     }
-    doc.text(`v${version}`, left + usable - 180, 66, { width: 180, align: "right" });
+    doc.text(`v${version}`, left + usable - 170, 54, { width: 170, align: "right" });
 
-    y += 12;
-    doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111");
+    y += 11;
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#111111");
     doc.text("LOAD CONFIRMATION AND PAYMENT AGREEMENT — PLEASE SIGN & RETURN ASAP", left, y, {
         width: usable,
         align: "center",
     });
-    y += 14;
+    y += 12;
 
     // Email contacts — Broker / Carrier only (no customer on RC PDF)
-    drawBox(doc, left, y, usable, 28);
-    fieldRow(doc, "BROKER EMAIL:", txt(c.brokerEmail), left + 8, y + 4, usable / 2 - 20);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + usable / 2 + 4, y + 4, usable / 2 - 20);
-    y += 34;
+    drawBox(doc, left, y, usable, 26);
+    fieldRow(doc, "BROKER EMAIL:", txt(c.brokerEmail), left + 8, y + 3, usable / 2 - 20);
+    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + usable / 2 + 4, y + 3, usable / 2 - 20);
+    y += 30;
 
     // Carrier / equipment / rate block
-    drawBox(doc, left, y, usable, 78);
-    fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 4, 220);
-    fieldRow(doc, "MC#", txt(c.carrierMc), left + 240, y + 4, 90);
-    fieldRow(doc, "DOT#", txt(c.carrierDot), left + 340, y + 4, 90);
-    fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 440, y + 4, 90);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 8, y + 32, 200);
+    drawBox(doc, left, y, usable, 70);
+    fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 3, 220);
+    fieldRow(doc, "MC#", txt(c.carrierMc), left + 240, y + 3, 90);
+    fieldRow(doc, "DOT#", txt(c.carrierDot), left + 340, y + 3, 90);
+    fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 440, y + 3, 90);
+    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 8, y + 28, 200);
 
-    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 220, y + 32, 90);
-    fieldRow(doc, "TRUCK/TRAILER TYPE:", txt(c.truckTrailerType), left + 320, y + 32, 130);
-    fieldRow(doc, "Weight:", txt(c.weight), left + 460, y + 32, 70);
-    fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 54, 220);
+    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 220, y + 28, 90);
+    fieldRow(doc, "TRUCK/TRAILER TYPE:", txt(c.truckTrailerType), left + 320, y + 28, 130);
+    fieldRow(doc, "Weight:", txt(c.weight), left + 460, y + 28, 70);
+    fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 50, 220);
     const rateVal = money(c.flatRate ?? c.carrierRate);
-    fieldRow(doc, "Flat Rate: $USD", rateVal || "—", left + 240, y + 54, 120);
-    y += 86;
+    fieldRow(doc, "Flat Rate: $USD", rateVal || "—", left + 240, y + 50, 120);
+    y += 76;
 
     // Origin / Destination (supports multiple stops)
     const origins = stopList(c.pickupAddress, c.additionalOrigins);
     const destinations = stopList(c.deliveryAddress, c.additionalDestinations);
     const stopLines = Math.max(origins.length, destinations.length, 1);
     // Room for address + DATE/TIME row + CONTACT row (fieldRow stacks label+value).
-    const stopBoxH = Math.max(96, 66 + stopLines * 12);
-    const dateRowY = y + stopBoxH - 48;
-    const contactRowY = y + stopBoxH - 24;
+    const stopBoxH = Math.max(88, 58 + stopLines * 11);
+    const dateRowY = y + stopBoxH - 46;
+    const contactRowY = y + stopBoxH - 22;
     drawBox(doc, left, y, usable / 2 - 4, stopBoxH);
     doc.font("Helvetica-Bold").fontSize(8).text(
         origins.length > 1 ? "ORIGINS:" : "ORIGIN:",
         left + 8,
-        y + 4
+        y + 3
     );
-    doc.font("Helvetica").fontSize(8).text(formatStops(origins), left + 8, y + 16, {
+    doc.font("Helvetica").fontSize(8).text(formatStops(origins), left + 8, y + 14, {
         width: usable / 2 - 20,
-        height: stopBoxH - 58,
+        height: stopBoxH - 54,
     });
     fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, dateRowY, 100);
     fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, dateRowY, 80);
@@ -330,19 +337,19 @@ function renderRateConfirmationPdf(
     doc.font("Helvetica-Bold").fontSize(8).text(
         destinations.length > 1 ? "Final Destinations" : "Final Destination",
         dx + 8,
-        y + 4
+        y + 3
     );
-    doc.font("Helvetica").fontSize(8).text(formatStops(destinations), dx + 8, y + 16, {
+    doc.font("Helvetica").fontSize(8).text(formatStops(destinations), dx + 8, y + 14, {
         width: usable / 2 - 20,
-        height: stopBoxH - 58,
+        height: stopBoxH - 54,
     });
     fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, dateRowY, 100);
     fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, dateRowY, 80);
     fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, contactRowY, usable / 2 - 24);
-    y += stopBoxH + 8;
+    y += stopBoxH + 6;
 
     // Driver / payment / notes
-    drawBox(doc, left, y, usable, 56);
+    drawBox(doc, left, y, usable, 50);
     fieldRow(
         doc,
         "DRIVER INFORMATION:",
@@ -350,74 +357,81 @@ function renderRateConfirmationPdf(
             .filter(Boolean)
             .join(" · ") || "—",
         left + 8,
-        y + 4,
+        y + 3,
         usable - 16
     );
-    fieldRow(doc, "PAYMENT OPTION:", txt(c.paymentOption) || "—", left + 8, y + 30, usable / 2 - 16);
-    fieldRow(doc, "DELIVERY NOTE:", txt(c.deliveryNote) || "—", left + usable / 2, y + 30, usable / 2 - 16);
-    y += 64;
+    fieldRow(doc, "PAYMENT OPTION:", txt(c.paymentOption) || "—", left + 8, y + 28, usable / 2 - 16);
+    fieldRow(doc, "DELIVERY NOTE:", txt(c.deliveryNote) || "—", left + usable / 2, y + 28, usable / 2 - 16);
+    y += 56;
 
-    drawBox(doc, left, y, usable, 36);
-    doc.font("Helvetica-Bold").fontSize(8).text("SPECIAL NOTES:", left + 8, y + 4);
-    doc.font("Helvetica").fontSize(8).text(
+    drawBox(doc, left, y, usable, 30);
+    doc.font("Helvetica-Bold").fontSize(7.5).text("SPECIAL NOTES:", left + 8, y + 3);
+    doc.font("Helvetica").fontSize(7.5).text(
         txt(c.specialNotes) || txt(c.specialInstructions) || "—",
         left + 8,
-        y + 16,
-        { width: usable - 16, height: 16 }
+        y + 14,
+        { width: usable - 16, height: 12 }
     );
-    y += 42;
+    y += 34;
 
     // Terms + dispatch/billing must fit above the fixed signature band (one page).
-    const dispatchBlockH = 36;
-    const termsMaxBottom = sigY - 8 - dispatchBlockH;
+    const dispatchBlockH = 28;
+    const termsMaxBottom = sigY - 6 - dispatchBlockH;
     doc.font("Helvetica-Bold").fontSize(7).fillColor("#111111").text("Note: Please take a note:", left, y);
-    y += 10;
+    y += 9;
     const terms = String(txt(c.terms) || DEFAULT_RATE_CON_TERMS).replace(/\n\n+/g, "\n");
-    const termsH = Math.max(40, termsMaxBottom - y);
-    doc.font("Helvetica").fontSize(6.5).fillColor("#222222");
+    const termsH = Math.max(36, termsMaxBottom - y);
+    doc.font("Helvetica").fontSize(6).fillColor("#222222");
     doc.text(terms, left, y, {
         width: usable,
         align: "left",
         height: termsH,
-        lineGap: 0.5,
+        lineGap: 0.2,
         ellipsis: true,
     });
-    y = Math.min(doc.y + 6, termsMaxBottom);
+    // Keep cursor on page 1 — never let flowing text open page 2.
+    if (doc.bufferedPageRange && doc.bufferedPageRange().count > 1) {
+        doc.switchToPage(0);
+    }
+    y = Math.min(Math.max(doc.y + 4, y + 4), termsMaxBottom);
 
-    doc.font("Helvetica-Bold").fontSize(7).fillColor("#111111");
+    doc.font("Helvetica-Bold").fontSize(6.5).fillColor("#111111");
     doc.text(
         `Please have driver call for dispatch · Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`,
         left,
         y,
-        { width: usable }
+        { width: usable, lineBreak: false }
     );
-    y += 10;
-    doc.font("Helvetica").fontSize(7).fillColor("#222222");
+    y += 9;
+    doc.font("Helvetica").fontSize(6.5).fillColor("#222222");
     doc.text(
         `Confirmation must be signed and returned before dispatch. Billing: ${GREEN_LOGISTICS_RC.billingEmails.join(" · ")}`,
         left,
         y,
-        { width: usable }
+        { width: usable, lineBreak: false }
     );
 
     // Signatures — always on page 1, just above footer
+    if (doc.bufferedPageRange && doc.bufferedPageRange().count > 1) {
+        doc.switchToPage(0);
+    }
     const ySig = sigY;
     drawBox(doc, left, ySig, usable / 2 - 4, sigBoxH);
     const carrierBoxW = usable / 2 - 4;
-    doc.font("Helvetica-Bold").fontSize(8).fillColor("#111111").text("CARRIER SIGNATURE:", left + 8, ySig + 6);
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#111111").text("CARRIER SIGNATURE:", left + 8, ySig + 5);
     const carrierPrinted = txt(c.carrierSignerName) || txt(c.carrierName);
     if (carrierPrinted) {
-        doc.font("Helvetica").fontSize(8).fillColor("#222222").text(carrierPrinted, left + 8, ySig + 18, {
-            width: carrierBoxW - 120,
+        doc.font("Helvetica").fontSize(7.5).fillColor("#222222").text(carrierPrinted, left + 8, ySig + 16, {
+            width: carrierBoxW - 110,
         });
     }
     const carrierImg = signatureBufferFromDataUrl(c.carrierSignatureDataUrl);
     if (carrierImg) {
         try {
-            const sigMaxW = 110;
-            const sigMaxH = 30;
+            const sigMaxW = 100;
+            const sigMaxH = 26;
             const sigX = left + carrierBoxW - sigMaxW - 8;
-            doc.image(carrierImg, sigX, ySig + 10, {
+            doc.image(carrierImg, sigX, ySig + 8, {
                 fit: [sigMaxW, sigMaxH],
                 align: "right",
                 valign: "bottom",
@@ -426,28 +440,28 @@ function renderRateConfirmationPdf(
             /* keep printed name if image fails */
         }
     }
-    doc.moveTo(left + 8, ySig + 42).lineTo(left + usable / 2 - 16, ySig + 42).stroke("#666666");
+    doc.moveTo(left + 8, ySig + 36).lineTo(left + usable / 2 - 16, ySig + 36).stroke("#666666");
     const carrierDate = txt(c.carrierSignedAt);
-    doc.font("Helvetica").fontSize(7).fillColor("#222222").text(
+    doc.font("Helvetica").fontSize(6.5).fillColor("#222222").text(
         carrierDate ? `DATE: ${carrierDate}` : "DATE:",
         left + 8,
-        ySig + 46
+        ySig + 39
     );
 
     drawBox(doc, left + usable / 2 + 4, ySig, usable / 2 - 4, sigBoxH);
     const brokerBoxX = left + usable / 2 + 4;
     const brokerBoxW = usable / 2 - 4;
-    doc.font("Helvetica-Bold").fontSize(8).fillColor("#111111").text("BROKER SIGNATURE:", brokerBoxX + 8, ySig + 6);
-    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(GREEN_LOGISTICS_RC.legalName, brokerBoxX + 8, ySig + 18);
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#111111").text("BROKER SIGNATURE:", brokerBoxX + 8, ySig + 5);
+    doc.font("Helvetica").fontSize(7.5).fillColor("#222222").text(GREEN_LOGISTICS_RC.legalName, brokerBoxX + 8, ySig + 16);
     const brokerPrinted = txt(c.brokerName) || "Lia Torres";
-    doc.text(brokerPrinted, brokerBoxX + 8, ySig + 28);
+    doc.text(brokerPrinted, brokerBoxX + 8, ySig + 25);
     const sigPath = resolveLiaTorresSignaturePng();
-    const brokerSigMaxW = 110;
-    const brokerSigMaxH = 30;
+    const brokerSigMaxW = 100;
+    const brokerSigMaxH = 26;
     const brokerSigX = brokerBoxX + brokerBoxW - brokerSigMaxW - 8;
     if (sigPath) {
         try {
-            doc.image(sigPath, brokerSigX, ySig + 10, {
+            doc.image(sigPath, brokerSigX, ySig + 8, {
                 fit: [brokerSigMaxW, brokerSigMaxH],
                 align: "right",
                 valign: "bottom",
@@ -457,15 +471,16 @@ function renderRateConfirmationPdf(
         }
     }
     doc
-        .moveTo(brokerBoxX + 8, ySig + 42)
-        .lineTo(left + usable - 8, ySig + 42)
+        .moveTo(brokerBoxX + 8, ySig + 36)
+        .lineTo(left + usable - 8, ySig + 36)
         .stroke("#666666");
-    doc.font("Helvetica").fontSize(7).text("DATE:", brokerBoxX + 8, ySig + 46);
+    doc.font("Helvetica").fontSize(6.5).text("DATE:", brokerBoxX + 8, ySig + 39);
 
-    doc.font("Helvetica").fontSize(7).fillColor("#666666");
+    doc.font("Helvetica").fontSize(6.5).fillColor("#666666");
     doc.text(`${GREEN_LOGISTICS_RC.legalName}  ·  Page 1 of 1  ·  Generated by GreenOS`, left, footerY, {
         width: usable,
         align: "center",
+        lineBreak: false,
     });
 }
 
@@ -1008,12 +1023,22 @@ export async function generateLoadDocumentPdf(input: {
     const c = input.content || {};
 
     await new Promise<void>((resolve, reject) => {
-        const doc = new PDFDocument({ margin: 28, size: "LETTER" });
+        const isRateCon = input.docType === "RATE_CONFIRMATION";
+        const doc = new PDFDocument({
+            margin: isRateCon ? 18 : 28,
+            size: "LETTER",
+            bufferPages: isRateCon,
+        });
         const stream = fs.createWriteStream(dest);
         doc.pipe(stream);
 
-        if (input.docType === "RATE_CONFIRMATION") {
+        if (isRateCon) {
             renderRateConfirmationPdf(doc, c, input.version);
+            // Keep only page 1 if margin overflow created a blank trailing page.
+            const range = doc.bufferedPageRange();
+            if (range.count > 1) {
+                doc.switchToPage(range.start);
+            }
         } else if (input.docType === "BOL") {
             renderBolPdf(doc, c, input.version);
         } else if (input.docType === "POD") {
@@ -1089,6 +1114,25 @@ export async function generateLoadDocumentPdf(input: {
         stream.on("finish", () => resolve());
         stream.on("error", reject);
     });
+
+    // Rate Con must be a single page — strip any blank trailing page from margin overflow.
+    if (input.docType === "RATE_CONFIRMATION") {
+        try {
+            const bytes = fs.readFileSync(dest);
+            const src = await PdfLibDocument.load(bytes, { ignoreEncryption: true });
+            if (src.getPageCount() > 1) {
+                const one = await PdfLibDocument.create();
+                const [page] = await one.copyPages(src, [0]);
+                one.addPage(page);
+                fs.writeFileSync(dest, await one.save());
+            }
+        } catch (err) {
+            console.warn(
+                "[rc-pdf] could not enforce one page:",
+                err instanceof Error ? err.message : err
+            );
+        }
+    }
 
     const stat = fs.statSync(dest);
     return {
