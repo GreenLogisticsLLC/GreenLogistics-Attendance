@@ -382,8 +382,8 @@ function renderRateConfirmationPdf(
     const stopLines = Math.max(origins.length, destinations.length, 1);
     // Multi-stop sides put date/time inline; single-stop keeps DATE/TIME footer.
     const needScheduleFooter = !originsMulti || !destinationsMulti;
-    const footerReserve = needScheduleFooter ? 54 : 28;
-    const stopBoxH = Math.max(needScheduleFooter ? 88 : 72, footerReserve + 20 + stopLines * 12);
+    const stopFooterReserve = needScheduleFooter ? 54 : 28;
+    const stopBoxH = Math.max(needScheduleFooter ? 88 : 72, stopFooterReserve + 20 + stopLines * 12);
     const dateRowY = y + stopBoxH - 46;
     const contactRowY = y + stopBoxH - 22;
     drawBox(doc, left, y, usable / 2 - 4, stopBoxH);
