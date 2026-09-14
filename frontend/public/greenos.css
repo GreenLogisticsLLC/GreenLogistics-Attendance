@@ -2027,7 +2027,8 @@ button.load-review-choice:hover {
   font-size: 0.78rem;
   color: var(--gos-muted);
 }
-.load-form-grid label.full { grid-column: 1 / -1; }
+.load-form-grid label.full,
+.load-form-grid .full { grid-column: 1 / -1; }
 .load-form-grid .cu-billing-head {
   display: flex;
   flex-wrap: wrap;
