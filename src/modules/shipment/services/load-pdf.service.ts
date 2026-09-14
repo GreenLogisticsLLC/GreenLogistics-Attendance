@@ -309,23 +309,16 @@ function renderRateConfirmationPdf(
     });
     y += 12;
 
-    // Email contacts — Broker / Carrier only (no customer on RC PDF)
-    drawBox(doc, left, y, usable, 26);
-    fieldRow(doc, "BROKER EMAIL:", txt(c.brokerEmail), left + 8, y + 3, usable / 2 - 20);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + usable / 2 + 4, y + 3, usable / 2 - 20);
-    y += 30;
-
     // Carrier / equipment / rate block
     drawBox(doc, left, y, usable, 70);
     fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 3, 220);
     fieldRow(doc, "MC#", txt(c.carrierMc), left + 240, y + 3, 90);
     fieldRow(doc, "DOT#", txt(c.carrierDot), left + 340, y + 3, 90);
     fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 440, y + 3, 90);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 8, y + 28, 200);
 
-    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 220, y + 28, 90);
-    fieldRow(doc, "TRUCK/TRAILER TYPE:", txt(c.truckTrailerType), left + 320, y + 28, 130);
-    fieldRow(doc, "Weight:", txt(c.weight), left + 460, y + 28, 70);
+    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 8, y + 28, 120);
+    fieldRow(doc, "TRUCK/TRAILER TYPE:", txt(c.truckTrailerType), left + 140, y + 28, 160);
+    fieldRow(doc, "Weight:", txt(c.weight), left + 320, y + 28, 90);
     fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 50, 220);
     const rateVal = money(c.flatRate ?? c.carrierRate);
     fieldRow(doc, "Flat Rate: $USD", rateVal || "—", left + 240, y + 50, 120);
@@ -396,7 +389,7 @@ function renderRateConfirmationPdf(
     y += 34;
 
     // Terms + dispatch stay compact; signatures follow immediately (no large blank gap).
-    const sigBoxH = 50;
+    const sigBoxH = 62;
     const footerReserve = 18;
     const maxSigBottom = pageH - footerReserve - 4;
     const termsCeiling = maxSigBottom - sigBoxH - 36;
@@ -435,17 +428,17 @@ function renderRateConfirmationPdf(
     );
     y += 14;
 
-    // Signatures — directly under billing (raise block; keep on page 1).
+    // Signatures + broker/carrier emails (top email strip removed).
     if (doc.bufferedPageRange && doc.bufferedPageRange().count > 1) {
         doc.switchToPage(0);
     }
     const ySig = Math.min(y, maxSigBottom - sigBoxH);
     drawBox(doc, left, ySig, usable / 2 - 4, sigBoxH);
     const carrierBoxW = usable / 2 - 4;
-    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#111111").text("CARRIER SIGNATURE:", left + 8, ySig + 5);
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#111111").text("CARRIER SIGNATURE:", left + 8, ySig + 4);
     const carrierPrinted = txt(c.carrierSignerName) || txt(c.carrierName);
     if (carrierPrinted) {
-        doc.font("Helvetica").fontSize(7.5).fillColor("#222222").text(carrierPrinted, left + 8, ySig + 16, {
+        doc.font("Helvetica").fontSize(7.5).fillColor("#222222").text(carrierPrinted, left + 8, ySig + 14, {
             width: carrierBoxW - 110,
         });
     }
@@ -453,9 +446,9 @@ function renderRateConfirmationPdf(
     if (carrierImg) {
         try {
             const sigMaxW = 100;
-            const sigMaxH = 26;
+            const sigMaxH = 24;
             const sigX = left + carrierBoxW - sigMaxW - 8;
-            doc.image(carrierImg, sigX, ySig + 8, {
+            doc.image(carrierImg, sigX, ySig + 6, {
                 fit: [sigMaxW, sigMaxH],
                 align: "right",
                 valign: "bottom",
@@ -464,28 +457,34 @@ function renderRateConfirmationPdf(
             /* keep printed name if image fails */
         }
     }
-    doc.moveTo(left + 8, ySig + 36).lineTo(left + usable / 2 - 16, ySig + 36).stroke("#666666");
+    doc.moveTo(left + 8, ySig + 32).lineTo(left + usable / 2 - 16, ySig + 32).stroke("#666666");
     const carrierDate = txt(c.carrierSignedAt);
     doc.font("Helvetica").fontSize(6.5).fillColor("#222222").text(
         carrierDate ? `DATE: ${carrierDate}` : "DATE:",
         left + 8,
-        ySig + 39
+        ySig + 35
+    );
+    doc.font("Helvetica").fontSize(6.5).fillColor("#222222").text(
+        `EMAIL: ${txt(c.carrierEmail) || "—"}`,
+        left + 8,
+        ySig + 46,
+        { width: carrierBoxW - 16 }
     );
 
     drawBox(doc, left + usable / 2 + 4, ySig, usable / 2 - 4, sigBoxH);
     const brokerBoxX = left + usable / 2 + 4;
     const brokerBoxW = usable / 2 - 4;
-    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#111111").text("BROKER SIGNATURE:", brokerBoxX + 8, ySig + 5);
-    doc.font("Helvetica").fontSize(7.5).fillColor("#222222").text(GREEN_LOGISTICS_RC.legalName, brokerBoxX + 8, ySig + 16);
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#111111").text("BROKER SIGNATURE:", brokerBoxX + 8, ySig + 4);
+    doc.font("Helvetica").fontSize(7.5).fillColor("#222222").text(GREEN_LOGISTICS_RC.legalName, brokerBoxX + 8, ySig + 14);
     const brokerPrinted = txt(c.brokerName) || "Lia Torres";
-    doc.text(brokerPrinted, brokerBoxX + 8, ySig + 25);
+    doc.text(brokerPrinted, brokerBoxX + 8, ySig + 23);
     const sigPath = resolveLiaTorresSignaturePng();
     const brokerSigMaxW = 100;
-    const brokerSigMaxH = 26;
+    const brokerSigMaxH = 24;
     const brokerSigX = brokerBoxX + brokerBoxW - brokerSigMaxW - 8;
     if (sigPath) {
         try {
-            doc.image(sigPath, brokerSigX, ySig + 8, {
+            doc.image(sigPath, brokerSigX, ySig + 6, {
                 fit: [brokerSigMaxW, brokerSigMaxH],
                 align: "right",
                 valign: "bottom",
@@ -495,10 +494,16 @@ function renderRateConfirmationPdf(
         }
     }
     doc
-        .moveTo(brokerBoxX + 8, ySig + 36)
-        .lineTo(left + usable - 8, ySig + 36)
+        .moveTo(brokerBoxX + 8, ySig + 32)
+        .lineTo(left + usable - 8, ySig + 32)
         .stroke("#666666");
-    doc.font("Helvetica").fontSize(6.5).text("DATE:", brokerBoxX + 8, ySig + 39);
+    doc.font("Helvetica").fontSize(6.5).text("DATE:", brokerBoxX + 8, ySig + 35);
+    doc.font("Helvetica").fontSize(6.5).fillColor("#222222").text(
+        `EMAIL: ${txt(c.brokerEmail) || "—"}`,
+        brokerBoxX + 8,
+        ySig + 46,
+        { width: brokerBoxW - 16 }
+    );
 
     const footerY = Math.min(ySig + sigBoxH + 10, pageH - 14);
     doc.font("Helvetica").fontSize(6.5).fillColor("#666666");
