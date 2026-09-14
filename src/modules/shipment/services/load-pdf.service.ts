@@ -307,7 +307,10 @@ function renderRateConfirmationPdf(
     const origins = stopList(c.pickupAddress, c.additionalOrigins);
     const destinations = stopList(c.deliveryAddress, c.additionalDestinations);
     const stopLines = Math.max(origins.length, destinations.length, 1);
-    const stopBoxH = Math.max(78, 48 + stopLines * 12);
+    // Room for address + DATE/TIME row + CONTACT row (fieldRow stacks label+value).
+    const stopBoxH = Math.max(96, 66 + stopLines * 12);
+    const dateRowY = y + stopBoxH - 48;
+    const contactRowY = y + stopBoxH - 24;
     drawBox(doc, left, y, usable / 2 - 4, stopBoxH);
     doc.font("Helvetica-Bold").fontSize(8).text(
         origins.length > 1 ? "ORIGINS:" : "ORIGIN:",
@@ -316,11 +319,11 @@ function renderRateConfirmationPdf(
     );
     doc.font("Helvetica").fontSize(8).text(formatStops(origins), left + 8, y + 16, {
         width: usable / 2 - 20,
-        height: stopBoxH - 46,
+        height: stopBoxH - 58,
     });
-    fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, y + stopBoxH - 32, 100);
-    fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, y + stopBoxH - 32, 80);
-    fieldRow(doc, "CONTACT:", txt(c.pickupContact), left + 8, y + stopBoxH - 16, usable / 2 - 24);
+    fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, dateRowY, 100);
+    fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, dateRowY, 80);
+    fieldRow(doc, "CONTACT:", txt(c.pickupContact), left + 8, contactRowY, usable / 2 - 24);
 
     const dx = left + usable / 2 + 4;
     drawBox(doc, dx, y, usable / 2 - 4, stopBoxH);
@@ -331,11 +334,11 @@ function renderRateConfirmationPdf(
     );
     doc.font("Helvetica").fontSize(8).text(formatStops(destinations), dx + 8, y + 16, {
         width: usable / 2 - 20,
-        height: stopBoxH - 46,
+        height: stopBoxH - 58,
     });
-    fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, y + stopBoxH - 32, 100);
-    fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, y + stopBoxH - 32, 80);
-    fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, y + stopBoxH - 16, usable / 2 - 24);
+    fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, dateRowY, 100);
+    fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, dateRowY, 80);
+    fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, contactRowY, usable / 2 - 24);
     y += stopBoxH + 8;
 
     // Driver / payment / notes
