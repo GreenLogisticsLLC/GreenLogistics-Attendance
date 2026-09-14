@@ -406,8 +406,7 @@ function renderRateConfirmationPdf(
         y + 3,
         usable - 16
     );
-    fieldRow(doc, "PAYMENT OPTION:", txt(c.paymentOption) || "—", left + 8, y + 28, usable / 2 - 16);
-    fieldRow(doc, "DELIVERY NOTE:", txt(c.deliveryNote) || "—", left + usable / 2, y + 28, usable / 2 - 16);
+    fieldRow(doc, "PAYMENT OPTION:", txt(c.paymentOption) || "—", left + 8, y + 28, usable - 16);
     y += 56;
 
     // Flat Rate + Total Amount — same sum, split left/right
