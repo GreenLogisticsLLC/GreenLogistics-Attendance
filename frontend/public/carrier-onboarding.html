@@ -365,7 +365,6 @@
             .join(" · ")
         )
       ) +
-      kv("Delivery note", dash(c.deliveryNote)) +
       (notes ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Special notes</strong>' + esc(notes) + "</div>" : "") +
       (terms ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Terms</strong>' + esc(terms) + "</div>" : "") +
       pdfBtn(meta, "Download Rate Confirmation PDF") +
