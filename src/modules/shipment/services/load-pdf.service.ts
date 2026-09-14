@@ -293,13 +293,7 @@ function renderRateConfirmationPdf(
         width: 170,
         align: "right",
     });
-    if (c.shipmentNumber) {
-        doc.text(`Shipment: ${txt(c.shipmentNumber)}`, left + usable - 170, 40, {
-            width: 170,
-            align: "right",
-        });
-    }
-    doc.text(`v${version}`, left + usable - 170, 50, { width: 170, align: "right" });
+    doc.text(`v${version}`, left + usable - 170, 42, { width: 170, align: "right" });
 
     y = Math.max(y + 11, logoPath ? 18 + logoSize + 8 : y + 11);
     doc.font("Helvetica-Bold").fontSize(9).fillColor("#111111");
