@@ -303,18 +303,30 @@ function renderRateConfirmationPdf(
     });
     y += 12;
 
-    // Carrier / equipment / rate block
-    drawBox(doc, left, y, usable, 70);
+    // Carrier / equipment block
+    drawBox(doc, left, y, usable, 50);
     fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 3, 220);
     fieldRow(doc, "MC#", txt(c.carrierMc), left + 240, y + 3, 90);
     fieldRow(doc, "DOT#", txt(c.carrierDot), left + 340, y + 3, 90);
     fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 440, y + 3, 90);
 
-    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 8, y + 28, 120);
-    fieldRow(doc, "TRUCK/TRAILER TYPE:", txt(c.truckTrailerType), left + 140, y + 28, 160);
-    fieldRow(doc, "Weight:", txt(c.weight), left + 320, y + 28, 90);
-    fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 50, usable - 24);
-    y += 76;
+    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 8, y + 28, 180);
+    fieldRow(doc, "TRUCK/TRAILER TYPE:", txt(c.truckTrailerType), left + 200, y + 28, usable - 220);
+    y += 56;
+
+    // Commodity + Weight — separate sections
+    const cwBoxH = 36;
+    drawBox(doc, left, y, usable / 2 - 4, cwBoxH);
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#111111").text("COMMODITY:", left + 8, y + 5);
+    doc.font("Helvetica").fontSize(11).fillColor("#222222").text(txt(c.commodity) || "—", left + 8, y + 17, {
+        width: usable / 2 - 20,
+    });
+    drawBox(doc, left + usable / 2 + 4, y, usable / 2 - 4, cwBoxH);
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#111111").text("WEIGHT:", left + usable / 2 + 12, y + 5);
+    doc.font("Helvetica").fontSize(11).fillColor("#222222").text(txt(c.weight) || "—", left + usable / 2 + 12, y + 17, {
+        width: usable / 2 - 24,
+    });
+    y += cwBoxH + 6;
 
     // Origin / Destination (supports multiple stops)
     const origins = stopList(c.pickupAddress, c.additionalOrigins);
