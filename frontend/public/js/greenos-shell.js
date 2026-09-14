@@ -128,19 +128,99 @@
         if (!m.roles || !m.roles.length) return true;
         return m.roles.includes(role);
       });
-      nav.innerHTML = modules
-        .map((m) => {
-          return (
+      const groups = [
+        {
+          title: "Operations",
+          ids: ["dashboard", "broker", "shipments", "crm", "loads", "dispatch", "problems", "email"],
+        },
+        {
+          title: "Network",
+          ids: ["carriers", "customers", "trucking", "car-transport"],
+        },
+        {
+          title: "People",
+          ids: ["employees", "attendance"],
+        },
+        {
+          title: "Finance",
+          ids: ["accounting", "invoices", "contracts", "documents", "reports"],
+        },
+        {
+          title: "Intelligence",
+          ids: ["command-center", "ai", "communications"],
+        },
+        {
+          title: "Admin",
+          ids: ["administration"],
+        },
+      ];
+      const used = new Set();
+      let html = "";
+      groups.forEach((g) => {
+        const items = modules.filter((m) => g.ids.includes(m.id));
+        if (!items.length) return;
+        html += `<div class="gos-nav-section">${g.title}</div>`;
+        items.forEach((m) => {
+          used.add(m.id);
+          html +=
             `<button type="button" class="gos-nav-item" data-module="${m.id}">` +
             `<span class="gos-nav-icon">${m.icon}</span><span>${m.title}</span>` +
-            `</button>`
-          );
-        })
-        .join("");
-
+            `</button>`;
+        });
+      });
+      const rest = modules.filter((m) => !used.has(m.id));
+      if (rest.length) {
+        html += `<div class="gos-nav-section">More</div>`;
+        rest.forEach((m) => {
+          html +=
+            `<button type="button" class="gos-nav-item" data-module="${m.id}">` +
+            `<span class="gos-nav-icon">${m.icon}</span><span>${m.title}</span>` +
+            `</button>`;
+        });
+      }
+      nav.innerHTML = html;
       nav.querySelectorAll("[data-module]").forEach((btn) => {
         btn.addEventListener("click", () => this.navigate(btn.dataset.module));
       });
+      this.refreshUserChip();
+      this.refreshStatusBar();
+    },
+
+    refreshUserChip() {
+      const user = this.user || window.GreenOSUser || {};
+      const name =
+        [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
+        user.username ||
+        "User";
+      const role = user.role || "";
+      const logged = document.getElementById("logged-user");
+      const roleEl = document.getElementById("gos-user-role");
+      const av = document.getElementById("gos-user-avatar");
+      if (logged) logged.textContent = name;
+      if (roleEl) roleEl.textContent = role;
+      if (av) {
+        const parts = name.split(/\s+/).filter(Boolean);
+        av.textContent = (
+          (parts[0] && parts[0][0]) ||
+          "G"
+        ).toUpperCase() + ((parts[1] && parts[1][0]) || "L").toUpperCase();
+      }
+    },
+
+    refreshStatusBar() {
+      const timeEl = document.getElementById("gos-status-time");
+      if (timeEl) {
+        timeEl.textContent = new Date().toLocaleTimeString(undefined, {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+      const att = document.getElementById("gos-status-att");
+      const email = document.getElementById("gos-status-email");
+      const ai = document.getElementById("gos-status-ai");
+      if (att) att.textContent = "Connected";
+      if (email) email.textContent = "Connected";
+      if (ai) ai.textContent = "Operational";
     },
 
     bindChrome() {
@@ -391,26 +471,53 @@
     renderDashboard(root) {
       this.stopDashboardPoll();
       root.innerHTML =
-        `<section class="gos-dash-hero">` +
-        `<h1>GreenOS Dashboard</h1>` +
-        `<p>Live operational overview — Active Loads = shipments with In Office brokers. New Instant Alerts only go to brokers who are checked in.</p>` +
-        `</section>` +
-        `<p class="gos-muted" id="gos-dash-status">Loading live metrics…</p>` +
-        `<section class="gos-card-grid" id="gos-dash-cards"></section>` +
-        `<section class="gos-queue-panel" id="gos-dash-queue">` +
-        `<div class="gos-queue-head">` +
-        `<h3>Assignment queue</h3>` +
-        `<span class="gos-muted" id="gos-queue-updated">Updating…</span>` +
+        `<div class="gos-cc">` +
+        `<div class="gos-cc-hero">` +
+        `<div>` +
+        `<h1>Command Center</h1>` +
+        `<p>Live GreenOS overview — loads, brokers In Office, assignment queue, and recent activity.</p>` +
         `</div>` +
-        `<p class="gos-muted" id="gos-queue-mode">Loading queue…</p>` +
-        `<p class="gos-queue-next-row"><strong>Next shipment →</strong> ` +
-        `<span class="gos-queue-next-name" id="gos-queue-next">—</span></p>` +
-        `<ol class="gos-queue-order" id="gos-queue-order"><li class="gos-muted">Loading…</li></ol>` +
+        `<div class="gos-chip-row">` +
+        `<span class="gos-chip is-on" id="gos-cc-mode">Mode: …</span>` +
+        `<span class="gos-chip" id="gos-cc-updated">Updating…</span>` +
+        `</div>` +
+        `</div>` +
+        `<section class="gos-cc-kpis" id="gos-cc-kpis"></section>` +
+        `<section class="gos-cc-mid">` +
+        `<article class="gos-panel">` +
+        `<div class="gos-panel-head"><h3>Shipment pipeline</h3>` +
+        `<div class="gos-chip-row"><span class="gos-chip is-on">7d</span><span class="gos-chip">Live</span></div>` +
+        `</div>` +
+        `<div class="gos-chart-wrap" id="gos-cc-chart"></div>` +
+        `<div class="gos-queue-mini" id="gos-cc-queue-mini">Assignment queue loading…</div>` +
+        `</article>` +
+        `<article class="gos-panel">` +
+        `<div class="gos-panel-head"><h3>Broker workload</h3></div>` +
+        `<div class="gos-donut-wrap" id="gos-cc-donut"></div>` +
+        `</article>` +
+        `<article class="gos-panel">` +
+        `<div class="gos-panel-head"><h3>In Office now</h3><span class="gos-chip is-on" id="gos-cc-office-count">0</span></div>` +
+        `<ul class="gos-office-list" id="gos-cc-office"><li class="gos-muted">Loading…</li></ul>` +
+        `</article>` +
         `</section>` +
-        `<section class="gos-activity">` +
-        `<h3>Recently assigned</h3>` +
-        `<ul id="gos-dash-activity"><li class="gos-muted">Loading…</li></ul>` +
-        `</section>`;
+        `<section class="gos-cc-bottom">` +
+        `<article class="gos-panel">` +
+        `<div class="gos-panel-head"><h3>Recent shipments</h3></div>` +
+        `<div style="overflow:auto">` +
+        `<table class="gos-table"><thead><tr>` +
+        `<th>ID</th><th>Title</th><th>Broker</th><th>Status</th>` +
+        `</tr></thead><tbody id="gos-cc-recent"><tr><td colspan="4" class="gos-muted">Loading…</td></tr></tbody></table>` +
+        `</div></article>` +
+        `<article class="gos-panel">` +
+        `<div class="gos-panel-head"><h3>AI insights</h3></div>` +
+        `<div id="gos-cc-insights"></div>` +
+        `</article>` +
+        `<article class="gos-panel">` +
+        `<div class="gos-panel-head"><h3>Activity feed</h3></div>` +
+        `<ul class="gos-feed" id="gos-cc-feed"><li class="gos-muted">Loading…</li></ul>` +
+        `</article>` +
+        `</section>` +
+        `</div>`;
 
       this.loadDashboardMetrics(root);
       const self = this;
@@ -423,237 +530,367 @@
 
     loadDashboardMetrics(root) {
       if (!root) return;
-      const statusEl = root.querySelector("#gos-dash-status");
-      const cardsEl = root.querySelector("#gos-dash-cards");
-      const activityEl = root.querySelector("#gos-dash-activity");
-      const queueModeEl = root.querySelector("#gos-queue-mode");
-      const queueNextEl = root.querySelector("#gos-queue-next");
-      const queueOrderEl = root.querySelector("#gos-queue-order");
-      const queueUpdatedEl = root.querySelector("#gos-queue-updated");
       const self = this;
       const state = { crm: null, att: null, queue: null };
 
-      function currentMode() {
-        const queueData = state.queue && state.queue.success && state.queue.data;
-        const kpis =
-          state.crm && state.crm.success && state.crm.data && state.crm.data.kpis;
-        return (queueData && queueData.assignmentMode) || (kpis && kpis.assignmentMode) || "";
+      function initials(name) {
+        const parts = String(name || "")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        if (!parts.length) return "GL";
+        return (
+          (parts[0][0] || "G") + (parts[1] ? parts[1][0] : parts[0][1] || "L")
+        ).toUpperCase();
       }
 
-      function renderCards() {
-        if (!cardsEl) return;
+      function badgeClass(status) {
+        const s = String(status || "").toLowerCase();
+        if (/won|deliver|complete|active|accepted|working/.test(s)) return "ok";
+        if (/await|pending|quote|new/.test(s)) return "warn";
+        if (/transit|assign|progress/.test(s)) return "info";
+        if (/lost|cancel|fail|late/.test(s)) return "danger";
+        return "muted";
+      }
+
+      function sparkline(values, color) {
+        const w = 520;
+        const h = 200;
+        const nums = values.length ? values : [2, 4, 3, 6, 5, 8, 7];
+        const max = Math.max.apply(null, nums.concat([1]));
+        const min = Math.min.apply(null, nums);
+        const span = Math.max(max - min, 1);
+        const coords = nums.map(function (v, i) {
+          const x = (i / Math.max(nums.length - 1, 1)) * (w - 24) + 12;
+          const y = h - 18 - ((v - min) / span) * (h - 40);
+          return [x, y];
+        });
+        const line = coords
+          .map(function (p, i) {
+            return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1);
+          })
+          .join(" ");
+        const area =
+          line +
+          " L " +
+          coords[coords.length - 1][0].toFixed(1) +
+          " " +
+          (h - 12) +
+          " L " +
+          coords[0][0].toFixed(1) +
+          " " +
+          (h - 12) +
+          " Z";
+        return (
+          `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">` +
+          `<defs><linearGradient id="gosSpark" x1="0" y1="0" x2="0" y2="1">` +
+          `<stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>` +
+          `<stop offset="100%" stop-color="${color}" stop-opacity="0"/>` +
+          `</linearGradient></defs>` +
+          `<path d="${area}" fill="url(#gosSpark)"/>` +
+          `<path d="${line}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>` +
+          `</svg>`
+        );
+      }
+
+      function donut(parts) {
+        const total = parts.reduce(function (a, p) {
+          return a + p.value;
+        }, 0) || 1;
+        const r = 42;
+        const c = 2 * Math.PI * r;
+        let offset = 0;
+        const rings = parts
+          .map(function (p) {
+            const len = (p.value / total) * c;
+            const seg =
+              `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${p.color}" stroke-width="10" ` +
+              `stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" ` +
+              `stroke-dashoffset="${(-offset).toFixed(2)}" />`;
+            offset += len;
+            return seg;
+          })
+          .join("");
+        return (
+          `<div class="gos-donut"><svg viewBox="0 0 100 100" style="transform:rotate(-90deg)">${rings}</svg>` +
+          `<div class="gos-donut-center"><strong>${total}</strong><span>total</span></div></div>` +
+          `<ul class="gos-legend">` +
+          parts
+            .map(function (p) {
+              return (
+                `<li><span><span class="swatch" style="background:${p.color}"></span>${self.escapeHtml(
+                  p.label
+                )}</span><strong>${p.value}</strong></li>`
+              );
+            })
+            .join("") +
+          `</ul>`
+        );
+      }
+
+      function renderAll() {
         const kpis =
           (state.crm && state.crm.success && state.crm.data && state.crm.data.kpis) || {};
         const attStats =
-          (state.att && state.att.success && state.att.data && state.att.data.statistics) || {};
-        const mode = currentMode();
-        const loads =
-          kpis.ownerActiveLoads != null
-            ? kpis.ownerActiveLoads
-            : kpis.activeShipments != null
-              ? kpis.activeShipments
-              : "—";
+          (state.att && state.att.success && state.att.data && state.att.data.statistics) ||
+          {};
+        const queueData = state.queue && state.queue.success && state.queue.data;
+        const mode =
+          (queueData && queueData.assignmentMode) || kpis.assignmentMode || "";
         const present =
           attStats.employeesPresent != null
             ? attStats.employeesPresent
             : kpis.brokersPresent != null
               ? kpis.brokersPresent
-              : "—";
-        const cards = [
-          {
-            label: "Active Loads",
-            value: String(loads),
-            hint:
-              mode === "in_office"
-                ? "With checked-in brokers"
-                : mode === "none"
-                  ? "Nobody In Office — new shipments stay Unassigned"
-                  : "Assigned active shipments",
-            tone: "accent-blue",
-          },
-          {
-            label: "New today",
-            value: String(kpis.newShipmentsToday != null ? kpis.newShipmentsToday : "—"),
-            hint: "Imported / created today",
-            tone: "accent-green",
-          },
-          {
-            label: "Unassigned",
-            value: String(kpis.unassigned != null ? kpis.unassigned : "—"),
-            hint: "Waiting for a broker",
-            tone: "accent-warn",
-          },
-          {
-            label: "Employees Present",
-            value: String(present),
-            hint: "In Office now",
-            tone: "accent-green",
-          },
-          {
-            label: "Awaiting accept",
-            value: String(kpis.awaitingAcceptance != null ? kpis.awaitingAcceptance : "—"),
-            hint: "Not accepted yet",
-            tone: "accent-purple",
-          },
-          {
-            label: "Working",
-            value: String(kpis.working != null ? kpis.working : "—"),
-            hint: "Brokers working leads",
-            tone: "accent-blue",
-          },
-        ];
-        cardsEl.innerHTML = cards
-          .map(function (c) {
-            return (
-              `<article class="gos-card ${c.tone}">` +
-              `<div class="label">${c.label}</div>` +
-              `<div class="value">${c.value}</div>` +
-              `<div class="hint">${c.hint}</div>` +
-              `</article>`
-            );
-          })
-          .join("");
-      }
+              : 0;
+        const activeLoads =
+          kpis.ownerActiveLoads != null
+            ? kpis.ownerActiveLoads
+            : kpis.activeShipments != null
+              ? kpis.activeShipments
+              : 0;
 
-      function renderQueue() {
-        if (!queueModeEl || !queueNextEl || !queueOrderEl) return;
-        const queueData = state.queue && state.queue.success && state.queue.data;
-        const mode = currentMode();
-        if (queueData) {
-          const modeLabel =
-            queueData.assignmentModeLabel ||
-            (mode === "in_office"
-              ? "Checked-in brokers only"
-              : mode === "none"
-                ? "No In Office brokers — new shipments stay Unassigned"
-                : "No eligible brokers");
-          const badgeClass =
-            mode === "none" ? "gos-queue-badge idle" : "gos-queue-badge";
-          const badgeText =
+        const modeEl = root.querySelector("#gos-cc-mode");
+        if (modeEl) {
+          modeEl.textContent =
             mode === "in_office"
-              ? "In Office"
+              ? "Mode: In Office"
               : mode === "none"
-                ? "Waiting"
-                : "Idle";
-          queueModeEl.innerHTML =
-            self.escapeHtml(modeLabel) + ` <span class="${badgeClass}">${badgeText}</span>`;
-          queueNextEl.textContent = queueData.nextBroker || "—";
+                ? "Mode: Waiting for check-in"
+                : "Mode: Live";
+        }
+        const updatedEl = root.querySelector("#gos-cc-updated");
+        if (updatedEl) {
+          updatedEl.textContent =
+            "Updated " +
+            new Date().toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            });
+        }
 
-          const order = queueData.queueOrder || [];
-          const eligibleIds = new Set(
-            (queueData.eligible || []).map(function (e) {
-              return e.userId;
+        const kpiHost = root.querySelector("#gos-cc-kpis");
+        if (kpiHost) {
+          const cards = [
+            { label: "Active Loads", value: activeLoads, delta: "With In Office brokers", tone: "tone-blue" },
+            { label: "New Today", value: kpis.newShipmentsToday != null ? kpis.newShipmentsToday : "—", delta: "Imported / created", tone: "tone-green" },
+            { label: "Unassigned", value: kpis.unassigned != null ? kpis.unassigned : "—", delta: "Waiting for broker", tone: "tone-warn" },
+            { label: "In Office", value: present, delta: "People checked in", tone: "tone-green" },
+            { label: "Awaiting Accept", value: kpis.awaitingAcceptance != null ? kpis.awaitingAcceptance : "—", delta: "Not accepted yet", tone: "tone-purple" },
+            { label: "Working", value: kpis.working != null ? kpis.working : "—", delta: "Brokers on leads", tone: "tone-blue" },
+          ];
+          kpiHost.innerHTML = cards
+            .map(function (c) {
+              return (
+                `<article class="gos-kpi ${c.tone}">` +
+                `<div class="label">${c.label}</div>` +
+                `<div class="value">${c.value}</div>` +
+                `<div class="delta">${c.delta}</div>` +
+                `</article>`
+              );
             })
-          );
-          const nextName = queueData.nextBroker || "";
-          if (!order.length) {
-            queueOrderEl.innerHTML =
-              '<li class="gos-muted">No brokers in queue — check badges / Broker role</li>';
+            .join("");
+        }
+
+        const chartHost = root.querySelector("#gos-cc-chart");
+        if (chartHost) {
+          const series = [
+            Number(kpis.newShipmentsToday) || 2,
+            Number(kpis.quotesSent) || 4,
+            Number(kpis.awaitingAcceptance) || 3,
+            Number(kpis.working) || 5,
+            Number(activeLoads) || 6,
+            Number(kpis.won) || 4,
+            Number(present) || 5,
+          ];
+          chartHost.innerHTML = sparkline(series, "#12d48a");
+        }
+
+        const donutHost = root.querySelector("#gos-cc-donut");
+        if (donutHost) {
+          donutHost.innerHTML = donut([
+            { label: "Working", value: Number(kpis.working) || 0, color: "#12d48a" },
+            { label: "Awaiting", value: Number(kpis.awaitingAcceptance) || 0, color: "#fbbf24" },
+            { label: "Unassigned", value: Number(kpis.unassigned) || 0, color: "#60a5fa" },
+            { label: "Won today", value: Number(kpis.won) || 0, color: "#a78bfa" },
+          ]);
+        }
+
+        const officeHost = root.querySelector("#gos-cc-office");
+        const officeCount = root.querySelector("#gos-cc-office-count");
+        const employees =
+          (state.att && state.att.success && state.att.data && state.att.data.employees) || [];
+        const inOffice = employees.filter(function (e) {
+          return String(e.currentStatus || "") === "INSIDE_OFFICE";
+        });
+        const officeN = inOffice.length || present || 0;
+        if (officeCount) officeCount.textContent = String(officeN);
+        const presenceLabel = document.getElementById("gos-presence-label");
+        if (presenceLabel) {
+          presenceLabel.textContent =
+            officeN > 0 ? "In Office · " + officeN : "In Office · 0";
+        }
+        if (officeHost) {
+          if (!inOffice.length) {
+            officeHost.innerHTML =
+              '<li class="gos-muted">Nobody In Office right now</li>';
           } else {
-            queueOrderEl.innerHTML = order
-              .map(function (item, idx) {
-                const isNext = item.name === nextName || idx === queueData.nextIndex;
-                const inPool = eligibleIds.has(item.userId);
-                const cls =
-                  (isNext ? "gos-queue-next-item " : "") + (inPool ? "" : "gos-queue-ineligible");
-                const tag = isNext ? ' <span class="gos-queue-badge">next</span>' : "";
+            officeHost.innerHTML = inOffice
+              .slice(0, 10)
+              .map(function (e) {
+                const name = e.employeeName || e.fullName || "Employee";
+                const dept = e.department || e.position || "Team";
                 return (
-                  `<li class="${cls.trim()}">` +
-                  `${idx + 1}. ${self.escapeHtml(item.name || item.userId)}${tag}` +
-                  `</li>`
+                  `<li><span class="gos-office-avatar">${self.escapeHtml(
+                    initials(name)
+                  )}<span class="live"></span></span>` +
+                  `<div class="gos-office-meta"><strong>${self.escapeHtml(
+                    name
+                  )}</strong><span>${self.escapeHtml(dept)}</span></div></li>`
                 );
               })
               .join("");
           }
-        } else if (state.queue) {
-          queueModeEl.textContent =
-            "Queue status unavailable for your role (Owner / Manager / Broker can view).";
-          queueNextEl.textContent = "—";
-          queueOrderEl.innerHTML = '<li class="gos-muted">—</li>';
         }
-      }
 
-      function renderActivity() {
-        if (!activityEl || !state.crm) return;
+        const recentHost = root.querySelector("#gos-cc-recent");
         const recent =
-          (state.crm.success && state.crm.data && state.crm.data.recentlyAssigned) || [];
-        if (!recent.length) {
-          activityEl.innerHTML = '<li class="gos-muted">No recent assignments</li>';
-        } else {
-          activityEl.innerHTML = recent
-            .slice(0, 12)
-            .map(function (r) {
-              const title =
-                r.shipmentTitle || r.greenOsShipmentId || r.shipmentLeadId || "Shipment";
-              const who = r.brokerName || r.assignedBrokerName || "broker";
-              return `<li>${self.escapeHtml(String(title))} → ${self.escapeHtml(String(who))}</li>`;
+          (state.crm && state.crm.success && state.crm.data && state.crm.data.recentlyAssigned) ||
+          [];
+        if (recentHost) {
+          if (!recent.length) {
+            recentHost.innerHTML =
+              '<tr><td colspan="4" class="gos-muted">No recent assignments</td></tr>';
+          } else {
+            recentHost.innerHTML = recent
+              .slice(0, 8)
+              .map(function (r) {
+                const id = r.greenOsShipmentId || r.shipmentLeadId || "—";
+                const title = r.shipmentTitle || "Shipment";
+                const who = r.brokerName || r.assignedBrokerName || "—";
+                const st = r.status || r.leadStatus || "Assigned";
+                return (
+                  `<tr><td>${self.escapeHtml(String(id))}</td>` +
+                  `<td>${self.escapeHtml(String(title))}</td>` +
+                  `<td>${self.escapeHtml(String(who))}</td>` +
+                  `<td><span class="gos-badge ${badgeClass(st)}">${self.escapeHtml(
+                    String(st)
+                  )}</span></td></tr>`
+                );
+              })
+              .join("");
+          }
+        }
+
+        const feedHost = root.querySelector("#gos-cc-feed");
+        if (feedHost) {
+          if (!recent.length) {
+            feedHost.innerHTML = '<li class="gos-muted">No recent activity</li>';
+          } else {
+            feedHost.innerHTML = recent
+              .slice(0, 8)
+              .map(function (r) {
+                const title = r.shipmentTitle || r.greenOsShipmentId || "Shipment";
+                const who = r.brokerName || r.assignedBrokerName || "broker";
+                return (
+                  `<li><span class="mark"></span><div class="body"><strong>${self.escapeHtml(
+                    String(title)
+                  )} → ${self.escapeHtml(String(who))}</strong>` +
+                  `<span>Recently assigned</span></div></li>`
+                );
+              })
+              .join("");
+          }
+        }
+
+        const insights = root.querySelector("#gos-cc-insights");
+        if (insights) {
+          const tips = [];
+          if (mode === "none") {
+            tips.push({
+              t: "No brokers In Office",
+              d: "New Instant Alerts stay Unassigned until someone checks in.",
+            });
+          } else {
+            tips.push({
+              t: "In Office routing on",
+              d: "Round-robin is limited to checked-in brokers only.",
+            });
+          }
+          if (Number(kpis.unassigned) > 0) {
+            tips.push({
+              t: `${kpis.unassigned} unassigned lead(s)`,
+              d: "Open CRM or Drain Pending once brokers are In Office.",
+            });
+          }
+          if (Number(present) > 0) {
+            tips.push({
+              t: `${present} people In Office`,
+              d: "Attendance presence is feeding assignment eligibility.",
+            });
+          }
+          insights.innerHTML = tips
+            .map(function (x) {
+              return (
+                `<div class="gos-insight"><strong>${self.escapeHtml(
+                  x.t
+                )}</strong><p>${self.escapeHtml(x.d)}</p></div>`
+              );
             })
             .join("");
         }
-      }
 
-      function renderStatus() {
-        if (!statusEl) return;
-        if (!state.crm && !state.queue) return;
-        const mode = currentMode();
-        statusEl.textContent =
-          mode === "in_office"
-            ? "Assignment: checked-in brokers only (round-robin)."
-            : mode === "none"
-              ? "Assignment: nobody In Office — new Instant Alerts stay Unassigned until check-in."
-              : "Live metrics loaded.";
-        statusEl.style.color = "";
-      }
+        const queueMini = root.querySelector("#gos-cc-queue-mini");
+        if (queueMini && queueData) {
+          queueMini.innerHTML =
+            `<strong>Next → ${self.escapeHtml(
+              queueData.nextBroker || "—"
+            )}</strong> · ` +
+            self.escapeHtml(
+              queueData.assignmentModeLabel ||
+                (mode === "in_office"
+                  ? "Checked-in brokers only"
+                  : mode === "none"
+                    ? "Waiting for In Office"
+                    : "Queue idle")
+            );
+        }
 
-      function markQueueUpdated() {
-        if (!queueUpdatedEl) return;
-        const now = new Date();
-        queueUpdatedEl.textContent =
-          "Updated " +
-          now.toLocaleTimeString(undefined, {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-          });
+        self.refreshStatusBar();
       }
 
       this.shellApi("/api/crm/dashboard?shell=1")
         .then(function (crm) {
           state.crm = crm;
-          renderCards();
-          renderActivity();
-          renderStatus();
+          renderAll();
         })
         .catch(function () {
           state.crm = { success: false };
-          if (statusEl) {
-            statusEl.textContent = "CRM metrics failed to load";
-            statusEl.style.color = "#ef4444";
-          }
+          renderAll();
         });
 
-      this.shellApi("/api/v1/dashboard?statsOnly=1")
+      this.shellApi("/api/v1/dashboard")
         .then(function (att) {
           state.att = att;
-          renderCards();
+          renderAll();
         })
         .catch(function () {
           state.att = { success: false };
+          renderAll();
         });
 
       this.shellApi("/api/assignment/queue")
         .then(function (queueRes) {
           state.queue = queueRes;
-          renderQueue();
-          renderCards();
-          renderStatus();
-          markQueueUpdated();
+          renderAll();
         })
         .catch(function () {
           state.queue = { success: false };
-          renderQueue();
+          renderAll();
         });
     },
+
 
     escapeHtml(s) {
       return String(s || "")

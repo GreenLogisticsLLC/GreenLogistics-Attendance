@@ -99,7 +99,16 @@ function showApp(user) {
     window.GreenOSUser = user;
     loginScreen.classList.add("hidden");
     appScreen.classList.remove("hidden");
-    $("#logged-user").textContent = `${user.firstName} ${user.lastName} (${user.role})`;
+    const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || "User";
+    const logged = $("#logged-user");
+    if (logged) logged.textContent = fullName;
+    const roleEl = document.getElementById("gos-user-role");
+    if (roleEl) roleEl.textContent = user.role || "";
+    const av = document.getElementById("gos-user-avatar");
+    if (av) {
+      const parts = fullName.split(/\s+/).filter(Boolean);
+      av.textContent = ((parts[0] && parts[0][0]) || "G").toUpperCase() + ((parts[1] && parts[1][0]) || "L").toUpperCase();
+    }
     syncGosThemeButtons();
 
     const canAdmin = ["Administrator", "Manager", "Owner"].includes(user.role);
