@@ -2868,8 +2868,8 @@ window.GreenOSModules["dispatch"] = {
       '<label class="full">Origin (pickup address) * <input id="rc-origin" value="' +
       self.esc(pick("pickupAddress", place(g.pickup))) +
       '" required></label>' +
-      '<div id="rc-extra-origins" class="full"></div>' +
-      '<div class="full" style="margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
+      '<div id="rc-extra-origins" class="full" style="grid-column:1/-1"></div>' +
+      '<div class="full" style="grid-column:1/-1;margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
       '<button type="button" class="btn-secondary" id="rc-add-origin">+ Add Origin</button></div>' +
       '<label>Pickup date * <input id="rc-pdate" type="date" value="' + self.esc(self.toInputDate(pickupSrc)) + '" required></label>' +
       "<label>Pickup time" +
@@ -2881,8 +2881,8 @@ window.GreenOSModules["dispatch"] = {
       '<label class="full">Final destination * <input id="rc-dest" value="' +
       self.esc(pick("deliveryAddress", place(g.delivery))) +
       '" required></label>' +
-      '<div id="rc-extra-dests" class="full"></div>' +
-      '<div class="full" style="margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
+      '<div id="rc-extra-dests" class="full" style="grid-column:1/-1"></div>' +
+      '<div class="full" style="grid-column:1/-1;margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
       '<button type="button" class="btn-secondary" id="rc-add-dest">+ Add Destination</button></div>' +
       '<label>Delivery date * <input id="rc-ddate" type="date" value="' + self.esc(self.toInputDate(deliverySrc)) + '" required></label>' +
       "<label>Delivery time" +
@@ -3182,8 +3182,8 @@ window.GreenOSModules["dispatch"] = {
       '"></label>' +
       '<label>Customer <input id="bol-customer" value="' + self.esc(g.customer || "") + '"></label>' +
       '<label class="full">SHIPS FROM (origin) * <input id="bol-origin" value="' + self.esc(pick("pickupAddress", place(g.pickup))) + '" required></label>' +
-      '<div id="bol-extra-origins" class="full"></div>' +
-      '<div class="full" style="margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
+      '<div id="bol-extra-origins" class="full" style="grid-column:1/-1"></div>' +
+      '<div class="full" style="grid-column:1/-1;margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
       '<button type="button" class="btn-secondary" id="bol-add-origin">+ Add Origin</button></div>' +
       '<label>Shipper ID No. <input id="bol-shipper-id" value="' + self.esc(pick("shipperIdNo", "")) + '"></label>' +
       '<label>Seal No. <input id="bol-seal" value="' + self.esc(pick("sealNo", "")) + '"></label>' +
@@ -3194,8 +3194,8 @@ window.GreenOSModules["dispatch"] = {
       '<option value="3RD_PARTY">3RD PARTY</option>' +
       "</select></label>" +
       '<label class="full">SHIPS TO (destination) * <input id="bol-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '" required></label>' +
-      '<div id="bol-extra-dests" class="full"></div>' +
-      '<div class="full" style="margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
+      '<div id="bol-extra-dests" class="full" style="grid-column:1/-1"></div>' +
+      '<div class="full" style="grid-column:1/-1;margin:0.15rem 0 0.35rem;display:flex;justify-content:flex-end">' +
       '<button type="button" class="btn-secondary" id="bol-add-dest">+ Add Destination</button></div>' +
       '<label>Consignee ID No. <input id="bol-consignee-id" value="' + self.esc(pick("consigneeIdNo", "")) + '"></label>' +
       '<label>Delivery contact <input id="bol-dcontact" value="' + self.esc(pick("deliveryContact", "")) + '"></label>' +
