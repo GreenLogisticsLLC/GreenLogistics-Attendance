@@ -10,12 +10,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const LOAD_DOCS_ROOT = path.join(__dirname, "..", "..", "..", "uploads", "loads");
 
 const LIA_TORRES_SIGNATURE_PNG = path.resolve(__dirname, "../assets/lia-torres-signature.png");
+const GREEN_LOGISTICS_LOGO_PNG = path.resolve(__dirname, "../assets/green-logistics-logo.png");
 
 function resolveLiaTorresSignaturePng(): string | null {
     const candidates = [
         LIA_TORRES_SIGNATURE_PNG,
         path.join(process.cwd(), "src/modules/shipment/assets/lia-torres-signature.png"),
         path.join(process.cwd(), "dist/modules/shipment/assets/lia-torres-signature.png"),
+    ];
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return null;
+}
+
+function resolveGreenLogisticsLogoPng(): string | null {
+    const candidates = [
+        GREEN_LOGISTICS_LOGO_PNG,
+        path.join(process.cwd(), "src/modules/shipment/assets/green-logistics-logo.png"),
+        path.join(process.cwd(), "dist/modules/shipment/assets/green-logistics-logo.png"),
     ];
     for (const p of candidates) {
         if (fs.existsSync(p)) return p;
@@ -243,41 +256,52 @@ function renderRateConfirmationPdf(
     doc.page.margins.left = left;
     doc.page.margins.right = left;
     const pageH = doc.page.height; // 792
-    let y = 22;
+    let y = 18;
 
-    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, left, y);
+    const logoSize = 46;
+    const logoPath = resolveGreenLogisticsLogoPng();
+    const textLeft = logoPath ? left + logoSize + 10 : left;
+    if (logoPath) {
+        try {
+            doc.image(logoPath, left, y, { fit: [logoSize, logoSize], align: "center", valign: "center" });
+        } catch {
+            /* keep text header if logo fails */
+        }
+    }
+
+    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, textLeft, y);
     y += 12;
     doc.font("Helvetica").fontSize(7.5).fillColor("#222222");
-    doc.text(GREEN_LOGISTICS_RC.addressLine1, left, y);
+    doc.text(GREEN_LOGISTICS_RC.addressLine1, textLeft, y);
     y += 9;
-    doc.text(GREEN_LOGISTICS_RC.addressLine2, left, y);
+    doc.text(GREEN_LOGISTICS_RC.addressLine2, textLeft, y);
     y += 9;
     doc.text(
         `MC # ${GREEN_LOGISTICS_RC.mc}  ·  Phone: ${GREEN_LOGISTICS_RC.mainPhone}  ·  ${GREEN_LOGISTICS_RC.mainEmail}`,
-        left,
+        textLeft,
         y,
-        { width: usable - 150 }
+        { width: usable - (textLeft - left) - 150 }
     );
 
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f3d1f");
-    doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 170, 22, {
+    doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 170, 18, {
         width: 170,
         align: "right",
     });
     doc.font("Helvetica").fontSize(7.5).fillColor("#222222");
-    doc.text(txt(c.confirmationDate) || new Date().toLocaleDateString(), left + usable - 170, 34, {
+    doc.text(txt(c.confirmationDate) || new Date().toLocaleDateString(), left + usable - 170, 30, {
         width: 170,
         align: "right",
     });
     if (c.shipmentNumber) {
-        doc.text(`Shipment: ${txt(c.shipmentNumber)}`, left + usable - 170, 44, {
+        doc.text(`Shipment: ${txt(c.shipmentNumber)}`, left + usable - 170, 40, {
             width: 170,
             align: "right",
         });
     }
-    doc.text(`v${version}`, left + usable - 170, 54, { width: 170, align: "right" });
+    doc.text(`v${version}`, left + usable - 170, 50, { width: 170, align: "right" });
 
-    y += 11;
+    y = Math.max(y + 11, logoPath ? 18 + logoSize + 8 : y + 11);
     doc.font("Helvetica-Bold").fontSize(9).fillColor("#111111");
     doc.text("LOAD CONFIRMATION AND PAYMENT AGREEMENT — PLEASE SIGN & RETURN ASAP", left, y, {
         width: usable,
