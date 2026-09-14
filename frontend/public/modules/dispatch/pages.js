@@ -2841,7 +2841,7 @@ window.GreenOSModules["dispatch"] = {
       '<label>Shipment <input id="rc-ship" value="' + self.esc(g.shipmentNumber || "") + '" readonly></label>' +
       '<label>Confirmation date <input id="rc-date" value="' + self.esc(new Date().toLocaleDateString()) + '"></label>' +
       '<label>Broker <input id="rc-broker" value="' + self.esc((g.broker && g.broker.name) || "") + '"></label>' +
-      '<label>Broker Gmail <input id="rc-broker-email" value="' +
+      '<label>Broker Email <input id="rc-broker-email" value="' +
       self.esc((data.contacts && data.contacts.brokerGmail) || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "") +
       '" readonly></label>' +
       '<label>Customer email * <input id="rc-customer-email" type="email" value="' +

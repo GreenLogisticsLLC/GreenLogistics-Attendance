@@ -281,9 +281,9 @@ function renderRateConfirmationPdf(
     });
     y += 14;
 
-    // Email contacts — Broker Gmail / Carrier only (no customer on RC PDF)
+    // Email contacts — Broker / Carrier only (no customer on RC PDF)
     drawBox(doc, left, y, usable, 28);
-    fieldRow(doc, "BROKER GMAIL:", txt(c.brokerEmail), left + 8, y + 4, usable / 2 - 20);
+    fieldRow(doc, "BROKER EMAIL:", txt(c.brokerEmail), left + 8, y + 4, usable / 2 - 20);
     fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + usable / 2 + 4, y + 4, usable / 2 - 20);
     y += 34;
 
@@ -511,7 +511,7 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
 
     // Email strip (GreenOS extension kept on company BOL)
     drawBox(doc, left, y, usable, 28);
-    doc.font("Helvetica-Bold").fontSize(7).text("BROKER GMAIL", left + 4, y + 3);
+    doc.font("Helvetica-Bold").fontSize(7).text("BROKER EMAIL", left + 4, y + 3);
     doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 175 });
     doc.font("Helvetica-Bold").fontSize(7).text("CUSTOMER EMAIL", left + 190, y + 3);
     doc.font("Helvetica").fontSize(8).text(txt(c.customerEmail) || "—", left + 190, y + 13, { width: 175 });
@@ -759,7 +759,7 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     y += 16;
 
     drawBox(doc, left, y, usable, 28);
-    doc.font("Helvetica-Bold").fontSize(7).text("BROKER GMAIL", left + 4, y + 3);
+    doc.font("Helvetica-Bold").fontSize(7).text("BROKER EMAIL", left + 4, y + 3);
     doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 175 });
     doc.font("Helvetica-Bold").fontSize(7).text("CUSTOMER EMAIL", left + 190, y + 3);
     doc.font("Helvetica").fontSize(8).text(txt(c.customerEmail) || "—", left + 190, y + 13, { width: 175 });
