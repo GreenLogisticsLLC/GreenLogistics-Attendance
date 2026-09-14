@@ -180,7 +180,7 @@ function txt(v: string | number | null | undefined): string {
     return s;
 }
 
-/** Format one extra stop for PDF (address + optional date/time). */
+/** Format one stop line for PDF (address + optional date/time). */
 function formatExtraStop(
     x: string | { address?: string | null; date?: string | null; time?: string | null } | null | undefined
 ): string {
@@ -194,19 +194,42 @@ function formatExtraStop(
     return when ? `${address} (${when})` : address;
 }
 
+/**
+ * Build stop lines for RC/BOL.
+ * When there are extra stops, primary date/time is inlined next to the address
+ * (same style as extras) so the big DATE/TIME footer is not needed for that side.
+ */
 function stopList(
     primary: string | null | undefined,
     extras:
         | Array<string | { address?: string | null; date?: string | null; time?: string | null }>
         | null
-        | undefined
+        | undefined,
+    primaryWhen?: { date?: string | null; time?: string | null } | null
 ): string[] {
-    const out: string[] = [];
-    const first = txt(primary);
-    if (first) out.push(first);
+    const extraLines: string[] = [];
     for (const x of extras || []) {
         const s = formatExtraStop(x);
-        if (s && !out.includes(s)) out.push(s);
+        if (s) extraLines.push(s);
+    }
+    const multi = extraLines.length > 0;
+    const out: string[] = [];
+    const first = txt(primary);
+    if (first) {
+        if (multi) {
+            out.push(
+                formatExtraStop({
+                    address: first,
+                    date: primaryWhen?.date,
+                    time: primaryWhen?.time,
+                })
+            );
+        } else {
+            out.push(first);
+        }
+    }
+    for (const s of extraLines) {
+        if (!out.includes(s)) out.push(s);
     }
     return out;
 }
@@ -346,40 +369,54 @@ function renderRateConfirmationPdf(
     y += cwBoxH + 6;
 
     // Origin / Destination (supports multiple stops)
-    const origins = stopList(c.pickupAddress, c.additionalOrigins);
-    const destinations = stopList(c.deliveryAddress, c.additionalDestinations);
+    const origins = stopList(c.pickupAddress, c.additionalOrigins, {
+        date: c.pickupDate || c.pickupWindow,
+        time: c.pickupTime,
+    });
+    const destinations = stopList(c.deliveryAddress, c.additionalDestinations, {
+        date: c.deliveryDate || c.deliveryWindow,
+        time: c.deliveryTime,
+    });
+    const originsMulti = origins.length > 1;
+    const destinationsMulti = destinations.length > 1;
     const stopLines = Math.max(origins.length, destinations.length, 1);
-    // Room for address + DATE/TIME row + CONTACT row (fieldRow stacks label+value).
-    const stopBoxH = Math.max(88, 58 + stopLines * 11);
+    // Multi-stop sides put date/time inline; single-stop keeps DATE/TIME footer.
+    const needScheduleFooter = !originsMulti || !destinationsMulti;
+    const footerReserve = needScheduleFooter ? 54 : 28;
+    const stopBoxH = Math.max(needScheduleFooter ? 88 : 72, footerReserve + 20 + stopLines * 12);
     const dateRowY = y + stopBoxH - 46;
     const contactRowY = y + stopBoxH - 22;
     drawBox(doc, left, y, usable / 2 - 4, stopBoxH);
     doc.font("Helvetica-Bold").fontSize(8).text(
-        origins.length > 1 ? "ORIGINS:" : "ORIGIN:",
+        originsMulti ? "ORIGINS:" : "ORIGIN:",
         left + 8,
         y + 3
     );
     doc.font("Helvetica").fontSize(8).text(formatStops(origins), left + 8, y + 14, {
         width: usable / 2 - 20,
-        height: stopBoxH - 54,
+        height: stopBoxH - (originsMulti ? 28 : 54),
     });
-    fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, dateRowY, 100);
-    fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, dateRowY, 80);
+    if (!originsMulti) {
+        fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, dateRowY, 100);
+        fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, dateRowY, 80);
+    }
     fieldRow(doc, "CONTACT:", txt(c.pickupContact), left + 8, contactRowY, usable / 2 - 24);
 
     const dx = left + usable / 2 + 4;
     drawBox(doc, dx, y, usable / 2 - 4, stopBoxH);
     doc.font("Helvetica-Bold").fontSize(8).text(
-        destinations.length > 1 ? "Final Destinations" : "Final Destination",
+        destinationsMulti ? "Final Destinations" : "Final Destination",
         dx + 8,
         y + 3
     );
     doc.font("Helvetica").fontSize(8).text(formatStops(destinations), dx + 8, y + 14, {
         width: usable / 2 - 20,
-        height: stopBoxH - 54,
+        height: stopBoxH - (destinationsMulti ? 28 : 54),
     });
-    fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, dateRowY, 100);
-    fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, dateRowY, 80);
+    if (!destinationsMulti) {
+        fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, dateRowY, 100);
+        fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, dateRowY, 80);
+    }
     fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, contactRowY, usable / 2 - 24);
     y += stopBoxH + 6;
 
@@ -605,8 +642,14 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     y += 34;
 
     // SHIPS FROM | Freight terms (supports multiple origins)
-    const bolOrigins = stopList(c.pickupAddress, c.additionalOrigins);
-    const bolDestinations = stopList(c.deliveryAddress, c.additionalDestinations);
+    const bolOrigins = stopList(c.pickupAddress, c.additionalOrigins, {
+        date: c.pickupDate || c.pickupWindow,
+        time: c.pickupTime,
+    });
+    const bolDestinations = stopList(c.deliveryAddress, c.additionalDestinations, {
+        date: c.deliveryDate || c.deliveryWindow,
+        time: c.deliveryTime,
+    });
     const fromH = Math.max(78, 42 + Math.max(bolOrigins.length, 1) * 14);
     drawBox(doc, left, y, 300, fromH);
     doc.font("Helvetica-Bold").fontSize(8).text(
