@@ -1032,7 +1032,7 @@ export async function generateLoadDocumentPdf(input: {
             line(doc, "Customer", c.customerName);
             line(doc, "Customer Email", c.customerEmail);
             line(doc, "Broker", c.brokerName);
-            line(doc, "Broker Gmail", c.brokerEmail);
+            line(doc, "Broker Email", c.brokerEmail);
             line(doc, "Carrier", c.carrierName);
             line(doc, "Carrier Email", c.carrierEmail);
             if (c.carrierMc) line(doc, "MC", c.carrierMc);
