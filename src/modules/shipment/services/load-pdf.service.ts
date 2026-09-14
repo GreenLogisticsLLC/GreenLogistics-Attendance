@@ -32,7 +32,7 @@ export const GREEN_LOGISTICS_RC = {
     mainPhone: "267 703 5313",
     /** Main company email shown on Rate Confirmation header. */
     mainEmail: "info@greengrouplogistics.com",
-    dispatchPhone: "(267) 703-5313",
+    dispatchPhone: "888-308-68-65",
     billingEmails: ["greenlogisticsllc20@gmail.com", "info@greengrouplogistics.com"],
 };
 
