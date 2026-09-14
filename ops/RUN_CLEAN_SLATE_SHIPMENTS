@@ -1,0 +1,4 @@
+DELETE_ALL_SHIPMENTS_AND_LOADS
+# Present on main only for the one-shot Contabo deploy wipe.
+# Deploy.yml runs scripts/ops-clean-slate-shipments.mjs when this file exists,
+# then a follow-up commit removes the marker so future deploys do not wipe again.
