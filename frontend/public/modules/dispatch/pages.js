@@ -792,8 +792,21 @@ window.GreenOSModules["dispatch"] = {
   ampmPartsFromRaw(raw) {
     var hhmm = "";
     if (raw == null || raw === "") return { h: "", m: "", p: "" };
-    if (typeof raw === "string" && /^\d{1,2}:\d{2}/.test(raw.trim())) {
-      hhmm = raw.trim().slice(0, 5);
+    if (typeof raw === "string") {
+      var s = raw.trim();
+      var ampm = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)\b/i);
+      if (ampm) {
+        var h12 = parseInt(ampm[1], 10);
+        var mm = ampm[2];
+        var period = ampm[3].toUpperCase();
+        if (!Number.isFinite(h12) || h12 < 1 || h12 > 12) return { h: "", m: "", p: "" };
+        return { h: String(h12), m: mm, p: period };
+      }
+      if (/^\d{1,2}:\d{2}/.test(s)) {
+        hhmm = s.slice(0, 5);
+      } else {
+        hhmm = this.toInputTime(raw);
+      }
     } else {
       hhmm = this.toInputTime(raw);
     }
@@ -803,10 +816,10 @@ window.GreenOSModules["dispatch"] = {
     var m = parseInt(bits[1], 10);
     if (!Number.isFinite(h24) || !Number.isFinite(m)) return { h: "", m: "", p: "" };
     var p = h24 >= 12 ? "PM" : "AM";
-    var h12 = h24 % 12;
-    if (h12 === 0) h12 = 12;
+    var h12b = h24 % 12;
+    if (h12b === 0) h12b = 12;
     return {
-      h: String(h12),
+      h: String(h12b),
       m: String(m).padStart(2, "0"),
       p: p,
     };
