@@ -366,6 +366,17 @@ function renderRateConfirmationPdf(
     fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, contactRowY, usable / 2 - 24);
     y += stopBoxH + 6;
 
+    // Special Notes — above Driver Information
+    drawBox(doc, left, y, usable, 30);
+    doc.font("Helvetica-Bold").fontSize(7.5).text("SPECIAL NOTES:", left + 8, y + 3);
+    doc.font("Helvetica").fontSize(7.5).text(
+        txt(c.specialNotes) || txt(c.specialInstructions) || "—",
+        left + 8,
+        y + 14,
+        { width: usable - 16, height: 12 }
+    );
+    y += 34;
+
     // Driver / payment / notes
     drawBox(doc, left, y, usable, 50);
     fieldRow(
@@ -382,17 +393,7 @@ function renderRateConfirmationPdf(
     fieldRow(doc, "DELIVERY NOTE:", txt(c.deliveryNote) || "—", left + usable / 2, y + 28, usable / 2 - 16);
     y += 56;
 
-    drawBox(doc, left, y, usable, 30);
-    doc.font("Helvetica-Bold").fontSize(7.5).text("SPECIAL NOTES:", left + 8, y + 3);
-    doc.font("Helvetica").fontSize(7.5).text(
-        txt(c.specialNotes) || txt(c.specialInstructions) || "—",
-        left + 8,
-        y + 14,
-        { width: usable - 16, height: 12 }
-    );
-    y += 34;
-
-    // Flat Rate + Total Amount — same sum, split left/right under Special Notes.
+    // Flat Rate + Total Amount — same sum, split left/right
     const rateVal = money(c.flatRate ?? c.carrierRate) || "—";
     const flatBoxH = 48;
     const halfW = usable / 2 - 4;
