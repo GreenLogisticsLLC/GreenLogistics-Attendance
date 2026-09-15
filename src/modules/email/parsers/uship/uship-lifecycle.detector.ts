@@ -185,6 +185,17 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
+    // Instant Alert / new listing — NEVER Customer Replied / Bid Submitted.
+    // Must run before "new message" / Q&A patterns (Alert bodies often say "new message").
+    const subjectH = String(subject || "").toLowerCase();
+    if (isNewListingAlertSubject(subjectH)) {
+        return {
+            kind: "UNKNOWN",
+            title: "uShip Instant Alert",
+            domainEventType: "STATUS_CHANGED",
+        };
+    }
+
     // Customer reply/question BEFORE quote-confirmation — uShip footers often mention "your quote".
     if (
         /customer\s+question|asked\s+a\s+question|new\s+question|question\s+from\s+(?:the\s+)?customer|you\s+have\s+a\s+new\s+question/.test(
@@ -213,7 +224,12 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    if (/new\s+message|message\s+from\s+customer|message\s+from\s+(?:the\s+)?shipper/.test(h)) {
+    // Require customer/shipper context — bare "new message" matches Instant Alert footers.
+    if (
+        /message\s+from\s+(?:the\s+)?customer|message\s+from\s+(?:the\s+)?shipper|customer\s+(?:sent\s+)?(?:you\s+)?(?:a\s+)?message|shipper\s+(?:sent\s+)?(?:you\s+)?(?:a\s+)?message/.test(
+            h
+        )
+    ) {
         return {
             kind: "CUSTOMER_RESPOND",
             title: "Customer Respond",
@@ -228,18 +244,6 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
             title: "Bid Updated",
             domainEventType: "BID_SUBMITTED",
             targetStatus: "BID_SUBMITTED",
-        };
-    }
-
-    const subjectH = String(subject || "").toLowerCase();
-    // Instant Alert / new listing mail must NEVER become Bid Submitted.
-    // Those emails share listing CTAs ("Submit Quote Now") and often rematch by
-    // listing id onto a brand-new card the broker has not opened or quoted.
-    if (isNewListingAlertSubject(subjectH)) {
-        return {
-            kind: "UNKNOWN",
-            title: "uShip Instant Alert",
-            domainEventType: "STATUS_CHANGED",
         };
     }
 
