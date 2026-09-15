@@ -86,28 +86,19 @@ export async function getInOfficeEmployeeIds(employeeIds: string[]): Promise<Set
         // Do not trust session.scheduledStart/End — they may have been written
         // under a wrong TIMEZONE (e.g. Asia/Yerevan) and would open Instant Alerts early.
         const bounds = getAttendanceDayBounds(session.workDate, config.timezone);
-        const earlyArrivalFrom = new Date(
-            bounds.scheduledStart.getTime() - 4 * 60 * 60 * 1000
-        );
         const overnightOtEnd = new Date(bounds.scheduledEnd.getTime() + 2 * 60 * 60 * 1000);
 
-        // Fresh door/ops ENTRY (lastActivity within 8h) still counts outside the
-        // nominal 17:00–02:00 window — needed for daytime ops check-in.
         const lastActivityAt = session.lastActivity
             ? new Date(session.lastActivity).getTime()
             : 0;
         const freshCheckIn =
-            lastActivityAt > 0 && now.getTime() - lastActivityAt < 8 * 60 * 60 * 1000;
+            lastActivityAt > 0 && now.getTime() - lastActivityAt < 12 * 60 * 60 * 1000;
 
-        if (now < earlyArrivalFrom || now > overnightOtEnd) {
-            if (!freshCheckIn) continue;
-        } else if (
-            now < bounds.scheduledStart &&
-            (!session.firstEntry || session.firstEntry < earlyArrivalFrom) &&
-            !freshCheckIn
-        ) {
-            continue;
-        }
+        // After overnight OT ends, drop stuck INSIDE without recent activity.
+        // During the workday (including morning before 17:00), Live Board INSIDE_OFFICE
+        // must match Instant Alert eligibility — otherwise the only In Office broker
+        // (e.g. Lia) never receives shipments.
+        if (now > overnightOtEnd && !freshCheckIn) continue;
 
         inOffice.add(employeeId);
     }
