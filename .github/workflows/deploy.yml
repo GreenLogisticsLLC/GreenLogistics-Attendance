@@ -219,4 +219,11 @@ jobs:
             node scripts/diagnose-late-settings.mjs || true
             echo "=== diagnose late settings done ==="
           fi
+
+          # One-shot: diagnose false Customer Replied on GOS1000030 (read-only).
+          if [ -f ops/RUN_DIAGNOSE_CUSTOMER_REPLIED ]; then
+            echo "=== ONE-SHOT diagnose customer replied (marker present) ==="
+            node scripts/diagnose-customer-replied.mjs GOS1000030 || true
+            echo "=== diagnose customer replied done ==="
+          fi
           EOF
