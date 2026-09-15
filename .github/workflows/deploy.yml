@@ -212,4 +212,11 @@ jobs:
             curl --fail http://localhost:3847/api/health
             echo "=== clean slate shipments done ==="
           fi
+
+          # One-shot: print Day Shift / late-after-17:15 diagnostics (read-only).
+          if [ -f ops/RUN_DIAGNOSE_LATE_SETTINGS ]; then
+            echo "=== ONE-SHOT diagnose late settings (marker present) ==="
+            node scripts/diagnose-late-settings.mjs || true
+            echo "=== diagnose late settings done ==="
+          fi
           EOF
