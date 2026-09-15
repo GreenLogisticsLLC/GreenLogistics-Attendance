@@ -1,6 +1,9 @@
 name: Verify Accepted shipments tab
 
 on:
+  push:
+    paths:
+      - "tools/ops/TRIGGER_ACCEPTED_TAB_VERIFY"
   workflow_dispatch:
 
 jobs:
