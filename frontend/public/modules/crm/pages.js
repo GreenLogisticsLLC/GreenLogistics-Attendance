@@ -527,7 +527,11 @@ window.GreenOSModules.crm = {
     try {
       var params = [];
       if (brokerId) params.push("brokerId=" + encodeURIComponent(brokerId));
-      if (options.assignmentKind === "new" || options.assignmentKind === "other") {
+      if (
+        options.assignmentKind === "new" ||
+        options.assignmentKind === "other" ||
+        options.assignmentKind === "accepted"
+      ) {
         params.push("assignmentKind=" + options.assignmentKind);
       }
       if (options.status) {
@@ -556,19 +560,23 @@ window.GreenOSModules.crm = {
       var tabLabel =
         options.status === "ACCEPTED_ANOTHER_COMPANY"
           ? "Accepted to another company"
-          : options.assignmentKind === "other"
-            ? "Other Shipment"
-            : options.assignmentKind === "new"
-              ? "New Shipment"
-              : "All Shipments";
+          : options.assignmentKind === "accepted"
+            ? "Accepted shipments"
+            : options.assignmentKind === "other"
+              ? "Other Shipment"
+              : options.assignmentKind === "new"
+                ? "New Shipment"
+                : "All Shipments";
       var tabHelp =
         options.status === "ACCEPTED_ANOTHER_COMPANY"
           ? "Broker Gmail Decline Reason = Accepted another quote — moved here automatically."
-          : options.assignmentKind === "other"
-            ? "Loads passed from another broker who did not accept in time."
-            : options.assignmentKind === "new"
-              ? "Fresh imports and first-time assignments — prioritized in round-robin."
-              : "All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).";
+          : options.assignmentKind === "accepted"
+            ? "Broker accepted the shipment (Shipment Accepted) and active work beyond waiting."
+            : options.assignmentKind === "other"
+              ? "Loads passed from another broker who did not accept in time."
+              : options.assignmentKind === "new"
+                ? "Fresh imports and first-time assignments — prioritized in round-robin."
+                : "All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).";
       var fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
       var toIdx = Math.min(total, (page - 1) * pageSize + rows.length);
       body.innerHTML =

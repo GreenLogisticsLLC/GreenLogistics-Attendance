@@ -73,7 +73,9 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
     }
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
     const assignmentKind =
-        req.query.assignmentKind === "new" || req.query.assignmentKind === "other"
+        req.query.assignmentKind === "new" ||
+        req.query.assignmentKind === "other" ||
+        req.query.assignmentKind === "accepted"
             ? req.query.assignmentKind
             : undefined;
     const pageRaw = Number(req.query.page);

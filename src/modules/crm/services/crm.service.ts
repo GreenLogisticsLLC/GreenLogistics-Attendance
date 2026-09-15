@@ -382,8 +382,8 @@ export class CrmService {
         teamLeadId?: string;
         /** Broker My Shipments — slim payload, no heavy blobs. */
         lite?: boolean;
-        /** new | other — filter by first-time vs passed-from-another-broker assignment. */
-        assignmentKind?: "new" | "other";
+        /** new | other | accepted — board tabs for first-time / passed / broker-accepted. */
+        assignmentKind?: "new" | "other" | "accepted";
         /** Include terminal deleted rows (default: hide — they are purged from CRM). */
         includeDeleted?: boolean;
     }) {
@@ -418,13 +418,22 @@ export class CrmService {
             where.status = { not: "DELETED_FROM_CUSTOMER" };
         }
 
+        /** Waiting for broker Accept — stay in New / Other. */
+        const waitingStatuses = [
+            "NEW",
+            "UNASSIGNED",
+            "ASSIGNED",
+            "AWAITING_ACCEPTANCE",
+            "AGENT_OPEN",
+        ];
+        const excludeTerminal = ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"];
+
         if (options?.assignmentKind === "new") {
             where.isReassignment = false;
             where.wasEverReassigned = false;
-            // Accepted-another lives in its own Shipments subsection.
             where.AND = [
                 ...(Array.isArray(where.AND) ? where.AND : []),
-                { status: { notIn: ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"] } },
+                { status: { in: waitingStatuses } },
             ];
             delete where.status;
         } else if (options?.assignmentKind === "other") {
@@ -434,7 +443,14 @@ export class CrmService {
             where.AND = [
                 ...(Array.isArray(where.AND) ? where.AND : []),
                 passed,
-                { status: { notIn: ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"] } },
+                { status: { in: waitingStatuses } },
+            ];
+            delete where.status;
+        } else if (options?.assignmentKind === "accepted") {
+            // Broker accepted (Shipment Accepted) or progressed further — leave New/Other.
+            where.AND = [
+                ...(Array.isArray(where.AND) ? where.AND : []),
+                { status: { notIn: [...waitingStatuses, ...excludeTerminal] } },
             ];
             delete where.status;
         }

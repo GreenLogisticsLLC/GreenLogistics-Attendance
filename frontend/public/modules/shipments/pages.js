@@ -16,9 +16,11 @@ window.GreenOSModules.shipments = {
     var tab =
       subPageId === "other"
         ? "other"
-        : subPageId === "accepted-another"
-          ? "accepted-another"
-          : "new";
+        : subPageId === "accepted"
+          ? "accepted"
+          : subPageId === "accepted-another"
+            ? "accepted-another"
+            : "new";
 
     root.innerHTML =
       '<div class="gos-module-layout">' +
@@ -29,6 +31,9 @@ window.GreenOSModules.shipments = {
       '<button type="button" class="gos-subnav-item' +
       (tab === "other" ? " is-active" : "") +
       '" data-subpage="other">Other Shipment</button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (tab === "accepted" ? " is-active" : "") +
+      '" data-subpage="accepted">Accepted shipments</button>' +
       '<button type="button" class="gos-subnav-item' +
       (tab === "accepted-another" ? " is-active" : "") +
       '" data-subpage="accepted-another">Accepted to another company</button>' +
