@@ -1,0 +1,110 @@
+name: Verify Accepted shipments tab
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.workdir_known_hosts 2>/dev/null || true
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Count New / Other / Accepted via API
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          cd /root/GreenLogistics-Attendance
+          node --input-type=module << 'NODE'
+          import pkg from "@prisma/client";
+          import jwt from "jsonwebtoken";
+          import { readFileSync } from "fs";
+
+          const { PrismaClient } = pkg;
+          const prisma = new PrismaClient();
+
+          function envGet(key) {
+            const raw = readFileSync(".env", "utf8");
+            for (const line of raw.split("\n")) {
+              if (!line || line.startsWith("#") || !line.includes("=")) continue;
+              const i = line.indexOf("=");
+              const k = line.slice(0, i).trim();
+              if (k !== key) continue;
+              return line.slice(i + 1).trim().replace(/^["']|["']$/g, "");
+            }
+            return "";
+          }
+
+          const waiting = ["NEW", "UNASSIGNED", "ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"];
+          const excludeTerminal = ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"];
+
+          const [newCount, otherCount, acceptedCount, aacCount] = await Promise.all([
+            prisma.shipmentLead.count({
+              where: {
+                isReassignment: false,
+                wasEverReassigned: false,
+                status: { in: waiting },
+              },
+            }),
+            prisma.shipmentLead.count({
+              where: {
+                OR: [{ isReassignment: true }, { wasEverReassigned: true }],
+                status: { in: waiting },
+              },
+            }),
+            prisma.shipmentLead.count({
+              where: { status: { notIn: [...waiting, ...excludeTerminal] } },
+            }),
+            prisma.shipmentLead.count({
+              where: { status: "ACCEPTED_ANOTHER_COMPANY" },
+            }),
+          ]);
+
+          console.log("PRISMA_COUNTS", JSON.stringify({ newCount, otherCount, acceptedCount, aacCount }));
+
+          const broker = await prisma.user.findFirst({
+            where: { isActive: true, role: { roleName: "Broker" } },
+            include: { role: true },
+            orderBy: { lastLogin: "desc" },
+          });
+          if (!broker) throw new Error("No active Broker user");
+
+          const secret = envGet("JWT_SECRET");
+          if (!secret) throw new Error("JWT_SECRET missing");
+          const token = jwt.sign(
+            { userId: broker.userId, username: broker.username, role: broker.role.roleName },
+            secret,
+            { expiresIn: "15m" }
+          );
+
+          async function apiTotal(qs) {
+            const res = await fetch(`http://127.0.0.1:3847/api/crm/shipments?${qs}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const body = await res.json();
+            if (!body.success) {
+              return { ok: false, status: res.status, message: body.message };
+            }
+            return { ok: true, total: body.data?.total ?? 0 };
+          }
+
+          const api = {
+            new: await apiTotal("assignmentKind=new&page=1&pageSize=1"),
+            other: await apiTotal("assignmentKind=other&page=1&pageSize=1"),
+            accepted: await apiTotal("assignmentKind=accepted&page=1&pageSize=1"),
+            aac: await apiTotal("status=ACCEPTED_ANOTHER_COMPANY&page=1&pageSize=1"),
+          };
+          console.log("API_COUNTS", JSON.stringify(api));
+          console.log("VERIFY_USER", broker.username, broker.role.roleName);
+          // One-shot browser token for Contabo-local verification only (15m).
+          console.log("BROWSER_TOKEN_B64", Buffer.from(token, "utf8").toString("base64"));
+
+          await prisma.$disconnect();
+          NODE
+          EOF
