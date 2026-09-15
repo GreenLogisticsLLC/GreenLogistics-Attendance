@@ -234,4 +234,11 @@ jobs:
             node scripts/diagnose-customer-replied.mjs GOS1000030 || true
             echo "=== fix false customer replied done ==="
           fi
+
+          # One-shot: align Instant Alerts to In Office brokers (Lia) + drain.
+          if [ -f ops/RUN_FIX_IN_OFFICE_ASSIGN ]; then
+            echo "=== ONE-SHOT fix in-office assign (marker present) ==="
+            node scripts/ops-fix-in-office-assign.mjs --confirm=FIX_IN_OFFICE_ASSIGN || true
+            echo "=== fix in-office assign done ==="
+          fi
           EOF
