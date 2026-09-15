@@ -453,11 +453,8 @@
       // A full re-render would destroy an open shipment card mid-edit.
       const modal = document.getElementById("crm-modal");
       if (modal && !modal.classList.contains("hidden")) return;
-      if (this.currentModule === "dashboard") {
-        const host = document.getElementById("gos-module-host");
-        if (host) this.loadDashboardMetrics(host);
-        return;
-      }
+      // Main Command Center — manual only (no poll / realtime soft-reload).
+      if (this.currentModule === "dashboard") return;
       this.navigate(this.currentModule, this.currentSub || undefined, { skipHistory: true });
     },
 
@@ -519,13 +516,8 @@
         `</section>` +
         `</div>`;
 
+      // Load once on open — do not auto-refresh the main dashboard.
       this.loadDashboardMetrics(root);
-      const self = this;
-      this._dashPollTimer = setInterval(function () {
-        if (self.currentModule === "dashboard") {
-          self.loadDashboardMetrics(root);
-        }
-      }, 30000);
     },
 
     loadDashboardMetrics(root) {
