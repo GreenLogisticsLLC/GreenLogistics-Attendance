@@ -1031,8 +1031,7 @@ window.GreenOSModules.crm = {
       var customerRepliedNotice =
         Boolean(s.customerReplied) ||
         String(s.status || "") === "CUSTOMER_REPLIED" ||
-        (customerR && customerR.done) ||
-        Boolean(s.brokerReplyDeadline);
+        (customerR && customerR.done);
 
       function pipeNodeHtml(p, opts) {
         opts = opts || {};

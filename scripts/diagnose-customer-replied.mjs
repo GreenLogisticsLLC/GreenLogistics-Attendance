@@ -35,8 +35,7 @@ async function main() {
     assignedBrokerId: lead.assignedBrokerId,
     createdAt: lead.createdAt,
     updatedAt: lead.updatedAt,
-    customerRepliedFlag:
-      String(lead.status || "") === "CUSTOMER_REPLIED" || Boolean(lead.brokerReplyDeadline),
+    customerRepliedFlag: String(lead.status || "") === "CUSTOMER_REPLIED",
   });
 
   const events = await prisma.domainEvent.findMany({
@@ -48,7 +47,6 @@ async function main() {
       title: true,
       message: true,
       payloadJson: true,
-      timelineStage: true,
       createdAt: true,
     },
   });
@@ -57,7 +55,6 @@ async function main() {
     console.log({
       at: e.createdAt,
       type: e.eventType,
-      stage: e.timelineStage,
       title: e.title,
       message: (e.message || "").slice(0, 180),
       payload: (e.payloadJson || "").slice(0, 280),
@@ -100,7 +97,6 @@ async function main() {
     },
   });
   console.log("MAILBOX", mailbox);
-
   console.log("=== END ===");
 }
 

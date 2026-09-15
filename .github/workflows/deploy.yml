@@ -226,4 +226,12 @@ jobs:
             node scripts/diagnose-customer-replied.mjs GOS1000030 || true
             echo "=== diagnose customer replied done ==="
           fi
+
+          # One-shot: repair false CUSTOMER_REPLIED (no real Q&A Gmail).
+          if [ -f ops/RUN_FIX_FALSE_CUSTOMER_REPLIED ]; then
+            echo "=== ONE-SHOT fix false customer replied (marker present) ==="
+            node scripts/ops-fix-false-customer-replied.mjs --confirm=FIX_FALSE_CUSTOMER_REPLIED || true
+            node scripts/diagnose-customer-replied.mjs GOS1000030 || true
+            echo "=== fix false customer replied done ==="
+          fi
           EOF

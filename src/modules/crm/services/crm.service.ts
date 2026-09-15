@@ -101,9 +101,7 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
         opsDeliveryAt: lead.opsDeliveryAt || null,
         ushipUrl: ushipListingUrlFromLead(lead),
         brokerReplyDeadline: lead.brokerReplyDeadline || null,
-        customerReplied:
-            String(lead.status || "") === "CUSTOMER_REPLIED" ||
-            Boolean(lead.brokerReplyDeadline),
+        customerReplied: String(lead.status || "") === "CUSTOMER_REPLIED",
     };
 }
 
