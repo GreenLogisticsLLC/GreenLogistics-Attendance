@@ -339,13 +339,25 @@ export async function applyUshipLifecycleEvent(input: {
         };
     }
 
-    // Old Quote Confirmation rematched by soft title ("4 Pallets") must not
-    // stamp Bid Submitted onto a newer Instant Alert card.
-    if (
-        detected.kind === "BID_SUBMITTED" ||
-        detected.kind === "QUOTE_SUBMITTED" ||
-        detected.kind === "BID_UPDATED"
-    ) {
+    const customerReplyKinds = new Set<UshipLifecycleKind>([
+        "CUSTOMER_RESPOND",
+        "CUSTOMER_QUESTION",
+        "CUSTOMER_REPLIED",
+        "NEW_MESSAGE",
+    ]);
+
+    // Old emails rematched by soft title ("1 Pallet") must not stamp Bid Submitted
+    // or Customer Replied onto a newer Instant Alert card.
+    const ageSensitiveKinds = new Set<UshipLifecycleKind>([
+        "BID_SUBMITTED",
+        "QUOTE_SUBMITTED",
+        "BID_UPDATED",
+        "CUSTOMER_RESPOND",
+        "CUSTOMER_QUESTION",
+        "CUSTOMER_REPLIED",
+        "NEW_MESSAGE",
+    ]);
+    if (ageSensitiveKinds.has(detected.kind)) {
         let mailReceivedAt: Date | null = null;
         if (input.gmailMessageId) {
             const mail = await prisma.brokerMailboxMessage.findFirst({
@@ -368,18 +380,13 @@ export async function applyUshipLifecycleEvent(input: {
                 return {
                     applied: false as const,
                     detected,
-                    reason: "Quote/bid confirmation email is older than this shipment card",
+                    reason: customerReplyKinds.has(detected.kind)
+                        ? "Customer reply email is older than this shipment card"
+                        : "Quote/bid confirmation email is older than this shipment card",
                 };
             }
         }
     }
-
-    const customerReplyKinds = new Set<UshipLifecycleKind>([
-        "CUSTOMER_RESPOND",
-        "CUSTOMER_QUESTION",
-        "CUSTOMER_REPLIED",
-        "NEW_MESSAGE",
-    ]);
 
     // Idempotency: never re-apply the same Gmail message as Customer Respond.
     // Rematch used to re-emit CUSTOMER_RESPOND with a fresh timestamp after the

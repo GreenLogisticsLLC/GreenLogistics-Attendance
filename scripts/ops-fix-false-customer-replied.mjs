@@ -1,5 +1,7 @@
 /**
- * Repair false CUSTOMER_REPLIED when there is no real customer Q&A evidence.
+ * Repair false CUSTOMER_REPLIED when Q&A Gmail is older than the shipment card
+ * (soft title rematch like "1 Pallet") or there is no real post-create Q&A.
+ *
  *   node scripts/ops-fix-false-customer-replied.mjs --confirm=FIX_FALSE_CUSTOMER_REPLIED
  *   node scripts/ops-fix-false-customer-replied.mjs --confirm=FIX_FALSE_CUSTOMER_REPLIED GOS1000030
  */
@@ -13,6 +15,7 @@ const CONFIRM = "FIX_FALSE_CUSTOMER_REPLIED";
 const args = process.argv.slice(2);
 const confirmed = args.includes(`--confirm=${CONFIRM}`);
 const onlyId = args.find((a) => !a.startsWith("--")) || null;
+const SKEW_MS = 2 * 60_000;
 
 const QA_TYPES = [
   "CUSTOMER_RESPOND",
@@ -28,6 +31,22 @@ function isInstantAlertSubject(subject) {
     /\bmatches\s+your\b.{0,40}\bsaved\s+search\b/.test(s) ||
     /^new\s+shipment\b/.test(s.trim())
   );
+}
+
+async function mailReceivedAt(gmailMessageId) {
+  if (!gmailMessageId) return null;
+  const broker = await prisma.brokerMailboxMessage.findFirst({
+    where: { gmailMessageId },
+    select: { receivedAt: true },
+  });
+  if (broker?.receivedAt) return broker.receivedAt;
+  const company = await prisma.emailMessage
+    .findFirst({
+      where: { gmailMessageId },
+      select: { receivedAt: true },
+    })
+    .catch(() => null);
+  return company?.receivedAt || null;
 }
 
 async function main() {
@@ -59,7 +78,9 @@ async function main() {
       orderBy: { createdAt: "desc" },
     });
 
-    const realQa = events.filter((e) => {
+    const realQa = [];
+    const staleQa = [];
+    for (const e of events) {
       let payload = {};
       try {
         payload = e.payloadJson ? JSON.parse(e.payloadJson) : {};
@@ -67,24 +88,38 @@ async function main() {
         payload = {};
       }
       const subject = String(e.message || e.title || "");
-      if (isInstantAlertSubject(subject)) return false;
-      // Keep if Gmail-backed or clearly titled Customer Respond/Question.
-      if (payload.gmailMessageId) return true;
-      if (/customer\s+respond|customer\s+question|question\s+answered/i.test(subject)) {
-        return true;
+      if (isInstantAlertSubject(subject)) {
+        staleQa.push(e);
+        continue;
       }
-      if (/customer\s+respond|customer\s+question|question\s+answered/i.test(e.title || "")) {
-        return true;
+      // Transition-only audit rows (no Gmail) are not evidence of a customer reply.
+      if (!payload.gmailMessageId) {
+        staleQa.push(e);
+        continue;
       }
-      return false;
-    });
+      const receivedAt = await mailReceivedAt(payload.gmailMessageId);
+      if (
+        receivedAt &&
+        lead.createdAt &&
+        receivedAt.getTime() + SKEW_MS < new Date(lead.createdAt).getTime()
+      ) {
+        console.log("STALE_QA", lead.greenOsShipmentId, {
+          gmailMessageId: payload.gmailMessageId,
+          receivedAt,
+          shipmentCreatedAt: lead.createdAt,
+          subject: subject.slice(0, 80),
+        });
+        staleQa.push(e);
+        continue;
+      }
+      realQa.push(e);
+    }
 
     if (realQa.length) {
       console.log("KEEP", lead.greenOsShipmentId, "realQa", realQa.length);
       continue;
     }
 
-    // Prefer BID_SUBMITTED if a bid event exists, else WORKING (Shipment Accepted).
     const bid = await prisma.domainEvent.findFirst({
       where: {
         shipmentLeadId: lead.shipmentLeadId,
@@ -101,20 +136,12 @@ async function main() {
       },
     });
 
-    // Soft-delete false QA events that lack real Gmail (keep audit via payload if needed).
-    for (const e of events) {
-      let payload = {};
-      try {
-        payload = e.payloadJson ? JSON.parse(e.payloadJson) : {};
-      } catch {
-        payload = {};
-      }
-      if (payload.gmailMessageId && !isInstantAlertSubject(e.message || "")) continue;
+    for (const e of staleQa) {
       await prisma.domainEvent.delete({ where: { eventId: e.eventId } }).catch(() => null);
     }
 
     console.log("FIXED", lead.greenOsShipmentId || lead.shipmentLeadId, "->", nextStatus, {
-      droppedQaEvents: events.length,
+      droppedQaEvents: staleQa.length,
     });
     fixed += 1;
   }
