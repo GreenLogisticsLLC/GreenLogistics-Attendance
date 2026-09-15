@@ -68,17 +68,23 @@ jobs:
 
           console.log("PRISMA_COUNTS", JSON.stringify({ newCount, otherCount, acceptedCount, aacCount }));
 
-          const broker = await prisma.user.findFirst({
-            where: { isActive: true, role: { roleName: "Broker" } },
-            include: { role: true },
-            orderBy: { lastLogin: "desc" },
-          });
-          if (!broker) throw new Error("No active Broker user");
+          const owner =
+            (await prisma.user.findFirst({
+              where: { isActive: true, role: { roleName: { in: ["Owner", "Administrator", "Manager"] } } },
+              include: { role: true },
+              orderBy: { lastLogin: "desc" },
+            })) ||
+            (await prisma.user.findFirst({
+              where: { isActive: true, role: { roleName: "Broker" } },
+              include: { role: true },
+              orderBy: { lastLogin: "desc" },
+            }));
+          if (!owner) throw new Error("No active Owner/Admin/Manager/Broker user");
 
           const secret = envGet("JWT_SECRET");
           if (!secret) throw new Error("JWT_SECRET missing");
           const token = jwt.sign(
-            { userId: broker.userId, username: broker.username, role: broker.role.roleName },
+            { userId: owner.userId, username: owner.username, role: owner.role.roleName },
             secret,
             { expiresIn: "15m" }
           );
@@ -101,7 +107,7 @@ jobs:
             aac: await apiTotal("status=ACCEPTED_ANOTHER_COMPANY&page=1&pageSize=1"),
           };
           console.log("API_COUNTS", JSON.stringify(api));
-          console.log("VERIFY_USER", broker.username, broker.role.roleName);
+          console.log("VERIFY_USER", owner.username, owner.role.roleName);
           // One-shot browser token for Contabo-local verification only (15m).
           console.log("BROWSER_TOKEN_B64", Buffer.from(token, "utf8").toString("base64"));
 
