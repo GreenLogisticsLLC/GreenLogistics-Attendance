@@ -51,9 +51,10 @@ async function main() {
     include: { employee: true },
   });
 
-  const lia = brokers.find((b) =>
-    `${b.firstName} ${b.lastName} ${b.username}`.toLowerCase().includes("lia")
-  );
+  const lia = brokers.find((b) => {
+    const n = `${b.firstName} ${b.lastName}`.trim().toLowerCase();
+    return n === "lia torres" || (n.startsWith("lia ") && n.includes("torres"));
+  });
   if (lia) {
     const empId = lia.employeeId || lia.employee?.employeeId;
     console.log("LIA_USER", `${lia.firstName} ${lia.lastName}`, empId);
