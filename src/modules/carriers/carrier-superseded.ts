@@ -36,6 +36,22 @@ export function isSameCarrierIdentity(
 }
 
 /**
+ * Broker changed BOTH carrier name and email → full carrier change.
+ * New registration must get a new Load Number; prior load keeps its history.
+ */
+export function isNameAndEmailCarrierChange(
+    previous: { name?: string | null; email?: string | null },
+    next: { name?: string | null; email?: string | null }
+): boolean {
+    const prevName = normName(previous.name);
+    const prevEmail = normEmail(previous.email);
+    const nextName = normName(next.name);
+    const nextEmail = normEmail(next.email);
+    if (!prevName || !prevEmail || !nextName || !nextEmail) return false;
+    return prevName !== nextName && prevEmail !== nextEmail;
+}
+
+/**
  * Decide whether a carrier row should show as superseded (red) on the Carriers list.
  * Official load carrier = ShipmentLead.carrierProfileId (latest registration for that load).
  */

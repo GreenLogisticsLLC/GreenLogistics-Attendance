@@ -1823,7 +1823,7 @@ window.GreenOSModules["dispatch"] = {
         "</button>" +
         '<p class="gos-muted" style="margin-top:0.5rem">' +
         (c.carrierName
-          ? "You can change the carrier or details. Status stays where the load already is. The onboarding link is resent only when filled fields change (2nd / 3rd / later save)."
+          ? "Changing <strong>both</strong> Carrier name and email creates a new Load Number for the new carrier. The previous Load Number keeps the old carrier and documents. Other field edits stay on this Load and may resend the onboarding link."
           : "After save → status <strong>Carrier Assigned</strong>. Green OS emails the Agreement + MC/NOA/W-9 link from <strong>your Gmail</strong> to the carrier.") +
         "</p>" +
         "</div>";
@@ -1905,51 +1905,82 @@ window.GreenOSModules["dispatch"] = {
           var hasCarrierFieldChanges = fieldChanges.some(Boolean);
           var shouldResendInvite = isFirstAssign || hasCarrierFieldChanges;
 
-          await self.api("/" + encodeURIComponent(id), {
+          var nameAndEmailChange =
+            !isFirstAssign &&
+            self.normCarrierText(carrierPayload.carrierName) !== self.normCarrierText(c.carrierName) &&
+            self.normCarrierText(carrierPayload.carrierEmail) !== self.normCarrierText(c.carrierEmail);
+
+          var saved = await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
             body: JSON.stringify(carrierPayload),
           });
+          var fork = saved && saved.carrierChangeFork ? saved.carrierChangeFork : null;
+          var targetId =
+            fork && fork.newShipmentLeadId ? String(fork.newShipmentLeadId) : id;
           var inviteMsg = "";
-          if (!shouldResendInvite) {
+          if (fork && fork.newLoadNumber) {
+            inviteMsg =
+              "\n\nCarrier change (Name + Email) → new Load Number " +
+              fork.newLoadNumber +
+              " created. Prior Load " +
+              (fork.previousLoadNumber || "—") +
+              " keeps the previous carrier and documents. Continuing on the new Load.";
+          }
+          if (!shouldResendInvite && !fork) {
             inviteMsg =
               "\n\nNo field changes — onboarding link was not resent to the same carrier.";
           } else {
             try {
               var token = localStorage.getItem("gl_token") || "";
               var invRes = await fetch(
-                "/api/carriers/from-load/" + encodeURIComponent(id) + "/invite-agreement",
+                "/api/carriers/from-load/" + encodeURIComponent(targetId) + "/invite-agreement",
                 {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
                     Authorization: "Bearer " + token,
                   },
-                  body: JSON.stringify({ reason: isFirstAssign ? "assign" : "carrier_fields_changed" }),
+                  body: JSON.stringify({
+                    reason: isFirstAssign
+                      ? "assign"
+                      : nameAndEmailChange || fork
+                        ? "carrier_change"
+                        : "carrier_fields_changed",
+                  }),
                 }
               );
               var invJson = await invRes.json().catch(function () { return {}; });
               if (!invRes.ok || invJson.success === false) {
-                inviteMsg =
+                inviteMsg +=
                   "\n\nCarrier saved, but onboarding email failed:\n" +
                   (invJson.message || "Connect Broker Gmail, then Resend from Carriers.");
               } else if (invJson.data && invJson.data.invite && invJson.data.invite.skipped) {
-                inviteMsg =
+                inviteMsg +=
                   "\n\nRegistered carrier linked. Review packet documents below, then click Approve Carrier.";
               } else if (isFirstAssign) {
-                inviteMsg =
+                inviteMsg +=
                   "\n\nSecure Agreement link emailed to the carrier from your Gmail.";
+              } else if (fork || nameAndEmailChange) {
+                inviteMsg +=
+                  "\n\nNew carrier registration — secure Agreement link emailed from your Gmail.";
               } else {
-                inviteMsg =
+                inviteMsg +=
                   "\n\nFields changed — secure Agreement link emailed again to the carrier from your Gmail.";
               }
             } catch (inviteErr) {
-              inviteMsg =
+              inviteMsg +=
                 "\n\nCarrier saved, but onboarding email failed. Connect Broker Gmail and resend.";
             }
           }
-          alert((c.carrierName ? "Carrier updated." : "Carrier assigned.") + inviteMsg);
+          alert(
+            (fork
+              ? "New Load created for carrier change."
+              : c.carrierName
+                ? "Carrier updated."
+                : "Carrier assigned.") + inviteMsg
+          );
           var host = document.querySelector("#load-tms-body");
-          self.openLoad(host, id, "carrier");
+          self.openLoad(host, targetId, "carrier");
         } catch (err) {
           alert(err.message || err);
         }
