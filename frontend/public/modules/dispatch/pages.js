@@ -3260,20 +3260,16 @@ window.GreenOSModules["dispatch"] = {
 
     box.innerHTML =
       "<h3>Generate Bill of Lading</h3>" +
-      '<p class="gos-muted">Layout matches Green Logistics Master BOL (SHIPS FROM / SHIPS TO / Carrier / Order / Signatures). Emails included.</p>' +
+      '<p class="gos-muted">Layout matches Green Logistics Master BOL (SHIPS FROM / SHIPS TO / Carrier / Order / Signatures). Broker + carrier emails only — no customer info on BOL.</p>' +
       '<div class="load-form-grid">' +
       '<label>BOL / Load No <input id="bol-no" value="' + self.esc(g.loadNumber || "") + '"></label>' +
       '<label>Pickup date <input id="bol-pdate" value="' + self.esc(dt(pickupSrc)) + '"></label>' +
       '<label>Broker Gmail <input id="bol-broker-email" value="' +
       self.esc(contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "") +
       '" readonly></label>' +
-      '<label>Customer email <input id="bol-customer-email" type="email" value="' +
-      self.esc(contacts.customerEmail || g.customerEmail || "") +
-      '"></label>' +
       '<label>Carrier email * <input id="bol-carrier-email" type="email" value="' +
       self.esc(c.carrierEmail || contacts.carrierEmail || "") +
       '"></label>' +
-      '<label>Customer <input id="bol-customer" value="' + self.esc(g.customer || "") + '"></label>' +
       '<label class="full">SHIPS FROM (origin) * <input id="bol-origin" value="' + self.esc(pick("pickupAddress", place(g.pickup))) + '" required></label>' +
       '<div id="bol-extra-origins" class="load-extra-stops"></div>' +
       '<div class="load-extra-stops-actions">' +
@@ -3393,8 +3389,6 @@ window.GreenOSModules["dispatch"] = {
         await self.api("/" + encodeURIComponent(id), {
           method: "PATCH",
           body: JSON.stringify({
-            customerName: box.querySelector("#bol-customer").value || null,
-            customerEmail: box.querySelector("#bol-customer-email").value || null,
             carrierName: box.querySelector("#bol-carrier").value || null,
             carrierEmail: carrierEmail,
             carrierMc: box.querySelector("#bol-mc").value || null,
@@ -3409,14 +3403,11 @@ window.GreenOSModules["dispatch"] = {
         if (statusEl) statusEl.textContent = "Generating Master BOL PDF…";
         var content = {
           loadNumber: g.loadNumber,
-          shipmentNumber: g.shipmentNumber,
           bolNumber: box.querySelector("#bol-no").value,
           pickupDate: box.querySelector("#bol-pdate").value,
           deliveryDate: dt(deliverySrc),
           brokerEmail: box.querySelector("#bol-broker-email").value,
           brokerName: (g.broker && g.broker.name) || "",
-          customerName: box.querySelector("#bol-customer").value,
-          customerEmail: box.querySelector("#bol-customer-email").value,
           carrierName: box.querySelector("#bol-carrier").value,
           carrierEmail: carrierEmail,
           carrierMc: box.querySelector("#bol-mc").value,

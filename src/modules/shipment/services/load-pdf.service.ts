@@ -631,14 +631,12 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     });
     y += 16;
 
-    // Email strip (GreenOS extension kept on company BOL)
+    // Email strip — broker + carrier only (no customer info on BOL).
     drawBox(doc, left, y, usable, 28);
     doc.font("Helvetica-Bold").fontSize(7).text("BROKER EMAIL", left + 4, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 175 });
-    doc.font("Helvetica-Bold").fontSize(7).text("CUSTOMER EMAIL", left + 190, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.customerEmail) || "—", left + 190, y + 13, { width: 175 });
-    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER EMAIL", left + 380, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 380, y + 13, { width: 170 });
+    doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 270 });
+    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER EMAIL", left + 286, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 286, y + 13, { width: 262 });
     y += 34;
 
     // SHIPS FROM | Freight terms (supports multiple origins)
@@ -881,7 +879,7 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
         width: 160,
         align: "right",
     });
-    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(`Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`, left + 280, y + 12, {
+    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(`Phone: ${GREEN_LOGISTICS_RC.mainPhone}`, left + 280, y + 12, {
         width: 160,
         align: "right",
     });
@@ -894,11 +892,9 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
 
     drawBox(doc, left, y, usable, 28);
     doc.font("Helvetica-Bold").fontSize(7).text("BROKER EMAIL", left + 4, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 175 });
-    doc.font("Helvetica-Bold").fontSize(7).text("CUSTOMER EMAIL", left + 190, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.customerEmail) || "—", left + 190, y + 13, { width: 175 });
-    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER EMAIL", left + 380, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 380, y + 13, { width: 170 });
+    doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 270 });
+    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER EMAIL", left + 286, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 286, y + 13, { width: 262 });
     y += 34;
 
     drawBox(doc, left, y, usable / 2 - 2, 90);
@@ -926,13 +922,12 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.text(`Driver: ${txt(c.driverName) || "—"}   Phone: ${txt(c.driverPhone) || txt(c.carrierPhone) || "—"}`, left + 4, y + 48);
     y += 78;
 
-    drawBox(doc, left, y, usable, 70);
+    drawBox(doc, left, y, usable, 58);
     doc.font("Helvetica-Bold").fontSize(8).text("COMMODITY / PIECES / WEIGHT", left + 4, y + 4);
     doc.font("Helvetica").fontSize(9);
     doc.text(`Commodity: ${txt(c.commodity) || "—"}`, left + 4, y + 18, { width: usable - 8 });
-    doc.text(`# Pkgs: ${String(c.pieces ?? "—")}    Weight: ${txt(c.weight) || "—"}    Shipment: ${txt(c.shipmentNumber) || "—"}`, left + 4, y + 36);
-    doc.text(`Customer: ${txt(c.customerName) || "—"}`, left + 4, y + 52);
-    y += 78;
+    doc.text(`# Pkgs: ${String(c.pieces ?? "—")}    Weight: ${txt(c.weight) || "—"}`, left + 4, y + 36);
+    y += 58;
 
     drawBox(doc, left, y, usable, 56);
     doc.font("Helvetica-Bold").fontSize(8).text("DELIVERY CONDITION / EXCEPTIONS", left + 4, y + 4);
