@@ -1590,12 +1590,22 @@ window.GreenOSModules["dispatch"] = {
         field("Weight", g.weight) +
         field("Pieces", g.pieces) +
         field("Miles", g.miles) +
-        field("Rate", self.money(custPrice)) +
+        field(
+          "Customer rate",
+          custPrice !== "" ? self.money(custPrice) : "— enter below"
+        ) +
         moneyGrid +
         field("Created", g.createdAt ? new Date(g.createdAt).toLocaleString() : "—") +
         field("Last Updated", g.updatedAt ? new Date(g.updatedAt).toLocaleString() : "—") +
         "</div>" +
         '<div class="load-edit-panel">' +
+        "<h3>Customer rate (взяли у customer)</h3>" +
+        '<p class="gos-muted">How much you took this load for from the customer. Brokers set this when the Load is created — used on Customer Invoice.</p>' +
+        '<div class="load-form-grid" style="margin-bottom:1rem">' +
+        "<label>Customer rate" +
+        self.moneyFieldHtml("ld-rate", custPrice, "1500.00") +
+        "</label>" +
+        "</div>" +
         moneyPanel +
         "<h3>Emails — Broker Gmail / Customer / Carrier</h3>" +
         '<p class="gos-muted">These emails go on Rate Con and BOL. Fill them as soon as the Load is created.</p>' +
@@ -1640,9 +1650,6 @@ window.GreenOSModules["dispatch"] = {
         '"></label>' +
         "<label>Delivery time" +
         self.timeFieldHtml("ld-delivery-time", (g.delivery && (g.delivery.from || g.delivery.opsAt)) || "") +
-        "</label>" +
-        "<label>Rate" +
-        self.moneyFieldHtml("ld-rate", custPrice, "0.00") +
         "</label>" +
         '<label class="full">Special Instructions <textarea id="ld-special">' + self.esc(g.specialInstructions || "") + "</textarea></label>" +
         "</div>" +

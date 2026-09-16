@@ -120,10 +120,36 @@ export class LoadService {
     /**
      * Auto-create Load Number only. Brokers cannot supply a custom number.
      */
-    async createLoad(shipmentLeadId: string, actorUserId?: string) {
+    async createLoad(
+        shipmentLeadId: string,
+        actorUserId?: string,
+        options?: { customerRate?: number | null }
+    ) {
         const shipment = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!shipment) throw Object.assign(new Error("Shipment not found"), { status: 404 });
+
+        let rateToSave: number | undefined;
+        if (options?.customerRate !== undefined && options?.customerRate !== null) {
+            const n = Number(options.customerRate);
+            if (!Number.isFinite(n) || n < 0) {
+                throw Object.assign(new Error("Customer rate must be a non-negative number"), {
+                    status: 422,
+                });
+            }
+            rateToSave = n;
+        }
+
         if (shipment.loadNumber && String(shipment.loadNumber).trim()) {
+            // Load already exists — still allow broker to set customer rate if provided.
+            if (rateToSave !== undefined) {
+                await prisma.shipmentLead.update({
+                    where: { shipmentLeadId },
+                    data: {
+                        customerRate: rateToSave,
+                        price: rateToSave,
+                    },
+                });
+            }
             return shipmentService.createLoadAfterAccepted({ shipmentLeadId, actorUserId });
         }
         const loadNumber = await allocateLoadNumber();
@@ -131,6 +157,7 @@ export class LoadService {
             shipmentLeadId,
             loadNumber,
             actorUserId,
+            ...(rateToSave !== undefined ? { customerRate: rateToSave } : {}),
         });
     }
 

@@ -121,7 +121,19 @@ export const loadController = {
             const access = await accessOr404(req, res, id);
             if (!access.ok) return;
             // Ignore any client-supplied load number — system only.
-            await loadService.createLoad(id, req.user?.userId);
+            const body = (req.body || {}) as Record<string, unknown>;
+            let customerRate: number | null | undefined;
+            if (body.customerRate !== undefined && body.customerRate !== null && body.customerRate !== "") {
+                const n = Number(body.customerRate);
+                if (!Number.isFinite(n) || n < 0) {
+                    return res.status(422).json({
+                        success: false,
+                        message: "Customer rate must be a non-negative number",
+                    });
+                }
+                customerRate = n;
+            }
+            await loadService.createLoad(id, req.user?.userId, { customerRate });
             const data = await loadService.getLoadDetails(id);
             const role = req.user?.role || "";
             const payload = canViewLoadProfit(role)
