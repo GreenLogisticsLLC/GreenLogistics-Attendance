@@ -24,9 +24,32 @@
     input, textarea, select { border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.65rem; font:inherit; color:var(--text); background:#fff; }
     input.invalid, textarea.invalid { border-color:var(--danger); }
     .actions { display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:1rem; }
-    button { border:0; border-radius:8px; padding:0.65rem 1rem; font:inherit; font-weight:600; cursor:pointer; }
+    button,
+    a.btn-primary,
+    a.btn-secondary,
+    a.btn-doc-pdf {
+      border:0;
+      border-radius:8px;
+      padding:0.65rem 1rem;
+      font:inherit;
+      font-weight:700;
+      cursor:pointer;
+      display:inline-block;
+      text-decoration:none;
+      line-height:1.2;
+    }
     .btn-primary { background:var(--accent); color:#fff; }
     .btn-secondary { background:#eef2f8; color:var(--text); }
+    /* Rate Confirmation / BOL PDF — louder than gray secondary links */
+    .btn-doc-pdf {
+      background:#0b6e4f;
+      color:#fff;
+      font-weight:800;
+      letter-spacing:0.01em;
+      box-shadow:0 2px 0 rgba(11,110,79,0.35);
+    }
+    .btn-doc-pdf:hover { background:#095c42; color:#fff; }
+    .btn-doc-pdf:focus-visible { outline:2px solid #34d399; outline-offset:2px; }
     .error { color:var(--danger); white-space:pre-wrap; }
     .ok { color:var(--accent); }
     .muted { color:var(--muted); font-size:0.9rem; }
@@ -291,7 +314,7 @@
   function block(title, bodyHtml) {
     return '<div class="doc-block"><strong>' + esc(title) + "</strong>" + bodyHtml + "</div>";
   }
-  function pdfBtn(docMeta, downloadLabel) {
+  function pdfBtn(docMeta, downloadLabel, viewLabel) {
     if (!docMeta || !docMeta.documentId || !docMeta.hasPdf) return "";
     var base =
       "/api/carrier-onboarding/" +
@@ -301,10 +324,12 @@
       "/download";
     return (
       '<div class="doc-actions" style="display:flex;flex-wrap:wrap;gap:0.45rem">' +
-      '<a class="btn-secondary" href="' +
+      '<a class="btn-doc-pdf" href="' +
       base +
-      '?inline=1" target="_blank" rel="noopener">View</a>' +
-      '<a class="btn-secondary" href="' +
+      '?inline=1" target="_blank" rel="noopener">' +
+      esc(viewLabel || "View PDF") +
+      "</a>" +
+      '<a class="btn-doc-pdf" href="' +
       base +
       '" target="_blank" rel="noopener">' +
       esc(downloadLabel || "Download PDF") +
@@ -367,7 +392,7 @@
       ) +
       (notes ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Special notes</strong>' + esc(notes) + "</div>" : "") +
       (terms ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Terms</strong>' + esc(terms) + "</div>" : "") +
-      pdfBtn(meta, "Download Rate Confirmation PDF") +
+      pdfBtn(meta, "Download Rate Confirmation PDF", "View Rate Confirmation PDF") +
       "</div>"
     );
   }
@@ -418,7 +443,7 @@
           esc(c.specialInstructions) +
           "</div>"
         : "") +
-      pdfBtn(meta, "Download BOL PDF") +
+      pdfBtn(meta, "Download BOL PDF", "View BOL PDF") +
       "</div>"
     );
   }
