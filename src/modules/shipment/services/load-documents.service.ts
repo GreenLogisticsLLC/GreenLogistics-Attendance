@@ -11,6 +11,7 @@ import {
 import {
     DEFAULT_RATE_CON_TERMS,
     generateLoadDocumentPdf,
+    GREEN_LOGISTICS_RC,
     LOAD_DOCS_ROOT,
     type LoadDocumentContent,
 } from "./load-pdf.service.js";
@@ -184,6 +185,11 @@ export class LoadDocumentsService {
             specialInstructions: s.specialInstructions || s.notes,
             bolNumber: s.loadNumber,
             freightTerms: "PREPAID",
+            thirdPartyBillTo: [
+                GREEN_LOGISTICS_RC.legalName,
+                `${GREEN_LOGISTICS_RC.addressLine1}, ${GREEN_LOGISTICS_RC.addressLine2}`,
+                `Phone: ${GREEN_LOGISTICS_RC.mainPhone}`,
+            ].join("\n"),
             customerOrderNo: s.externalShipmentId,
             packageQty: s.pieces,
             handlingQty: s.pieces,

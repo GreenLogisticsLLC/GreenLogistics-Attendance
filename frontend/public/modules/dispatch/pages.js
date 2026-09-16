@@ -3298,7 +3298,15 @@ window.GreenOSModules["dispatch"] = {
       '<label>Trailer# <input id="bol-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
       '<label>VIN# <input id="bol-vin" value="' + self.esc(pick("vinNumber", "")) + '"></label>' +
       '<label>Carrier / driver contact <input id="bol-cphone" value="' + self.esc(c.driverName || "") + '"></label>' +
-      '<label class="full">Third party freight bills to <input id="bol-third" value="' + self.esc(g.customer || "") + '"></label>' +
+      '<label class="full">Third party freight bills to <input id="bol-third" value="' +
+      self.esc(
+        pick(
+          "thirdPartyBillTo",
+          "Green Logistics LLC\n121 Frog Hollow RD, Churchville, PA 18966\nPhone: 267 703 5313"
+        )
+      ) +
+      '" readonly></label>' +
+      '<p class="gos-muted" style="margin:-0.35rem 0 0.5rem">Always Green Logistics LLC (company address + phone) — not the customer.</p>' +
       '<label>Customer order no. <input id="bol-order" value="' + self.esc(pick("customerOrderNo", "")) + '"></label>' +
       '<label># Pkgs <input id="bol-pkgs" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
       '<label>Weight * <input id="bol-weight" value="' + self.esc(g.weight || "") + '" required></label>' +
@@ -3425,7 +3433,8 @@ window.GreenOSModules["dispatch"] = {
           sealNo: box.querySelector("#bol-seal").value,
           fob: box.querySelector("#bol-fob").value,
           freightTerms: box.querySelector("#bol-terms").value,
-          thirdPartyBillTo: box.querySelector("#bol-third").value,
+          thirdPartyBillTo:
+            "Green Logistics LLC\n121 Frog Hollow RD, Churchville, PA 18966\nPhone: 267 703 5313",
           deliveryContact: box.querySelector("#bol-dcontact").value,
           customerOrderNo: box.querySelector("#bol-order").value,
           pieces: box.querySelector("#bol-pkgs").value,

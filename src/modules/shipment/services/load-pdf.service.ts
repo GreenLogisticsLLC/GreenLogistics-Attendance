@@ -617,7 +617,7 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
         width: 160,
         align: "right",
     });
-    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(`Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`, left + 280, y + 12, {
+    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(`Phone: ${GREEN_LOGISTICS_RC.mainPhone}`, left + 280, y + 12, {
         width: 160,
         align: "right",
     });
@@ -625,7 +625,7 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.font("Helvetica-Bold").fontSize(9).fillColor("#111111");
     doc.text(`BILL OF LADING: ${bolNo}`, left, y);
     doc.text(`PICKUP DATE: ${txt(c.pickupDate) || txt(c.confirmationDate) || new Date().toLocaleDateString()}`, left + 200, y);
-    doc.font("Helvetica").fontSize(8).text(`Load ${txt(c.loadNumber) || ""}  ·  ${txt(c.shipmentNumber) || ""}  ·  v${version}`, left + 400, y, {
+    doc.font("Helvetica").fontSize(8).text(`Load ${txt(c.loadNumber) || ""}  ·  v${version}`, left + 400, y, {
         width: usable - 400,
         align: "right",
     });
@@ -715,13 +715,19 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     });
     y += toH;
 
-    // Third party
-    drawBox(doc, left, y, usable, 32);
+    // Third party freight bills → always Green Logistics (broker), not the customer.
+    const thirdPartyLines = [
+        GREEN_LOGISTICS_RC.legalName,
+        `${GREEN_LOGISTICS_RC.addressLine1}, ${GREEN_LOGISTICS_RC.addressLine2}`,
+        `Phone: ${GREEN_LOGISTICS_RC.mainPhone}`,
+    ].join("\n");
+    drawBox(doc, left, y, usable, 48);
     doc.font("Helvetica-Bold").fontSize(7).text("THIRD PARTY FREIGHT BILLS TO", left + 4, y + 3);
-    doc.font("Helvetica").fontSize(9).text(txt(c.thirdPartyBillTo) || txt(c.customerName) || "—", left + 4, y + 14, {
+    doc.font("Helvetica").fontSize(8).text(thirdPartyLines, left + 4, y + 14, {
         width: usable - 8,
+        height: 32,
     });
-    y += 36;
+    y += 52;
 
     // Customer order info
     drawBox(doc, left, y, usable, 52);

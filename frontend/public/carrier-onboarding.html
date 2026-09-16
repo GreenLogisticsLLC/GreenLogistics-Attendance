@@ -437,7 +437,13 @@
       kv("Commodity", dash(c.commodity)) +
       kv("Weight", dash(c.weight)) +
       kv("# pkgs", dash(c.packageQty != null ? c.packageQty : c.pieces)) +
-      kv("Third party bill to", dash(c.thirdPartyBillTo || c.customerName)) +
+      kv(
+        "Third party bill to",
+        dash(
+          c.thirdPartyBillTo ||
+            "Green Logistics LLC\n121 Frog Hollow RD, Churchville, PA 18966\nPhone: 267 703 5313"
+        )
+      ) +
       (c.specialInstructions
         ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Additional instructions</strong>' +
           esc(c.specialInstructions) +
