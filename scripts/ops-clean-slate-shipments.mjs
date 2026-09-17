@@ -59,6 +59,37 @@ async function main() {
   if (after !== 0) {
     throw new Error(`Expected 0 shipments remaining, got ${after}`);
   }
+
+  // Reset Load Number + GOS Shipment ID sequences so the next lot starts fresh.
+  await prisma.setting.upsert({
+    where: {
+      category_settingKey: { category: "shipment", settingKey: "next_load_number" },
+    },
+    create: {
+      category: "shipment",
+      settingKey: "next_load_number",
+      settingValue: "GL100001",
+      description: "Next Green OS Load Number (GL100001… series)",
+    },
+    update: { settingValue: "GL100001" },
+  });
+  await prisma.setting.upsert({
+    where: {
+      category_settingKey: {
+        category: "shipment",
+        settingKey: "next_green_os_shipment_id",
+      },
+    },
+    create: {
+      category: "shipment",
+      settingKey: "next_green_os_shipment_id",
+      settingValue: "GOS1000001",
+      description: "Next Green OS Shipment ID (GOS1000001… series)",
+    },
+    update: { settingValue: "GOS1000001" },
+  });
+  console.log("[clean-slate] SEQUENCES_RESET next_load_number=GL100001 next_green_os_shipment_id=GOS1000001");
+
   await prisma.$disconnect();
 }
 
