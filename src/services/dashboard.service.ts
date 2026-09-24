@@ -6,6 +6,7 @@ import {
     diffMinutes,
     excessOutsideMinutes,
     formatDateTime,
+    formatTime,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
 } from "../utils/helpers.js";
@@ -156,8 +157,8 @@ export class DashboardService {
                 department: emp.department,
                 position: emp.position,
                 scheduledStart: formatDateTime(session?.scheduledStart ?? null) || "—",
-                firstEntry: formatDateTime(session?.firstEntry ?? null),
-                lastExit: formatDateTime(session?.lastExit ?? null),
+                firstEntry: formatTime(session?.firstEntry ?? null),
+                lastExit: formatTime(session?.lastExit ?? null),
                 currentStatus: session?.currentStatus ?? "SCHEDULED",
                 late: Boolean(session?.late),
                 lateMinutes: session?.lateMinutes ?? 0,
@@ -168,7 +169,7 @@ export class DashboardService {
                 breakAllowanceMinutes: ATTENDANCE_BREAK_ALLOWANCE_MINUTES,
                 overtimeInOfficeMinutes,
                 exitCount: session?.exitCount ?? 0,
-                lastActivity: formatDateTime(session?.lastActivity ?? null),
+                lastActivity: formatTime(session?.lastActivity ?? null),
             });
         }
 

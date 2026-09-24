@@ -2,7 +2,7 @@ import { prisma } from "../config/database.js";
 import {
     diffMinutes,
     excessOutsideMinutes,
-    formatDateTime,
+    formatTime,
     formatMinutes,
 } from "../utils/helpers.js";
 import { config } from "../config/env.js";
@@ -113,8 +113,8 @@ export class ReportService {
                 employeeNumber: s.employee.employeeNumber,
                 employeeName: `${s.employee.firstName} ${s.employee.lastName}`,
                 department: s.employee.department,
-                firstEntry: formatDateTime(s.firstEntry),
-                lastExit: formatDateTime(s.lastExit),
+                firstEntry: formatTime(s.firstEntry),
+                lastExit: formatTime(s.lastExit),
                 status: statusLabel(s.currentStatus),
                 totalOutsideMinutes: excessOutsideMinutes(rawOutsideMinutes),
                 timeInOfficeMinutes,

@@ -534,6 +534,21 @@ function formatLateHhMm(minutes) {
     return `late ${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+/** Attendance event clocks: time only, office TZ, −1h vs stamped absolute. */
+function formatAttendanceClock(iso) {
+    if (!iso) return "—";
+    const raw = new Date(iso);
+    if (Number.isNaN(raw.getTime())) return "—";
+    const d = new Date(raw.getTime() - 60 * 60 * 1000);
+    return d.toLocaleTimeString("en-GB", {
+        timeZone: "America/Los_Angeles",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+    });
+}
+
 function renderTable(employees) {
     const tbody = $("#employees-body");
     tbody.innerHTML = employees.map((emp) => {
@@ -849,7 +864,7 @@ async function openEmployeeDrawer(employeeId) {
             <h4>Today's Session</h4>
             <div class="info-grid">
                 <div>Status: ${statusLabel(session.currentStatus)}</div>
-                <div>First Entry: ${session.firstEntry ? new Date(session.firstEntry).toLocaleString() : "—"}</div>
+                <div>First Entry: ${formatAttendanceClock(session.firstEntry)}</div>
                 <div>Late: ${session.late ? formatLateHhMm(session.lateMinutes) : "—"}</div>
                 <div>OutTime In Office: ${overtimeMinutes ? formatDuration(overtimeMinutes) : "—"}</div>
                 <div>Total Outside: ${formatDuration(Math.max(0, rawOutsideMinutes - 60))}</div>
@@ -861,7 +876,7 @@ async function openEmployeeDrawer(employeeId) {
             <ul class="timeline">
                 ${events.map((e) => `
                     <li>
-                        <span class="time">${new Date(e.eventTime).toLocaleString()}</span>
+                        <span class="time">${formatAttendanceClock(e.eventTime)}</span>
                         <span class="dir-${e.direction}">${e.direction}</span>
                         <span>${e.deviceId} · ${e.eventType}</span>
                     </li>

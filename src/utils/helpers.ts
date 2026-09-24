@@ -95,18 +95,44 @@ export function formatMinutes(minutes: number): string {
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+function officeTimeZone(): string {
+    return process.env.TIMEZONE || "America/Los_Angeles";
+}
+
+/**
+ * Access-control stamps historically land ~1h ahead of LA wall clocks during PDT
+ * (partner examples use a fixed +04:00 offset). Shift display back by one hour so
+ * First Entry / Last Exit match the office clock.
+ */
+const ATTENDANCE_DISPLAY_OFFSET_MS = 60 * 60 * 1000;
+
 export function formatDateTime(date: Date | string | null): string | null {
     if (!date) return null;
     const d = typeof date === "string" ? new Date(date) : date;
     return d.toLocaleString("en-GB", {
-        timeZone: process.env.TIMEZONE || "Asia/Yerevan",
+        timeZone: officeTimeZone(),
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
-        hour12: false,
+        hourCycle: "h23",
+    });
+}
+
+/** HH:MM:SS only in office TZ, corrected −1h for attendance event clocks. */
+export function formatTime(date: Date | string | null): string | null {
+    if (!date) return null;
+    const raw = typeof date === "string" ? new Date(date) : date;
+    if (Number.isNaN(raw.getTime())) return null;
+    const d = new Date(raw.getTime() - ATTENDANCE_DISPLAY_OFFSET_MS);
+    return d.toLocaleString("en-GB", {
+        timeZone: officeTimeZone(),
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
     });
 }
 
