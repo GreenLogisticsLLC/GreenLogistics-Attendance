@@ -101,10 +101,16 @@ function officeTimeZone(): string {
 
 /**
  * Access-control stamps historically land ~1h ahead of LA wall clocks during PDT
- * (partner examples use a fixed +04:00 offset). Shift display back by one hour so
- * First Entry / Last Exit match the office clock.
+ * (partner examples use a fixed +04:00 offset). Shift display / late checks back by
+ * one hour so First Entry and the 17:15 late cutoff match the office clock.
  */
-const ATTENDANCE_DISPLAY_OFFSET_MS = 60 * 60 * 1000;
+export const ATTENDANCE_DISPLAY_OFFSET_MS = 60 * 60 * 1000;
+
+/** Map a stored access-control instant onto the office wall clock. */
+export function toAttendanceClock(date: Date | string): Date {
+    const raw = typeof date === "string" ? new Date(date) : date;
+    return new Date(raw.getTime() - ATTENDANCE_DISPLAY_OFFSET_MS);
+}
 
 export function formatDateTime(date: Date | string | null): string | null {
     if (!date) return null;
@@ -126,7 +132,7 @@ export function formatTime(date: Date | string | null): string | null {
     if (!date) return null;
     const raw = typeof date === "string" ? new Date(date) : date;
     if (Number.isNaN(raw.getTime())) return null;
-    const d = new Date(raw.getTime() - ATTENDANCE_DISPLAY_OFFSET_MS);
+    const d = toAttendanceClock(raw);
     return d.toLocaleString("en-GB", {
         timeZone: officeTimeZone(),
         hour: "2-digit",

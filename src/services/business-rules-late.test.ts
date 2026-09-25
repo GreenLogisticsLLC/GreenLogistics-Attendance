@@ -5,6 +5,7 @@ import {
   ATTENDANCE_DAY_START,
   ATTENDANCE_GRACE_MINUTES,
   getAttendanceDayBounds,
+  toAttendanceClock,
   zonedDateTime,
 } from "../utils/helpers.js";
 
@@ -51,4 +52,18 @@ test("late after 17:15 — on-time and late boundary cases", () => {
       assert.equal(result.lateMinutes, 0, `${c.time} late minutes`);
     }
   }
+});
+
+test("stamped +1h still late after office-clock correction past 17:15", () => {
+  const { scheduledStart } = getAttendanceDayBounds(WORK_DATE, TZ);
+  // Device stamped 18:20 while office wall was 17:20 → toAttendanceClock → 17:20 → late 5m
+  const stamped = zonedDateTime(WORK_DATE, "18:20", TZ);
+  const clock = toAttendanceClock(stamped);
+  const result = businessRulesEngine.calculateLateStatus(
+    clock,
+    scheduledStart,
+    ATTENDANCE_GRACE_MINUTES
+  );
+  assert.equal(result.late, true);
+  assert.equal(result.lateMinutes, 5);
 });

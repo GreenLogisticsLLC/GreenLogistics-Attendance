@@ -2,6 +2,7 @@ import { config } from "../config/env.js";
 import { prisma } from "../config/database.js";
 import {
     ATTENDANCE_BREAK_ALLOWANCE_MINUTES,
+    ATTENDANCE_GRACE_MINUTES,
     addDaysToDateString,
     diffMinutes,
     excessOutsideMinutes,
@@ -9,10 +10,12 @@ import {
     formatTime,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
+    toAttendanceClock,
 } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
 import { getEmployeePresenceSession, getEmployeePresenceSessionsMap } from "./attendance-presence.service.js";
+import { businessRulesEngine } from "./business-rules.engine.js";
 import type {
     DashboardEmployeeRow,
     DashboardStatistics,
@@ -65,8 +68,21 @@ export class DashboardService {
                 completedSessions++;
             }
 
-            if (session?.late && (session.lateMinutes || 0) > 0) {
-                employeesLate++;
+            if (session?.firstEntry) {
+                const grace =
+                    emp.shift?.gracePeriodMinutes ?? ATTENDANCE_GRACE_MINUTES;
+                const lateBounds = getAttendanceDayBounds(
+                    session.workDate,
+                    config.timezone
+                );
+                const lateStatus = businessRulesEngine.calculateLateStatus(
+                    toAttendanceClock(session.firstEntry),
+                    lateBounds.scheduledStart,
+                    grace
+                );
+                if (lateStatus.late && lateStatus.lateMinutes > 0) {
+                    employeesLate++;
+                }
             }
             if (!session?.firstEntry && currentStatus === "SCHEDULED") {
                 employeesNotArrived++;
@@ -150,6 +166,21 @@ export class DashboardService {
                     ? diffMinutes(overtimeStart, overtimeEnd)
                     : 0;
 
+            // Always recompute late from First Entry vs 17:15 (office clock) so the
+            // Live Board stays red even if an older session.late flag was wrong.
+            const grace =
+                emp.shift?.gracePeriodMinutes ?? ATTENDANCE_GRACE_MINUTES;
+            const lateBounds = session
+                ? getAttendanceDayBounds(session.workDate, config.timezone)
+                : currentBounds;
+            const lateStatus = session?.firstEntry
+                ? businessRulesEngine.calculateLateStatus(
+                      toAttendanceClock(session.firstEntry),
+                      lateBounds.scheduledStart,
+                      grace
+                  )
+                : { late: false, lateMinutes: 0 };
+
             rows.push({
                 employeeId: emp.employeeId,
                 employeeNumber: emp.employeeNumber,
@@ -160,8 +191,8 @@ export class DashboardService {
                 firstEntry: formatTime(session?.firstEntry ?? null),
                 lastExit: formatTime(session?.lastExit ?? null),
                 currentStatus: session?.currentStatus ?? "SCHEDULED",
-                late: Boolean(session?.late),
-                lateMinutes: session?.lateMinutes ?? 0,
+                late: lateStatus.late,
+                lateMinutes: lateStatus.lateMinutes,
                 currentAbsenceMinutes,
                 currentOfficeMinutes,
                 totalAbsenceMinutes: excessOutsideMinutes(rawOutsideMinutes),

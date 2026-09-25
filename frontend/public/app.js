@@ -495,7 +495,7 @@ function renderStats(stats) {
         ["Scheduled", stats.employeesScheduled, ""],
         ["Inside Office", stats.employeesPresent, "var(--green)"],
         ["Outside", stats.employeesOutside, "var(--yellow)"],
-        ["Late today", stats.employeesLate != null ? stats.employeesLate : (stats.employeesOvertime || 0), "var(--yellow)"],
+        ["Late today", stats.employeesLate != null ? stats.employeesLate : (stats.employeesOvertime || 0), (stats.employeesLate > 0 ? "var(--red)" : "var(--yellow)")],
         ["Not Arrived", stats.employeesNotArrived, "var(--gray)"],
         ["Left", stats.completedSessions, "var(--blue)"],
     ];
