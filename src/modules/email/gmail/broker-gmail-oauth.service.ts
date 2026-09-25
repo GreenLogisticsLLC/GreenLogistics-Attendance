@@ -490,6 +490,31 @@ export class BrokerGmailOAuthService {
         });
     }
 
+    /**
+     * Permanently remove a broker Gmail account (tokens + mailbox message history).
+     * Distinct from disconnect, which keeps the row for later reconnect.
+     */
+    async removeAccount(userId: string) {
+        const existing = await this.getAccount(userId);
+        if (!existing) return null;
+        this.invalidateBrokerClient(existing.brokerGmailId);
+        if (existing.refreshToken) {
+            try {
+                const oauth2 = createOAuthClient();
+                await oauth2.revokeToken(decryptBrokerRefreshToken(existing.refreshToken));
+            } catch (err) {
+                console.warn(
+                    "[BROKER GMAIL] Google token revocation failed on delete:",
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+        await prisma.brokerGmailAccount.delete({
+            where: { brokerGmailId: existing.brokerGmailId },
+        });
+        return existing;
+    }
+
     listActiveAccounts() {
         return prisma.brokerGmailAccount.findMany({
             where: {

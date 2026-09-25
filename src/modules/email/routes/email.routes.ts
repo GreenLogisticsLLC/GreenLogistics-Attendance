@@ -3,6 +3,7 @@ import { authMiddleware, requireRole } from "../../../middlewares/auth.middlewar
 import { Roles } from "../../../auth/roles.js";
 import {
     adminConnectBrokerGmailController,
+    adminDeleteBrokerGmailController,
     adminDisconnectBrokerGmailController,
     adminInviteBrokerGmailController,
     brokerGmailAuthController,
@@ -68,6 +69,11 @@ emailRouter.post(
 );
 emailRouter.post(
     "/broker/accounts/:userId/disconnect",
-    requireRole("Administrator", "Owner"),
+    requireRole("Administrator", "Owner", Roles.TeamLead),
     adminDisconnectBrokerGmailController
+);
+emailRouter.delete(
+    "/broker/accounts/:userId",
+    requireRole("Administrator", "Owner", Roles.TeamLead),
+    adminDeleteBrokerGmailController
 );

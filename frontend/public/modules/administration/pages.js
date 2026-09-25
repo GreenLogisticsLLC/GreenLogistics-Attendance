@@ -255,15 +255,29 @@ window.GreenOSModules['administration'] = {
       '<div class="gos-card" style="margin-bottom:1rem;padding:1rem 1.25rem">' +
       '<strong>Connect a broker Gmail (one time)</strong>' +
       '<ol style="margin:0.5rem 0 0;padding-left:1.25rem;line-height:1.55">' +
-      '<li>Click <em>Connect Gmail</em> on the broker row.</li>' +
+      '<li>Click <em>Add Gmail broker</em> or <em>Connect Gmail</em> on the broker row.</li>' +
       '<li>On Google, sign in as <strong>that broker\'s personal Gmail</strong> (the one uShip emails).</li>' +
       '<li>Click Allow. GreenOS stores access and keeps syncing (requires OAuth app in Production for permanent tokens).</li>' +
       '</ol>' +
       '</div>' +
       '<div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem">' +
+      '<button type="button" class="btn-primary" id="email-accounts-add" style="width:auto">Add Gmail broker</button>' +
       '<button type="button" class="btn-primary" id="email-accounts-sync-all" style="width:auto">Sync all now</button>' +
       '<button type="button" class="btn-secondary" id="email-accounts-refresh" style="width:auto">Refresh</button>' +
       '<span class="gos-muted" id="email-accounts-summary">Loading…</span>' +
+      '</div>' +
+      '<div id="email-accounts-add-panel" class="gos-card" style="display:none;margin-bottom:1rem;padding:1rem 1.25rem">' +
+      '<strong style="display:block;margin-bottom:0.5rem">Add Gmail broker</strong>' +
+      '<p class="gos-muted" style="margin:0 0 0.75rem">Pick a broker, then connect their personal Gmail on Google.</p>' +
+      '<div style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap">' +
+      '<label style="display:flex;flex-direction:column;gap:0.35rem;min-width:220px;flex:1">' +
+      '<span class="gos-muted">Broker</span>' +
+      '<select id="email-accounts-add-select" style="padding:0.55rem 0.65rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)"></select>' +
+      '</label>' +
+      '<button type="button" class="btn-primary" id="email-accounts-add-connect" style="width:auto">Connect Gmail</button>' +
+      '<button type="button" class="btn-secondary" id="email-accounts-add-cancel" style="width:auto">Cancel</button>' +
+      '</div>' +
+      '<p id="email-accounts-add-msg" class="gos-muted" style="margin:0.65rem 0 0"></p>' +
       '</div>' +
       '<div class="table-wrap"><table>' +
       '<thead><tr><th>Gmail</th><th>Broker</th><th>Status</th><th>Last Sync</th><th>Action</th></tr></thead>' +
@@ -272,6 +286,10 @@ window.GreenOSModules['administration'] = {
 
     var tbody = body.querySelector('#email-accounts-body');
     var summary = body.querySelector('#email-accounts-summary');
+    var addPanel = body.querySelector('#email-accounts-add-panel');
+    var addSelect = body.querySelector('#email-accounts-add-select');
+    var addMsg = body.querySelector('#email-accounts-add-msg');
+    var lastRows = [];
 
     function esc(value) {
       return String(value == null ? '' : value)
@@ -303,25 +321,69 @@ window.GreenOSModules['administration'] = {
       return response.json();
     }
 
+    function fillAddSelect(rows) {
+      if (!addSelect) return;
+      var options = (rows || []).filter(function (row) {
+        return row.employeeId;
+      });
+      if (!options.length) {
+        addSelect.innerHTML = '<option value="">No brokers with employee link</option>';
+        return;
+      }
+      addSelect.innerHTML =
+        '<option value="">Select broker…</option>' +
+        options
+          .map(function (row) {
+            var label =
+              row.name +
+              (row.employeeNumber ? ' (' + row.employeeNumber + ')' : '') +
+              (row.gmailAddress ? ' — ' + row.gmailAddress : '') +
+              (row.status === 'CONNECTED' && row.isActive ? ' ✓' : '');
+            return (
+              '<option value="' +
+              esc(row.userId) +
+              '">' +
+              esc(label) +
+              '</option>'
+            );
+          })
+          .join('');
+    }
+
+    function showAddPanel(show) {
+      if (!addPanel) return;
+      addPanel.style.display = show ? 'block' : 'none';
+      if (show) {
+        fillAddSelect(lastRows);
+        if (addMsg) addMsg.textContent = '';
+      }
+    }
+
     async function connectBroker(userId, button) {
-      button.disabled = true;
-      button.textContent = 'Opening Google…';
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'Opening Google…';
+      }
       try {
         var result = await api(
           '/broker/accounts/' + encodeURIComponent(userId) + '/connect?json=1'
         );
         if (!result.success || !result.data || !result.data.url) {
           alert(result.message || 'Could not start Gmail connect');
-          button.textContent = 'Connect Gmail';
-          button.disabled = false;
+          if (button) {
+            button.textContent = 'Connect Gmail';
+            button.disabled = false;
+          }
           return;
         }
         // Same pattern as company Connect Gmail — browser goes to Google consent.
         window.location.href = result.data.url;
       } catch (err) {
         alert('Connect failed');
-        button.textContent = 'Connect Gmail';
-        button.disabled = false;
+        if (button) {
+          button.textContent = 'Connect Gmail';
+          button.disabled = false;
+        }
       }
     }
 
@@ -343,6 +405,10 @@ window.GreenOSModules['administration'] = {
       }
 
       var rows = response.data || [];
+      lastRows = rows;
+      if (addPanel && addPanel.style.display !== 'none') {
+        fillAddSelect(rows);
+      }
       var connected = rows.filter(function (row) {
         return row.status === 'CONNECTED' && row.isActive;
       }).length;
@@ -353,6 +419,7 @@ window.GreenOSModules['administration'] = {
 
       tbody.innerHTML = rows.map(function (row) {
         var isConnected = row.status === 'CONNECTED' && row.isActive;
+        var hasAccount = Boolean(row.hasAccount || row.gmailAddress || row.brokerGmailId);
         var statusLabel =
           row.status === 'RECONNECT_REQUIRED'
             ? '⚠ Reconnect required'
@@ -376,7 +443,7 @@ window.GreenOSModules['administration'] = {
           (row.lastError ? '<br><span style="color:var(--red)">' + esc(row.lastError) + '</span>' : '') +
           '</td>' +
           '<td>' + fmtDate(row.lastSyncAt) + '</td>' +
-          '<td style="display:flex;gap:0.4rem;flex-wrap:wrap">' +
+          '<td style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center">' +
           (row.employeeId
             ? '<button type="button" class="btn-primary" style="width:auto" data-connect-user="' +
               esc(row.userId) +
@@ -388,6 +455,15 @@ window.GreenOSModules['administration'] = {
             ? '<button type="button" class="btn-secondary" style="width:auto" data-disconnect-user="' +
               esc(row.userId) +
               '">Disconnect</button>'
+            : '') +
+          (hasAccount
+            ? '<button type="button" class="btn-secondary" style="width:auto;color:#b42318;border-color:#b42318" data-delete-user="' +
+              esc(row.userId) +
+              '" data-delete-name="' +
+              esc(row.name) +
+              '" data-delete-gmail="' +
+              esc(row.gmailAddress || '') +
+              '">Delete</button>'
             : '') +
           '</td>' +
           '</tr>'
@@ -412,7 +488,48 @@ window.GreenOSModules['administration'] = {
           await load();
         });
       });
+
+      tbody.querySelectorAll('[data-delete-user]').forEach(function (button) {
+        button.addEventListener('click', async function () {
+          var name = button.getAttribute('data-delete-name') || 'this broker';
+          var gmail = button.getAttribute('data-delete-gmail') || '';
+          var msg =
+            'Permanently delete Gmail for ' +
+            name +
+            (gmail ? ' (' + gmail + ')' : '') +
+            '?\n\nThis removes stored tokens and mailbox sync history from GreenOS. You can connect again later.';
+          if (!confirm(msg)) return;
+          button.disabled = true;
+          var result = await api(
+            '/broker/accounts/' + encodeURIComponent(button.getAttribute('data-delete-user')),
+            { method: 'DELETE' }
+          );
+          if (!result.success) {
+            alert(result.message || 'Delete failed');
+            button.disabled = false;
+            return;
+          }
+          await load();
+        });
+      });
     }
+
+    body.querySelector('#email-accounts-add')?.addEventListener('click', function () {
+      showAddPanel(true);
+    });
+    body.querySelector('#email-accounts-add-cancel')?.addEventListener('click', function () {
+      showAddPanel(false);
+    });
+    body.querySelector('#email-accounts-add-connect')?.addEventListener('click', async function () {
+      var userId = addSelect && addSelect.value;
+      if (!userId) {
+        if (addMsg) addMsg.textContent = 'Select a broker first.';
+        return;
+      }
+      var btn = body.querySelector('#email-accounts-add-connect');
+      if (addMsg) addMsg.textContent = 'Opening Google…';
+      await connectBroker(userId, btn);
+    });
 
     body.querySelector('#email-accounts-refresh').addEventListener('click', load);
     body.querySelector('#email-accounts-sync-all').addEventListener('click', async function () {
