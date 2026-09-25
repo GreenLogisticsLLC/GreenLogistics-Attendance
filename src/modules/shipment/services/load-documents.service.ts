@@ -93,9 +93,33 @@ function place(city?: string | null, state?: string | null, zip?: string | null)
 }
 
 function fmtWindow(from?: Date | null, to?: Date | null) {
+    if (!from && !to) return null;
+    const fmtTime = (d: Date) =>
+        new Date(d).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const fmtDate = (d: Date) => new Date(d).toLocaleDateString();
+    if (!from && to) {
+        return `${fmtDate(to)}, Before ${fmtTime(to)}`;
+    }
+    if (from && to) {
+        const fromD = new Date(from);
+        const toD = new Date(to);
+        const sameDay = fromD.toDateString() === toD.toDateString();
+        const fromMidnight =
+            fromD.getHours() === 0 && fromD.getMinutes() === 0 && fromD.getSeconds() === 0;
+        if (fromMidnight && toD.getTime() > fromD.getTime()) {
+            return `${fmtDate(toD)}, Till ${fmtTime(toD)}`;
+        }
+        if (fromD.getTime() !== toD.getTime()) {
+            return sameDay
+                ? `${fmtDate(fromD)}, ${fmtTime(fromD)} – ${fmtTime(toD)}`
+                : `${fromD.toLocaleString()} → ${toD.toLocaleString()}`;
+        }
+    }
     const parts: string[] = [];
     if (from) parts.push(new Date(from).toLocaleString());
-    if (to) parts.push(new Date(to).toLocaleString());
+    if (to && (!from || new Date(to).getTime() !== new Date(from).getTime())) {
+        parts.push(new Date(to).toLocaleString());
+    }
     return parts.length ? parts.join(" → ") : null;
 }
 
@@ -138,9 +162,26 @@ export class LoadDocumentsService {
               })
             : null;
 
-        const pickupAt = s.opsPickupAt || s.pickupFrom;
-        const deliveryAt = s.opsDeliveryAt || s.deliveryFrom;
+        const pickupAt = s.opsPickupAt || s.pickupFrom || s.pickupTo;
+        const deliveryAt = s.opsDeliveryAt || s.deliveryFrom || s.deliveryTo;
         const paymentFromPacket = carrierPaymentOptionLabel(profile?.paymentOption) || null;
+
+        const pickupTimeLabel = (() => {
+            const win = fmtWindow(s.pickupFrom, s.pickupTo);
+            if (win && /Before|Till|–/.test(win)) {
+                const idx = win.indexOf(", ");
+                return idx >= 0 ? win.slice(idx + 2) : win;
+            }
+            return fmtTime(pickupAt);
+        })();
+        const deliveryTimeLabel = (() => {
+            const win = fmtWindow(s.deliveryFrom, s.deliveryTo);
+            if (win && /Before|Till|–/.test(win)) {
+                const idx = win.indexOf(", ");
+                return idx >= 0 ? win.slice(idx + 2) : win;
+            }
+            return fmtTime(deliveryAt);
+        })();
 
         return {
             loadNumber: s.loadNumber,
@@ -164,10 +205,10 @@ export class LoadDocumentsService {
             pickupWindow: fmtWindow(s.pickupFrom, s.pickupTo),
             deliveryWindow: fmtWindow(s.deliveryFrom, s.deliveryTo),
             pickupDate: fmtDate(pickupAt),
-            pickupTime: fmtTime(pickupAt),
+            pickupTime: pickupTimeLabel,
             pickupContact: null,
             deliveryDate: fmtDate(deliveryAt),
-            deliveryTime: fmtTime(deliveryAt),
+            deliveryTime: deliveryTimeLabel,
             deliveryContact: null,
             equipment: s.equipment,
             commodity: s.commodity || s.vehicle || s.category,

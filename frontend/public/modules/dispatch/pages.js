@@ -962,25 +962,27 @@ window.GreenOSModules["dispatch"] = {
     } catch (e) {
       dateLabel = "";
     }
-    var tFrom = fromIso ? this.formatAmPmLabel(this.toInputTime(fromIso)) : "";
-    var tTo = toIso ? this.formatAmPmLabel(this.toInputTime(toIso)) : "";
-    if (mode === "window" && tFrom && tTo) {
-      return (dateLabel ? dateLabel + ", " : "") + tFrom + " – " + tTo;
-    }
-    if (mode === "before" && tTo) {
-      return (dateLabel ? dateLabel + ", " : "") + "before " + tTo;
-    }
-    if (mode === "till" && tTo) {
-      return (dateLabel ? dateLabel + ", " : "") + "till " + tTo;
-    }
-    if (tFrom) return (dateLabel ? dateLabel + ", " : "") + tFrom;
+    var timeOnly = this.formatApptTimeOnly(fromIso, toIso, opsAt);
+    if (timeOnly) return (dateLabel ? dateLabel + ", " : "") + timeOnly;
     if (dateLabel) return dateLabel;
     return "—";
   },
 
+  /** Time-only label for RC/BOL: "Before 3:00 PM", "8:00 AM – 3:00 PM", etc. */
+  formatApptTimeOnly(fromIso, toIso, opsAt) {
+    var mode = this.inferApptMode(fromIso, toIso);
+    var tFrom = fromIso ? this.formatAmPmLabel(this.toInputTime(fromIso)) : "";
+    var tTo = toIso ? this.formatAmPmLabel(this.toInputTime(toIso)) : "";
+    var tOps = opsAt ? this.formatAmPmLabel(this.toInputTime(opsAt)) : "";
+    if (mode === "window" && tFrom && tTo) return tFrom + " – " + tTo;
+    if (mode === "before" && (tTo || tOps)) return "Before " + (tTo || tOps);
+    if (mode === "till" && (tTo || tOps)) return "Till " + (tTo || tOps);
+    return tFrom || tTo || tOps || "";
+  },
+
   /**
    * Pickup/Delivery appointment block: date + mode (Exact / Window / Before / Till).
-   * Window supports 8–3 style ranges; Before / Till are upper-bound times.
+   * Window supports 8–3 style ranges; Before / Till are upper-bound (final) times.
    */
   apptFieldHtml(prefix, label, fromIso, toIso) {
     var mode = this.inferApptMode(fromIso, toIso);
@@ -1017,7 +1019,7 @@ window.GreenOSModules["dispatch"] = {
       ">Window (e.g. 8–3)</option>" +
       '<option value="before"' +
       (mode === "before" ? " selected" : "") +
-      ">Before</option>" +
+      ">Before (final time)</option>" +
       '<option value="till"' +
       (mode === "till" ? " selected" : "") +
       ">Till</option>" +
@@ -1031,7 +1033,7 @@ window.GreenOSModules["dispatch"] = {
       '<label class="gos-appt-to" data-appt-show="window">To' +
       this.timeFieldHtml(prefix + "-to", toSrc) +
       "</label>" +
-      '<label class="gos-appt-bound" data-appt-show="before till">Time' +
+      '<label class="gos-appt-bound" data-appt-show="before till">Final time' +
       this.timeFieldHtml(prefix + "-bound", boundSrc) +
       "</label>" +
       '<label class="gos-appt-quick" data-appt-show="window">Quick window' +
@@ -2068,18 +2070,20 @@ window.GreenOSModules["dispatch"] = {
         '<label>Truck <input id="ld-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
         '<label>Trailer <input id="ld-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
         '<label>Carrier Status <input id="ld-cstatus" value="' + self.esc(c.carrierStatus || "Assigned") + '"></label>' +
-        '<label>Pickup date <input id="ld-c-pickup-date" type="date" value="' +
-        self.esc(self.toInputDate((g.pickup && (g.pickup.from || g.pickup.opsAt)) || "")) +
-        '"></label>' +
-        "<label>Pickup time" +
-        self.timeFieldHtml("ld-c-pickup-time", (g.pickup && (g.pickup.from || g.pickup.opsAt)) || "") +
-        "</label>" +
-        '<label>Delivery date <input id="ld-c-delivery-date" type="date" value="' +
-        self.esc(self.toInputDate((g.delivery && (g.delivery.from || g.delivery.opsAt)) || "")) +
-        '"></label>' +
-        "<label>Delivery time" +
-        self.timeFieldHtml("ld-c-delivery-time", (g.delivery && (g.delivery.from || g.delivery.opsAt)) || "") +
-        "</label>" +
+        '<div class="full load-appt-row">' +
+        self.apptFieldHtml(
+          "ld-c-pickup",
+          "Pickup",
+          g.pickup && g.pickup.from,
+          g.pickup && g.pickup.to
+        ) +
+        self.apptFieldHtml(
+          "ld-c-delivery",
+          "Delivery",
+          g.delivery && g.delivery.from,
+          g.delivery && g.delivery.to
+        ) +
+        "</div>" +
         "</div>" +
         '<button type="button" class="btn-primary" id="ld-save-carrier">' +
         (c.carrierName ? "Save Carrier Changes" : "Save &amp; Assign Carrier") +
@@ -2092,6 +2096,8 @@ window.GreenOSModules["dispatch"] = {
         "</div>";
       self.bindUsPhoneInput(main.querySelector("#ld-carrier-phone"));
       self.bindUsPhoneInput(main.querySelector("#ld-driver-phone"));
+      self.bindApptFields(main, "ld-c-pickup");
+      self.bindApptFields(main, "ld-c-delivery");
       self.bindCarrierOnboardingActions(main, c, { loadId: id, tab: "carrier" });
       main.querySelector("#ld-save-carrier")?.addEventListener("click", async function () {
         var name = (main.querySelector("#ld-carrier").value || "").trim();
@@ -2101,14 +2107,8 @@ window.GreenOSModules["dispatch"] = {
           return;
         }
         try {
-          var pickupIso = self.combineDateTime(
-            main.querySelector("#ld-c-pickup-date").value,
-            self.readAmPmTime(main, "ld-c-pickup-time")
-          );
-          var deliveryIso = self.combineDateTime(
-            main.querySelector("#ld-c-delivery-date").value,
-            self.readAmPmTime(main, "ld-c-delivery-time")
-          );
+          var pickupAppt = self.readApptFields(main, "ld-c-pickup");
+          var deliveryAppt = self.readApptFields(main, "ld-c-delivery");
           var carrierPayload = {
             carrierName: name,
             carrierEmail: main.querySelector("#ld-carrier-email").value || null,
@@ -2121,10 +2121,12 @@ window.GreenOSModules["dispatch"] = {
             truckNumber: main.querySelector("#ld-truck").value || null,
             trailerNumber: main.querySelector("#ld-trailer").value || null,
             carrierStatus: main.querySelector("#ld-cstatus").value || "Assigned",
-            pickupFrom: pickupIso,
-            deliveryFrom: deliveryIso,
-            opsPickupAt: pickupIso,
-            opsDeliveryAt: deliveryIso,
+            pickupFrom: pickupAppt.from,
+            pickupTo: pickupAppt.to,
+            deliveryFrom: deliveryAppt.from,
+            deliveryTo: deliveryAppt.to,
+            opsPickupAt: pickupAppt.opsAt,
+            opsDeliveryAt: deliveryAppt.opsAt,
           };
           var curStatus = String((data.identity && data.identity.status) || "").toUpperCase();
           var isFirstAssign = !c.carrierName;
@@ -2136,8 +2138,11 @@ window.GreenOSModules["dispatch"] = {
           }
 
           // 2nd / 3rd / later "Save Carrier Changes": resend online link only if fields changed.
-          var prevPickup = (g.pickup && (g.pickup.from || g.pickup.opsAt)) || null;
-          var prevDelivery = (g.delivery && (g.delivery.from || g.delivery.opsAt)) || null;
+          var prevPickup = (g.pickup && (g.pickup.from || g.pickup.opsAt || g.pickup.to)) || null;
+          var prevDelivery =
+            (g.delivery && (g.delivery.from || g.delivery.opsAt || g.delivery.to)) || null;
+          var nextPickup = pickupAppt.opsAt || pickupAppt.from || pickupAppt.to || null;
+          var nextDelivery = deliveryAppt.opsAt || deliveryAppt.from || deliveryAppt.to || null;
           var fieldChanges = [
             self.normCarrierText(carrierPayload.carrierName) !== self.normCarrierText(c.carrierName),
             self.normCarrierText(carrierPayload.carrierEmail) !== self.normCarrierText(c.carrierEmail),
@@ -2151,8 +2156,13 @@ window.GreenOSModules["dispatch"] = {
             self.normCarrierText(carrierPayload.trailerNumber) !== self.normCarrierText(c.trailerNumber),
             self.normCarrierText(carrierPayload.carrierStatus) !==
               self.normCarrierText(c.carrierStatus || "Assigned"),
-            self.normCarrierIso(pickupIso) !== self.normCarrierIso(prevPickup),
-            self.normCarrierIso(deliveryIso) !== self.normCarrierIso(prevDelivery),
+            self.normCarrierIso(nextPickup) !== self.normCarrierIso(prevPickup) ||
+              self.normCarrierIso(pickupAppt.from) !== self.normCarrierIso(g.pickup && g.pickup.from) ||
+              self.normCarrierIso(pickupAppt.to) !== self.normCarrierIso(g.pickup && g.pickup.to),
+            self.normCarrierIso(nextDelivery) !== self.normCarrierIso(prevDelivery) ||
+              self.normCarrierIso(deliveryAppt.from) !==
+                self.normCarrierIso(g.delivery && g.delivery.from) ||
+              self.normCarrierIso(deliveryAppt.to) !== self.normCarrierIso(g.delivery && g.delivery.to),
           ];
           if (showMoney && main.querySelector("#ld-carr-price")) {
             var prevRate =
@@ -3173,8 +3183,6 @@ window.GreenOSModules["dispatch"] = {
       }
     }
 
-    var pickupSrc = (g.pickup && (g.pickup.opsAt || g.pickup.from)) || null;
-    var deliverySrc = (g.delivery && (g.delivery.opsAt || g.delivery.from)) || null;
     var prev = self.currentDocContent(data, "RATE_CONFIRMATION");
     function pick(key, fallback) {
       var v = prev[key];
@@ -3224,10 +3232,14 @@ window.GreenOSModules["dispatch"] = {
       '<label class="full">Origin (pickup address) * <input id="rc-origin" value="' +
       self.esc(pick("pickupAddress", place(g.pickup))) +
       '" required></label>' +
-      '<label>Pickup date * <input id="rc-pdate" type="date" value="' + self.esc(self.toInputDate(pickupSrc)) + '" required></label>' +
-      "<label>Pickup time" +
-      self.timeFieldHtml("rc-ptime", pickupSrc) +
-      "</label>" +
+      '<div class="full">' +
+      self.apptFieldHtml(
+        "rc-pickup",
+        "Pickup time *",
+        g.pickup && g.pickup.from,
+        g.pickup && g.pickup.to
+      ) +
+      "</div>" +
       '<div id="rc-extra-origins" class="load-extra-stops"></div>' +
       '<div class="load-extra-stops-actions">' +
       '<button type="button" class="btn-secondary" id="rc-add-origin">+ Add Origin</button></div>' +
@@ -3237,10 +3249,14 @@ window.GreenOSModules["dispatch"] = {
       '<label class="full">Final destination * <input id="rc-dest" value="' +
       self.esc(pick("deliveryAddress", place(g.delivery))) +
       '" required></label>' +
-      '<label>Delivery date * <input id="rc-ddate" type="date" value="' + self.esc(self.toInputDate(deliverySrc)) + '" required></label>' +
-      "<label>Delivery time" +
-      self.timeFieldHtml("rc-dtime", deliverySrc) +
-      "</label>" +
+      '<div class="full">' +
+      self.apptFieldHtml(
+        "rc-delivery",
+        "Delivery time *",
+        g.delivery && g.delivery.from,
+        g.delivery && g.delivery.to
+      ) +
+      "</div>" +
       '<div id="rc-extra-dests" class="load-extra-stops"></div>' +
       '<div class="load-extra-stops-actions">' +
       '<button type="button" class="btn-secondary" id="rc-add-dest">+ Add Destination</button></div>' +
@@ -3281,6 +3297,8 @@ window.GreenOSModules["dispatch"] = {
     box.scrollIntoView({ behavior: "smooth", block: "start" });
     self.bindUsPhoneInput(box.querySelector("#rc-cphone"));
     self.bindUsPhoneInput(box.querySelector("#rc-dphone"));
+    self.bindApptFields(box, "rc-pickup");
+    self.bindApptFields(box, "rc-delivery");
     self.bindExtraStops(box, {
       originWrap: "#rc-extra-origins",
       destWrap: "#rc-extra-dests",
@@ -3303,9 +3321,13 @@ window.GreenOSModules["dispatch"] = {
       var commodity = (box.querySelector("#rc-commodity").value || "").trim();
       var rate = self.parseMoneyInput(box.querySelector("#rc-rate").value);
       var origin = (box.querySelector("#rc-origin").value || "").trim();
-      var pickupDate = (box.querySelector("#rc-pdate").value || "").trim();
       var dest = (box.querySelector("#rc-dest").value || "").trim();
-      var deliveryDate = (box.querySelector("#rc-ddate").value || "").trim();
+      var pickupAppt = self.readApptFields(box, "rc-pickup");
+      var deliveryAppt = self.readApptFields(box, "rc-delivery");
+      var pickupDate =
+        self.toInputDate(pickupAppt.opsAt || pickupAppt.to || pickupAppt.from || "") || "";
+      var deliveryDate =
+        self.toInputDate(deliveryAppt.opsAt || deliveryAppt.to || deliveryAppt.from || "") || "";
       var emailOk = function (v) {
         return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
       };
@@ -3319,9 +3341,9 @@ window.GreenOSModules["dispatch"] = {
         { ok: !!commodity, el: "#rc-commodity", msg: "Commodity is required." },
         { ok: !!rate, el: "#rc-rate", msg: "Flat Rate ($USD) is required." },
         { ok: !!origin, el: "#rc-origin", msg: "Origin (pickup address) is required." },
-        { ok: !!pickupDate, el: "#rc-pdate", msg: "Pickup date is required." },
+        { ok: !!pickupDate, el: "#rc-pickup-date", msg: "Pickup date is required." },
         { ok: !!dest, el: "#rc-dest", msg: "Final destination is required." },
-        { ok: !!deliveryDate, el: "#rc-ddate", msg: "Delivery date is required." },
+        { ok: !!deliveryDate, el: "#rc-delivery-date", msg: "Delivery date is required." },
       ];
       for (var i = 0; i < required.length; i++) {
         if (!required[i].ok) {
@@ -3357,22 +3379,12 @@ window.GreenOSModules["dispatch"] = {
                 commodity: commodity,
                 specialInstructions: box.querySelector("#rc-notes").value || null,
                 carrierNotes: box.querySelector("#rc-delnote").value || null,
-                pickupFrom: self.combineDateTime(
-                  pickupDate,
-                  self.readAmPmTime(box, "rc-ptime")
-                ),
-                deliveryFrom: self.combineDateTime(
-                  deliveryDate,
-                  self.readAmPmTime(box, "rc-dtime")
-                ),
-                opsPickupAt: self.combineDateTime(
-                  pickupDate,
-                  self.readAmPmTime(box, "rc-ptime")
-                ),
-                opsDeliveryAt: self.combineDateTime(
-                  deliveryDate,
-                  self.readAmPmTime(box, "rc-dtime")
-                ),
+                pickupFrom: pickupAppt.from,
+                pickupTo: pickupAppt.to,
+                deliveryFrom: deliveryAppt.from,
+                deliveryTo: deliveryAppt.to,
+                opsPickupAt: pickupAppt.opsAt,
+                opsDeliveryAt: deliveryAppt.opsAt,
               },
               // Money / books: Accounting+Owner only. Brokers still put Flat Rate on the PDF.
               self.canSeeMoney() ? { carrierRate: rate } : {}
@@ -3381,8 +3393,6 @@ window.GreenOSModules["dispatch"] = {
         });
 
         if (statusEl) statusEl.textContent = "Generating Rate Confirmation PDF…";
-        var pickupTime24 = self.readAmPmTime(box, "rc-ptime");
-        var deliveryTime24 = self.readAmPmTime(box, "rc-dtime");
         var content = {
           loadNumber: box.querySelector("#rc-load").value,
           shipmentNumber: box.querySelector("#rc-ship").value,
@@ -3403,13 +3413,21 @@ window.GreenOSModules["dispatch"] = {
           carrierRate: rate,
           pickupAddress: box.querySelector("#rc-origin").value,
           additionalOrigins: self.collectExtraStops(box, "#rc-extra-origins"),
-          pickupDate: box.querySelector("#rc-pdate").value,
-          pickupTime: self.formatAmPmLabel(pickupTime24) || pickupTime24,
+          pickupDate: pickupDate,
+          pickupTime: self.formatApptTimeOnly(
+            pickupAppt.from,
+            pickupAppt.to,
+            pickupAppt.opsAt
+          ),
           pickupContact: box.querySelector("#rc-pcontact").value,
           deliveryAddress: box.querySelector("#rc-dest").value,
           additionalDestinations: self.collectExtraStops(box, "#rc-extra-dests"),
-          deliveryDate: box.querySelector("#rc-ddate").value,
-          deliveryTime: self.formatAmPmLabel(deliveryTime24) || deliveryTime24,
+          deliveryDate: deliveryDate,
+          deliveryTime: self.formatApptTimeOnly(
+            deliveryAppt.from,
+            deliveryAppt.to,
+            deliveryAppt.opsAt
+          ),
           deliveryContact: box.querySelector("#rc-dcontact").value,
           driverName: box.querySelector("#rc-driver").value,
           driverPhone: self.formatUsPhone(box.querySelector("#rc-dphone").value) || box.querySelector("#rc-dphone").value,
