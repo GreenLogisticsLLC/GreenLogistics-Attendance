@@ -1,20 +1,54 @@
 import { prisma } from "../config/database.js";
 import { normalizeCardToken } from "../utils/helpers.js";
 
-/** Attendance list: Alen Young team first, then Gary Michael, then others. */
+/**
+ * Attendance Live Board order:
+ * 1) Team Alen Young (Alen on row 1, then his brokers)
+ * 2) Team Carl Anderson (Carl first, then his brokers)
+ * 3) Team Gary Michael (legacy)
+ * 4) everyone else
+ */
 function teamOrder(department: string | null | undefined): number {
     const d = (department || "").trim().toLowerCase();
-    if (d === "team alen young") return 1;
-    if (d === "team gary michael") return 2;
-    return 3;
+    if (d.includes("alen") || d.includes("allen")) return 1;
+    if (d.includes("carl")) return 2;
+    if (d.includes("gary")) return 3;
+    return 4;
 }
 
-function sortEmployeesByTeam<T extends { department?: string | null; lastName: string; firstName: string }>(
-    rows: T[]
-): T[] {
+/** Team lead sits first within their department (name matches "Team …"). */
+function isDepartmentLead(emp: {
+    department?: string | null;
+    firstName: string;
+    lastName: string;
+    position?: string | null;
+}): boolean {
+    const pos = (emp.position || "").trim().toLowerCase();
+    if (pos === "team lead" || pos === "teamlead" || pos.includes("team lead")) {
+        return true;
+    }
+    const dept = (emp.department || "").trim().toLowerCase();
+    if (!dept.startsWith("team ")) return false;
+    const first = emp.firstName.trim().toLowerCase();
+    const last = emp.lastName.trim().toLowerCase();
+    if (!first || !last) return false;
+    return dept.includes(first) && dept.includes(last);
+}
+
+export function sortEmployeesByTeam<
+    T extends {
+        department?: string | null;
+        lastName: string;
+        firstName: string;
+        position?: string | null;
+    },
+>(rows: T[]): T[] {
     return [...rows].sort((a, b) => {
         const td = teamOrder(a.department) - teamOrder(b.department);
         if (td !== 0) return td;
+        const leadA = isDepartmentLead(a) ? 0 : 1;
+        const leadB = isDepartmentLead(b) ? 0 : 1;
+        if (leadA !== leadB) return leadA - leadB;
         const ln = a.lastName.localeCompare(b.lastName, undefined, { sensitivity: "base" });
         if (ln !== 0) return ln;
         return a.firstName.localeCompare(b.firstName, undefined, { sensitivity: "base" });
