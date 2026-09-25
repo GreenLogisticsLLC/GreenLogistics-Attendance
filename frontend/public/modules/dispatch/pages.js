@@ -919,6 +919,243 @@ window.GreenOSModules["dispatch"] = {
     return d.toISOString();
   },
 
+  /** Infer Exact / Window / Before / Till from saved from/to timestamps. */
+  inferApptMode(fromIso, toIso) {
+    if (!fromIso && !toIso) return "exact";
+    if (fromIso && !toIso) return "exact";
+    if (!fromIso && toIso) return "before";
+    var from = new Date(fromIso);
+    var to = new Date(toIso);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return "exact";
+    if (
+      from.getHours() === 0 &&
+      from.getMinutes() === 0 &&
+      from.getSeconds() === 0 &&
+      to.getTime() > from.getTime()
+    ) {
+      return "till";
+    }
+    if (from.getTime() !== to.getTime()) return "window";
+    return "exact";
+  },
+
+  /** Human label for summary cards: "28.09.2026, 8:00 AM – 3:00 PM" etc. */
+  formatApptSummary(fromIso, toIso, opsAt) {
+    var mode = this.inferApptMode(fromIso, toIso);
+    if (!fromIso && !toIso && !opsAt) return "—";
+    var dateSrc =
+      mode === "before" || mode === "till"
+        ? toIso || opsAt || fromIso
+        : fromIso || opsAt || toIso;
+    var dateLabel = "";
+    try {
+      var d = new Date(dateSrc);
+      if (!Number.isNaN(d.getTime())) {
+        dateLabel = d.toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        });
+      }
+    } catch (e) {
+      dateLabel = "";
+    }
+    var tFrom = fromIso ? this.formatAmPmLabel(this.toInputTime(fromIso)) : "";
+    var tTo = toIso ? this.formatAmPmLabel(this.toInputTime(toIso)) : "";
+    if (mode === "window" && tFrom && tTo) {
+      return (dateLabel ? dateLabel + ", " : "") + tFrom + " – " + tTo;
+    }
+    if (mode === "before" && tTo) {
+      return (dateLabel ? dateLabel + ", " : "") + "before " + tTo;
+    }
+    if (mode === "till" && tTo) {
+      return (dateLabel ? dateLabel + ", " : "") + "till " + tTo;
+    }
+    if (tFrom) return (dateLabel ? dateLabel + ", " : "") + tFrom;
+    if (dateLabel) return dateLabel;
+    return "—";
+  },
+
+  /**
+   * Pickup/Delivery appointment block: date + mode (Exact / Window / Before / Till).
+   * Window supports 8–3 style ranges; Before / Till are upper-bound times.
+   */
+  apptFieldHtml(prefix, label, fromIso, toIso) {
+    var mode = this.inferApptMode(fromIso, toIso);
+    var dateIso =
+      mode === "before" || mode === "till"
+        ? toIso || fromIso
+        : fromIso || toIso;
+    var dateVal = this.toInputDate(dateIso || "");
+    var exactSrc = fromIso || toIso || "";
+    var fromSrc = fromIso || "";
+    var toSrc = toIso || "";
+    var boundSrc = toIso || fromIso || "";
+    return (
+      '<div class="load-appt-block" data-appt="' +
+      this.esc(prefix) +
+      '">' +
+      "<h4>" +
+      this.esc(label) +
+      "</h4>" +
+      '<div class="load-appt-fields">' +
+      '<label>Date <input type="date" id="' +
+      prefix +
+      '-date" value="' +
+      this.esc(dateVal) +
+      '"></label>' +
+      '<label>Time type <select id="' +
+      prefix +
+      '-mode" class="gos-appt-mode">' +
+      '<option value="exact"' +
+      (mode === "exact" ? " selected" : "") +
+      ">Exact time</option>" +
+      '<option value="window"' +
+      (mode === "window" ? " selected" : "") +
+      ">Window (e.g. 8–3)</option>" +
+      '<option value="before"' +
+      (mode === "before" ? " selected" : "") +
+      ">Before</option>" +
+      '<option value="till"' +
+      (mode === "till" ? " selected" : "") +
+      ">Till</option>" +
+      "</select></label>" +
+      '<label class="gos-appt-exact" data-appt-show="exact">Time' +
+      this.timeFieldHtml(prefix + "-exact", exactSrc) +
+      "</label>" +
+      '<label class="gos-appt-from" data-appt-show="window">From' +
+      this.timeFieldHtml(prefix + "-from", fromSrc) +
+      "</label>" +
+      '<label class="gos-appt-to" data-appt-show="window">To' +
+      this.timeFieldHtml(prefix + "-to", toSrc) +
+      "</label>" +
+      '<label class="gos-appt-bound" data-appt-show="before till">Time' +
+      this.timeFieldHtml(prefix + "-bound", boundSrc) +
+      "</label>" +
+      '<label class="gos-appt-quick" data-appt-show="window">Quick window' +
+      '<input type="text" id="' +
+      prefix +
+      '-quick" placeholder="8-3 or 8am-3pm" autocomplete="off">' +
+      "</label>" +
+      "</div>" +
+      "</div>"
+    );
+  },
+
+  /** Show/hide Exact / Window / Before / Till controls and parse quick "8-3". */
+  bindApptFields(root, prefix) {
+    var self = this;
+    var block = root.querySelector('[data-appt="' + prefix + '"]');
+    if (!block) return;
+    var modeEl = block.querySelector("#" + prefix + "-mode");
+    function sync() {
+      var mode = (modeEl && modeEl.value) || "exact";
+      block.querySelectorAll("[data-appt-show]").forEach(function (el) {
+        var modes = String(el.getAttribute("data-appt-show") || "").split(/\s+/);
+        el.style.display = modes.indexOf(mode) >= 0 ? "" : "none";
+      });
+    }
+    modeEl?.addEventListener("change", sync);
+    sync();
+    var quick = block.querySelector("#" + prefix + "-quick");
+    quick?.addEventListener("change", function () {
+      var parsed = self.parseQuickWindow(quick.value);
+      if (!parsed) return;
+      if (modeEl) modeEl.value = "window";
+      sync();
+      self.writeAmPmTime(block, prefix + "-from", parsed.from);
+      self.writeAmPmTime(block, prefix + "-to", parsed.to);
+    });
+  },
+
+  /** Parse "8-3", "8am-3pm", "08:00-15:00" → { from: "08:00", to: "15:00" }. */
+  parseQuickWindow(raw) {
+    var s = String(raw || "").trim().toLowerCase().replace(/\s+/g, "");
+    if (!s) return null;
+    var m = s.match(
+      /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[-–—to]+\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i
+    );
+    if (!m) return null;
+    function to24(hStr, minStr, period, fallbackPeriod) {
+      var h = parseInt(hStr, 10);
+      var min = minStr ? parseInt(minStr, 10) : 0;
+      if (!Number.isFinite(h) || h < 0 || h > 23) return null;
+      var p = (period || fallbackPeriod || "").toLowerCase();
+      if (p === "am" || p === "pm") {
+        if (h < 1 || h > 12) return null;
+        h = h % 12;
+        if (p === "pm") h += 12;
+      } else if (h <= 12 && !period) {
+        // Bare "8-3" → assume AM start, PM end when end < start or end <= 12
+      }
+      return String(h).padStart(2, "0") + ":" + String(min).padStart(2, "0");
+    }
+    var p1 = m[3] || "";
+    var p2 = m[6] || "";
+    // "8-3" without am/pm → 8 AM – 3 PM (common broker shorthand)
+    if (!p1 && !p2) {
+      var h1 = parseInt(m[1], 10);
+      var h2 = parseInt(m[4], 10);
+      if (h1 >= 1 && h1 <= 12 && h2 >= 1 && h2 <= 12) {
+        p1 = "am";
+        p2 = "pm";
+      }
+    }
+    if (p1 && !p2) p2 = p1;
+    if (!p1 && p2) p1 = p2;
+    var from = to24(m[1], m[2], p1);
+    var to = to24(m[4], m[5], p2);
+    if (!from || !to) return null;
+    return { from: from, to: to };
+  },
+
+  /** Set AM/PM selects from HH:MM 24h. */
+  writeAmPmTime(root, idPrefix, hhmm) {
+    if (!root || !hhmm) return;
+    var parts = this.ampmPartsFromRaw(hhmm);
+    var hEl = root.querySelector("#" + idPrefix + "-h");
+    var mEl = root.querySelector("#" + idPrefix + "-m");
+    var pEl = root.querySelector("#" + idPrefix + "-p");
+    if (hEl && parts.h) hEl.value = parts.h;
+    if (mEl && parts.m) mEl.value = parts.m;
+    if (pEl && parts.p) pEl.value = parts.p;
+  },
+
+  /**
+   * Read appointment block → { from, to, opsAt } ISO strings.
+   * exact: from only; window: from+to; before: to only; till: from=midnight, to=bound.
+   */
+  readApptFields(root, prefix) {
+    var block = root.querySelector('[data-appt="' + prefix + '"]');
+    if (!block) return { from: null, to: null, opsAt: null };
+    var dateStr = (block.querySelector("#" + prefix + "-date") || {}).value || "";
+    var mode = (block.querySelector("#" + prefix + "-mode") || {}).value || "exact";
+    if (!dateStr) return { from: null, to: null, opsAt: null };
+
+    if (mode === "exact") {
+      var exact = this.readAmPmTime(block, prefix + "-exact");
+      var exactIso = this.combineDateTime(dateStr, exact || "00:00");
+      return { from: exactIso, to: null, opsAt: exactIso };
+    }
+    if (mode === "window") {
+      var fromT = this.readAmPmTime(block, prefix + "-from");
+      var toT = this.readAmPmTime(block, prefix + "-to");
+      var fromIso = this.combineDateTime(dateStr, fromT || "00:00");
+      var toIso = this.combineDateTime(dateStr, toT || fromT || "00:00");
+      return { from: fromIso, to: toIso, opsAt: toIso || fromIso };
+    }
+    if (mode === "before") {
+      var beforeT = this.readAmPmTime(block, prefix + "-bound");
+      var beforeIso = this.combineDateTime(dateStr, beforeT || "00:00");
+      return { from: null, to: beforeIso, opsAt: beforeIso };
+    }
+    // till — midnight start marks the mode when reloading
+    var tillT = this.readAmPmTime(block, prefix + "-bound");
+    var tillFrom = this.combineDateTime(dateStr, "00:00");
+    var tillTo = this.combineDateTime(dateStr, tillT || "00:00");
+    return { from: tillFrom, to: tillTo, opsAt: tillTo };
+  },
+
   render(root, subPageId) {
     if (!root) return;
     var self = this;
@@ -1575,15 +1812,19 @@ window.GreenOSModules["dispatch"] = {
         field("Delivery", place(g.delivery)) +
         field(
           "Pickup date",
-          g.pickup && (g.pickup.from || g.pickup.opsAt)
-            ? new Date(g.pickup.from || g.pickup.opsAt).toLocaleString()
-            : "—"
+          self.formatApptSummary(
+            g.pickup && g.pickup.from,
+            g.pickup && g.pickup.to,
+            g.pickup && g.pickup.opsAt
+          )
         ) +
         field(
           "Delivery date",
-          g.delivery && (g.delivery.from || g.delivery.opsAt)
-            ? new Date(g.delivery.from || g.delivery.opsAt).toLocaleString()
-            : "—"
+          self.formatApptSummary(
+            g.delivery && g.delivery.from,
+            g.delivery && g.delivery.to,
+            g.delivery && g.delivery.opsAt
+          )
         ) +
         field("Equipment", g.equipment) +
         field("Commodity", g.commodity) +
@@ -1639,22 +1880,27 @@ window.GreenOSModules["dispatch"] = {
         '<label>Weight <input id="ld-weight" value="' + self.esc(g.weight || "") + '"></label>' +
         '<label>Pieces <input id="ld-pieces" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
         '<label>Miles <input id="ld-miles" type="number" value="' + self.esc(g.miles == null ? "" : g.miles) + '"></label>' +
-        '<label>Pickup date <input id="ld-pickup-date" type="date" value="' +
-        self.esc(self.toInputDate((g.pickup && (g.pickup.from || g.pickup.opsAt)) || "")) +
-        '"></label>' +
-        "<label>Pickup time" +
-        self.timeFieldHtml("ld-pickup-time", (g.pickup && (g.pickup.from || g.pickup.opsAt)) || "") +
-        "</label>" +
-        '<label>Delivery date <input id="ld-delivery-date" type="date" value="' +
-        self.esc(self.toInputDate((g.delivery && (g.delivery.from || g.delivery.opsAt)) || "")) +
-        '"></label>' +
-        "<label>Delivery time" +
-        self.timeFieldHtml("ld-delivery-time", (g.delivery && (g.delivery.from || g.delivery.opsAt)) || "") +
-        "</label>" +
+        '<div class="full load-appt-row">' +
+        self.apptFieldHtml(
+          "ld-pickup",
+          "Pickup",
+          g.pickup && g.pickup.from,
+          g.pickup && g.pickup.to
+        ) +
+        self.apptFieldHtml(
+          "ld-delivery",
+          "Delivery",
+          g.delivery && g.delivery.from,
+          g.delivery && g.delivery.to
+        ) +
+        "</div>" +
         '<label class="full">Special Instructions <textarea id="ld-special">' + self.esc(g.specialInstructions || "") + "</textarea></label>" +
         "</div>" +
         '<button type="button" class="btn-primary" id="ld-save-general">Save</button>' +
         "</div>";
+
+      self.bindApptFields(main, "ld-pickup");
+      self.bindApptFields(main, "ld-delivery");
 
       function updateProfitView() {
         var a = parseFloat(self.parseMoneyInput(main.querySelector("#ld-cust-price").value));
@@ -1686,6 +1932,8 @@ window.GreenOSModules["dispatch"] = {
         try {
           var phoneRaw = main.querySelector("#ld-customer-phone").value || "";
           var phoneFmt = self.formatUsPhone(phoneRaw);
+          var pickupAppt = self.readApptFields(main, "ld-pickup");
+          var deliveryAppt = self.readApptFields(main, "ld-delivery");
           var payload = {
             customerName: main.querySelector("#ld-customer").value || null,
             customerEmail: main.querySelector("#ld-customer-email").value || null,
@@ -1697,22 +1945,12 @@ window.GreenOSModules["dispatch"] = {
             pieces: main.querySelector("#ld-pieces").value || null,
             miles: main.querySelector("#ld-miles").value || null,
             specialInstructions: main.querySelector("#ld-special").value || null,
-            pickupFrom: self.combineDateTime(
-              main.querySelector("#ld-pickup-date").value,
-              self.readAmPmTime(main, "ld-pickup-time")
-            ),
-            deliveryFrom: self.combineDateTime(
-              main.querySelector("#ld-delivery-date").value,
-              self.readAmPmTime(main, "ld-delivery-time")
-            ),
-            opsPickupAt: self.combineDateTime(
-              main.querySelector("#ld-pickup-date").value,
-              self.readAmPmTime(main, "ld-pickup-time")
-            ),
-            opsDeliveryAt: self.combineDateTime(
-              main.querySelector("#ld-delivery-date").value,
-              self.readAmPmTime(main, "ld-delivery-time")
-            ),
+            pickupFrom: pickupAppt.from,
+            pickupTo: pickupAppt.to,
+            deliveryFrom: deliveryAppt.from,
+            deliveryTo: deliveryAppt.to,
+            opsPickupAt: pickupAppt.opsAt,
+            opsDeliveryAt: deliveryAppt.opsAt,
             customerRate: self.parseMoneyInput(main.querySelector("#ld-rate").value),
           };
           if (showMoney) {

@@ -2132,6 +2132,45 @@ button.load-review-choice:hover {
 }
 .load-form-grid textarea { min-height: 4.5rem; resize: vertical; }
 
+.load-appt-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+  margin: 0.25rem 0 0.5rem;
+}
+.load-appt-block {
+  border: 1px solid var(--gos-border);
+  border-radius: 10px;
+  background: var(--gos-surface2);
+  padding: 0.75rem 0.85rem 0.9rem;
+}
+.load-appt-block h4 {
+  margin: 0 0 0.65rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--gos-text);
+}
+.load-appt-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem 0.65rem;
+}
+.load-appt-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--gos-muted);
+  margin: 0;
+}
+.load-appt-fields .gos-appt-quick {
+  grid-column: 1 / -1;
+}
+@media (max-width: 720px) {
+  .load-appt-row { grid-template-columns: 1fr; }
+  .load-appt-fields { grid-template-columns: 1fr; }
+}
+
 .gos-ampm-time {
   display: flex;
   align-items: center;
