@@ -867,7 +867,7 @@ async function openEmployeeDrawer(employeeId) {
                 <div>First Entry: ${formatAttendanceClock(session.firstEntry)}</div>
                 <div>Late: ${session.late ? formatLateHhMm(session.lateMinutes) : "—"}</div>
                 <div>OutTime In Office: ${overtimeMinutes ? formatDuration(overtimeMinutes) : "—"}</div>
-                <div>Total Outside: ${formatDuration(Math.max(0, rawOutsideMinutes - 60))}</div>
+                <div>Total Outside: ${formatDuration(rawOutsideMinutes)}</div>
                 <div>Exits: ${session.exitCount}</div>
             </div>
         </div>` : "<p>No session today</p>"}

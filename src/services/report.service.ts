@@ -1,7 +1,6 @@
 import { prisma } from "../config/database.js";
 import {
     diffMinutes,
-    excessOutsideMinutes,
     formatTime,
     formatMinutes,
 } from "../utils/helpers.js";
@@ -116,7 +115,7 @@ export class ReportService {
                 firstEntry: formatTime(s.firstEntry),
                 lastExit: formatTime(s.lastExit),
                 status: statusLabel(s.currentStatus),
-                totalOutsideMinutes: excessOutsideMinutes(rawOutsideMinutes),
+                totalOutsideMinutes: rawOutsideMinutes,
                 timeInOfficeMinutes,
                 overtimeInOfficeMinutes,
                 exitCount: s.exitCount,

@@ -5,7 +5,6 @@ import {
     ATTENDANCE_GRACE_MINUTES,
     addDaysToDateString,
     diffMinutes,
-    excessOutsideMinutes,
     formatDateTime,
     formatTime,
     getAttendanceDayBounds,
@@ -138,7 +137,7 @@ export class DashboardService {
                 }
             }
 
-            const openInterval = session?.absenceIntervals?.[0];
+            const openInterval = session?.absenceIntervals?.find((i) => !i.endTime) ?? null;
             const effectiveNow = now;
 
             let currentAbsenceMinutes = 0;
@@ -151,8 +150,19 @@ export class DashboardService {
                     currentOfficeMinutes = diffMinutes(since, effectiveNow);
                 }
             }
-            const rawOutsideMinutes =
-                (session?.totalAbsenceMinutes ?? 0) + currentAbsenceMinutes;
+            // TOTAL OUTSIDE = sum of every completed exit + current open exit (if any).
+            // Do not subtract the old 60m break allowance — show the real total.
+            const closedOutsideMinutes = (session?.absenceIntervals ?? []).reduce(
+                (sum, interval) => {
+                    if (interval.endTime == null) return sum;
+                    if (interval.durationMinutes != null) {
+                        return sum + interval.durationMinutes;
+                    }
+                    return sum + diffMinutes(interval.startTime, interval.endTime);
+                },
+                0
+            );
+            const rawOutsideMinutes = closedOutsideMinutes + currentAbsenceMinutes;
             const overtimeEnd =
                 session?.currentStatus === "INSIDE_OFFICE"
                     ? now
@@ -195,7 +205,7 @@ export class DashboardService {
                 lateMinutes: lateStatus.lateMinutes,
                 currentAbsenceMinutes,
                 currentOfficeMinutes,
-                totalAbsenceMinutes: excessOutsideMinutes(rawOutsideMinutes),
+                totalAbsenceMinutes: rawOutsideMinutes,
                 rawOutsideMinutes,
                 breakAllowanceMinutes: ATTENDANCE_BREAK_ALLOWANCE_MINUTES,
                 overtimeInOfficeMinutes,

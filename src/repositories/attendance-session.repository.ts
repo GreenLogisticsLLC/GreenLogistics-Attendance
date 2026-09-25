@@ -8,9 +8,7 @@ export class AttendanceSessionRepository {
             },
             include: {
                 absenceIntervals: {
-                    where: { endTime: null },
-                    orderBy: { startTime: "desc" },
-                    take: 1,
+                    orderBy: { startTime: "asc" },
                 },
             },
         });
@@ -25,9 +23,7 @@ export class AttendanceSessionRepository {
             },
             include: {
                 absenceIntervals: {
-                    where: { endTime: null },
-                    orderBy: { startTime: "desc" },
-                    take: 1,
+                    orderBy: { startTime: "asc" },
                 },
             },
         });
@@ -49,9 +45,7 @@ export class AttendanceSessionRepository {
             orderBy: { lastActivity: "desc" },
             include: {
                 absenceIntervals: {
-                    where: { endTime: null },
-                    orderBy: { startTime: "desc" },
-                    take: 1,
+                    orderBy: { startTime: "asc" },
                 },
             },
         });
@@ -81,9 +75,7 @@ export class AttendanceSessionRepository {
                 employee: { include: { shift: true } },
                 shift: true,
                 absenceIntervals: {
-                    where: { endTime: null },
-                    orderBy: { startTime: "desc" },
-                    take: 1,
+                    orderBy: { startTime: "asc" },
                 },
             },
             orderBy: { updatedAt: "desc" },
@@ -102,9 +94,7 @@ export class AttendanceSessionRepository {
             orderBy: { lastActivity: "desc" },
             include: {
                 absenceIntervals: {
-                    where: { endTime: null },
-                    orderBy: { startTime: "desc" },
-                    take: 1,
+                    orderBy: { startTime: "asc" },
                 },
             },
         });
