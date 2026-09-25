@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
-import { ALLOWED_UPLOAD_MIME, MAX_UPLOAD_BYTES } from "../constants.js";
+import { ALLOWED_UPLOAD_EXT, ALLOWED_UPLOAD_MIME, MAX_UPLOAD_BYTES } from "../constants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const CARRIER_UPLOADS_ROOT = path.join(__dirname, "..", "..", "..", "uploads", "carriers");
@@ -51,9 +51,26 @@ export class CarrierStorageService {
         if (BLOCKED_EXT.has(ext)) {
             throw Object.assign(new Error("Executable or script files are not allowed"), { status: 400 });
         }
-        const mime = String(input.mimeType || "").toLowerCase();
-        if (mime && !ALLOWED_UPLOAD_MIME.has(mime) && !mime.startsWith("image/")) {
-            throw Object.assign(new Error("File type not allowed. Upload PDF or image."), { status: 400 });
+        const mime = String(input.mimeType || "").toLowerCase().trim();
+        const genericMime =
+            !mime || mime === "application/octet-stream" || mime === "binary/octet-stream";
+        const mimeOk =
+            genericMime || ALLOWED_UPLOAD_MIME.has(mime) || mime.startsWith("image/");
+        // When MIME is missing/generic (common for mobile W-9 PDFs), require a safe extension.
+        if (genericMime && ext && !ALLOWED_UPLOAD_EXT.has(ext)) {
+            throw Object.assign(new Error("File type not allowed. Upload PDF or image (JPG/PNG)."), {
+                status: 400,
+            });
+        }
+        if (!mimeOk) {
+            throw Object.assign(new Error("File type not allowed. Upload PDF or image (JPG/PNG)."), {
+                status: 400,
+            });
+        }
+        if (ext && !ALLOWED_UPLOAD_EXT.has(ext) && !mime.startsWith("image/")) {
+            throw Object.assign(new Error("File type not allowed. Upload PDF or image (JPG/PNG)."), {
+                status: 400,
+            });
         }
     }
 

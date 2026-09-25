@@ -43,6 +43,18 @@ export const ALLOWED_UPLOAD_MIME = new Set([
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
+/** Extensions we accept even when the browser sends a generic MIME (octet-stream). */
+export const ALLOWED_UPLOAD_EXT = new Set([
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+    ".doc",
+    ".docx",
+]);
+
 export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
 export const DEFAULT_ONBOARDING_EXPIRY_DAYS = 7;

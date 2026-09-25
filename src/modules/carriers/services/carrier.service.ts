@@ -66,6 +66,20 @@ function place(city?: string | null, state?: string | null, zip?: string | null)
     return [city, state, zip].filter(Boolean).join(", ") || "—";
 }
 
+/** Normalize portal upload types (W-9 → W9, Certificate of Insurance → COI, etc.). */
+function normalizePortalDocType(raw: string): string {
+    const t = String(raw || "")
+        .trim()
+        .toUpperCase()
+        .replace(/[\s\-]+/g, "_");
+    if (t === "W_9" || t === "W9" || t === "FORM_W9" || t === "FORM_W_9") return "W9";
+    if (t === "COI" || t === "CERTIFICATE_OF_INSURANCE" || t === "CERTIFICATE_OF_HOLDER") {
+        return "INSURANCE";
+    }
+    if (t === "MC" || t === "AUTHORITY" || t === "MC_AUTHORITY_LETTER") return "MC_AUTHORITY";
+    return t;
+}
+
 export class CarrierService {
     async ensureAgreementTemplate() {
         const active = await prisma.carrierAgreementTemplate.findFirst({
@@ -1973,7 +1987,7 @@ export class CarrierService {
         meta: { ip?: string; userAgent?: string }
     ) {
         const session = await this.resolveSession(rawToken, meta.ip);
-        const documentType = String(input.documentType || "").toUpperCase();
+        const documentType = normalizePortalDocType(input.documentType);
         const allowed = [
             "MC_AUTHORITY",
             "NOA",

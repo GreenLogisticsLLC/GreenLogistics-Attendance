@@ -75,7 +75,7 @@
     .doc-list { display:flex; flex-direction:column; gap:0.75rem; margin:0.85rem 0 0.35rem; }
     .doc-row {
       display:flex;
-      flex-wrap:nowrap;
+      flex-wrap:wrap;
       align-items:center;
       gap:0.55rem;
       margin:0;
@@ -93,10 +93,31 @@
       white-space:nowrap;
       max-width:min(42vw, 22rem);
     }
-    .doc-row input[type="file"] {
+    .doc-pick {
       margin-left:auto;
       flex:0 0 auto;
-      max-width:11.5rem;
+      position:relative;
+      overflow:hidden;
+      cursor:pointer;
+      font-weight:700;
+      font-size:0.85rem;
+      padding:0.5rem 0.85rem;
+      border-radius:8px;
+      background:#eef2f8;
+      color:var(--text);
+      border:1px solid var(--border);
+      white-space:nowrap;
+    }
+    .doc-pick:hover { background:#e2e8f0; }
+    .doc-pick.is-busy { opacity:0.65; pointer-events:none; }
+    .doc-pick input[type="file"] {
+      position:absolute;
+      inset:0;
+      opacity:0;
+      width:100%;
+      height:100%;
+      cursor:pointer;
+      font-size:0;
     }
     .badge { font-size:0.75rem; padding:0.2rem 0.45rem; border-radius:6px; background:#eef2f8; white-space:nowrap; }
     .badge.ok { background:rgba(5,150,105,0.15); color:var(--accent); }
@@ -277,7 +298,9 @@
         return '<div class="doc-row">' +
           '<strong class="doc-label">' + esc(t.label) + (t.required ? reqMark() : "") + "</strong>" +
           status +
-          '<input type="file" data-type="' + t.id + '" accept=".pdf,image/*">' +
+          '<label class="doc-pick">Choose file' +
+          '<input type="file" data-type="' + t.id + '" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,application/pdf,image/*">' +
+          "</label>" +
           "</div>";
       }).join("") +
       "</div>" +
@@ -695,9 +718,31 @@
     document.querySelectorAll('input[type="file"][data-type]').forEach(function (inp) {
       inp.addEventListener("change", async function () {
         if (!inp.files || !inp.files[0]) return;
-        var fd = new FormData(); fd.append("file", inp.files[0]); fd.append("documentType", inp.getAttribute("data-type"));
-        try { setMsg("Uploading… Document bot will check this file.", true); await api("/documents", { method:"POST", body: fd }); await reload(); setMsg("Uploaded. Bot is checking the document.", true); }
-        catch (e) { setMsg(e.message, false); }
+        var file = inp.files[0];
+        var docType = inp.getAttribute("data-type") || "";
+        var pick = inp.closest(".doc-pick");
+        var fd = new FormData();
+        fd.append("file", file);
+        fd.append("documentType", docType);
+        try {
+          if (pick) pick.classList.add("is-busy");
+          setMsg("Uploading " + (file.name || "file") + "… Document bot will check this file.", true);
+          var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+          var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 120000) : null;
+          await api("/documents", { method: "POST", body: fd, signal: ctrl ? ctrl.signal : undefined });
+          if (timer) clearTimeout(timer);
+          inp.value = "";
+          await reload();
+          setMsg("Uploaded. Bot is checking the document.", true);
+        } catch (e) {
+          var msg = (e && e.name === "AbortError")
+            ? "Upload timed out. Try a smaller PDF (under 15 MB) or a photo of the W-9."
+            : (e && e.message) || "Upload failed";
+          setMsg(msg, false);
+          inp.value = "";
+        } finally {
+          if (pick) pick.classList.remove("is-busy");
+        }
       });
     });
     document.getElementById("btn-submit")?.addEventListener("click", async function () {

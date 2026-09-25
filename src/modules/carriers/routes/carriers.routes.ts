@@ -63,7 +63,22 @@ carrierOnboardingPublicRouter.get("/:token", carrierOnboardingPublicController.g
 carrierOnboardingPublicRouter.post("/:token/save", carrierOnboardingPublicController.save);
 carrierOnboardingPublicRouter.post(
     "/:token/documents",
-    carrierUpload.single("file"),
+    (req, res, next) => {
+        carrierUpload.single("file")(req, res, (err: unknown) => {
+            if (!err) return next();
+            const code = (err as { code?: string }).code;
+            if (code === "LIMIT_FILE_SIZE") {
+                return res.status(400).json({
+                    success: false,
+                    message: "File too large (max 15 MB). Try a smaller PDF or photo.",
+                });
+            }
+            return res.status(400).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Upload failed",
+            });
+        });
+    },
     carrierOnboardingPublicController.upload
 );
 carrierOnboardingPublicRouter.post(

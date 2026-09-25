@@ -357,6 +357,13 @@ export const carrierOnboardingPublicController = {
                     /* ignore */
                 }
             }
+            const multerErr = err as { code?: string; message?: string };
+            if (multerErr?.code === "LIMIT_FILE_SIZE") {
+                return res.status(400).json({
+                    success: false,
+                    message: "File too large (max 15 MB). Try a smaller PDF or photo.",
+                });
+            }
             res.status(errStatus(err)).json({
                 success: false,
                 message: err instanceof Error ? err.message : "Upload failed",
