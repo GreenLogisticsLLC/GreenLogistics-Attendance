@@ -3246,7 +3246,8 @@ window.GreenOSModules["dispatch"] = {
       '<label class="full">Pickup contact <input id="rc-pcontact" placeholder="Name / phone at shipper" value="' +
       self.esc(pick("pickupContact", "")) +
       '"></label>' +
-      '<label class="full">Final destination * <input id="rc-dest" value="' +
+      '<div class="full load-form-section-break" aria-hidden="true"></div>' +
+      '<label class="full load-form-section-start">Final destination * <input id="rc-dest" value="' +
       self.esc(pick("deliveryAddress", place(g.delivery))) +
       '" required></label>' +
       '<div class="full">' +

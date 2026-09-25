@@ -2029,6 +2029,17 @@ button.load-review-choice:hover {
 }
 .load-form-grid label.full,
 .load-form-grid .full { grid-column: 1 / -1; }
+.load-form-grid .load-form-section-break {
+  grid-column: 1 / -1;
+  height: 0;
+  margin: 1.15rem 0 0.85rem;
+  border: 0;
+  border-top: 1px solid var(--gos-border, rgba(255, 255, 255, 0.14));
+}
+.load-form-grid .load-form-section-start {
+  margin-top: 0.15rem;
+  padding-top: 0.15rem;
+}
 .load-form-grid .load-extra-stops {
   grid-column: 1 / -1;
   display: flex;
