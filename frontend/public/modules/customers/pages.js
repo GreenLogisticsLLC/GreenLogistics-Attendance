@@ -254,6 +254,19 @@ window.GreenOSModules.customers = {
 
   async renderDetail(body, root, id) {
     var self = this;
+    self._customerId = id;
+    if (window.GreenOS && typeof window.GreenOS.rememberDetail === "function") {
+      var st = window.history.state;
+      var already =
+        st &&
+        st.gos &&
+        st.detail &&
+        st.detail.type === "customer" &&
+        st.detail.id === id;
+      if (!already) {
+        window.GreenOS.rememberDetail({ type: "customer", id: id });
+      }
+    }
     body.innerHTML = '<p class="gos-muted">Loading customer…</p>';
     try {
       var c = await self.api("/" + encodeURIComponent(id));
@@ -280,7 +293,7 @@ window.GreenOSModules.customers = {
         : '<tr><td colspan="4" class="gos-muted">No loads yet — Create Load from this customer.</td></tr>';
       body.innerHTML =
         '<div class="load-main" style="min-height:auto">' +
-        '<button type="button" class="load-back-btn" id="cu-back" style="width:auto">← All customers</button>' +
+        '<button type="button" class="load-back-btn" id="cu-back" style="width:auto">← Back</button>' +
         "<h2>" +
         self.esc(c.companyName) +
         "</h2>" +
@@ -297,8 +310,15 @@ window.GreenOSModules.customers = {
         loadRows +
         "</tbody></table></div></div>";
       body.querySelector("#cu-back")?.addEventListener("click", function () {
-        self._customerId = null;
-        self.render(root, "list");
+        var fallback = function () {
+          self._customerId = null;
+          self.render(root, "list");
+        };
+        if (window.GreenOS && typeof window.GreenOS.goBack === "function") {
+          window.GreenOS.goBack(fallback);
+        } else {
+          fallback();
+        }
       });
       body.querySelector("#cu-edit")?.addEventListener("click", function () {
         self.renderForm(body, root, c);

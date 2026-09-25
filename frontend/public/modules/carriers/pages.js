@@ -272,6 +272,19 @@ window.GreenOSModules.carriers = {
 
   async showDetail(main, id) {
     var self = this;
+    self._carrierId = id;
+    if (window.GreenOS && typeof window.GreenOS.rememberDetail === "function") {
+      var st = window.history.state;
+      var already =
+        st &&
+        st.gos &&
+        st.detail &&
+        st.detail.type === "carrier" &&
+        st.detail.id === id;
+      if (!already) {
+        window.GreenOS.rememberDetail({ type: "carrier", id: id });
+      }
+    }
     main.innerHTML = '<p class="gos-muted">Loading carrier…</p>';
     try {
       var data = await self.api("/" + encodeURIComponent(id));
@@ -288,7 +301,7 @@ window.GreenOSModules.carriers = {
       }
       main.innerHTML =
         '<div class="load-actions" style="margin-bottom:0.5rem">' +
-        '<button type="button" class="btn-secondary" id="cr-back">← Carriers</button>' +
+        '<button type="button" class="btn-secondary" id="cr-back">← Back</button>' +
         '<button type="button" class="btn-secondary" id="cr-resend">Resend Invitation</button>' +
         '<button type="button" class="btn-secondary" id="cr-changes">Request Changes</button>' +
         '<button type="button" class="btn-primary" id="cr-approve">Approve</button>' +
@@ -318,8 +331,15 @@ window.GreenOSModules.carriers = {
         '<div id="cr-tab"></div>';
 
       main.querySelector("#cr-back")?.addEventListener("click", function () {
-        self._carrierId = null;
-        self.showList(main);
+        var fallback = function () {
+          self._carrierId = null;
+          self.showList(main);
+        };
+        if (window.GreenOS && typeof window.GreenOS.goBack === "function") {
+          window.GreenOS.goBack(fallback);
+        } else {
+          fallback();
+        }
       });
       main.querySelectorAll("[data-tab]").forEach(function (btn) {
         btn.addEventListener("click", function () {

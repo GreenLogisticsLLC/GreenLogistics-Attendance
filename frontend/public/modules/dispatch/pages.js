@@ -393,9 +393,11 @@ window.GreenOSModules["dispatch"] = {
           window.GreenOSModules.carriers._tab = "documents";
         }
         if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
-          window.GreenOS.navigate("carriers");
+          window.GreenOS.navigate("carriers", null, {
+            detail: { type: "carrier", id: carrierId },
+          });
         } else {
-          window.location.hash = "#/carriers";
+          window.location.hash = "#/carriers/" + encodeURIComponent(carrierId);
         }
       });
     });
@@ -1350,6 +1352,22 @@ window.GreenOSModules["dispatch"] = {
       sessionStorage.setItem("gos_viewing_load_id", id);
       if (self._tab) sessionStorage.setItem("gos_open_load_tab", self._tab);
     } catch (e) {}
+    if (window.GreenOS && typeof window.GreenOS.rememberDetail === "function") {
+      var st = window.history.state;
+      var already =
+        st &&
+        st.gos &&
+        st.detail &&
+        st.detail.type === "load" &&
+        st.detail.id === id;
+      if (!already) {
+        window.GreenOS.rememberDetail({
+          type: "load",
+          id: id,
+          tab: self._tab || "general",
+        });
+      }
+    }
     if (!body) {
       body = document.getElementById("load-tms-body");
     }
@@ -1552,7 +1570,7 @@ window.GreenOSModules["dispatch"] = {
     body.innerHTML =
       '<div class="load-layout">' +
       '<aside class="load-nav">' +
-      '<button type="button" class="load-back-btn" id="load-back">← All loads</button>' +
+      '<button type="button" class="load-back-btn" id="load-back">← Back</button>' +
       "<h3>" +
       self.esc(data.identity.loadNumber || "No Load #") +
       "</h3>" +
@@ -1584,8 +1602,15 @@ window.GreenOSModules["dispatch"] = {
     self.loadShipmentMarketRate(body, id);
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
-      self.clearOpenLoad();
-      self.renderList(body, self._listPhase || "active");
+      var fallback = function () {
+        self.clearOpenLoad();
+        self.renderList(body, self._listPhase || "active");
+      };
+      if (window.GreenOS && typeof window.GreenOS.goBack === "function") {
+        window.GreenOS.goBack(fallback);
+      } else {
+        fallback();
+      }
     });
 
     body.querySelectorAll(".load-tab").forEach(function (btn) {

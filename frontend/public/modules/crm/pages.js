@@ -72,11 +72,7 @@ window.GreenOSModules.crm = {
       '<div id="crm-modal" class="crm-modal hidden" role="dialog" aria-modal="true"></div>' +
       "</div>";
 
-    root.querySelectorAll("[data-subpage]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        self.render(root, btn.getAttribute("data-subpage"));
-      });
-    });
+    // Subnav is wired by GreenOS.navigate (history-aware). Do not bind here.
 
     var body = root.querySelector("#crm-body");
     var page = active ? active.id : "dashboard";
@@ -101,6 +97,18 @@ window.GreenOSModules.crm = {
       paint();
     };
     paint();
+
+    // Restore broker workspace after Back / deep-link (#/crm/brokers/<id>).
+    if (page === "brokers") {
+      var openBrokerId = null;
+      try {
+        openBrokerId = sessionStorage.getItem("gos_open_broker_id");
+        if (openBrokerId) sessionStorage.removeItem("gos_open_broker_id");
+      } catch (e) {}
+      if (openBrokerId) {
+        self.openBrokerWorkspace(root, openBrokerId);
+      }
+    }
   },
 
   async api(path, options) {
@@ -826,6 +834,23 @@ window.GreenOSModules.crm = {
   async openBrokerWorkspace(root, brokerId) {
     var body = root.querySelector("#crm-body");
     if (!body) return;
+    // Ensure shell thinks we are on CRM → Brokers before pushing detail.
+    if (window.GreenOS) {
+      window.GreenOS.currentModule = "crm";
+      window.GreenOS.currentSub = "brokers";
+    }
+    if (window.GreenOS && typeof window.GreenOS.rememberDetail === "function") {
+      var st = window.history.state;
+      var already =
+        st &&
+        st.gos &&
+        st.detail &&
+        st.detail.type === "broker" &&
+        st.detail.id === brokerId;
+      if (!already) {
+        window.GreenOS.rememberDetail({ type: "broker", id: brokerId });
+      }
+    }
     body.innerHTML = "<p>Loading workspace…</p>";
     try {
       var data = await this.api("/brokers/" + encodeURIComponent(brokerId));
@@ -838,7 +863,7 @@ window.GreenOSModules.crm = {
       var shipments = d.shipments || [];
       body.innerHTML =
         '<section class="gos-dash-hero">' +
-        '<button type="button" class="btn-secondary crm-back" id="crm-back-brokers">← Brokers</button>' +
+        '<button type="button" class="btn-secondary crm-back" id="crm-back-brokers">← Back</button>' +
         "<h1>" +
         this.esc(d.broker.name) +
         "</h1>" +
@@ -866,7 +891,14 @@ window.GreenOSModules.crm = {
         '<div class="crm-ws-list" id="crm-ws-list"></div>';
 
       body.querySelector("#crm-back-brokers")?.addEventListener("click", function () {
-        window.GreenOSModules.crm.render(root, "brokers");
+        var fallback = function () {
+          window.GreenOSModules.crm.render(root, "brokers");
+        };
+        if (window.GreenOS && typeof window.GreenOS.goBack === "function") {
+          window.GreenOS.goBack(fallback);
+        } else {
+          fallback();
+        }
       });
 
       var list = body.querySelector("#crm-ws-list");

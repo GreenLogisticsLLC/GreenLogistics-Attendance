@@ -8,6 +8,10 @@
     currentSub: null,
     user: null,
     _historyBound: false,
+    /** Count of SPA pushState entries we created (for Back). */
+    _historyPushes: 0,
+    /** Stack of GreenOS history states — Back only when length > 1. */
+    _stack: [],
 
     shellApi(path) {
       const token = localStorage.getItem("gl_token");
@@ -41,16 +45,22 @@
             : this.user && this.user.role === "Accounting"
               ? "accounting"
               : "dashboard";
-      this.navigate(start, fromUrl.sub, { replace: true });
+      this.navigate(start, fromUrl.sub, {
+        replace: true,
+        detail: fromUrl.detail || null,
+      });
       if (this.role() === "Broker") {
         this.initAgentWidget();
       }
     },
 
-    /** Parse `#/module` or `#/module/sub` from the URL. */
+    /**
+     * Parse `#/module`, `#/module/sub`, or `#/module/sub/detailId`.
+     * Detail shortcuts: `#/carriers/<uuid>`, `#/customers/<uuid>`.
+     */
     parseRoute() {
       const raw = String(window.location.hash || "").replace(/^#\/?/, "").trim();
-      if (!raw) return { module: null, sub: null };
+      if (!raw) return { module: null, sub: null, detail: null };
       const parts = raw
         .split("/")
         .filter(Boolean)
@@ -61,30 +71,135 @@
             return p;
           }
         });
-      return { module: parts[0] || null, sub: parts[1] || null };
+      const moduleId = parts[0] || null;
+      let sub = parts[1] || null;
+      let detail = null;
+      const maybeId = parts[2] || null;
+      const uuidRe =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      if (moduleId === "loads" || moduleId === "dispatch" || moduleId === "broker") {
+        if (maybeId && uuidRe.test(maybeId)) {
+          detail = { type: "load", id: maybeId };
+        } else if (sub && uuidRe.test(sub) && moduleId === "broker") {
+          // keep broker sub-pages as-is
+        }
+      }
+      if (moduleId === "carriers" && sub && uuidRe.test(sub)) {
+        detail = { type: "carrier", id: sub };
+        sub = null;
+      }
+      if (moduleId === "customers" && sub && uuidRe.test(sub)) {
+        detail = { type: "customer", id: sub };
+        sub = "list";
+      }
+      if (moduleId === "crm" && sub === "brokers" && maybeId) {
+        detail = { type: "broker", id: maybeId };
+      }
+      return { module: moduleId, sub: sub, detail: detail };
     },
 
-    buildRouteUrl(moduleId, subPageId) {
+    buildRouteUrl(moduleId, subPageId, detail) {
       let hash = "#/" + encodeURIComponent(moduleId || "dashboard");
-      if (subPageId) hash += "/" + encodeURIComponent(subPageId);
+      if (detail && detail.type === "carrier" && detail.id) {
+        hash = "#/carriers/" + encodeURIComponent(detail.id);
+      } else if (detail && detail.type === "customer" && detail.id) {
+        hash = "#/customers/" + encodeURIComponent(detail.id);
+      } else if (detail && detail.type === "broker" && detail.id) {
+        hash =
+          "#/crm/brokers/" + encodeURIComponent(detail.id);
+      } else {
+        if (subPageId) hash += "/" + encodeURIComponent(subPageId);
+        if (detail && detail.type === "load" && detail.id) {
+          hash += "/" + encodeURIComponent(detail.id);
+        }
+      }
       return window.location.pathname + window.location.search + hash;
     },
 
-    writeHistory(moduleId, subPageId, replace) {
+    writeHistory(moduleId, subPageId, replace, detail) {
       const state = {
         gos: true,
         module: moduleId,
         sub: subPageId || null,
+        detail: detail || null,
       };
-      const url = this.buildRouteUrl(moduleId, subPageId);
+      const url = this.buildRouteUrl(moduleId, subPageId, detail);
       try {
         if (replace) {
+          if (this._stack.length) this._stack[this._stack.length - 1] = state;
+          else this._stack.push(state);
           window.history.replaceState(state, "", url);
         } else {
+          this._stack.push(state);
           window.history.pushState(state, "", url);
+          this._historyPushes = (this._historyPushes || 0) + 1;
         }
       } catch (e) {
         /* ignore history errors (e.g. file://) */
+      }
+    },
+
+    /**
+     * Record opening a detail page (load / carrier / customer / broker)
+     * so Back returns to the previous screen.
+     */
+    rememberDetail(detail) {
+      if (!detail || !detail.id) return;
+      this.writeHistory(this.currentModule, this.currentSub, false, detail);
+    },
+
+    /**
+     * Go to the previous GreenOS page. Falls back to `fallback` (fn or route)
+     * when there is no prior GreenOS page in the stack.
+     */
+    goBack(fallback) {
+      if ((this._stack || []).length > 1) {
+        window.history.back();
+        return true;
+      }
+      if (typeof fallback === "function") {
+        fallback();
+        return true;
+      }
+      if (fallback && fallback.module) {
+        this.navigate(fallback.module, fallback.sub || null, { replace: true });
+        return true;
+      }
+      const home = this.role() === "Broker" ? "broker" : "dashboard";
+      this.navigate(home, null, { replace: true });
+      return false;
+    },
+
+    /** Apply a detail target after the module host has rendered. */
+    applyDetail(detail) {
+      if (!detail || !detail.id) return;
+      try {
+        if (detail.type === "load") {
+          sessionStorage.setItem("gos_open_load_id", detail.id);
+          sessionStorage.setItem("gos_viewing_load_id", detail.id);
+          if (detail.tab) sessionStorage.setItem("gos_open_load_tab", detail.tab);
+          if (window.GreenOSModules && window.GreenOSModules.loads) {
+            window.GreenOSModules.loads._loadId = detail.id;
+            if (detail.tab) window.GreenOSModules.loads._tab = detail.tab;
+          }
+          if (window.GreenOSModules && window.GreenOSModules.dispatch) {
+            window.GreenOSModules.dispatch._loadId = detail.id;
+            if (detail.tab) window.GreenOSModules.dispatch._tab = detail.tab;
+          }
+        } else if (detail.type === "carrier") {
+          if (window.GreenOSModules && window.GreenOSModules.carriers) {
+            window.GreenOSModules.carriers._carrierId = detail.id;
+          }
+        } else if (detail.type === "customer") {
+          if (window.GreenOSModules && window.GreenOSModules.customers) {
+            window.GreenOSModules.customers._customerId = detail.id;
+          }
+        } else if (detail.type === "broker") {
+          sessionStorage.setItem("gos_open_broker_id", detail.id);
+        }
+      } catch (e) {
+        /* ignore */
       }
     },
 
@@ -92,20 +207,51 @@
       if (this._historyBound) return;
       this._historyBound = true;
       window.addEventListener("popstate", (e) => {
+        if (this._historyPushes > 0) this._historyPushes -= 1;
+        if (this._stack && this._stack.length > 1) this._stack.pop();
+        else if (this._stack && this._stack.length === 1 && e.state && e.state.gos) {
+          this._stack[0] = e.state;
+        }
         let moduleId = null;
         let sub = null;
+        let detail = null;
         if (e.state && e.state.gos && e.state.module) {
           moduleId = e.state.module;
           sub = e.state.sub || null;
+          detail = e.state.detail || null;
         } else {
           const parsed = this.parseRoute();
           moduleId = parsed.module;
           sub = parsed.sub;
+          detail = parsed.detail;
         }
         if (!moduleId) {
           moduleId = this.role() === "Broker" ? "broker" : "dashboard";
         }
-        this.navigate(moduleId, sub, { skipHistory: true });
+        // Leaving a detail: clear open-load flags so the list does not reopen it.
+        if (!detail) {
+          try {
+            sessionStorage.removeItem("gos_open_load_id");
+            sessionStorage.removeItem("gos_viewing_load_id");
+            sessionStorage.removeItem("gos_open_load_tab");
+            sessionStorage.removeItem("gos_open_broker_id");
+          } catch (err) {
+            /* ignore */
+          }
+          if (window.GreenOSModules && window.GreenOSModules.loads) {
+            window.GreenOSModules.loads._loadId = null;
+          }
+          if (window.GreenOSModules && window.GreenOSModules.dispatch) {
+            window.GreenOSModules.dispatch._loadId = null;
+          }
+          if (window.GreenOSModules && window.GreenOSModules.carriers) {
+            window.GreenOSModules.carriers._carrierId = null;
+          }
+          if (window.GreenOSModules && window.GreenOSModules.customers) {
+            window.GreenOSModules.customers._customerId = null;
+          }
+        }
+        this.navigate(moduleId, sub, { skipHistory: true, detail: detail });
       });
     },
 
@@ -319,21 +465,33 @@
       if (!this.canAccessModule(moduleId)) {
         const fallback = this.role() === "Broker" ? "broker" : "dashboard";
         if (moduleId !== fallback) {
-          this.navigate(fallback, null, { replace: opts.replace, skipHistory: opts.skipHistory });
+          this.navigate(fallback, null, {
+            replace: opts.replace,
+            skipHistory: opts.skipHistory,
+          });
           return;
         }
       }
 
       const nextSub = subPageId || null;
+      const detail = opts.detail || null;
       const same =
-        this.currentModule === moduleId && (this.currentSub || null) === nextSub;
+        this.currentModule === moduleId &&
+        (this.currentSub || null) === nextSub &&
+        !detail;
 
       this.currentModule = moduleId;
       this.currentSub = nextSub;
       this.setActiveNav(moduleId);
 
+      if (detail) {
+        this.applyDetail(detail);
+      }
+
       if (!opts.skipHistory) {
-        this.writeHistory(moduleId, nextSub, Boolean(opts.replace || same));
+        // Always push a new entry when opening a detail; otherwise replace on same route.
+        const replace = Boolean(opts.replace || (same && !detail));
+        this.writeHistory(moduleId, nextSub, replace, detail);
       }
 
       const host = document.getElementById("gos-module-host");
