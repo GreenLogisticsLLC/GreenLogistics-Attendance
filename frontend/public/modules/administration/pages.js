@@ -404,7 +404,10 @@ window.GreenOSModules['administration'] = {
         return;
       }
 
-      var rows = response.data || [];
+      // Defense in depth: never render brokers without a live employee link.
+      var rows = (response.data || []).filter(function (row) {
+        return Boolean(row && row.employeeId);
+      });
       lastRows = rows;
       if (addPanel && addPanel.style.display !== 'none') {
         fillAddSelect(rows);

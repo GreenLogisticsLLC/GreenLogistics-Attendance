@@ -281,9 +281,13 @@ export async function brokerGmailMessagesController(req: AuthRequest, res: Respo
 }
 
 export async function listBrokerGmailAccountsController(req: AuthRequest, res: Response) {
+    // Only active brokers still linked to a live Attendance employee.
+    // Orphans (deleted contact / unlinked employee) must not appear here.
     const where: Record<string, unknown> = {
         role: { roleName: "Broker" },
         isActive: true,
+        employeeId: { not: null },
+        employee: { is: { status: "ACTIVE" } },
     };
     const { teamScopeUserId } = await import("../../../auth/access.js");
     const { listTeamBrokerIds } = await import("../../../auth/team-scope.js");
@@ -303,6 +307,7 @@ export async function listBrokerGmailAccountsController(req: AuthRequest, res: R
                     employeeNumber: true,
                     firstName: true,
                     lastName: true,
+                    status: true,
                 },
             },
             brokerGmailAccount: {
