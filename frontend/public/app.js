@@ -103,7 +103,15 @@ function showApp(user) {
     const logged = $("#logged-user");
     if (logged) logged.textContent = fullName;
     const roleEl = document.getElementById("gos-user-role");
-    if (roleEl) roleEl.textContent = user.role || "";
+    if (roleEl) {
+      roleEl.textContent =
+        user.role === "Accounting"
+          ? user.accountingLabel ||
+            (user.accountingSubRole === "PAYMENTS"
+              ? "Accounting Payments"
+              : "Accounting Documents")
+          : user.role || "";
+    }
     const av = document.getElementById("gos-user-avatar");
     if (av) {
       const parts = fullName.split(/\s+/).filter(Boolean);

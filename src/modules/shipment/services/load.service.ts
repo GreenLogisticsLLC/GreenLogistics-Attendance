@@ -1074,7 +1074,8 @@ export class LoadService {
         action: string,
         actorUserId?: string,
         body?: Record<string, unknown>,
-        actorRole?: string
+        actorRole?: string,
+        actorAccountingSubRole?: string | null
     ) {
         const shipment = await prisma.shipmentLead.findUnique({
             where: { shipmentLeadId },
@@ -1098,6 +1099,10 @@ export class LoadService {
                 assignedBrokerId: true,
                 loadCarrierApprovedAt: true,
                 loadCarrierApprovedProfileId: true,
+                accountingDocStatus: true,
+                accountingFinancialVerified: true,
+                accountingReadyForCarrierPayment: true,
+                accountingReadyForBilling: true,
             },
         });
         if (!shipment) throw Object.assign(new Error("Load not found"), { status: 404 });
@@ -1261,8 +1266,48 @@ export class LoadService {
                 );
             }
 
-            const now = new Date();
+            const {
+                AccountingPermissions,
+                hasAccountingPermission,
+            } = await import("../../../auth/accounting.js");
+            const { AccountingService } = await import(
+                "../../accounting/services/accounting.service.js"
+            );
             const customerPayment = action === "mark_customer_paid";
+            if (customerPayment) {
+                if (
+                    !hasAccountingPermission(
+                        actorRole,
+                        actorAccountingSubRole,
+                        AccountingPermissions.CustomerPaymentsRecord
+                    )
+                ) {
+                    throw Object.assign(
+                        new Error(
+                            "Accounting Documents cannot record customer payments — Payments role required"
+                        ),
+                        { status: 403, code: "ACCOUNTING_FORBIDDEN" }
+                    );
+                }
+            } else {
+                if (
+                    !hasAccountingPermission(
+                        actorRole,
+                        actorAccountingSubRole,
+                        AccountingPermissions.CarrierPaymentsExecute
+                    )
+                ) {
+                    throw Object.assign(
+                        new Error(
+                            "Accounting Documents cannot execute carrier payments — Payments role required"
+                        ),
+                        { status: 403, code: "ACCOUNTING_FORBIDDEN" }
+                    );
+                }
+                AccountingService.assertCarrierPaymentAllowed(shipment, String(actorRole || ""));
+            }
+
+            const now = new Date();
             await prisma.shipmentLead.update({
                 where: { shipmentLeadId },
                 data: customerPayment

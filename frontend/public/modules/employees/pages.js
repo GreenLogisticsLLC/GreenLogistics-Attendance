@@ -381,7 +381,7 @@ window.GreenOSModules["employees"] = {
       '<p id="emp-users-status" class="gos-muted">Loading…</p>' +
       '<div class="emp-users-wrap"><table class="emp-users-table" id="emp-users-table">' +
       "<thead><tr>" +
-      "<th>Name</th><th>Username</th><th>Email</th><th>Role / status</th><th>Team Lead / transfer</th><th>Actions</th>" +
+      "<th>Name</th><th>Username</th><th>Email</th><th>Role / Accounting function</th><th>Team Lead / transfer</th><th>Actions</th>" +
       "</tr></thead><tbody></tbody></table></div>";
 
     var statusEl = body.querySelector("#emp-users-status");
@@ -513,6 +513,21 @@ window.GreenOSModules["employees"] = {
             }
             var isBroker = u.role === "Broker";
             var isTeamLead = u.role === "Team Lead";
+            var isAccounting = u.role === "Accounting";
+            var accSub = u.accountingSubRole === "PAYMENTS" ? "PAYMENTS" : "DOCUMENTS";
+            var accSelect =
+              '<select class="emp-acc-sub-select" style="margin-top:0.35rem;' +
+              (isAccounting ? "" : "display:none") +
+              '" data-prev="' +
+              esc(u.accountingSubRole || "DOCUMENTS") +
+              '">' +
+              '<option value="DOCUMENTS"' +
+              (accSub === "DOCUMENTS" ? " selected" : "") +
+              ">Accounting Documents</option>" +
+              '<option value="PAYMENTS"' +
+              (accSub === "PAYMENTS" ? " selected" : "") +
+              ">Accounting Payments</option>" +
+              "</select>";
             return (
               '<tr data-user-id="' +
               esc(u.userId) +
@@ -534,6 +549,7 @@ window.GreenOSModules["employees"] = {
               '">' +
               options +
               "</select>" +
+              accSelect +
               takeOverOptionsHtml(users, u.userId) +
               "</td>" +
               "<td>" +
@@ -558,6 +574,7 @@ window.GreenOSModules["employees"] = {
           var tl = tr.querySelector(".emp-team-lead-select");
           var transfer = tr.querySelector(".emp-transfer-team-select");
           var takeover = tr.querySelector(".emp-takeover-select");
+          var accSub = tr.querySelector(".emp-acc-sub-select");
           if (!roleSelect) return;
           var role = roleSelect.value;
           var prev = roleSelect.getAttribute("data-prev") || "";
@@ -574,6 +591,9 @@ window.GreenOSModules["employees"] = {
             var showTakeover = prev !== "Team Lead" && role === "Team Lead";
             takeover.style.display = showTakeover ? "block" : "none";
             if (!showTakeover) takeover.value = "";
+          }
+          if (accSub) {
+            accSub.style.display = role === "Accounting" ? "block" : "none";
           }
         }
 
@@ -593,6 +613,7 @@ window.GreenOSModules["employees"] = {
             var tlSelect = tr.querySelector(".emp-team-lead-select");
             var transferSelect = tr.querySelector(".emp-transfer-team-select");
             var takeoverSelect = tr.querySelector(".emp-takeover-select");
+            var accSubSelect = tr.querySelector(".emp-acc-sub-select");
             if (!roleSelect || !userId) return;
 
             var role = roleSelect.value;
@@ -601,14 +622,20 @@ window.GreenOSModules["employees"] = {
             var prevTl = tlSelect ? tlSelect.getAttribute("data-prev") || "" : "";
             var transferTo = transferSelect ? transferSelect.value || null : null;
             var takeOverFrom = takeoverSelect ? takeoverSelect.value || null : null;
+            var accSub = accSubSelect ? accSubSelect.value || "DOCUMENTS" : "DOCUMENTS";
+            var prevAccSub = accSubSelect
+              ? accSubSelect.getAttribute("data-prev") || "DOCUMENTS"
+              : "DOCUMENTS";
             var roleChanged = role !== prevRole;
+            var accChanged =
+              role === "Accounting" && String(accSub || "") !== String(prevAccSub || "");
             var tlChanged =
               role === "Broker"
                 ? String(teamLeadId || "") !== String(prevTl || "")
                 : String(prevTl || "") !== "";
 
-            if (!roleChanged && !tlChanged && !takeOverFrom) {
-              statusEl.textContent = "No change — update role or Team Lead first";
+            if (!roleChanged && !tlChanged && !takeOverFrom && !accChanged) {
+              statusEl.textContent = "No change — update role, Accounting function, or Team Lead first";
               statusEl.style.color = "#eab308";
               return;
             }
@@ -630,13 +657,16 @@ window.GreenOSModules["employees"] = {
             statusEl.style.color = "";
             var savedMessage = "";
             try {
-              if (roleChanged || takeOverFrom) {
+              if (roleChanged || takeOverFrom || accChanged) {
                 var roleBody = { role: role };
                 if (prevRole === "Team Lead" && role !== "Team Lead" && transferTo) {
                   roleBody.transferTeamToUserId = transferTo;
                 }
                 if (role === "Team Lead" && takeOverFrom) {
                   roleBody.takeOverFromUserId = takeOverFrom;
+                }
+                if (role === "Accounting") {
+                  roleBody.accountingSubRole = accSub;
                 }
                 var roleData = await api(
                   "/users/" + encodeURIComponent(userId) + "/role",

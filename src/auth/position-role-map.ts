@@ -1,4 +1,8 @@
 import { Roles, type RoleName } from "./roles.js";
+import {
+    accountingSubRoleFromPosition,
+    type AccountingSubRole,
+} from "./accounting.js";
 
 /** Roles that appear as badge Position and get Green OS module access when set. */
 export const BADGE_POSITION_ROLES = [
@@ -17,6 +21,10 @@ const POSITION_ALIASES: Record<string, BadgePositionRole> = {
     "team-lead": Roles.TeamLead,
     tl: Roles.TeamLead,
     accounting: Roles.Accounting,
+    "accounting documents": Roles.Accounting,
+    "accounting document": Roles.Accounting,
+    "accounting payments": Roles.Accounting,
+    "accounting payment": Roles.Accounting,
     account: Roles.Accounting,
     accountant: Roles.Accounting,
     accaunting: Roles.Accounting,
@@ -38,6 +46,17 @@ export function roleFromPosition(position: string | null | undefined): BadgePosi
         POSITION_ALIASES[key.replace(/[\s_-]+/g, "")] ||
         null
     );
+}
+
+/**
+ * When Position maps to Accounting, also resolve DOCUMENTS | PAYMENTS.
+ * Non-Accounting positions return null.
+ */
+export function accountingSubRoleFromBadgePosition(
+    position: string | null | undefined
+): AccountingSubRole | null {
+    if (roleFromPosition(position) !== Roles.Accounting) return null;
+    return accountingSubRoleFromPosition(position);
 }
 
 export function isBadgePositionRole(value: string): value is BadgePositionRole {

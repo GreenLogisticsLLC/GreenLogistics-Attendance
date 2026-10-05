@@ -145,6 +145,12 @@ export async function meController(req: AuthRequest, res: Response) {
     if (!user) {
         return res.status(401).json(apiResponse(false, "User not found"));
     }
+    const { isAccountingTeam, normalizeAccountingSubRole, AccountingSubRoles, accountingTeamLabel } =
+        await import("../auth/accounting.js");
+    const isAcc = isAccountingTeam(user.role.roleName);
+    const accountingSubRole = isAcc
+        ? normalizeAccountingSubRole(user.accountingSubRole, AccountingSubRoles.Documents)
+        : null;
     return res.json(
         apiResponse(true, "OK", {
             userId: user.userId,
@@ -152,6 +158,9 @@ export async function meController(req: AuthRequest, res: Response) {
             firstName: user.firstName,
             lastName: user.lastName,
             role: user.role.roleName,
+            team: isAcc ? "ACCOUNTING" : null,
+            accountingSubRole,
+            accountingLabel: isAcc ? accountingTeamLabel(accountingSubRole) : null,
         })
     );
 }
