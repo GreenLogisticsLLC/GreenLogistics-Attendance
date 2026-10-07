@@ -255,9 +255,9 @@ window.GreenOSRegistry = [
   },
   {
     id: "ai",
-    title: "AI Assistant",
+    title: "GREEN",
     icon: "🤖",
-    subtitle: "GreenOS AI Assistant",
+    subtitle: "GreenOS AI agent",
     roles: [
       "Administrator",
       "Owner",
