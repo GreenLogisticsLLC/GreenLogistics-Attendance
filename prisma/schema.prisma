@@ -46,6 +46,7 @@ model User {
   aiRuns                 AiRun[]
   aiDocumentJobs         AiDocumentJob[]
   aiActions              AiAction[]
+  aiAgentThreads         AiAgentThread[]
 
   @@index([teamLeadId])
   @@map("users")
@@ -1015,6 +1016,23 @@ model AiRun {
   @@index([createdAt])
   @@index([status])
   @@map("ai_runs")
+}
+
+/// Saved GREEN agent chat threads (ChatGPT-style sidebar history).
+model AiAgentThread {
+  threadId   String   @id @default(uuid()) @map("thread_id")
+  userId     String   @map("user_id")
+  title      String   @default("New chat")
+  pinned     Boolean  @default(false)
+  /// JSON array: [{ role: "user"|"assistant", content: string, at?: string }]
+  messagesJson String @default("[]") @map("messages_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  user       User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+  @@index([userId, pinned])
+  @@map("ai_agent_threads")
 }
 
 /// Phase 2B — Document AI processing job (async; non-blocking HTTP).

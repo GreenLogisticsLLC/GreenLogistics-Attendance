@@ -1094,8 +1094,10 @@
       return null;
     },
 
-    bindAiChat({ messagesEl, formEl, inputEl, history }) {
+    bindAiChat({ messagesEl, formEl, inputEl, history, onExchange }) {
       const self = this;
+      if (formEl && formEl.dataset.aiBound === "1") return;
+      if (formEl) formEl.dataset.aiBound = "1";
 
       function append(role, text) {
         const div = document.createElement("div");
@@ -1242,7 +1244,14 @@
           appendMeta(payload);
           history.push({ role: "user", content: text });
           history.push({ role: "assistant", content: reply });
-          if (history.length > 16) history.splice(0, history.length - 16);
+          if (history.length > 40) history.splice(0, history.length - 40);
+          if (typeof onExchange === "function") {
+            try {
+              onExchange({ userText: text, reply, history });
+            } catch (err) {
+              /* ignore save UI errors */
+            }
+          }
         } catch {
           if (thinking && thinking.parentNode) thinking.remove();
           append("bot", "Connection error talking to GreenOS AI");
@@ -1254,14 +1263,42 @@
     },
 
     renderAI(root) {
+      const self = this;
+      const welcome =
+        "Hi — I'm GREEN, your GreenOS AI agent.\n\nAsk about attendance, shipments, assignment, or operations.";
+
       root.innerHTML =
-        `<section class="gos-dash-hero gos-ai-hero">` +
-        `<h1>GREEN</h1>` +
-        `</section>` +
-        `<div class="gos-ai-layout">` +
+        `<div class="gos-ai-workspace">` +
+        `<aside class="gos-ai-sidebar" id="gos-ai-sidebar">` +
+        `<div class="gos-ai-sidebar-top">` +
+        `<div class="gos-ai-sidebar-brand"><strong>GREEN</strong><span>Saved chats</span></div>` +
+        `<button type="button" class="btn-primary gos-ai-new-chat" id="gos-ai-new-chat">+ New chat</button>` +
+        `</div>` +
+        `<div class="gos-ai-sidebar-scroll">` +
+        `<div class="gos-ai-sidebar-section" id="gos-ai-pinned-section">` +
+        `<div class="gos-ai-sidebar-label">Pinned</div>` +
+        `<div id="gos-ai-pinned-list"></div>` +
+        `</div>` +
+        `<div class="gos-ai-sidebar-section">` +
+        `<div class="gos-ai-sidebar-label">Chats</div>` +
+        `<div id="gos-ai-chat-list"><p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">Loading…</p></div>` +
+        `</div>` +
+        `</div>` +
+        `</aside>` +
         `<section class="gos-ai-chat">` +
+        `<header class="gos-ai-chat-header">` +
+        `<div>` +
+        `<h1 id="gos-ai-thread-title">New chat</h1>` +
+        `<p class="gos-muted" id="gos-ai-thread-hint">Work with GREEN — chats are saved automatically</p>` +
+        `</div>` +
+        `<div class="gos-ai-chat-header-actions">` +
+        `<button type="button" class="btn-secondary" id="gos-ai-rename" style="width:auto">Rename</button>` +
+        `<button type="button" class="btn-secondary" id="gos-ai-pin" style="width:auto">Pin</button>` +
+        `<button type="button" class="btn-secondary" id="gos-ai-delete" style="width:auto">Delete</button>` +
+        `</div>` +
+        `</header>` +
         `<div class="gos-ai-messages" id="gos-ai-messages">` +
-        `<div class="gos-ai-bubble bot">Hi — I'm GREEN, your GreenOS AI agent.\n\nAsk about attendance, shipments, assignment, or operations.</div>` +
+        `<div class="gos-ai-bubble bot"></div>` +
         `</div>` +
         `<div class="gos-ai-prompts" id="gos-ai-prompts">` +
         `<button type="button" data-prompt="Summarize today's dispatch status">Summarize today's dispatch</button>` +
@@ -1275,20 +1312,266 @@
         `</form>` +
         `</section></div>`;
 
+      const welcomeEl = root.querySelector("#gos-ai-messages .gos-ai-bubble.bot");
+      if (welcomeEl) welcomeEl.textContent = welcome;
+
       const messages = root.querySelector("#gos-ai-messages");
       const form = root.querySelector("#gos-ai-form");
       const input = root.querySelector("#gos-ai-input");
+      const titleEl = root.querySelector("#gos-ai-thread-title");
+      const pinBtn = root.querySelector("#gos-ai-pin");
+      const renameBtn = root.querySelector("#gos-ai-rename");
+      const deleteBtn = root.querySelector("#gos-ai-delete");
+      const pinnedList = root.querySelector("#gos-ai-pinned-list");
+      const chatList = root.querySelector("#gos-ai-chat-list");
+      const pinnedSection = root.querySelector("#gos-ai-pinned-section");
+
       const history = [];
+      const state = {
+        threadId: null,
+        title: "New chat",
+        pinned: false,
+        saving: false,
+      };
 
-      this.bindAiChat({ messagesEl: messages, formEl: form, inputEl: input, history });
-      if (input) input.focus();
+      function esc(s) {
+        return self.escHtml ? self.escHtml(String(s || "")) : String(s || "");
+      }
 
-      root.querySelectorAll("[data-prompt]").forEach((btn) => {
-        btn.addEventListener("click", () => {
+      function renderMessages(list) {
+        messages.innerHTML = "";
+        if (!list.length) {
+          const div = document.createElement("div");
+          div.className = "gos-ai-bubble bot";
+          div.textContent = welcome;
+          messages.appendChild(div);
+          return;
+        }
+        list.forEach(function (m) {
+          const role = m.role === "user" ? "user" : "bot";
+          const div = document.createElement("div");
+          div.className = "gos-ai-bubble " + role;
+          if (role === "bot") {
+            const textEl = document.createElement("div");
+            textEl.className = "gos-ai-bubble-text";
+            textEl.textContent = m.content || "";
+            const actions = document.createElement("div");
+            actions.className = "gos-ai-bubble-actions";
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.className = "gos-ai-copy-btn";
+            copyBtn.textContent = "Copy";
+            copyBtn.addEventListener("click", async function () {
+              try {
+                await navigator.clipboard.writeText(textEl.textContent || "");
+                copyBtn.textContent = "Copied";
+                setTimeout(function () {
+                  copyBtn.textContent = "Copy";
+                }, 1400);
+              } catch (e) {
+                copyBtn.textContent = "Failed";
+              }
+            });
+            actions.appendChild(copyBtn);
+            div.appendChild(textEl);
+            div.appendChild(actions);
+          } else {
+            div.textContent = m.content || "";
+          }
+          messages.appendChild(div);
+        });
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      function syncHeader() {
+        if (titleEl) titleEl.textContent = state.title || "New chat";
+        if (pinBtn) pinBtn.textContent = state.pinned ? "Unpin" : "Pin";
+        const disabled = !state.threadId;
+        if (renameBtn) renameBtn.disabled = disabled;
+        if (pinBtn) pinBtn.disabled = disabled;
+        if (deleteBtn) deleteBtn.disabled = disabled;
+      }
+
+      function renderSidebar(items) {
+        const pinned = (items || []).filter(function (t) {
+          return t.pinned;
+        });
+        const rest = (items || []).filter(function (t) {
+          return !t.pinned;
+        });
+        if (pinnedSection) pinnedSection.style.display = pinned.length ? "" : "none";
+        function rowHtml(t) {
+          const active = t.threadId === state.threadId ? " is-active" : "";
+          return (
+            '<button type="button" class="gos-ai-thread-item' +
+            active +
+            '" data-id="' +
+            esc(t.threadId) +
+            '">' +
+            '<span class="gos-ai-thread-title">' +
+            esc(t.title || "New chat") +
+            "</span>" +
+            '<span class="gos-ai-thread-meta">' +
+            esc((t.updatedAt || "").slice(0, 16).replace("T", " ")) +
+            "</span></button>"
+          );
+        }
+        if (pinnedList) pinnedList.innerHTML = pinned.map(rowHtml).join("");
+        if (chatList) {
+          chatList.innerHTML = rest.length
+            ? rest.map(rowHtml).join("")
+            : '<p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">No saved chats yet</p>';
+        }
+        root.querySelectorAll(".gos-ai-thread-item").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            openThread(btn.getAttribute("data-id"));
+          });
+        });
+      }
+
+      async function refreshList() {
+        try {
+          const res = await self.aiApi("/threads");
+          if (res.success) renderSidebar(res.data || []);
+          else if (chatList)
+            chatList.innerHTML =
+              '<p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">' +
+              esc(res.message || "Failed to load chats") +
+              "</p>";
+        } catch (err) {
+          if (chatList)
+            chatList.innerHTML =
+              '<p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">Failed to load chats</p>';
+        }
+      }
+
+      async function ensureThread() {
+        if (state.threadId) return state.threadId;
+        const res = await self.aiApi("/threads", {
+          method: "POST",
+          body: JSON.stringify({ title: "New chat", messages: [] }),
+        });
+        if (!res.success) throw new Error(res.message || "Could not create chat");
+        state.threadId = res.data.threadId;
+        state.title = res.data.title || "New chat";
+        state.pinned = !!res.data.pinned;
+        syncHeader();
+        await refreshList();
+        return state.threadId;
+      }
+
+      async function saveMessages() {
+        if (state.saving) return;
+        state.saving = true;
+        try {
+          await ensureThread();
+          const res = await self.aiApi("/threads/" + encodeURIComponent(state.threadId), {
+            method: "PATCH",
+            body: JSON.stringify({ messages: history }),
+          });
+          if (res.success && res.data) {
+            state.title = res.data.title || state.title;
+            syncHeader();
+            await refreshList();
+          }
+        } catch (err) {
+          console.warn("[GREEN] save chat failed", err);
+        } finally {
+          state.saving = false;
+        }
+      }
+
+      async function openThread(id) {
+        if (!id) return;
+        const res = await self.aiApi("/threads/" + encodeURIComponent(id));
+        if (!res.success) {
+          alert(res.message || "Could not open chat");
+          return;
+        }
+        const data = res.data || {};
+        state.threadId = data.threadId;
+        state.title = data.title || "New chat";
+        state.pinned = !!data.pinned;
+        history.length = 0;
+        (Array.isArray(data.messages) ? data.messages : []).forEach(function (m) {
+          history.push({ role: m.role, content: m.content });
+        });
+        renderMessages(history);
+        syncHeader();
+        await refreshList();
+        if (input) input.focus();
+      }
+
+      function startNewChat() {
+        state.threadId = null;
+        state.title = "New chat";
+        state.pinned = false;
+        history.length = 0;
+        renderMessages([]);
+        syncHeader();
+        refreshList();
+        if (input) input.focus();
+      }
+
+      this.bindAiChat({
+        messagesEl: messages,
+        formEl: form,
+        inputEl: input,
+        history: history,
+        onExchange: function () {
+          saveMessages();
+        },
+      });
+
+      root.querySelector("#gos-ai-new-chat")?.addEventListener("click", startNewChat);
+      renameBtn?.addEventListener("click", async function () {
+        if (!state.threadId) return;
+        const next = window.prompt("Rename chat", state.title || "New chat");
+        if (next == null) return;
+        const title = String(next).trim();
+        if (!title) return;
+        const res = await self.aiApi("/threads/" + encodeURIComponent(state.threadId), {
+          method: "PATCH",
+          body: JSON.stringify({ title: title }),
+        });
+        if (res.success) {
+          state.title = res.data.title;
+          syncHeader();
+          refreshList();
+        } else alert(res.message || "Rename failed");
+      });
+      pinBtn?.addEventListener("click", async function () {
+        if (!state.threadId) return;
+        const res = await self.aiApi("/threads/" + encodeURIComponent(state.threadId), {
+          method: "PATCH",
+          body: JSON.stringify({ pinned: !state.pinned }),
+        });
+        if (res.success) {
+          state.pinned = !!res.data.pinned;
+          syncHeader();
+          refreshList();
+        }
+      });
+      deleteBtn?.addEventListener("click", async function () {
+        if (!state.threadId) return;
+        if (!window.confirm("Delete this chat?")) return;
+        const res = await self.aiApi("/threads/" + encodeURIComponent(state.threadId), {
+          method: "DELETE",
+        });
+        if (res.success) startNewChat();
+        else alert(res.message || "Delete failed");
+      });
+
+      root.querySelectorAll("[data-prompt]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
           input.value = btn.dataset.prompt;
           form.requestSubmit();
         });
       });
+
+      syncHeader();
+      refreshList();
+      if (input) input.focus();
     },
 
     initAgentWidget() {
