@@ -1162,7 +1162,6 @@
         if (payload.groundingLabel) parts.push(payload.groundingLabel);
         else if (payload.answerMode === "grounded" || payload.answerMode === "not_found")
           parts.push("Based on GreenOS data");
-        else if (payload.answerMode === "general") parts.push("General AI answer (not GreenOS data)");
         if (payload.searchMode) parts.push("Search: " + payload.searchMode);
 
         const meta = document.createElement("div");
@@ -1265,12 +1264,12 @@
     renderAI(root) {
       root.innerHTML =
         `<section class="gos-dash-hero gos-ai-hero">` +
-        `<h1>GreenOS AI Assistant</h1>` +
+        `<h1>GREEN</h1>` +
         `</section>` +
         `<div class="gos-ai-layout">` +
         `<section class="gos-ai-chat">` +
         `<div class="gos-ai-messages" id="gos-ai-messages">` +
-        `<div class="gos-ai-bubble bot">Welcome to GreenOS AI Assistant.\n\nAsk about attendance, shipments, assignment, or operations.</div>` +
+        `<div class="gos-ai-bubble bot">Hi — I'm GREEN, your GreenOS AI agent.\n\nAsk about attendance, shipments, assignment, or operations.</div>` +
         `</div>` +
         `<div class="gos-ai-prompts" id="gos-ai-prompts">` +
         `<button type="button" data-prompt="Summarize today's dispatch status">Summarize today's dispatch</button>` +
@@ -1279,7 +1278,7 @@
         `<button type="button" data-prompt="Draft a carrier follow-up email">Draft carrier email</button>` +
         `</div>` +
         `<form class="gos-ai-input-row" id="gos-ai-form">` +
-        `<input id="gos-ai-input" placeholder="Ask GreenOS AI..." autocomplete="off" />` +
+        `<input id="gos-ai-input" placeholder="Ask GREEN…" autocomplete="off" />` +
         `<button type="submit" class="btn-primary">Send</button>` +
         `</form>` +
         `</section></div>`;
@@ -1306,7 +1305,7 @@
       const sessionKey = "gos-agent-widget-dismissed";
       const firstName = String(user.firstName || "there").trim() || "there";
       const welcomeText =
-        `Hi, ${firstName}! I'm the GREENOS AI AGENT, built specially for GreenOS. ` +
+        `Hi, ${firstName}! I'm GREEN — your GreenOS AI agent. ` +
         `I'm here to help you with shipments, customers, dispatch, and your daily broker workflow.\n\n` +
         `Ask me anything — I'm glad to help.`;
 
@@ -1316,13 +1315,13 @@
         root.id = "gos-kate-widget";
         root.className = "gos-kate-widget";
         root.innerHTML =
-          `<button type="button" class="gos-kate-fab hidden" id="gos-kate-fab" title="GREENOS AI Agent">🤖</button>` +
+          `<button type="button" class="gos-kate-fab hidden" id="gos-kate-fab" title="GREEN">🤖</button>` +
           `<div class="gos-kate-panel hidden" id="gos-kate-panel" role="dialog" aria-labelledby="gos-kate-title">` +
           `<header class="gos-kate-header">` +
           `<div class="gos-kate-title-wrap">` +
           `<span class="gos-kate-avatar" aria-hidden="true">🤖</span>` +
-          `<div><strong id="gos-kate-title">GREENOS AI AGENT</strong>` +
-          `<span class="gos-kate-sub">Your broker assistant</span></div>` +
+          `<div><strong id="gos-kate-title">GREEN</strong>` +
+          `<span class="gos-kate-sub">Your broker AI agent</span></div>` +
           `</div>` +
           `<div class="gos-kate-header-actions">` +
           `<button type="button" class="gos-kate-icon-btn" id="gos-kate-minimize" title="Minimize">−</button>` +
@@ -1333,7 +1332,7 @@
           `<div class="gos-ai-bubble bot">${self.escHtml(welcomeText)}</div>` +
           `</div>` +
           `<form class="gos-kate-input-row" id="gos-kate-form">` +
-          `<input id="gos-kate-input" placeholder="Ask GREENOS AI Agent…" autocomplete="off" />` +
+          `<input id="gos-kate-input" placeholder="Ask GREEN…" autocomplete="off" />` +
           `<button type="submit" class="btn-primary">Send</button>` +
           `</form>` +
           `</div>`;
