@@ -166,7 +166,12 @@
         this.navigate(fallback.module, fallback.sub || null, { replace: true });
         return true;
       }
-      const home = this.role() === "Broker" ? "broker" : "dashboard";
+      const home =
+        this.role() === "Broker"
+          ? "broker"
+          : this.role() === "Accounting"
+            ? "accounting"
+            : "dashboard";
       this.navigate(home, null, { replace: true });
       return false;
     },
@@ -226,7 +231,12 @@
           detail = parsed.detail;
         }
         if (!moduleId) {
-          moduleId = this.role() === "Broker" ? "broker" : "dashboard";
+          moduleId =
+            this.role() === "Broker"
+              ? "broker"
+              : this.role() === "Accounting"
+                ? "accounting"
+                : "dashboard";
         }
         // Leaving a detail: clear open-load flags so the list does not reopen it.
         if (!detail) {
@@ -274,32 +284,49 @@
         if (!m.roles || !m.roles.length) return true;
         return m.roles.includes(role);
       });
-      const groups = [
-        {
-          title: "Operations",
-          ids: ["dashboard", "broker", "shipments", "crm", "loads", "dispatch", "problems", "email"],
-        },
-        {
-          title: "Network",
-          ids: ["carriers", "customers", "trucking", "car-transport"],
-        },
-        {
-          title: "People",
-          ids: ["employees", "attendance"],
-        },
-        {
-          title: "Finance",
-          ids: ["accounting", "invoices", "contracts", "documents", "reports"],
-        },
-        {
-          title: "Intelligence",
-          ids: ["command-center", "ai", "communications"],
-        },
-        {
-          title: "Admin",
-          ids: ["administration"],
-        },
-      ];
+      const groups =
+        role === "Accounting"
+          ? [
+              {
+                title: "Accounting Team",
+                ids: ["accounting"],
+              },
+            ]
+          : [
+              {
+                title: "Operations",
+                ids: [
+                  "dashboard",
+                  "broker",
+                  "shipments",
+                  "crm",
+                  "loads",
+                  "dispatch",
+                  "problems",
+                  "email",
+                ],
+              },
+              {
+                title: "Network",
+                ids: ["carriers", "customers", "trucking", "car-transport"],
+              },
+              {
+                title: "People",
+                ids: ["employees", "attendance"],
+              },
+              {
+                title: "Finance",
+                ids: ["accounting", "invoices", "contracts", "documents", "reports"],
+              },
+              {
+                title: "Intelligence",
+                ids: ["command-center", "ai", "communications"],
+              },
+              {
+                title: "Admin",
+                ids: ["administration"],
+              },
+            ];
       const used = new Set();
       let html = "";
       groups.forEach((g) => {
@@ -339,11 +366,20 @@
         user.username ||
         "User";
       const role = user.role || "";
+      const roleLabel =
+        role === "Accounting"
+          ? user.accountingLabel ||
+            (user.accountingSubRole === "PAYMENTS"
+              ? "Accounting Payments"
+              : user.accountingSubRole === "DOCUMENTS"
+                ? "Accounting Documents"
+                : "Accounting Team")
+          : role;
       const logged = document.getElementById("logged-user");
       const roleEl = document.getElementById("gos-user-role");
       const av = document.getElementById("gos-user-avatar");
       if (logged) logged.textContent = name;
-      if (roleEl) roleEl.textContent = role;
+      if (roleEl) roleEl.textContent = roleLabel;
       if (av) {
         const parts = name.split(/\s+/).filter(Boolean);
         av.textContent = (
@@ -463,7 +499,12 @@
     navigate(moduleId, subPageId, opts) {
       opts = opts || {};
       if (!this.canAccessModule(moduleId)) {
-        const fallback = this.role() === "Broker" ? "broker" : "dashboard";
+        const fallback =
+          this.role() === "Broker"
+            ? "broker"
+            : this.role() === "Accounting"
+              ? "accounting"
+              : "dashboard";
         if (moduleId !== fallback) {
           this.navigate(fallback, null, {
             replace: opts.replace,

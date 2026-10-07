@@ -36,7 +36,8 @@ export const ROLE_DESCRIPTIONS: Record<string, string> = {
     [Roles.Broker]: "Broker — only own shipments and personal workspace",
     [Roles.Dispatcher]: "Dispatcher — loads and carriers (future)",
     [Roles.HR]: "HR — employees and attendance (future)",
-    [Roles.Accounting]: "Accounting — invoices, customer/carrier payments, and profit",
+    [Roles.Accounting]:
+        "Accounting Team — Documents verification or Payments (isolated from Broker/Operations)",
     [Roles.Viewer]: "Read-only access",
 };
 
@@ -104,7 +105,6 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
         Roles.Owner,
         Roles.Manager,
         Roles.TeamLead,
-        Roles.Accounting,
         Roles.Dispatcher,
         Roles.HR,
         Roles.Viewer,
@@ -116,7 +116,6 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
         Roles.Owner,
         Roles.Manager,
         Roles.TeamLead,
-        Roles.Accounting,
         Roles.Dispatcher,
     ],
     /** Top-level Shipments workspace for Owner/ops — all leads, open and work. */
@@ -131,20 +130,37 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
     problems: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
     email: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
     assignment: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
-    dispatch: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead, Roles.Accounting],
-    loads: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead, Roles.Accounting],
+    // Accounting Team does NOT use Broker/Operations shells — only Accounting workspace.
+    dispatch: [
+        Roles.Administrator,
+        Roles.Owner,
+        Roles.Manager,
+        Roles.Dispatcher,
+        Roles.Broker,
+        Roles.TeamLead,
+    ],
+    loads: [
+        Roles.Administrator,
+        Roles.Owner,
+        Roles.Manager,
+        Roles.Dispatcher,
+        Roles.Broker,
+        Roles.TeamLead,
+    ],
     trucking: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
     carriers: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
     customers: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Broker, Roles.TeamLead],
     "car-transport": [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher],
     employees: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.HR],
     attendance: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.HR, Roles.TeamLead],
+    /** Isolated Accounting Team workspace (Documents / Payments). */
     accounting: [Roles.Administrator, Roles.Owner, Roles.Accounting],
-    invoices: [Roles.Administrator, Roles.Owner, Roles.Accounting],
+    /** Legacy invoices shell — Admin/Owner only; Accounting uses Accounting workspace. */
+    invoices: [Roles.Administrator, Roles.Owner],
     contracts: [Roles.Administrator, Roles.Owner, Roles.Manager],
-    documents: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher, Roles.Accounting],
+    documents: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Dispatcher],
     communications: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
-    reports: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.Accounting, Roles.TeamLead],
+    reports: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
     ai: [
         Roles.Administrator,
         Roles.Owner,
@@ -153,7 +169,6 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
         Roles.Broker,
         Roles.Dispatcher,
         Roles.HR,
-        Roles.Accounting,
     ],
     "command-center": [
         Roles.Administrator,
@@ -162,7 +177,6 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
         Roles.TeamLead,
         Roles.Broker,
         Roles.Dispatcher,
-        Roles.Accounting,
         Roles.Viewer,
     ],
     administration: [Roles.Administrator, Roles.Owner],

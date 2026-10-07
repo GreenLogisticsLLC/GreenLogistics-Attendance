@@ -9,6 +9,13 @@ import {
     SIGNUP_ROLE_NAMES,
     type SignupRoleName,
 } from "../auth/roles.js";
+import {
+    AccountingSubRoles,
+    accountingTeamLabel,
+    isAccountingTeam,
+    normalizeAccountingSubRole,
+    type AccountingSubRole,
+} from "../auth/accounting.js";
 import { assertValidTeamLeadId, listTeamLeadOptions } from "../auth/team-scope.js";
 import { ensureAttendanceBadgeForUser } from "./user-attendance-link.service.js";
 
@@ -27,12 +34,29 @@ export class AuthService {
         firstName: string;
         lastName: string;
         role: { roleName: string };
+        accountingSubRole?: string | null;
     }) {
+        let accountingSubRole: AccountingSubRole | null = null;
+        if (isAccountingTeam(user.role.roleName)) {
+            accountingSubRole = normalizeAccountingSubRole(
+                user.accountingSubRole,
+                AccountingSubRoles.Documents
+            );
+            // Persist default sub-role if missing so lists/API stay consistent.
+            if (!user.accountingSubRole) {
+                await prisma.user.update({
+                    where: { userId: user.userId },
+                    data: { accountingSubRole },
+                });
+            }
+        }
+
         const token = jwt.sign(
             {
                 userId: user.userId,
                 username: user.username,
                 role: user.role.roleName,
+                accountingSubRole,
             },
             config.jwtSecret,
             { expiresIn: "8h" }
@@ -46,6 +70,11 @@ export class AuthService {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 role: user.role.roleName,
+                team: isAccountingTeam(user.role.roleName) ? "ACCOUNTING" : null,
+                accountingSubRole,
+                accountingLabel: isAccountingTeam(user.role.roleName)
+                    ? accountingTeamLabel(accountingSubRole)
+                    : null,
             },
         };
     }
@@ -628,10 +657,22 @@ export class AuthService {
 
     verifyToken(token: string) {
         try {
-            return jwt.verify(token, config.jwtSecret) as {
+            const payload = jwt.verify(token, config.jwtSecret) as {
                 userId: string;
                 username: string;
                 role: string;
+                accountingSubRole?: AccountingSubRole | null;
+            };
+            return {
+                userId: payload.userId,
+                username: payload.username,
+                role: payload.role,
+                accountingSubRole: isAccountingTeam(payload.role)
+                    ? normalizeAccountingSubRole(
+                          payload.accountingSubRole,
+                          AccountingSubRoles.Documents
+                      )
+                    : null,
             };
         } catch {
             return null;

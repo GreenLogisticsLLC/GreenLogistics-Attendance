@@ -27,7 +27,7 @@ window.GreenOSRegistry = [
     title: "Dashboard",
     icon: "🏠",
     subtitle: "Overview and key metrics",
-    roles: ["Administrator", "Owner", "Manager", "Team Lead", "Accounting", "Dispatcher", "HR", "Viewer"],
+    roles: ["Administrator", "Owner", "Manager", "Team Lead", "Dispatcher", "HR", "Viewer"],
   },
   {
     id: "shipments",
@@ -58,7 +58,7 @@ window.GreenOSRegistry = [
     title: "CRM",
     icon: "👥",
     subtitle: "Shipments, brokers, and pipeline",
-    roles: ["Administrator", "Owner", "Manager", "Team Lead", "Accounting", "Dispatcher"],
+    roles: ["Administrator", "Owner", "Manager", "Team Lead", "Dispatcher"],
     children: [
       { id: "dashboard", title: "Dashboard" },
       { id: "shipments", title: "Shipments" },
@@ -77,7 +77,7 @@ window.GreenOSRegistry = [
     title: "Loads",
     icon: "📦",
     subtitle: "Load Details — central TMS object after Accept",
-    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead", "Accounting"],
+    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead"],
     children: [
       { id: "active-loads", title: "Active Loads" },
       { id: "completed-loads", title: "Completed Loads" },
@@ -117,7 +117,7 @@ window.GreenOSRegistry = [
     title: "Dispatch",
     icon: "📡",
     subtitle: "Board, trucks, and tracking",
-    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead", "Accounting"],
+    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Broker", "Team Lead"],
     children: [
       { id: "active-loads", title: "Active Loads" },
       { id: "completed-loads", title: "Completed Loads" },
@@ -166,15 +166,16 @@ window.GreenOSRegistry = [
     id: "accounting",
     title: "Accounting",
     icon: "💰",
-    subtitle: "Income, expenses, and P&L",
+    subtitle: "Accounting Team workspace — Documents & Payments",
     roles: ["Administrator", "Owner", "Accounting"],
     children: [
-      { id: "income", title: "Income" },
-      { id: "expenses", title: "Expenses" },
+      { id: "dashboard", title: "Dashboard" },
+      { id: "shipments", title: "Shipments" },
+      { id: "document-review", title: "Document Review" },
+      { id: "customer-billing", title: "Customer Billing" },
       { id: "customer-payments", title: "Customer Payments" },
       { id: "carrier-payments", title: "Carrier Payments" },
-      { id: "payroll", title: "Payroll" },
-      { id: "profit-loss", title: "Profit & Loss" },
+      { id: "history", title: "Accounting History" },
     ],
   },
   {
@@ -182,7 +183,7 @@ window.GreenOSRegistry = [
     title: "Invoices",
     icon: "🧾",
     subtitle: "Customer invoices and carrier bills",
-    roles: ["Administrator", "Owner", "Accounting"],
+    roles: ["Administrator", "Owner"],
     children: [
       { id: "customer-invoices", title: "Customer Invoices" },
       { id: "carrier-bills", title: "Carrier Bills" },
@@ -208,7 +209,7 @@ window.GreenOSRegistry = [
     title: "Documents",
     icon: "📁",
     subtitle: "BOL, POD, insurance, and files",
-    roles: ["Administrator", "Owner", "Manager", "Dispatcher", "Accounting"],
+    roles: ["Administrator", "Owner", "Manager", "Dispatcher"],
     children: [
       { id: "bol", title: "BOL" },
       { id: "rate-confirmations", title: "Rate Confirmations" },
@@ -236,7 +237,7 @@ window.GreenOSRegistry = [
     title: "Reports",
     icon: "📊",
     subtitle: "Revenue and performance analytics",
-    roles: ["Administrator", "Owner", "Manager", "Accounting", "Team Lead"],
+    roles: ["Administrator", "Owner", "Manager", "Team Lead"],
     children: [
       { id: "revenue", title: "Revenue" },
       { id: "attendance", title: "Attendance" },
@@ -267,7 +268,6 @@ window.GreenOSRegistry = [
       "Broker",
       "Dispatcher",
       "HR",
-      "Accounting",
     ],
   },
   {
