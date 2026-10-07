@@ -1100,7 +1100,57 @@
       function append(role, text) {
         const div = document.createElement("div");
         div.className = `gos-ai-bubble ${role}`;
-        div.textContent = text;
+        const copyable =
+          role === "bot" &&
+          text &&
+          text !== "Thinking…" &&
+          !String(text).startsWith("Connection error");
+        if (copyable) {
+          const textEl = document.createElement("div");
+          textEl.className = "gos-ai-bubble-text";
+          textEl.textContent = text;
+          const actions = document.createElement("div");
+          actions.className = "gos-ai-bubble-actions";
+          const copyBtn = document.createElement("button");
+          copyBtn.type = "button";
+          copyBtn.className = "gos-ai-copy-btn";
+          copyBtn.textContent = "Copy";
+          copyBtn.title = "Copy answer";
+          copyBtn.addEventListener("click", async function () {
+            const value = textEl.textContent || "";
+            try {
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(value);
+              } else {
+                const ta = document.createElement("textarea");
+                ta.value = value;
+                ta.setAttribute("readonly", "");
+                ta.style.position = "fixed";
+                ta.style.left = "-9999px";
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand("copy");
+                ta.remove();
+              }
+              copyBtn.textContent = "Copied";
+              copyBtn.classList.add("is-copied");
+              setTimeout(function () {
+                copyBtn.textContent = "Copy";
+                copyBtn.classList.remove("is-copied");
+              }, 1600);
+            } catch (err) {
+              copyBtn.textContent = "Failed";
+              setTimeout(function () {
+                copyBtn.textContent = "Copy";
+              }, 1600);
+            }
+          });
+          actions.appendChild(copyBtn);
+          div.appendChild(textEl);
+          div.appendChild(actions);
+        } else {
+          div.textContent = text;
+        }
         messagesEl.appendChild(div);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         return div;

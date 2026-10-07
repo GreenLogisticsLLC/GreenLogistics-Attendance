@@ -551,12 +551,44 @@ html[data-theme="light"] {
 .gos-ai-bubble.bot {
   background: var(--gos-surface2);
   color: var(--gos-text);
+  position: relative;
 }
 
 .gos-ai-bubble.user {
   background: var(--gos-accent-soft);
   color: var(--gos-accent);
   margin-left: auto;
+}
+
+.gos-ai-bubble-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.55rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--gos-border);
+}
+
+.gos-ai-copy-btn {
+  border: 1px solid var(--gos-border);
+  background: transparent;
+  color: var(--gos-muted);
+  border-radius: 6px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  cursor: pointer;
+  width: auto;
+  margin: 0;
+}
+
+.gos-ai-copy-btn:hover {
+  color: var(--gos-text);
+  border-color: var(--gos-accent);
+}
+
+.gos-ai-copy-btn.is-copied {
+  color: var(--gos-accent);
+  border-color: var(--gos-accent);
 }
 
 .gos-ai-prompts {
