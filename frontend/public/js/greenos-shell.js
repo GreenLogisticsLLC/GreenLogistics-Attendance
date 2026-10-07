@@ -1207,14 +1207,6 @@
           meta.appendChild(srcWrap);
         }
 
-        if (payload.runId) {
-          const run = document.createElement("div");
-          run.style.marginTop = "4px";
-          run.style.opacity = "0.7";
-          run.textContent = "runId: " + payload.runId;
-          meta.appendChild(run);
-        }
-
         if (!meta.childNodes.length) return;
         messagesEl.appendChild(meta);
         messagesEl.scrollTop = messagesEl.scrollHeight;
