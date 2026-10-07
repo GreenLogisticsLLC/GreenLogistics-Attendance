@@ -13,7 +13,18 @@ export function deriveLifecycleIssues(
 
     const complianceReadiness = String(evidence.carrierCompliance?.readiness || "").toUpperCase();
     const complianceLight = String(evidence.carrierCompliance?.light || "").toUpperCase();
-    if (complianceReadiness === "NOT_READY" || complianceLight === "RED") {
+    // Broker "Approved Carrier" on this load clears the global RED compliance closeout block.
+    if (evidence.loadCarrierApproved) {
+        if (complianceReadiness === "REVIEW_REQUIRED" || complianceLight === "REVIEW") {
+            addWarning({
+                code: "CARRIER_COMPLIANCE_REVIEW",
+                message:
+                    "Carrier compliance still needs packet review, but this load was Approved Carrier.",
+                critical: false,
+                source: "carrier_compliance",
+            });
+        }
+    } else if (complianceReadiness === "NOT_READY" || complianceLight === "RED") {
         addBlocker({
             code: "CARRIER_COMPLIANCE_BLOCKED",
             message: "Carrier compliance is not ready.",
