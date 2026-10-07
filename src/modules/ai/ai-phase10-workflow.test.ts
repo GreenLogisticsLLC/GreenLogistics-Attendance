@@ -61,6 +61,47 @@ test("Phase 10 RC compliance gate allows RED when broker Approved Carrier", () =
     );
 });
 
+test("Approved Carrier for this load clears RED compliance closeout gate", () => {
+    const checklist = _lifecycleTestUtils.buildCloseoutChecklist({
+        status: "POD_UPLOADED",
+        carrierCompliance: { readiness: "NOT_READY", light: "RED" },
+        loadCarrierApproved: true,
+        documents: [
+            doc("RATE_CONFIRMATION", "PRESENT"),
+            doc("BOL", "PRESENT"),
+            doc("POD", "PRESENT", { signatureStatus: "RECEIVER:SIGNED" }),
+        ],
+        loadDocuments: [
+            { docType: "RATE_CONFIRMATION" },
+            { docType: "BOL" },
+            {
+                docType: "POD",
+                contentJson: JSON.stringify({ receiverSignatureDetected: true }),
+            },
+        ],
+        customerPaidAt: new Date(),
+        carrierPaidAt: new Date(),
+        reviewCustomerSentAt: new Date(),
+    });
+    const compliance = checklist.find((item) => item.id === "carrier_compliance");
+    assert.equal(compliance?.ok, true);
+    assert.equal(compliance?.detail, "Approved Carrier for this load");
+
+    const issues = _lifecycleTestUtils.deriveLifecycleIssues(
+        {
+            status: "POD_UPLOADED",
+            carrierCompliance: { readiness: "NOT_READY", light: "RED" },
+            loadCarrierApproved: true,
+            closeoutReadiness: "READY_TO_CLOSE",
+        },
+        "CLOSEOUT"
+    );
+    assert.equal(
+        issues.blockers.some((b) => b.code === "CARRIER_COMPLIANCE_BLOCKED"),
+        false
+    );
+});
+
 test("Phase 10 closeout checklist rejects unsigned POD", () => {
     const checklist = _lifecycleTestUtils.buildCloseoutChecklist({
         status: "POD_UPLOADED",
