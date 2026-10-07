@@ -402,7 +402,7 @@
       document.getElementById("gos-notifications-btn")?.addEventListener("click", () => {
         if (window.GreenOSRealtime) window.GreenOSRealtime.clearUnread();
         if (this.role() === "Broker") {
-          this.navigate("broker", "notifications");
+          this.navigate("broker", "shipments");
         } else {
           this.navigate("crm", "dashboard");
         }

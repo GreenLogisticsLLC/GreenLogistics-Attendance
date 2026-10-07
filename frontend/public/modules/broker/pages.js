@@ -1,6 +1,6 @@
 /**
  * Broker-only GreenOS workspace.
- * Personal Dashboard · My Shipments · My Customers · MY Carrier · ON Road · Notifications
+ * Personal Dashboard · My Shipments · My Customers · MY Carrier · ON Road · Trucking
  */
 window.GreenOSModules = window.GreenOSModules || {};
 window.GreenOSModules.broker = {
@@ -13,7 +13,6 @@ window.GreenOSModules.broker = {
     { id: "carriers", title: "MY Carrier" },
     { id: "on-road", title: "ON Road" },
     { id: "trucking", title: "Trucking" },
-    { id: "notifications", title: "Notifications" },
   ],
   _shipmentsTimer: null,
   _shipmentsCache: null,
@@ -86,7 +85,6 @@ window.GreenOSModules.broker = {
       if (window.GreenOSModules.trucking) window.GreenOSModules.trucking.render(body);
       else body.innerHTML = "<p>Trucking module not loaded — hard refresh.</p>";
     }
-    else if (active.id === "notifications") self.renderNotifications(body);
     else self.renderDashboard(body, root);
   },
 
@@ -1093,92 +1091,4 @@ window.GreenOSModules.broker = {
     }
   },
 
-  async renderNotifications(body) {
-    body.innerHTML = "<p>Loading notifications…</p>";
-    try {
-      var data = await this.api("/notifications");
-      if (!data.success) {
-        body.innerHTML = "<p>" + this.esc(data.message) + "</p>";
-        return;
-      }
-      var payload = data.data || {};
-      var rows = Array.isArray(payload) ? payload : payload.items || [];
-      var unread = payload.unread != null ? payload.unread : 0;
-      var soundOn = localStorage.getItem("gos_notify_sound") !== "0";
-      body.innerHTML =
-        '<section class="gos-dash-hero"><h1>Notification Center</h1>' +
-        "<p>GreenOS alerts (not Gmail). Unread: <strong>" +
-        unread +
-        "</strong></p></section>" +
-        '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem">' +
-        '<label class="gos-muted" style="display:flex;align-items:center;gap:0.5rem">' +
-        '<input type="checkbox" id="broker-sound-toggle"' +
-        (soundOn ? " checked" : "") +
-        "/> Play sound</label>" +
-        '<button type="button" class="btn-secondary" id="broker-mark-all-read" style="width:auto">Mark all read</button>' +
-        "</div>" +
-        '<ul class="broker-notify-list" id="broker-notify"></ul>';
-      body.querySelector("#broker-sound-toggle")?.addEventListener("change", function (e) {
-        var on = !!e.target.checked;
-        if (window.GreenOSRealtime) window.GreenOSRealtime.setSoundEnabled(on);
-        else localStorage.setItem("gos_notify_sound", on ? "1" : "0");
-      });
-      body.querySelector("#broker-mark-all-read")?.addEventListener("click", async function () {
-        await window.GreenOSModules.broker.api("/notifications/read-all", { method: "POST" });
-        window.GreenOSModules.broker.renderNotifications(body);
-      });
-      var list = body.querySelector("#broker-notify");
-      if (!rows.length) {
-        list.innerHTML =
-          '<li class="gos-muted">No notifications yet — assignments and uShip events appear here</li>';
-        return;
-      }
-      var esc = this.esc.bind(this);
-      var fmt = this.fmtDate.bind(this);
-      list.innerHTML = rows
-        .map(function (n) {
-          return (
-            '<li class="' +
-            (n.status === "UNREAD" ? "is-unread" : "") +
-            '" data-id="' +
-            esc(n.id) +
-            '" data-shipment="' +
-            esc(n.shipmentLeadId || "") +
-            '"><strong>' +
-            esc(n.title || n.type) +
-            "</strong> — " +
-            esc(n.message) +
-            '<br><small class="gos-muted">' +
-            fmt(n.createdAt) +
-            (n.status === "UNREAD" ? " · UNREAD" : "") +
-            "</small></li>"
-          );
-        })
-        .join("");
-      list.querySelectorAll("[data-id]").forEach(function (li) {
-        li.style.cursor = "pointer";
-        li.title = "Click to open shipment";
-        li.addEventListener("click", async function () {
-          var nid = li.getAttribute("data-id");
-          var sid = li.getAttribute("data-shipment");
-          try {
-            await window.GreenOSModules.broker.api("/notifications/" + nid + "/read", {
-              method: "POST",
-            });
-          } catch (e) {}
-          li.classList.remove("is-unread");
-          if (sid) {
-            if (window.GreenOSRealtime && typeof window.GreenOSRealtime.openShipment === "function") {
-              window.GreenOSRealtime.openShipment(sid);
-            } else if (window.GreenOSModules.crm) {
-              var host = document.getElementById("gos-module-host");
-              if (host) window.GreenOSModules.crm.openShipmentCard(host, sid);
-            }
-          }
-        });
-      });
-    } catch {
-      body.innerHTML = "<p>Failed to load notifications</p>";
-    }
-  },
 };

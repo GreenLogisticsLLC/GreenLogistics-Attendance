@@ -19,7 +19,6 @@ window.GreenOSRegistry = [
       { id: "carriers", title: "MY Carrier" },
       { id: "on-road", title: "ON Road" },
       { id: "trucking", title: "Trucking" },
-      { id: "notifications", title: "Notifications" },
     ],
   },
   {
