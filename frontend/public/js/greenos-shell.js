@@ -1273,11 +1273,16 @@
         `<div class="gos-ai-sidebar-top">` +
         `<div class="gos-ai-sidebar-brand"><strong>GREEN</strong><span>Saved chats</span></div>` +
         `<button type="button" class="btn-primary gos-ai-new-chat" id="gos-ai-new-chat">+ New chat</button>` +
+        `<button type="button" class="btn-secondary gos-ai-new-folder" id="gos-ai-new-folder">+ New folder</button>` +
         `</div>` +
         `<div class="gos-ai-sidebar-scroll">` +
         `<div class="gos-ai-sidebar-section" id="gos-ai-pinned-section">` +
         `<div class="gos-ai-sidebar-label">Pinned</div>` +
         `<div id="gos-ai-pinned-list"></div>` +
+        `</div>` +
+        `<div class="gos-ai-sidebar-section">` +
+        `<div class="gos-ai-sidebar-label">Folders</div>` +
+        `<div id="gos-ai-folder-list"></div>` +
         `</div>` +
         `<div class="gos-ai-sidebar-section">` +
         `<div class="gos-ai-sidebar-label">Chats</div>` +
@@ -1293,6 +1298,7 @@
         `</div>` +
         `<div class="gos-ai-chat-header-actions">` +
         `<button type="button" class="btn-secondary" id="gos-ai-rename" style="width:auto">Rename</button>` +
+        `<button type="button" class="btn-secondary" id="gos-ai-move" style="width:auto">Move to folder</button>` +
         `<button type="button" class="btn-secondary" id="gos-ai-pin" style="width:auto">Pin</button>` +
         `<button type="button" class="btn-secondary" id="gos-ai-delete" style="width:auto">Delete</button>` +
         `</div>` +
@@ -1321,9 +1327,11 @@
       const titleEl = root.querySelector("#gos-ai-thread-title");
       const pinBtn = root.querySelector("#gos-ai-pin");
       const renameBtn = root.querySelector("#gos-ai-rename");
+      const moveBtn = root.querySelector("#gos-ai-move");
       const deleteBtn = root.querySelector("#gos-ai-delete");
       const pinnedList = root.querySelector("#gos-ai-pinned-list");
       const chatList = root.querySelector("#gos-ai-chat-list");
+      const folderList = root.querySelector("#gos-ai-folder-list");
       const pinnedSection = root.querySelector("#gos-ai-pinned-section");
 
       const history = [];
@@ -1331,7 +1339,11 @@
         threadId: null,
         title: "New chat",
         pinned: false,
+        folderId: null,
         saving: false,
+        folders: [],
+        threads: [],
+        openFolders: {},
       };
 
       function esc(s) {
@@ -1388,56 +1400,147 @@
         if (pinBtn) pinBtn.textContent = state.pinned ? "Unpin" : "Pin";
         const disabled = !state.threadId;
         if (renameBtn) renameBtn.disabled = disabled;
+        if (moveBtn) moveBtn.disabled = disabled;
         if (pinBtn) pinBtn.disabled = disabled;
         if (deleteBtn) deleteBtn.disabled = disabled;
+        const hint = root.querySelector("#gos-ai-thread-hint");
+        if (hint) {
+          const folder = state.folders.find(function (f) {
+            return f.folderId === state.folderId;
+          });
+          hint.textContent = folder
+            ? "Folder: " + folder.name
+            : "Work with GREEN — chats are saved automatically";
+        }
       }
 
-      function renderSidebar(items) {
-        const pinned = (items || []).filter(function (t) {
+      function rowHtml(t) {
+        const active = t.threadId === state.threadId ? " is-active" : "";
+        return (
+          '<button type="button" class="gos-ai-thread-item' +
+          active +
+          '" data-id="' +
+          esc(t.threadId) +
+          '">' +
+          '<span class="gos-ai-thread-title">' +
+          esc(t.title || "New chat") +
+          "</span>" +
+          '<span class="gos-ai-thread-meta">' +
+          esc((t.updatedAt || "").slice(0, 16).replace("T", " ")) +
+          "</span></button>"
+        );
+      }
+
+      function renderSidebar() {
+        const items = state.threads || [];
+        const folders = state.folders || [];
+        const pinned = items.filter(function (t) {
           return t.pinned;
         });
-        const rest = (items || []).filter(function (t) {
-          return !t.pinned;
+        const unfiled = items.filter(function (t) {
+          return !t.pinned && !t.folderId;
         });
         if (pinnedSection) pinnedSection.style.display = pinned.length ? "" : "none";
-        function rowHtml(t) {
-          const active = t.threadId === state.threadId ? " is-active" : "";
-          return (
-            '<button type="button" class="gos-ai-thread-item' +
-            active +
-            '" data-id="' +
-            esc(t.threadId) +
-            '">' +
-            '<span class="gos-ai-thread-title">' +
-            esc(t.title || "New chat") +
-            "</span>" +
-            '<span class="gos-ai-thread-meta">' +
-            esc((t.updatedAt || "").slice(0, 16).replace("T", " ")) +
-            "</span></button>"
-          );
-        }
         if (pinnedList) pinnedList.innerHTML = pinned.map(rowHtml).join("");
-        if (chatList) {
-          chatList.innerHTML = rest.length
-            ? rest.map(rowHtml).join("")
-            : '<p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">No saved chats yet</p>';
+
+        if (folderList) {
+          if (!folders.length) {
+            folderList.innerHTML =
+              '<p class="gos-muted" style="padding:0.35rem 0.75rem;font-size:0.78rem">No folders yet</p>';
+          } else {
+            folderList.innerHTML = folders
+              .map(function (f) {
+                const open = state.openFolders[f.folderId] !== false;
+                const kids = items.filter(function (t) {
+                  return !t.pinned && t.folderId === f.folderId;
+                });
+                return (
+                  '<div class="gos-ai-folder" data-folder-id="' +
+                  esc(f.folderId) +
+                  '">' +
+                  '<div class="gos-ai-folder-head">' +
+                  '<button type="button" class="gos-ai-folder-toggle" data-folder-toggle="' +
+                  esc(f.folderId) +
+                  '">' +
+                  (open ? "▾ " : "▸ ") +
+                  esc(f.name) +
+                  ' <span class="gos-ai-folder-count">' +
+                  kids.length +
+                  "</span></button>" +
+                  '<button type="button" class="gos-ai-folder-del" data-folder-del="' +
+                  esc(f.folderId) +
+                  '" title="Delete folder">×</button>' +
+                  "</div>" +
+                  (open
+                    ? '<div class="gos-ai-folder-body">' +
+                      (kids.length
+                        ? kids.map(rowHtml).join("")
+                        : '<p class="gos-muted" style="padding:0.25rem 0.75rem;font-size:0.75rem">Empty folder</p>') +
+                      "</div>"
+                    : "") +
+                  "</div>"
+                );
+              })
+              .join("");
+          }
         }
+
+        if (chatList) {
+          chatList.innerHTML = unfiled.length
+            ? unfiled.map(rowHtml).join("")
+            : '<p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">No chats outside folders</p>';
+        }
+
         root.querySelectorAll(".gos-ai-thread-item").forEach(function (btn) {
           btn.addEventListener("click", function () {
             openThread(btn.getAttribute("data-id"));
+          });
+        });
+        root.querySelectorAll("[data-folder-toggle]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            const id = btn.getAttribute("data-folder-toggle");
+            state.openFolders[id] = state.openFolders[id] === false;
+            renderSidebar();
+          });
+        });
+        root.querySelectorAll("[data-folder-del]").forEach(function (btn) {
+          btn.addEventListener("click", async function (ev) {
+            ev.stopPropagation();
+            const id = btn.getAttribute("data-folder-del");
+            if (!id || !window.confirm("Delete folder? Chats stay, just leave the folder."))
+              return;
+            const res = await self.aiApi("/folders/" + encodeURIComponent(id), {
+              method: "DELETE",
+            });
+            if (res.success) {
+              if (state.folderId === id) state.folderId = null;
+              syncHeader();
+              await refreshList();
+            } else alert(res.message || "Delete folder failed");
           });
         });
       }
 
       async function refreshList() {
         try {
-          const res = await self.aiApi("/threads");
-          if (res.success) renderSidebar(res.data || []);
-          else if (chatList)
+          const [threadsRes, foldersRes] = await Promise.all([
+            self.aiApi("/threads"),
+            self.aiApi("/folders"),
+          ]);
+          if (threadsRes.success) state.threads = threadsRes.data || [];
+          if (foldersRes.success) state.folders = foldersRes.data || [];
+          (state.folders || []).forEach(function (f) {
+            if (state.openFolders[f.folderId] === undefined) {
+              state.openFolders[f.folderId] = true;
+            }
+          });
+          renderSidebar();
+          if (!threadsRes.success && chatList) {
             chatList.innerHTML =
               '<p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">' +
-              esc(res.message || "Failed to load chats") +
+              esc(threadsRes.message || "Failed to load chats") +
               "</p>";
+          }
         } catch (err) {
           if (chatList)
             chatList.innerHTML =
@@ -1455,6 +1558,7 @@
         state.threadId = res.data.threadId;
         state.title = res.data.title || "New chat";
         state.pinned = !!res.data.pinned;
+        state.folderId = res.data.folderId || null;
         syncHeader();
         await refreshList();
         return state.threadId;
@@ -1492,6 +1596,7 @@
         state.threadId = data.threadId;
         state.title = data.title || "New chat";
         state.pinned = !!data.pinned;
+        state.folderId = data.folderId || null;
         history.length = 0;
         (Array.isArray(data.messages) ? data.messages : []).forEach(function (m) {
           history.push({ role: m.role, content: m.content });
@@ -1506,11 +1611,58 @@
         state.threadId = null;
         state.title = "New chat";
         state.pinned = false;
+        state.folderId = null;
         history.length = 0;
         renderMessages([]);
         syncHeader();
         refreshList();
         if (input) input.focus();
+      }
+
+      async function moveCurrentToFolder() {
+        if (!state.threadId) return;
+        const folders = state.folders || [];
+        if (!folders.length) {
+          const create = window.confirm("No folders yet. Create one now?");
+          if (!create) return;
+          const name = window.prompt("Folder name");
+          if (!name || !String(name).trim()) return;
+          const created = await self.aiApi("/folders", {
+            method: "POST",
+            body: JSON.stringify({ name: String(name).trim() }),
+          });
+          if (!created.success) {
+            alert(created.message || "Could not create folder");
+            return;
+          }
+          await refreshList();
+        }
+        const options = ["0) No folder (remove from folder)"].concat(
+          (state.folders || []).map(function (f, i) {
+            return i + 1 + ") " + f.name;
+          })
+        );
+        const pick = window.prompt(
+          "Move chat to folder:\n" + options.join("\n") + "\n\nEnter number:",
+          "1"
+        );
+        if (pick == null) return;
+        const n = Number(String(pick).trim());
+        if (!Number.isFinite(n) || n < 0 || n > (state.folders || []).length) {
+          alert("Invalid folder number");
+          return;
+        }
+        const folderId = n === 0 ? null : state.folders[n - 1].folderId;
+        const res = await self.aiApi("/threads/" + encodeURIComponent(state.threadId), {
+          method: "PATCH",
+          body: JSON.stringify({ folderId: folderId }),
+        });
+        if (res.success) {
+          state.folderId = res.data.folderId || null;
+          if (folderId) state.openFolders[folderId] = true;
+          syncHeader();
+          await refreshList();
+        } else alert(res.message || "Move failed");
       }
 
       this.bindAiChat({
@@ -1524,6 +1676,20 @@
       });
 
       root.querySelector("#gos-ai-new-chat")?.addEventListener("click", startNewChat);
+      root.querySelector("#gos-ai-new-folder")?.addEventListener("click", async function () {
+        const name = window.prompt("Folder name");
+        if (name == null) return;
+        const trimmed = String(name).trim();
+        if (!trimmed) return;
+        const res = await self.aiApi("/folders", {
+          method: "POST",
+          body: JSON.stringify({ name: trimmed }),
+        });
+        if (res.success) {
+          if (res.data && res.data.folderId) state.openFolders[res.data.folderId] = true;
+          await refreshList();
+        } else alert(res.message || "Could not create folder");
+      });
       renameBtn?.addEventListener("click", async function () {
         if (!state.threadId) return;
         const next = window.prompt("Rename chat", state.title || "New chat");
@@ -1539,6 +1705,9 @@
           syncHeader();
           refreshList();
         } else alert(res.message || "Rename failed");
+      });
+      moveBtn?.addEventListener("click", function () {
+        moveCurrentToFolder();
       });
       pinBtn?.addEventListener("click", async function () {
         if (!state.threadId) return;

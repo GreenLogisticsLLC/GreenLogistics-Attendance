@@ -31,10 +31,14 @@ import {
 } from "../command-center/command-center.controller.js";
 import { aiShipmentLifecycleController } from "../lifecycle/lifecycle.controller.js";
 import {
+    createAiFolderController,
     createAiThreadController,
+    deleteAiFolderController,
     deleteAiThreadController,
     getAiThreadController,
+    listAiFoldersController,
     listAiThreadsController,
+    updateAiFolderController,
     updateAiThreadController,
 } from "../controllers/ai-threads.controller.js";
 
@@ -61,6 +65,10 @@ const aiRoles = requireRole(
 aiRouter.get("/status", aiRoles, aiStatusController);
 aiRouter.get("/command-center", aiRoles, commandCenterGetController);
 aiRouter.post("/command-center/summary", aiRoles, commandCenterSummaryController);
+aiRouter.get("/folders", aiRoles, listAiFoldersController);
+aiRouter.post("/folders", aiRoles, createAiFolderController);
+aiRouter.patch("/folders/:id", aiRoles, updateAiFolderController);
+aiRouter.delete("/folders/:id", aiRoles, deleteAiFolderController);
 aiRouter.get("/threads", aiRoles, listAiThreadsController);
 aiRouter.post("/threads", aiRoles, createAiThreadController);
 aiRouter.get("/threads/:id", aiRoles, getAiThreadController);

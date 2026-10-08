@@ -562,9 +562,69 @@ html[data-theme="light"] {
   margin-top: 0.1rem;
 }
 
-.gos-ai-new-chat {
+.gos-ai-new-chat,
+.gos-ai-new-folder {
   width: 100%;
   margin: 0;
+}
+
+.gos-ai-new-folder {
+  font-size: 0.85rem;
+  padding: 0.45rem 0.7rem;
+}
+
+.gos-ai-folder {
+  margin: 0.15rem 0 0.35rem;
+}
+
+.gos-ai-folder-head {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.25rem;
+}
+
+.gos-ai-folder-toggle {
+  flex: 1;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--gos-text);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+  font-size: 0.84rem;
+  width: auto;
+  margin: 0;
+}
+
+.gos-ai-folder-toggle:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.gos-ai-folder-count {
+  opacity: 0.55;
+  font-size: 0.75rem;
+}
+
+.gos-ai-folder-del {
+  border: 0;
+  background: transparent;
+  color: var(--gos-muted);
+  width: auto;
+  margin: 0;
+  padding: 0.2rem 0.45rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.gos-ai-folder-del:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.gos-ai-folder-body {
+  padding-left: 0.35rem;
 }
 
 .gos-ai-sidebar-scroll {

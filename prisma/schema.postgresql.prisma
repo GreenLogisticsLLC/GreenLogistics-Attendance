@@ -43,6 +43,7 @@ model User {
   platformNotifications  PlatformNotification[]
   directCustomers        DirectCustomer[]
   aiAgentThreads         AiAgentThread[]
+  aiAgentFolders         AiAgentFolder[]
 
   @@index([teamLeadId])
   @@map("users")
@@ -614,18 +615,35 @@ model PlatformNotification {
   @@map("platform_notifications")
 }
 
+/// Folders for grouping GREEN agent chats.
+model AiAgentFolder {
+  folderId  String          @id @default(uuid()) @map("folder_id")
+  userId    String          @map("user_id")
+  name      String
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+  user      User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  threads   AiAgentThread[]
+
+  @@index([userId, updatedAt])
+  @@map("ai_agent_folders")
+}
+
 /// Saved GREEN agent chat threads (ChatGPT-style sidebar history).
 model AiAgentThread {
-  threadId     String   @id @default(uuid()) @map("thread_id")
-  userId       String   @map("user_id")
-  title        String   @default("New chat")
-  pinned       Boolean  @default(false)
-  messagesJson String   @default("[]") @map("messages_json")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  user         User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  threadId     String          @id @default(uuid()) @map("thread_id")
+  userId       String          @map("user_id")
+  folderId     String?         @map("folder_id")
+  title        String          @default("New chat")
+  pinned       Boolean         @default(false)
+  messagesJson String          @default("[]") @map("messages_json")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+  user         User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  folder       AiAgentFolder?  @relation(fields: [folderId], references: [folderId], onDelete: SetNull)
 
   @@index([userId, updatedAt])
   @@index([userId, pinned])
+  @@index([folderId])
   @@map("ai_agent_threads")
 }
