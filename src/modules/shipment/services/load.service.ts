@@ -465,8 +465,17 @@ export class LoadService {
             try {
                 const { trackingService } = await import("../../tracking/services/tracking.service.js");
                 gps = await trackingService.buildTrackingPayload(shipmentLeadId);
-            } catch {
-                gps = null;
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn(`[LOAD_GPS] getLoadDetails includeGps failed ${shipmentLeadId}:`, msg);
+                gps = {
+                    providerReady: null,
+                    configured: false,
+                    error: msg,
+                    active: null,
+                    sessions: [],
+                    recentPositions: [],
+                };
             }
         }
 
@@ -1501,6 +1510,20 @@ export class LoadService {
                 status: map[action],
                 actorUserId,
             });
+            // Stop CarrierView GPS when the load is delivered or closed (best-effort).
+            if (action === "close_load" || action === "mark_delivered") {
+                try {
+                    const { trackingService } = await import(
+                        "../../tracking/services/tracking.service.js"
+                    );
+                    await trackingService.disableTracking(shipmentLeadId, actorUserId);
+                } catch (err) {
+                    console.warn(
+                        `[LOAD_GPS] auto-disable after ${action} failed ${shipmentLeadId}:`,
+                        err instanceof Error ? err.message : String(err)
+                    );
+                }
+            }
             return this.getLoadDetails(shipmentLeadId);
         }
 

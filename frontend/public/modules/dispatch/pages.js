@@ -1228,6 +1228,17 @@ window.GreenOSModules["dispatch"] = {
       return;
     }
 
+    if (active.id === "tracking") {
+      if (window.GreenOSModules && window.GreenOSModules.trucking) {
+        window.GreenOSModules.trucking.render(body);
+      } else {
+        body.innerHTML =
+          "<h2>Tracking</h2>" +
+          '<p class="gos-muted">Trucking board not loaded — hard refresh (Ctrl+F5).</p>';
+      }
+      return;
+    }
+
     body.innerHTML =
       "<h2>Dispatch — " + self.esc(active.title) + "</h2>" +
       "<p class=\"gos-muted\">Placeholder — load documents, carriers, and GPS will attach to each Load.</p>";
@@ -1619,7 +1630,7 @@ window.GreenOSModules["dispatch"] = {
       btn.addEventListener("click", function () {
         var next = btn.getAttribute("data-tab");
         self._tab = next;
-        if (next === "tracking" && !(data.gps && data.gps.configured != null)) {
+        if (next === "tracking" && !(data.gps && data.gps.providerReady != null)) {
           self.openLoad(body, id, "tracking");
           return;
         }
@@ -2332,6 +2343,13 @@ window.GreenOSModules["dispatch"] = {
       var active = gps.active || null;
       var ready = gps.providerReady && gps.providerReady.carrier_view;
       var gpsHtml = "";
+      var gpsErrorHtml = "";
+      if (gps.error) {
+        gpsErrorHtml =
+          '<p style="margin-top:0.75rem;color:var(--red)">GPS status error: ' +
+          self.esc(gps.error) +
+          "</p>";
+      }
       if (active) {
         gpsHtml =
           '<div class="load-grid" style="margin-top:1rem">' +
@@ -2354,6 +2372,12 @@ window.GreenOSModules["dispatch"] = {
           field("Tracking URL", active.trackingUrl || "—") +
           field("Client URL", active.clientTrackingUrl || "—") +
           "</div>";
+        if (active.lastError) {
+          gpsHtml +=
+            '<p style="margin-top:0.5rem;color:var(--red)">CarrierView last error: ' +
+            self.esc(active.lastError) +
+            "</p>";
+        }
         if (active.lastLatitude != null && active.lastLongitude != null) {
           var mapUrl =
             "https://www.openstreetmap.org/?mlat=" +
@@ -2384,6 +2408,7 @@ window.GreenOSModules["dispatch"] = {
             ? '<p class="gos-muted">Provider connected. Webhooks update live position.</p>'
             : '<p class="gos-muted">CarrierView token configured but <code>CARRIER_VIEW_ENABLED=false</code>.</p>'
           : '<p class="gos-muted">Set <code>CARRIER_VIEW_API_BASE_URL</code> + <code>CARRIER_VIEW_API_TOKEN</code> on the server.</p>') +
+        gpsErrorHtml +
         gpsHtml +
         '<div class="load-edit-panel" style="margin-top:1rem">' +
         '<div class="load-form-grid">' +

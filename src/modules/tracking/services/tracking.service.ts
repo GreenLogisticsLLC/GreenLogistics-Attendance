@@ -3,9 +3,18 @@ import { config } from "../../../config/env.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { getTrackingProvider } from "../registry.js";
 import type { NormalizedPosition, NormalizedTrackingLoad, TrackingLocationInput } from "../types.js";
-import { fingerprintEvent, fingerprintPosition, formatCvDate } from "../providers/carrier-view/mapper.js";
+import {
+    fingerprintEvent,
+    fingerprintPosition,
+    formatCvDate,
+    normalizeCarrierViewPosition,
+} from "../providers/carrier-view/mapper.js";
 import { carrierViewUserMessage } from "../providers/carrier-view/errors.js";
 import { carrierViewClient } from "../providers/carrier-view/client.js";
+
+/** In-memory SMS cooldown — prevents accidental double-sends (CarrierView SMS is not idempotent). */
+const SMS_COOLDOWN_MS = 60_000;
+const smsCooldownByKey = new Map<string, number>();
 
 function placeAddress(city?: string | null, state?: string | null, zip?: string | null) {
     return [city, state, zip].filter(Boolean).join(", ");
@@ -222,6 +231,25 @@ export class TrackingService {
             );
         }
 
+        if (!String(shipment.pickupCity || "").trim() || !String(shipment.pickupState || "").trim()) {
+            throw Object.assign(
+                new Error(
+                    "Pickup city and state are required before starting GPS (ZIP recommended)"
+                ),
+                { status: 422 }
+            );
+        }
+        if (
+            !String(shipment.deliveryCity || "").trim() ||
+            !String(shipment.deliveryState || "").trim()
+        ) {
+            throw Object.assign(
+                new Error(
+                    "Delivery city and state are required before starting GPS (ZIP recommended)"
+                ),
+                { status: 422 }
+            );
+        }
         const pickupAddr = placeAddress(shipment.pickupCity, shipment.pickupState, shipment.pickupZip);
         const destAddr = placeAddress(
             shipment.deliveryCity,
@@ -229,9 +257,12 @@ export class TrackingService {
             shipment.deliveryZip
         );
         if (!pickupAddr || !destAddr) {
-            throw Object.assign(new Error("Pickup and destination addresses are required"), {
-                status: 422,
-            });
+            throw Object.assign(
+                new Error(
+                    "Pickup and destination addresses are required (city + state at minimum)"
+                ),
+                { status: 422 }
+            );
         }
 
         const pickupDates = defaultPickupWindow();
@@ -275,6 +306,27 @@ export class TrackingService {
         }
 
         const provider = getTrackingProvider("carrier_view");
+
+        // Disable prior CarrierView load before recreating — avoid orphan provider loads.
+        if (existing && input.forceRecreate) {
+            try {
+                await provider.disableLoad(existing.providerLoadId);
+            } catch (err) {
+                console.warn(
+                    "[CARRIERVIEW_TRACKING] forceRecreate disable prior load failed:",
+                    carrierViewUserMessage(err)
+                );
+            }
+            await prisma.shipmentTracking.update({
+                where: { trackingId: existing.trackingId },
+                data: {
+                    status: "DISABLED",
+                    disabledAt: new Date(),
+                    lastError: null,
+                },
+            });
+        }
+
         let normalized;
         try {
             normalized = await provider.createLoad({
@@ -296,13 +348,6 @@ export class TrackingService {
                 errorMessage: carrierViewUserMessage(err),
             });
             throw err;
-        }
-
-        if (existing && input.forceRecreate) {
-            await prisma.shipmentTracking.update({
-                where: { trackingId: existing.trackingId },
-                data: { status: "DISABLED", disabledAt: new Date() },
-            });
         }
 
         const row = await prisma.shipmentTracking.create({
@@ -453,12 +498,26 @@ export class TrackingService {
     ) {
         const row = await this.getActiveTracking(shipmentLeadId);
         if (!row) throw Object.assign(new Error("No active tracking"), { status: 404 });
+
+        const cooldownKey = `${shipmentLeadId}:${type}`;
+        const lastSentAt = smsCooldownByKey.get(cooldownKey) || 0;
+        const waitMs = SMS_COOLDOWN_MS - (Date.now() - lastSentAt);
+        if (waitMs > 0) {
+            throw Object.assign(
+                new Error(
+                    `SMS rate limit: wait ${Math.ceil(waitMs / 1000)}s before sending another "${type}" SMS for this load`
+                ),
+                { status: 429 }
+            );
+        }
+
         // SMS is NOT idempotent — never auto-retry here.
         await getTrackingProvider(row.provider).sendDriverSms({
             providerLoadId: row.providerLoadId,
             type,
             message,
         });
+        smsCooldownByKey.set(cooldownKey, Date.now());
         await recordEvent({
             provider: row.provider,
             eventType: "sms_sent",
@@ -497,8 +556,12 @@ export class TrackingService {
                   take: 50,
               })
             : [];
+        const providerReady = listProvidersConfigured();
         return {
-            providerReady: listProvidersConfigured(),
+            providerReady,
+            /** Alias for older UI gates that checked gps.configured */
+            configured: providerReady.carrier_view?.configured ?? false,
+            error: null as string | null,
             active: active
                 ? {
                       trackingId: active.trackingId,
@@ -582,23 +645,11 @@ export class TrackingService {
             return { ok: true, ignored: true };
         }
 
-        const normalized = {
+        const normalized = normalizeCarrierViewPosition(position, {
             shipmentId: tracking.shipmentLeadId,
-            provider: "carrier_view" as const,
             providerLoadId,
-            driverPhone: position.driver_phone != null ? String(position.driver_phone) : null,
-            latitude: Number(position.latitude),
-            longitude: Number(position.longitude),
-            address: position.address != null ? String(position.address) : null,
-            movementType: position.type != null ? String(position.type) : null,
-            rotation: position.rotation != null ? Number(position.rotation) : null,
-            lateSeconds: position.late_secs != null ? Number(position.late_secs) : null,
-            stoppedDuration: position.stopped_duration != null ? Number(position.stopped_duration) : null,
-            driveDuration: position.drive_duration != null ? Number(position.drive_duration) : null,
-            pausedDuration: position.paused_duration != null ? Number(position.paused_duration) : null,
-            timestamp: null as string | null,
-        };
-        if (!Number.isFinite(normalized.latitude) || !Number.isFinite(normalized.longitude)) {
+        });
+        if (!normalized) {
             await this.markEvent(event?.eventId, "FAILED", "invalid coordinates");
             return { ok: true, ignored: true };
         }
@@ -811,6 +862,41 @@ export class TrackingService {
                 error = carrierViewUserMessage(err);
             }
         }
+
+        const warnings: string[] = [];
+        const publicUrl = config.publicAppUrl || "";
+        let publicHost = "";
+        try {
+            publicHost = new URL(publicUrl).hostname;
+        } catch {
+            publicHost = "";
+        }
+        if (!publicUrl || !publicHost) {
+            warnings.push("PUBLIC_APP_URL is missing or invalid — CarrierView webhooks cannot reach Green OS");
+        } else if (
+            publicHost === "localhost" ||
+            publicHost === "127.0.0.1" ||
+            publicHost.endsWith(".local")
+        ) {
+            warnings.push(
+                `PUBLIC_APP_URL points to ${publicHost} — CarrierView cannot deliver webhooks to localhost; use the public HTTPS domain`
+            );
+        }
+        if (!config.carrierView.webhookSecret) {
+            warnings.push(
+                "CARRIER_VIEW_WEBHOOK_SECRET is empty — webhook URLs work without ?k=, but set a secret for production"
+            );
+        }
+        if (!config.carrierView.enabled) {
+            warnings.push("CARRIER_VIEW_ENABLED=false — GPS start/refresh is disabled");
+        }
+        if (!config.carrierView.apiToken) {
+            warnings.push("CARRIER_VIEW_API_TOKEN is missing");
+        }
+        if (!config.carrierView.apiBaseUrl) {
+            warnings.push("CARRIER_VIEW_API_BASE_URL is missing");
+        }
+
         return {
             enabled: config.carrierView.enabled,
             tokenConfigured: Boolean(config.carrierView.apiToken),
@@ -824,8 +910,12 @@ export class TrackingService {
                       }
                   })()
                 : null,
+            publicAppUrl: publicUrl || null,
+            publicAppHost: publicHost || null,
+            webhookSecretConfigured: Boolean(config.carrierView.webhookSecret),
             healthy,
             error,
+            warnings,
             profileSummary: profile
                 ? { connected: true }
                 : { connected: false },
