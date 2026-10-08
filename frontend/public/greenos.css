@@ -160,8 +160,9 @@ html[data-theme="light"] {
 
 .gos-search {
   flex: 1;
-  max-width: 420px;
+  max-width: 520px;
   position: relative;
+  z-index: 40;
 }
 
 .gos-search input {
@@ -178,9 +179,85 @@ html[data-theme="light"] {
   content: "⌕";
   position: absolute;
   left: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 0.7rem;
+  transform: none;
   color: var(--gos-muted);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.gos-search-results {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  max-height: min(70vh, 480px);
+  overflow: auto;
+  background: var(--gos-surface);
+  border: 1px solid var(--gos-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  padding: 0.35rem 0;
+}
+
+.gos-search-results.hidden {
+  display: none;
+}
+
+.gos-search-group-label {
+  padding: 0.45rem 0.9rem 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gos-muted);
+}
+
+.gos-search-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--gos-text);
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+}
+
+.gos-search-item:hover,
+.gos-search-item.is-active {
+  background: var(--gos-surface2);
+}
+
+.gos-search-item strong {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.gos-search-item span {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--gos-muted);
+  margin-top: 0.1rem;
+}
+
+.gos-search-item em {
+  display: inline-block;
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--gos-muted);
+  margin-bottom: 0.15rem;
+}
+
+.gos-search-empty,
+.gos-search-status {
+  padding: 0.85rem 0.9rem;
+  color: var(--gos-muted);
+  font-size: 0.85rem;
 }
 
 .gos-topbar-actions {
