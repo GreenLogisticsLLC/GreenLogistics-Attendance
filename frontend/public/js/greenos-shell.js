@@ -677,19 +677,18 @@
       }
       if (type === "LOAD" || (meta.hasLoad && meta.shipmentLeadId)) {
         const id = meta.shipmentLeadId || item.id;
-        const mod = this.canAccessModule("dispatch")
-          ? "dispatch"
-          : this.canAccessModule("loads")
-            ? "loads"
-            : role === "Broker"
-              ? "broker"
-              : "crm";
-        if (mod === "broker") {
+        if (this.canAccessModule("dispatch")) {
+          this.navigate("dispatch", "active-loads", {
+            detail: { type: "load", id: id },
+          });
+        } else if (this.canAccessModule("loads")) {
+          this.navigate("loads", "active-loads", {
+            detail: { type: "load", id: id },
+          });
+        } else if (role === "Broker") {
           this.navigate("broker", "loads", { detail: { type: "load", id: id } });
-        } else if (mod === "crm") {
-          this.openGlobalSearchShipment(id);
         } else {
-          this.navigate(mod, "active-loads", { detail: { type: "load", id: id } });
+          this.openGlobalSearchShipment(id);
         }
         return;
       }
