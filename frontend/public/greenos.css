@@ -2614,3 +2614,456 @@ button.load-review-choice:hover {
   .load-tabs { flex-direction: row; flex-wrap: wrap; }
 }
 
+/* —— Trucking / CarrierView live board —— */
+.gos-trucking {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: calc(100vh - 7rem);
+}
+
+.gos-trucking__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.gos-trucking__header h1 {
+  margin: 0 0 0.2rem;
+  font-size: 1.45rem;
+}
+
+.gos-trucking__header-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.gos-trucking__board {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 560px;
+}
+
+.gos-trucking__sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--gos-surface);
+  border: 1px solid var(--gos-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.gos-trucking__sidebar-tools {
+  padding: 0.65rem;
+  border-bottom: 1px solid var(--gos-border);
+}
+
+.gos-trucking__search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--gos-border);
+  background: var(--gos-surface2);
+  color: inherit;
+}
+
+.gos-trucking__list {
+  overflow: auto;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  flex: 1;
+}
+
+.gos-track-empty {
+  padding: 1rem 0.5rem;
+  margin: 0;
+}
+
+.gos-track-card {
+  border: 1px solid var(--gos-border);
+  border-radius: 12px;
+  padding: 0.7rem 0.75rem;
+  background: var(--gos-surface2);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.gos-track-card:hover {
+  border-color: color-mix(in srgb, var(--gos-accent) 45%, var(--gos-border));
+}
+
+.gos-track-card.is-selected {
+  border-color: var(--gos-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--gos-accent) 35%, transparent);
+  transform: translateY(-1px);
+}
+
+.gos-track-card__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.gos-track-card__route {
+  font-weight: 600;
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.gos-track-card__ref {
+  color: var(--gos-muted);
+  font-size: 0.8rem;
+  margin-top: 0.15rem;
+}
+
+.gos-track-card__flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  justify-content: flex-end;
+}
+
+.gos-track-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  background: var(--gos-surface);
+  border: 1px solid var(--gos-border);
+  color: var(--gos-muted);
+}
+
+.gos-track-pill--on {
+  background: var(--gos-accent-soft);
+  border-color: color-mix(in srgb, var(--gos-accent) 40%, var(--gos-border));
+  color: var(--gos-accent);
+}
+
+.gos-track-pill--warn {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #f59e0b;
+  text-transform: uppercase;
+}
+
+.gos-track-card__carrier {
+  margin-top: 0.45rem;
+  font-size: 0.88rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: baseline;
+}
+
+.gos-track-phone {
+  color: var(--gos-accent);
+  text-decoration: none;
+  font-size: 0.82rem;
+}
+
+.gos-track-card__loc {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.gos-track-card__loc.is-muted {
+  color: var(--gos-muted);
+}
+
+.gos-track-card__loc-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: 0.3rem;
+  border-radius: 50%;
+  background: var(--gos-accent);
+  box-shadow: 0 0 0 3px var(--gos-accent-soft);
+  flex-shrink: 0;
+}
+
+.gos-track-card:not(.is-online) .gos-track-card__loc-dot {
+  background: var(--gos-muted);
+  box-shadow: none;
+}
+
+.gos-track-progress {
+  margin-top: 0.5rem;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gos-border) 80%, transparent);
+  overflow: hidden;
+}
+
+.gos-track-progress__bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gos-accent), color-mix(in srgb, var(--gos-accent) 60%, #34d399));
+  border-radius: inherit;
+  transition: width 0.35s ease;
+}
+
+.gos-track-progress--indeterminate {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--gos-accent-soft),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: gos-track-shimmer 1.6s linear infinite;
+}
+
+@keyframes gos-track-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.gos-track-card__meta {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--gos-muted);
+}
+
+.gos-track-card__foot {
+  margin-top: 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--gos-muted);
+}
+
+.gos-track-details {
+  border: none;
+  background: transparent;
+  color: var(--gos-accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+}
+
+.gos-trucking__map-pane {
+  position: relative;
+  min-height: 560px;
+  border: 1px solid var(--gos-border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0b1220;
+}
+
+.gos-trucking__map {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.gos-trucking__map-tools {
+  position: absolute;
+  top: 0.65rem;
+  left: 0.65rem;
+  z-index: 5;
+}
+
+.gos-trucking__detail {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 5;
+  width: min(360px, calc(100% - 1.5rem));
+  max-height: calc(100% - 1.5rem);
+  overflow: auto;
+}
+
+.gos-track-detail {
+  background: color-mix(in srgb, var(--gos-surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--gos-border);
+  border-radius: 14px;
+  padding: 0.85rem 0.95rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.gos-track-detail--empty {
+  opacity: 0.9;
+}
+
+.gos-track-detail__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  margin-bottom: 0.65rem;
+}
+
+.gos-track-call {
+  width: auto !important;
+  padding: 0.35rem 0.6rem !important;
+  white-space: nowrap;
+}
+
+.gos-track-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.65rem;
+}
+
+.gos-track-source {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 0.1rem 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid var(--gos-border);
+  background: var(--gos-surface2);
+  font-size: 0.8rem;
+}
+
+.gos-track-source.is-live {
+  border-color: color-mix(in srgb, var(--gos-accent) 45%, var(--gos-border));
+}
+
+.gos-track-source.is-dead {
+  opacity: 0.75;
+}
+
+.gos-track-source__name {
+  font-weight: 600;
+}
+
+.gos-track-source__place {
+  grid-column: 1 / -1;
+  color: var(--gos-muted);
+}
+
+.gos-track-source__when {
+  font-weight: 600;
+  color: var(--gos-accent);
+}
+
+.gos-track-source.is-dead .gos-track-source__when {
+  color: var(--gos-danger);
+}
+
+.gos-track-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.gos-track-stats dt {
+  font-size: 0.7rem;
+  color: var(--gos-muted);
+  margin: 0;
+}
+
+.gos-track-stats dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.gos-track-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.gos-track-detail__actions .btn-primary,
+.gos-track-detail__actions .btn-secondary {
+  width: auto;
+  padding: 0.45rem 0.75rem;
+}
+
+.gos-map-pin-wrap {
+  background: transparent !important;
+  border: none !important;
+}
+
+.gos-map-pin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #94a3b8;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gos-map-pin.is-online {
+  background: var(--gos-accent);
+}
+
+.gos-map-pin.is-selected {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 3px var(--gos-accent-soft), 0 0 0 2px rgba(15, 23, 42, 0.45);
+}
+
+.gos-map-pin span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+@media (max-width: 960px) {
+  .gos-trucking__board {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .gos-trucking__sidebar {
+    max-height: 42vh;
+  }
+
+  .gos-trucking__map-pane {
+    min-height: 420px;
+  }
+
+  .gos-trucking__detail {
+    position: static;
+    width: auto;
+    max-height: none;
+    margin: 0;
+    border-top: 1px solid var(--gos-border);
+  }
+
+  .gos-trucking__map {
+    position: relative;
+    height: 320px;
+  }
+
+  .gos-trucking__map-pane {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .gos-track-detail {
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+}
+
