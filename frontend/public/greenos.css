@@ -2121,6 +2121,64 @@ button.load-review-choice:hover {
   padding: 0.3rem 0.45rem;
   text-decoration: none;
 }
+.ld-carrier-suggest {
+  position: relative;
+  margin: 0 0 0.75rem;
+}
+
+.ld-carrier-suggest-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 0.25rem;
+  background: var(--gos-surface);
+  border: 1px solid var(--gos-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.ld-carrier-suggest-panel.hidden {
+  display: none;
+}
+
+.ld-carrier-suggest-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--gos-text);
+  padding: 0.55rem 0.85rem;
+  cursor: pointer;
+}
+
+.ld-carrier-suggest-item:hover,
+.ld-carrier-suggest-item.is-active {
+  background: var(--gos-surface2);
+}
+
+.ld-carrier-suggest-item strong {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.ld-carrier-suggest-item span {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.78rem;
+  color: var(--gos-muted);
+}
+
+.ld-carrier-suggest-empty {
+  padding: 0.7rem 0.85rem;
+  color: var(--gos-muted);
+  font-size: 0.85rem;
+}
+
 .load-edit-panel {
   margin-top: 1.25rem;
   padding-top: 1rem;
