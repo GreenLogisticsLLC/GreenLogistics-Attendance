@@ -393,16 +393,18 @@ async function loadSignupTeamLeads() {
         const data = await res.json();
         const leads = (data.success && data.data) || [];
         select.innerHTML =
-            '<option value="">Select Team Lead…</option>' +
+            '<option value="">No Team Lead yet — Owner will assign later</option>' +
             leads
                 .map(
                     (l) =>
                         `<option value="${l.userId}">${l.name}${l.email ? " — " + l.email : ""}</option>`
                 )
                 .join("");
-        wrap.dataset.ready = leads.length ? "1" : "0";
+        wrap.dataset.ready = "1";
     } catch {
-        select.innerHTML = '<option value="">Team Leads unavailable</option>';
+        select.innerHTML =
+            '<option value="">No Team Lead yet — Owner will assign later</option>';
+        wrap.dataset.ready = "1";
     }
     toggleSignupTeamLead();
 }
@@ -431,12 +433,8 @@ signupForm.addEventListener("submit", async (e) => {
             role,
         };
         if (role === "Broker") {
+            // Optional — Owner may leave vacant until a new Team Lead is appointed.
             body.teamLeadId = $("#signup-team-lead")?.value || "";
-            if (!body.teamLeadId) {
-                signupError.textContent = "Select a Team Lead for this Broker";
-                signupError.classList.remove("hidden");
-                return;
-            }
         }
         const res = await fetch(`${API}/auth/register`, {
             method: "POST",

@@ -1000,13 +1000,25 @@ export class LoadService {
                 String(body.carrierEmail || "") !== String(shipment.carrierEmail || "")) ||
             (body.carrierMc !== undefined &&
                 String(body.carrierMc || "") !== String(shipment.carrierMc || ""));
+        const explicitProfileId =
+            body.carrierProfileId !== undefined
+                ? body.carrierProfileId
+                    ? String(body.carrierProfileId)
+                    : null
+                : undefined;
+        if (explicitProfileId !== undefined) {
+            data.carrierProfileId = explicitProfileId;
+        }
         if (identityChanged) {
             data.loadCarrierApprovedAt = null;
             data.loadCarrierApprovedById = null;
             data.loadCarrierApprovedProfileId = null;
             // Force inviteAgreementFromLoad to create/link a new profile instead of
             // renaming the previous carrier (which would mix documents across carriers).
-            data.carrierProfileId = null;
+            // Keep an explicitly chosen autofill profile when the broker picked one.
+            if (explicitProfileId === undefined) {
+                data.carrierProfileId = null;
+            }
         }
 
         if (Object.keys(data).length) {
