@@ -171,6 +171,17 @@ html[data-theme="light"] .gos-sidebar {
   box-shadow: 0 0 0 3px var(--gos-accent-soft);
 }
 
+.gos-search-results {
+  border-radius: 16px;
+  background: var(--gos-surface);
+  border: 1px solid var(--gos-border);
+}
+
+.gos-search-item.is-active,
+.gos-search-item:hover {
+  background: var(--gos-accent-soft);
+}
+
 .gos-icon-btn {
   border-radius: 12px;
   transition: transform 0.12s ease, border-color 0.15s ease;
