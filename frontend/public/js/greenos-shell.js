@@ -422,23 +422,11 @@
       document.getElementById("gos-sidebar-toggle")?.addEventListener("click", () => {
         document.getElementById("gos-sidebar")?.classList.toggle("is-open");
       });
-      const globalSearch = document.getElementById("gos-global-search");
-      if (globalSearch && globalSearch.dataset.routeBound !== "1") {
-        globalSearch.dataset.routeBound = "1";
-        globalSearch.addEventListener("keydown", (e) => {
-          if (e.key !== "Enter" || !globalSearch.value.trim()) return;
-          if (this.role() === "Broker") {
-            e.preventDefault();
-            this.navigate("broker", "shipments");
-            // My Shipments reads the existing search value while rendering.
-            globalSearch.dispatchEvent(new Event("input"));
-          }
-        });
-      }
+      this.bindGlobalSearch();
       document.getElementById("gos-notifications-btn")?.addEventListener("click", () => {
         if (window.GreenOSRealtime) window.GreenOSRealtime.clearUnread();
         if (this.role() === "Broker") {
-          this.navigate("broker", "notifications");
+          this.navigate("broker", "shipments");
         } else {
           this.navigate("crm", "dashboard");
         }
@@ -494,6 +482,320 @@
       document.querySelectorAll(".gos-nav-item").forEach((el) => {
         el.classList.toggle("is-active", el.dataset.module === moduleId);
       });
+    },
+
+    /**
+     * Main GreenOS search — queries all modules and shows matching records.
+     */
+    bindGlobalSearch() {
+      const self = this;
+      const input = document.getElementById("gos-global-search");
+      const panel = document.getElementById("gos-global-search-results");
+      if (!input || !panel || input.dataset.globalSearchBound === "1") return;
+      input.dataset.globalSearchBound = "1";
+
+      let timer = null;
+      let reqSeq = 0;
+      let activeIndex = -1;
+      let flatItems = [];
+
+      function esc(s) {
+        return self.esc ? self.esc(s) : String(s == null ? "" : s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function hidePanel() {
+        panel.classList.add("hidden");
+        panel.innerHTML = "";
+        input.setAttribute("aria-expanded", "false");
+        activeIndex = -1;
+        flatItems = [];
+      }
+
+      function showPanel() {
+        panel.classList.remove("hidden");
+        input.setAttribute("aria-expanded", "true");
+      }
+
+      function setActive(idx) {
+        const buttons = panel.querySelectorAll(".gos-search-item");
+        if (!buttons.length) {
+          activeIndex = -1;
+          return;
+        }
+        if (idx < 0) idx = buttons.length - 1;
+        if (idx >= buttons.length) idx = 0;
+        activeIndex = idx;
+        buttons.forEach(function (btn, i) {
+          btn.classList.toggle("is-active", i === activeIndex);
+        });
+        const el = buttons[activeIndex];
+        if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+      }
+
+      function renderResults(data, query) {
+        flatItems = [];
+        const groups = (data && data.groups) || [];
+        if (!groups.length) {
+          panel.innerHTML =
+            '<div class="gos-search-empty">No matches for “' +
+            esc(query) +
+            '” across GreenOS.</div>';
+          showPanel();
+          return;
+        }
+        let html = "";
+        groups.forEach(function (group) {
+          html +=
+            '<div class="gos-search-group-label">' +
+            esc(group.label || group.type) +
+            " · " +
+            (group.count || (group.items || []).length) +
+            "</div>";
+          (group.items || []).forEach(function (item) {
+            const idx = flatItems.length;
+            flatItems.push(item);
+            html +=
+              '<button type="button" class="gos-search-item" role="option" data-idx="' +
+              idx +
+              '">' +
+              "<em>" +
+              esc(group.label || item.type) +
+              "</em>" +
+              "<strong>" +
+              esc(item.title) +
+              "</strong>" +
+              "<span>" +
+              esc(
+                [item.subtitle, item.snippet].filter(Boolean).join(" · ") ||
+                  item.type
+              ) +
+              "</span>" +
+              "</button>";
+          });
+        });
+        panel.innerHTML = html;
+        panel.querySelectorAll(".gos-search-item").forEach(function (btn) {
+          btn.addEventListener("mousedown", function (e) {
+            e.preventDefault();
+          });
+          btn.addEventListener("click", function () {
+            const item = flatItems[Number(btn.getAttribute("data-idx"))];
+            if (item) self.openGlobalSearchResult(item);
+            hidePanel();
+          });
+        });
+        showPanel();
+        setActive(0);
+      }
+
+      async function runSearch(query) {
+        const seq = ++reqSeq;
+        panel.innerHTML = '<div class="gos-search-status">Searching GreenOS…</div>';
+        showPanel();
+        try {
+          const token = localStorage.getItem("gl_token") || "";
+          const res = await fetch(
+            "/api/search?q=" + encodeURIComponent(query) + "&limit=8",
+            {
+              headers: {
+                Accept: "application/json",
+                Authorization: token ? "Bearer " + token : "",
+              },
+              cache: "no-store",
+            }
+          );
+          const json = await res.json().catch(function () {
+            return {};
+          });
+          if (seq !== reqSeq) return;
+          if (!res.ok || json.success === false) {
+            panel.innerHTML =
+              '<div class="gos-search-empty">' +
+              esc(json.message || "Search failed") +
+              "</div>";
+            showPanel();
+            return;
+          }
+          renderResults(json.data || {}, query);
+        } catch (err) {
+          if (seq !== reqSeq) return;
+          panel.innerHTML =
+            '<div class="gos-search-empty">' +
+            esc((err && err.message) || "Search failed") +
+            "</div>";
+          showPanel();
+        }
+      }
+
+      function scheduleSearch() {
+        const query = String(input.value || "").trim();
+        if (timer) clearTimeout(timer);
+        if (!query) {
+          hidePanel();
+          return;
+        }
+        timer = setTimeout(function () {
+          runSearch(query);
+        }, 220);
+      }
+
+      input.addEventListener("input", scheduleSearch);
+      input.addEventListener("focus", function () {
+        if (String(input.value || "").trim() && panel.innerHTML) showPanel();
+        else if (String(input.value || "").trim()) scheduleSearch();
+      });
+      input.addEventListener("keydown", function (e) {
+        const query = String(input.value || "").trim();
+        if (e.key === "Escape") {
+          hidePanel();
+          input.blur();
+          return;
+        }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          if (panel.classList.contains("hidden") && query) runSearch(query);
+          else setActive(activeIndex + 1);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setActive(activeIndex - 1);
+          return;
+        }
+        if (e.key === "Enter") {
+          if (!query) return;
+          e.preventDefault();
+          if (
+            !panel.classList.contains("hidden") &&
+            activeIndex >= 0 &&
+            flatItems[activeIndex]
+          ) {
+            self.openGlobalSearchResult(flatItems[activeIndex]);
+            hidePanel();
+            return;
+          }
+          runSearch(query).then(function () {
+            if (flatItems[0]) {
+              self.openGlobalSearchResult(flatItems[0]);
+              hidePanel();
+            }
+          });
+        }
+      });
+
+      document.addEventListener("click", function (e) {
+        const wrap = document.getElementById("gos-search-wrap");
+        if (wrap && !wrap.contains(e.target)) hidePanel();
+      });
+    },
+
+    openGlobalSearchResult(item) {
+      if (!item) return;
+      const type = String(item.type || "").toUpperCase();
+      const meta = item.meta || {};
+      const role = this.role();
+
+      if (type === "CARRIER" || meta.carrierId) {
+        const id = meta.carrierId || item.id;
+        this.navigate("carriers", null, { detail: { type: "carrier", id: id } });
+        return;
+      }
+      if (type === "CUSTOMER" || meta.customerId) {
+        const id = meta.customerId || item.id;
+        this.navigate("customers", "list", {
+          detail: { type: "customer", id: id },
+        });
+        return;
+      }
+      if (type === "LOAD" || (meta.hasLoad && meta.shipmentLeadId)) {
+        const id = meta.shipmentLeadId || item.id;
+        if (this.canAccessModule("dispatch")) {
+          this.navigate("dispatch", "active-loads", {
+            detail: { type: "load", id: id },
+          });
+        } else if (this.canAccessModule("loads")) {
+          this.navigate("loads", "active-loads", {
+            detail: { type: "load", id: id },
+          });
+        } else if (role === "Broker") {
+          this.navigate("broker", "loads", { detail: { type: "load", id: id } });
+        } else {
+          this.openGlobalSearchShipment(id);
+        }
+        return;
+      }
+      if (type === "SHIPMENT" || meta.shipmentLeadId) {
+        this.openGlobalSearchShipment(meta.shipmentLeadId || item.id);
+        return;
+      }
+      if (type === "DOCUMENT") {
+        if (meta.carrierId) {
+          this.navigate("carriers", null, {
+            detail: { type: "carrier", id: meta.carrierId },
+          });
+          return;
+        }
+        if (meta.shipmentLeadId) {
+          if (meta.hasLoad) {
+            const mod = this.canAccessModule("dispatch") ? "dispatch" : "loads";
+            this.navigate(mod, "active-loads", {
+              detail: { type: "load", id: meta.shipmentLeadId },
+            });
+          } else {
+            this.openGlobalSearchShipment(meta.shipmentLeadId);
+          }
+          return;
+        }
+      }
+      if (type === "EMAIL") {
+        if (meta.shipmentLeadId) {
+          this.openGlobalSearchShipment(meta.shipmentLeadId);
+          return;
+        }
+        if (this.canAccessModule("email")) this.navigate("email");
+        return;
+      }
+      if (type === "EMPLOYEE") {
+        if (this.canAccessModule("employees")) this.navigate("employees");
+        else if (this.canAccessModule("attendance")) this.navigate("attendance");
+        return;
+      }
+      if (type === "USER") {
+        if (this.canAccessModule("administration")) {
+          this.navigate("administration", "users");
+        }
+        return;
+      }
+      if (item.href && String(item.href).startsWith("#/")) {
+        const path = String(item.href).replace(/^#\//, "").split("/");
+        this.navigate(path[0], path[1] || null);
+      }
+    },
+
+    openGlobalSearchShipment(shipmentLeadId) {
+      if (!shipmentLeadId) return;
+      const role = this.role();
+      if (role === "Broker") this.navigate("broker", "shipments");
+      else if (this.canAccessModule("crm")) this.navigate("crm", "shipments");
+      else if (this.canAccessModule("shipments")) this.navigate("shipments");
+      else this.navigate(role === "Broker" ? "broker" : "dashboard");
+
+      const self = this;
+      setTimeout(function () {
+        const hostEl = document.getElementById("gos-module-host");
+        if (
+          hostEl &&
+          window.GreenOSModules &&
+          window.GreenOSModules.crm &&
+          typeof window.GreenOSModules.crm.openShipmentCard === "function"
+        ) {
+          window.GreenOSModules.crm.openShipmentCard(hostEl, shipmentLeadId);
+        }
+      }, 350);
     },
 
     navigate(moduleId, subPageId, opts) {
@@ -1135,13 +1437,65 @@
       return null;
     },
 
-    bindAiChat({ messagesEl, formEl, inputEl, history }) {
+    bindAiChat({ messagesEl, formEl, inputEl, history, onExchange }) {
       const self = this;
+      if (formEl && formEl.dataset.aiBound === "1") return;
+      if (formEl) formEl.dataset.aiBound = "1";
 
       function append(role, text) {
         const div = document.createElement("div");
         div.className = `gos-ai-bubble ${role}`;
-        div.textContent = text;
+        const copyable =
+          role === "bot" &&
+          text &&
+          text !== "Thinking…" &&
+          !String(text).startsWith("Connection error");
+        if (copyable) {
+          const textEl = document.createElement("div");
+          textEl.className = "gos-ai-bubble-text";
+          textEl.textContent = text;
+          const actions = document.createElement("div");
+          actions.className = "gos-ai-bubble-actions";
+          const copyBtn = document.createElement("button");
+          copyBtn.type = "button";
+          copyBtn.className = "gos-ai-copy-btn";
+          copyBtn.textContent = "Copy";
+          copyBtn.title = "Copy answer";
+          copyBtn.addEventListener("click", async function () {
+            const value = textEl.textContent || "";
+            try {
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(value);
+              } else {
+                const ta = document.createElement("textarea");
+                ta.value = value;
+                ta.setAttribute("readonly", "");
+                ta.style.position = "fixed";
+                ta.style.left = "-9999px";
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand("copy");
+                ta.remove();
+              }
+              copyBtn.textContent = "Copied";
+              copyBtn.classList.add("is-copied");
+              setTimeout(function () {
+                copyBtn.textContent = "Copy";
+                copyBtn.classList.remove("is-copied");
+              }, 1600);
+            } catch (err) {
+              copyBtn.textContent = "Failed";
+              setTimeout(function () {
+                copyBtn.textContent = "Copy";
+              }, 1600);
+            }
+          });
+          actions.appendChild(copyBtn);
+          div.appendChild(textEl);
+          div.appendChild(actions);
+        } else {
+          div.textContent = text;
+        }
         messagesEl.appendChild(div);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         return div;
@@ -1153,7 +1507,6 @@
         if (payload.groundingLabel) parts.push(payload.groundingLabel);
         else if (payload.answerMode === "grounded" || payload.answerMode === "not_found")
           parts.push("Based on GreenOS data");
-        else if (payload.answerMode === "general") parts.push("General AI answer (not GreenOS data)");
         if (payload.searchMode) parts.push("Search: " + payload.searchMode);
 
         const meta = document.createElement("div");
@@ -1199,14 +1552,6 @@
           meta.appendChild(srcWrap);
         }
 
-        if (payload.runId) {
-          const run = document.createElement("div");
-          run.style.marginTop = "4px";
-          run.style.opacity = "0.7";
-          run.textContent = "runId: " + payload.runId;
-          meta.appendChild(run);
-        }
-
         if (!meta.childNodes.length) return;
         messagesEl.appendChild(meta);
         messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -1242,7 +1587,14 @@
           appendMeta(payload);
           history.push({ role: "user", content: text });
           history.push({ role: "assistant", content: reply });
-          if (history.length > 16) history.splice(0, history.length - 16);
+          if (history.length > 40) history.splice(0, history.length - 40);
+          if (typeof onExchange === "function") {
+            try {
+              onExchange({ userText: text, reply, history });
+            } catch (err) {
+              /* ignore save UI errors */
+            }
+          }
         } catch {
           if (thinking && thinking.parentNode) thinking.remove();
           append("bot", "Connection error talking to GreenOS AI");
@@ -1254,14 +1606,48 @@
     },
 
     renderAI(root) {
+      const self = this;
+      const welcome =
+        "Hi — I'm GREEN, your GreenOS AI agent.\n\nAsk about attendance, shipments, assignment, or operations.";
+
       root.innerHTML =
-        `<section class="gos-dash-hero gos-ai-hero">` +
-        `<h1>GreenOS AI Assistant</h1>` +
-        `</section>` +
-        `<div class="gos-ai-layout">` +
+        `<div class="gos-ai-workspace">` +
+        `<aside class="gos-ai-sidebar" id="gos-ai-sidebar">` +
+        `<div class="gos-ai-sidebar-top">` +
+        `<div class="gos-ai-sidebar-brand"><strong>GREEN</strong><span>Saved chats</span></div>` +
+        `<button type="button" class="btn-primary gos-ai-new-chat" id="gos-ai-new-chat">+ New chat</button>` +
+        `<button type="button" class="btn-secondary gos-ai-new-folder" id="gos-ai-new-folder">+ New folder</button>` +
+        `</div>` +
+        `<div class="gos-ai-sidebar-scroll">` +
+        `<div class="gos-ai-sidebar-section" id="gos-ai-pinned-section">` +
+        `<div class="gos-ai-sidebar-label">Pinned</div>` +
+        `<div id="gos-ai-pinned-list"></div>` +
+        `</div>` +
+        `<div class="gos-ai-sidebar-section">` +
+        `<div class="gos-ai-sidebar-label">Folders</div>` +
+        `<div id="gos-ai-folder-list"></div>` +
+        `</div>` +
+        `<div class="gos-ai-sidebar-section">` +
+        `<div class="gos-ai-sidebar-label">Chats</div>` +
+        `<div id="gos-ai-chat-list"><p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">Loading…</p></div>` +
+        `</div>` +
+        `</div>` +
+        `</aside>` +
         `<section class="gos-ai-chat">` +
+        `<header class="gos-ai-chat-header">` +
+        `<div>` +
+        `<h1 id="gos-ai-thread-title">New chat</h1>` +
+        `<p class="gos-muted" id="gos-ai-thread-hint">Work with GREEN — chats are saved automatically</p>` +
+        `</div>` +
+        `<div class="gos-ai-chat-header-actions">` +
+        `<button type="button" class="btn-secondary" id="gos-ai-rename" style="width:auto">Rename</button>` +
+        `<button type="button" class="btn-secondary" id="gos-ai-move" style="width:auto">Move to folder</button>` +
+        `<button type="button" class="btn-secondary" id="gos-ai-pin" style="width:auto">Pin</button>` +
+        `<button type="button" class="btn-secondary" id="gos-ai-delete" style="width:auto">Delete</button>` +
+        `</div>` +
+        `</header>` +
         `<div class="gos-ai-messages" id="gos-ai-messages">` +
-        `<div class="gos-ai-bubble bot">Welcome to GreenOS AI Assistant.\n\nAsk about attendance, shipments, assignment, or operations.</div>` +
+        `<div class="gos-ai-bubble bot"></div>` +
         `</div>` +
         `<div class="gos-ai-prompts" id="gos-ai-prompts">` +
         `<button type="button" data-prompt="Summarize today's dispatch status">Summarize today's dispatch</button>` +
@@ -1270,25 +1656,434 @@
         `<button type="button" data-prompt="Draft a carrier follow-up email">Draft carrier email</button>` +
         `</div>` +
         `<form class="gos-ai-input-row" id="gos-ai-form">` +
-        `<input id="gos-ai-input" placeholder="Ask GreenOS AI..." autocomplete="off" />` +
+        `<input id="gos-ai-input" placeholder="Ask GREEN…" autocomplete="off" />` +
         `<button type="submit" class="btn-primary">Send</button>` +
         `</form>` +
         `</section></div>`;
 
+      const welcomeEl = root.querySelector("#gos-ai-messages .gos-ai-bubble.bot");
+      if (welcomeEl) welcomeEl.textContent = welcome;
+
       const messages = root.querySelector("#gos-ai-messages");
       const form = root.querySelector("#gos-ai-form");
       const input = root.querySelector("#gos-ai-input");
+      const titleEl = root.querySelector("#gos-ai-thread-title");
+      const pinBtn = root.querySelector("#gos-ai-pin");
+      const renameBtn = root.querySelector("#gos-ai-rename");
+      const moveBtn = root.querySelector("#gos-ai-move");
+      const deleteBtn = root.querySelector("#gos-ai-delete");
+      const pinnedList = root.querySelector("#gos-ai-pinned-list");
+      const chatList = root.querySelector("#gos-ai-chat-list");
+      const folderList = root.querySelector("#gos-ai-folder-list");
+      const pinnedSection = root.querySelector("#gos-ai-pinned-section");
+
       const history = [];
+      const state = {
+        threadId: null,
+        title: "New chat",
+        pinned: false,
+        folderId: null,
+        saving: false,
+        folders: [],
+        threads: [],
+        openFolders: {},
+      };
 
-      this.bindAiChat({ messagesEl: messages, formEl: form, inputEl: input, history });
-      if (input) input.focus();
+      function esc(s) {
+        return self.escHtml ? self.escHtml(String(s || "")) : String(s || "");
+      }
 
-      root.querySelectorAll("[data-prompt]").forEach((btn) => {
-        btn.addEventListener("click", () => {
+      function renderMessages(list) {
+        messages.innerHTML = "";
+        if (!list.length) {
+          const div = document.createElement("div");
+          div.className = "gos-ai-bubble bot";
+          div.textContent = welcome;
+          messages.appendChild(div);
+          return;
+        }
+        list.forEach(function (m) {
+          const role = m.role === "user" ? "user" : "bot";
+          const div = document.createElement("div");
+          div.className = "gos-ai-bubble " + role;
+          if (role === "bot") {
+            const textEl = document.createElement("div");
+            textEl.className = "gos-ai-bubble-text";
+            textEl.textContent = m.content || "";
+            const actions = document.createElement("div");
+            actions.className = "gos-ai-bubble-actions";
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.className = "gos-ai-copy-btn";
+            copyBtn.textContent = "Copy";
+            copyBtn.addEventListener("click", async function () {
+              try {
+                await navigator.clipboard.writeText(textEl.textContent || "");
+                copyBtn.textContent = "Copied";
+                setTimeout(function () {
+                  copyBtn.textContent = "Copy";
+                }, 1400);
+              } catch (e) {
+                copyBtn.textContent = "Failed";
+              }
+            });
+            actions.appendChild(copyBtn);
+            div.appendChild(textEl);
+            div.appendChild(actions);
+          } else {
+            div.textContent = m.content || "";
+          }
+          messages.appendChild(div);
+        });
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      function syncHeader() {
+        if (titleEl) titleEl.textContent = state.title || "New chat";
+        if (pinBtn) pinBtn.textContent = state.pinned ? "Unpin" : "Pin";
+        const disabled = !state.threadId;
+        if (renameBtn) renameBtn.disabled = disabled;
+        if (moveBtn) moveBtn.disabled = disabled;
+        if (pinBtn) pinBtn.disabled = disabled;
+        if (deleteBtn) deleteBtn.disabled = disabled;
+        const hint = root.querySelector("#gos-ai-thread-hint");
+        if (hint) {
+          const folder = state.folders.find(function (f) {
+            return f.folderId === state.folderId;
+          });
+          hint.textContent = folder
+            ? "Folder: " + folder.name
+            : "Work with GREEN — chats are saved automatically";
+        }
+      }
+
+      function rowHtml(t) {
+        const active = t.threadId === state.threadId ? " is-active" : "";
+        return (
+          '<button type="button" class="gos-ai-thread-item' +
+          active +
+          '" data-id="' +
+          esc(t.threadId) +
+          '">' +
+          '<span class="gos-ai-thread-title">' +
+          esc(t.title || "New chat") +
+          "</span>" +
+          '<span class="gos-ai-thread-meta">' +
+          esc((t.updatedAt || "").slice(0, 16).replace("T", " ")) +
+          "</span></button>"
+        );
+      }
+
+      function renderSidebar() {
+        const items = state.threads || [];
+        const folders = state.folders || [];
+        const pinned = items.filter(function (t) {
+          return t.pinned;
+        });
+        const unfiled = items.filter(function (t) {
+          return !t.pinned && !t.folderId;
+        });
+        if (pinnedSection) pinnedSection.style.display = pinned.length ? "" : "none";
+        if (pinnedList) pinnedList.innerHTML = pinned.map(rowHtml).join("");
+
+        if (folderList) {
+          if (!folders.length) {
+            folderList.innerHTML =
+              '<p class="gos-muted" style="padding:0.35rem 0.75rem;font-size:0.78rem">No folders yet</p>';
+          } else {
+            folderList.innerHTML = folders
+              .map(function (f) {
+                const open = state.openFolders[f.folderId] !== false;
+                const kids = items.filter(function (t) {
+                  return !t.pinned && t.folderId === f.folderId;
+                });
+                return (
+                  '<div class="gos-ai-folder" data-folder-id="' +
+                  esc(f.folderId) +
+                  '">' +
+                  '<div class="gos-ai-folder-head">' +
+                  '<button type="button" class="gos-ai-folder-toggle" data-folder-toggle="' +
+                  esc(f.folderId) +
+                  '">' +
+                  (open ? "▾ " : "▸ ") +
+                  esc(f.name) +
+                  ' <span class="gos-ai-folder-count">' +
+                  kids.length +
+                  "</span></button>" +
+                  '<button type="button" class="gos-ai-folder-del" data-folder-del="' +
+                  esc(f.folderId) +
+                  '" title="Delete folder">×</button>' +
+                  "</div>" +
+                  (open
+                    ? '<div class="gos-ai-folder-body">' +
+                      (kids.length
+                        ? kids.map(rowHtml).join("")
+                        : '<p class="gos-muted" style="padding:0.25rem 0.75rem;font-size:0.75rem">Empty folder</p>') +
+                      "</div>"
+                    : "") +
+                  "</div>"
+                );
+              })
+              .join("");
+          }
+        }
+
+        if (chatList) {
+          chatList.innerHTML = unfiled.length
+            ? unfiled.map(rowHtml).join("")
+            : '<p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">No chats outside folders</p>';
+        }
+
+        root.querySelectorAll(".gos-ai-thread-item").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            openThread(btn.getAttribute("data-id"));
+          });
+        });
+        root.querySelectorAll("[data-folder-toggle]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            const id = btn.getAttribute("data-folder-toggle");
+            state.openFolders[id] = state.openFolders[id] === false;
+            renderSidebar();
+          });
+        });
+        root.querySelectorAll("[data-folder-del]").forEach(function (btn) {
+          btn.addEventListener("click", async function (ev) {
+            ev.stopPropagation();
+            const id = btn.getAttribute("data-folder-del");
+            if (!id || !window.confirm("Delete folder? Chats stay, just leave the folder."))
+              return;
+            const res = await self.aiApi("/folders/" + encodeURIComponent(id), {
+              method: "DELETE",
+            });
+            if (res.success) {
+              if (state.folderId === id) state.folderId = null;
+              syncHeader();
+              await refreshList();
+            } else alert(res.message || "Delete folder failed");
+          });
+        });
+      }
+
+      async function refreshList() {
+        try {
+          const [threadsRes, foldersRes] = await Promise.all([
+            self.aiApi("/threads"),
+            self.aiApi("/folders"),
+          ]);
+          if (threadsRes.success) state.threads = threadsRes.data || [];
+          if (foldersRes.success) state.folders = foldersRes.data || [];
+          (state.folders || []).forEach(function (f) {
+            if (state.openFolders[f.folderId] === undefined) {
+              state.openFolders[f.folderId] = true;
+            }
+          });
+          renderSidebar();
+          if (!threadsRes.success && chatList) {
+            chatList.innerHTML =
+              '<p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">' +
+              esc(threadsRes.message || "Failed to load chats") +
+              "</p>";
+          }
+        } catch (err) {
+          if (chatList)
+            chatList.innerHTML =
+              '<p class="gos-muted" style="padding:0.5rem 0.75rem;font-size:0.8rem">Failed to load chats</p>';
+        }
+      }
+
+      async function ensureThread() {
+        if (state.threadId) return state.threadId;
+        const res = await self.aiApi("/threads", {
+          method: "POST",
+          body: JSON.stringify({ title: "New chat", messages: [] }),
+        });
+        if (!res.success) throw new Error(res.message || "Could not create chat");
+        state.threadId = res.data.threadId;
+        state.title = res.data.title || "New chat";
+        state.pinned = !!res.data.pinned;
+        state.folderId = res.data.folderId || null;
+        syncHeader();
+        await refreshList();
+        return state.threadId;
+      }
+
+      async function saveMessages() {
+        if (state.saving) return;
+        state.saving = true;
+        try {
+          await ensureThread();
+          const res = await self.aiApi("/threads/" + encodeURIComponent(state.threadId), {
+            method: "PATCH",
+            body: JSON.stringify({ messages: history }),
+          });
+          if (res.success && res.data) {
+            state.title = res.data.title || state.title;
+            syncHeader();
+            await refreshList();
+          }
+        } catch (err) {
+          console.warn("[GREEN] save chat failed", err);
+        } finally {
+          state.saving = false;
+        }
+      }
+
+      async function openThread(id) {
+        if (!id) return;
+        const res = await self.aiApi("/threads/" + encodeURIComponent(id));
+        if (!res.success) {
+          alert(res.message || "Could not open chat");
+          return;
+        }
+        const data = res.data || {};
+        state.threadId = data.threadId;
+        state.title = data.title || "New chat";
+        state.pinned = !!data.pinned;
+        state.folderId = data.folderId || null;
+        history.length = 0;
+        (Array.isArray(data.messages) ? data.messages : []).forEach(function (m) {
+          history.push({ role: m.role, content: m.content });
+        });
+        renderMessages(history);
+        syncHeader();
+        await refreshList();
+        if (input) input.focus();
+      }
+
+      function startNewChat() {
+        state.threadId = null;
+        state.title = "New chat";
+        state.pinned = false;
+        state.folderId = null;
+        history.length = 0;
+        renderMessages([]);
+        syncHeader();
+        refreshList();
+        if (input) input.focus();
+      }
+
+      async function moveCurrentToFolder() {
+        if (!state.threadId) return;
+        const folders = state.folders || [];
+        if (!folders.length) {
+          const create = window.confirm("No folders yet. Create one now?");
+          if (!create) return;
+          const name = window.prompt("Folder name");
+          if (!name || !String(name).trim()) return;
+          const created = await self.aiApi("/folders", {
+            method: "POST",
+            body: JSON.stringify({ name: String(name).trim() }),
+          });
+          if (!created.success) {
+            alert(created.message || "Could not create folder");
+            return;
+          }
+          await refreshList();
+        }
+        const options = ["0) No folder (remove from folder)"].concat(
+          (state.folders || []).map(function (f, i) {
+            return i + 1 + ") " + f.name;
+          })
+        );
+        const pick = window.prompt(
+          "Move chat to folder:\n" + options.join("\n") + "\n\nEnter number:",
+          "1"
+        );
+        if (pick == null) return;
+        const n = Number(String(pick).trim());
+        if (!Number.isFinite(n) || n < 0 || n > (state.folders || []).length) {
+          alert("Invalid folder number");
+          return;
+        }
+        const folderId = n === 0 ? null : state.folders[n - 1].folderId;
+        const res = await self.aiApi("/threads/" + encodeURIComponent(state.threadId), {
+          method: "PATCH",
+          body: JSON.stringify({ folderId: folderId }),
+        });
+        if (res.success) {
+          state.folderId = res.data.folderId || null;
+          if (folderId) state.openFolders[folderId] = true;
+          syncHeader();
+          await refreshList();
+        } else alert(res.message || "Move failed");
+      }
+
+      this.bindAiChat({
+        messagesEl: messages,
+        formEl: form,
+        inputEl: input,
+        history: history,
+        onExchange: function () {
+          saveMessages();
+        },
+      });
+
+      root.querySelector("#gos-ai-new-chat")?.addEventListener("click", startNewChat);
+      root.querySelector("#gos-ai-new-folder")?.addEventListener("click", async function () {
+        const name = window.prompt("Folder name");
+        if (name == null) return;
+        const trimmed = String(name).trim();
+        if (!trimmed) return;
+        const res = await self.aiApi("/folders", {
+          method: "POST",
+          body: JSON.stringify({ name: trimmed }),
+        });
+        if (res.success) {
+          if (res.data && res.data.folderId) state.openFolders[res.data.folderId] = true;
+          await refreshList();
+        } else alert(res.message || "Could not create folder");
+      });
+      renameBtn?.addEventListener("click", async function () {
+        if (!state.threadId) return;
+        const next = window.prompt("Rename chat", state.title || "New chat");
+        if (next == null) return;
+        const title = String(next).trim();
+        if (!title) return;
+        const res = await self.aiApi("/threads/" + encodeURIComponent(state.threadId), {
+          method: "PATCH",
+          body: JSON.stringify({ title: title }),
+        });
+        if (res.success) {
+          state.title = res.data.title;
+          syncHeader();
+          refreshList();
+        } else alert(res.message || "Rename failed");
+      });
+      moveBtn?.addEventListener("click", function () {
+        moveCurrentToFolder();
+      });
+      pinBtn?.addEventListener("click", async function () {
+        if (!state.threadId) return;
+        const res = await self.aiApi("/threads/" + encodeURIComponent(state.threadId), {
+          method: "PATCH",
+          body: JSON.stringify({ pinned: !state.pinned }),
+        });
+        if (res.success) {
+          state.pinned = !!res.data.pinned;
+          syncHeader();
+          refreshList();
+        }
+      });
+      deleteBtn?.addEventListener("click", async function () {
+        if (!state.threadId) return;
+        if (!window.confirm("Delete this chat?")) return;
+        const res = await self.aiApi("/threads/" + encodeURIComponent(state.threadId), {
+          method: "DELETE",
+        });
+        if (res.success) startNewChat();
+        else alert(res.message || "Delete failed");
+      });
+
+      root.querySelectorAll("[data-prompt]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
           input.value = btn.dataset.prompt;
           form.requestSubmit();
         });
       });
+
+      syncHeader();
+      refreshList();
+      if (input) input.focus();
     },
 
     initAgentWidget() {
@@ -1297,7 +2092,7 @@
       const sessionKey = "gos-agent-widget-dismissed";
       const firstName = String(user.firstName || "there").trim() || "there";
       const welcomeText =
-        `Hi, ${firstName}! I'm the GREENOS AI AGENT, built specially for GreenOS. ` +
+        `Hi, ${firstName}! I'm GREEN — your GreenOS AI agent. ` +
         `I'm here to help you with shipments, customers, dispatch, and your daily broker workflow.\n\n` +
         `Ask me anything — I'm glad to help.`;
 
@@ -1307,13 +2102,13 @@
         root.id = "gos-kate-widget";
         root.className = "gos-kate-widget";
         root.innerHTML =
-          `<button type="button" class="gos-kate-fab hidden" id="gos-kate-fab" title="GREENOS AI Agent">🤖</button>` +
+          `<button type="button" class="gos-kate-fab hidden" id="gos-kate-fab" title="GREEN">🤖</button>` +
           `<div class="gos-kate-panel hidden" id="gos-kate-panel" role="dialog" aria-labelledby="gos-kate-title">` +
           `<header class="gos-kate-header">` +
           `<div class="gos-kate-title-wrap">` +
           `<span class="gos-kate-avatar" aria-hidden="true">🤖</span>` +
-          `<div><strong id="gos-kate-title">GREENOS AI AGENT</strong>` +
-          `<span class="gos-kate-sub">Your broker assistant</span></div>` +
+          `<div><strong id="gos-kate-title">GREEN</strong>` +
+          `<span class="gos-kate-sub">Your broker AI agent</span></div>` +
           `</div>` +
           `<div class="gos-kate-header-actions">` +
           `<button type="button" class="gos-kate-icon-btn" id="gos-kate-minimize" title="Minimize">−</button>` +
@@ -1324,7 +2119,7 @@
           `<div class="gos-ai-bubble bot">${self.escHtml(welcomeText)}</div>` +
           `</div>` +
           `<form class="gos-kate-input-row" id="gos-kate-form">` +
-          `<input id="gos-kate-input" placeholder="Ask GREENOS AI Agent…" autocomplete="off" />` +
+          `<input id="gos-kate-input" placeholder="Ask GREEN…" autocomplete="off" />` +
           `<button type="submit" class="btn-primary">Send</button>` +
           `</form>` +
           `</div>`;

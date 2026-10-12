@@ -28,6 +28,24 @@ export const SIGNUP_ROLE_NAMES = [
 
 export type SignupRoleName = (typeof SIGNUP_ROLE_NAMES)[number];
 
+/**
+ * Who may receive NEW shipments via Attendance In-Office round-robin.
+ * Anyone else (HR, Dispatcher, Viewer, Administrator, no role, etc.) is excluded.
+ */
+export const NEW_SHIPMENT_ASSIGNMENT_ROLES = [
+    Roles.Broker,
+    Roles.TeamLead,
+    Roles.Manager,
+    Roles.Accounting,
+    Roles.Owner,
+] as const;
+
+export type NewShipmentAssignmentRole = (typeof NEW_SHIPMENT_ASSIGNMENT_ROLES)[number];
+
+export function canReceiveNewShipments(role: string | null | undefined): boolean {
+    return (NEW_SHIPMENT_ASSIGNMENT_ROLES as readonly string[]).includes(String(role || ""));
+}
+
 export const ROLE_DESCRIPTIONS: Record<string, string> = {
     [Roles.Administrator]: "Full system access",
     [Roles.Owner]: "Company owner — full access",

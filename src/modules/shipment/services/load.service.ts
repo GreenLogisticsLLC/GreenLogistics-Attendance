@@ -465,8 +465,17 @@ export class LoadService {
             try {
                 const { trackingService } = await import("../../tracking/services/tracking.service.js");
                 gps = await trackingService.buildTrackingPayload(shipmentLeadId);
-            } catch {
-                gps = null;
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn(`[LOAD_GPS] getLoadDetails includeGps failed ${shipmentLeadId}:`, msg);
+                gps = {
+                    providerReady: null,
+                    configured: false,
+                    error: msg,
+                    active: null,
+                    sessions: [],
+                    recentPositions: [],
+                };
             }
         }
 
@@ -1000,13 +1009,25 @@ export class LoadService {
                 String(body.carrierEmail || "") !== String(shipment.carrierEmail || "")) ||
             (body.carrierMc !== undefined &&
                 String(body.carrierMc || "") !== String(shipment.carrierMc || ""));
+        const explicitProfileId =
+            body.carrierProfileId !== undefined
+                ? body.carrierProfileId
+                    ? String(body.carrierProfileId)
+                    : null
+                : undefined;
+        if (explicitProfileId !== undefined) {
+            data.carrierProfileId = explicitProfileId;
+        }
         if (identityChanged) {
             data.loadCarrierApprovedAt = null;
             data.loadCarrierApprovedById = null;
             data.loadCarrierApprovedProfileId = null;
             // Force inviteAgreementFromLoad to create/link a new profile instead of
             // renaming the previous carrier (which would mix documents across carriers).
-            data.carrierProfileId = null;
+            // Keep an explicitly chosen autofill profile when the broker picked one.
+            if (explicitProfileId === undefined) {
+                data.carrierProfileId = null;
+            }
         }
 
         if (Object.keys(data).length) {
@@ -1546,6 +1567,20 @@ export class LoadService {
                 status: map[action],
                 actorUserId,
             });
+            // Stop CarrierView GPS when the load is delivered or closed (best-effort).
+            if (action === "close_load" || action === "mark_delivered") {
+                try {
+                    const { trackingService } = await import(
+                        "../../tracking/services/tracking.service.js"
+                    );
+                    await trackingService.disableTracking(shipmentLeadId, actorUserId);
+                } catch (err) {
+                    console.warn(
+                        `[LOAD_GPS] auto-disable after ${action} failed ${shipmentLeadId}:`,
+                        err instanceof Error ? err.message : String(err)
+                    );
+                }
+            }
             return this.getLoadDetails(shipmentLeadId);
         }
 

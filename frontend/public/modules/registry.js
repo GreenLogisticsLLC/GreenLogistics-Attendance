@@ -19,7 +19,6 @@ window.GreenOSRegistry = [
       { id: "carriers", title: "MY Carrier" },
       { id: "on-road", title: "ON Road" },
       { id: "trucking", title: "Trucking" },
-      { id: "notifications", title: "Notifications" },
     ],
   },
   {
@@ -257,9 +256,9 @@ window.GreenOSRegistry = [
   },
   {
     id: "ai",
-    title: "AI Assistant",
+    title: "GREEN",
     icon: "🤖",
-    subtitle: "GreenOS AI Assistant",
+    subtitle: "GreenOS AI agent",
     roles: [
       "Administrator",
       "Owner",

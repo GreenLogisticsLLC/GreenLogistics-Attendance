@@ -786,7 +786,11 @@ export class CrmService {
         const brokers = await prisma.user.findMany({
             where: {
                 isActive: true,
-                role: { roleName: { in: ["Broker", "Manager", "Owner"] } },
+                role: {
+                    roleName: {
+                        in: ["Broker", "Team Lead", "Manager", "Accounting", "Owner"],
+                    },
+                },
                 ...(options?.teamLeadId ? { teamLeadId: options.teamLeadId } : {}),
             },
             select: {
@@ -795,6 +799,7 @@ export class CrmService {
                 role: { select: { roleName: true } },
             },
         });
+        // Prefer Brokers for presence stats; fall back to other assignment-eligible roles.
         const brokerOnly = brokers.filter((b) => b.role.roleName === "Broker");
         const pool = brokerOnly.length ? brokerOnly : brokers;
         const poolIds = pool.map((b) => b.userId);
@@ -847,7 +852,11 @@ export class CrmService {
         const brokers = await prisma.user.findMany({
             where: {
                 isActive: true,
-                role: { roleName: { in: ["Broker", "Manager", "Owner"] } },
+                role: {
+                    roleName: {
+                        in: ["Broker", "Team Lead", "Manager", "Accounting", "Owner"],
+                    },
+                },
                 ...(options?.teamLeadId ? { teamLeadId: options.teamLeadId } : {}),
             },
             include: {

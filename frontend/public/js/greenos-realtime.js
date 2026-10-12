@@ -141,13 +141,13 @@
         hiddenToasts = 0;
         pill.remove();
         if (window.GreenOS) {
-          if (isBrokerRole()) window.GreenOS.navigate("broker", "notifications");
+          if (isBrokerRole()) window.GreenOS.navigate("broker", "shipments");
           else window.GreenOS.navigate("crm", "shipments");
         }
       });
       host.appendChild(pill);
     }
-    pill.textContent = "+" + hiddenToasts + " more in Notifications";
+    pill.textContent = "+" + hiddenToasts + " more";
   }
 
   function trimToasts(host) {

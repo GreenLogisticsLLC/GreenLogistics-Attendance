@@ -1,4 +1,5 @@
 import { prisma } from "../../config/database.js";
+import { NEW_SHIPMENT_ASSIGNMENT_ROLES } from "../../auth/roles.js";
 import { domainEventEngine } from "../shipment/services/domain-event.engine.js";
 import { ensureGreenOsShipmentId } from "../shipment/shipment.id.js";
 import { platformNotificationService } from "../shipment/services/platform-notification.service.js";
@@ -10,6 +11,8 @@ import {
 import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
+
+const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
 
 /** Only Accept Shipment (and later work) keeps the lead. Open in uShip still times out. */
 const KEPT_BY_BROKER = new Set([
@@ -102,19 +105,19 @@ export class AssignmentEngine {
                       });
             await this.pipelineLog(
                 shipmentLeadId,
-                "No eligible brokers (need active Broker + Attendance badge) — lead marked UNASSIGNED"
+                "No eligible staff (need Broker / Team Lead / Manager / Accounting / Owner + In Office) — lead marked UNASSIGNED"
             );
             await this.assignmentLog({
                 shipmentLeadId,
                 eventType: "NO_ELIGIBLE",
-                message: "No eligible brokers for assignment",
+                message: "No eligible staff for assignment (role gate)",
             });
             if (lead.status !== "UNASSIGNED") {
                 await domainEventEngine.emit({
                     shipmentLeadId,
                     eventType: "SHIPMENT_UNASSIGNED",
                     title: "Unassigned",
-                    message: "No eligible brokers for assignment",
+                    message: "No eligible staff for assignment (role gate)",
                     timelineStage: "SHIPMENT_UNASSIGNED",
                 });
             }
@@ -123,7 +126,7 @@ export class AssignmentEngine {
                     type: "SHIPMENT_UNASSIGNED",
                     shipmentLeadId,
                     shipmentTitle: lead.shipmentTitle,
-                    reason: "No eligible brokers",
+                    reason: "No eligible staff (role gate)",
                     at: new Date().toISOString(),
                 });
             } catch {
@@ -608,19 +611,20 @@ export class AssignmentEngine {
         );
         const modeLabel =
             mode === "in_office"
-                ? "Checked-in brokers only"
-                : "No In Office brokers — new shipments stay Unassigned";
+                ? "Checked-in eligible staff (Broker / Team Lead / Manager / Accounting / Owner)"
+                : "No eligible staff In Office — new shipments stay Unassigned";
         return {
             version: "1.0",
             algorithm: "round_robin_sequential",
             assignmentMode: mode,
             assignmentModeLabel: modeLabel,
             rules: [
-                "NEW shipments go ONLY to brokers who are In Office (Attendance check-in)",
+                "NEW shipments go ONLY to Broker / Team Lead / Manager / Accounting / Owner who are In Office",
+                "Other roles (HR, Dispatcher, Viewer, Administrator, etc.) never receive NEW shipments",
                 "Fresh NEW imports are assigned before passed-along (reassigned) loads",
-                "If nobody is In Office → shipments stay UNASSIGNED until someone checks in",
-                "When a broker checks in → they join the queue and pending NEW/UNASSIGNED drain to In Office brokers",
-                "Waiting leads not accepted in 15 minutes go to the next In Office broker — Open in uShip still passes; only Accept Shipment keeps the load",
+                "If nobody eligible is In Office → shipments stay UNASSIGNED until someone checks in",
+                "When eligible staff checks in → they join the queue and pending NEW/UNASSIGNED drain",
+                "Waiting leads not accepted in 15 minutes go to the next In Office person — Open in uShip still passes; only Accept Shipment keeps the load",
                 "Gmail recommended for uShip updates but does not block receiving shipments",
             ],
             heart: "Attendance → Assignment Queue → CRM Shipment",
@@ -819,7 +823,7 @@ export class AssignmentEngine {
         let user = await prisma.user.findFirst({
             where: {
                 employeeId,
-                role: { roleName: { in: ["Broker", "Manager", "Owner"] } },
+                role: { roleName: { in: ASSIGNMENT_ROLE_NAMES } },
             },
             include: { role: true },
         });
@@ -829,7 +833,7 @@ export class AssignmentEngine {
         if (!emp) return null;
 
         const candidates = await prisma.user.findMany({
-            where: { role: { roleName: { in: ["Broker", "Manager", "Owner"] } } },
+            where: { role: { roleName: { in: ASSIGNMENT_ROLE_NAMES } } },
             include: { role: true },
         });
         const fn = emp.firstName.trim().toLowerCase();
@@ -854,9 +858,10 @@ export class AssignmentEngine {
     }
 
     /**
-     * Eligible brokers for round-robin:
-     * Only Brokers who are In Office (Attendance check-in).
-     * If nobody is In Office → empty pool; NEW shipments stay UNASSIGNED until check-in.
+     * Eligible staff for NEW-shipment round-robin:
+     * Broker / Team Lead / Manager / Accounting / Owner who are In Office.
+     * Other roles never enter the pool. If nobody eligible is In Office →
+     * empty pool; NEW shipments stay UNASSIGNED until check-in.
      * Gmail is NOT required. `availableForAssignment` is ignored.
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
@@ -871,7 +876,7 @@ export class AssignmentEngine {
         const [users, activeEmployees] = await Promise.all([
             prisma.user.findMany({
                 where: {
-                    role: { roleName: "Broker" },
+                    role: { roleName: { in: ASSIGNMENT_ROLE_NAMES } },
                     isActive: true,
                 },
                 include: { role: true, employee: true, brokerGmailAccount: true },
@@ -979,7 +984,7 @@ export class AssignmentEngine {
         }
 
         console.info(
-            `[assignment] no broker In Office — parking NEW shipments as UNASSIGNED until check-in (${allLinked.length} linked broker(s) offline)`
+            `[assignment] no eligible staff In Office — parking NEW shipments as UNASSIGNED until check-in (${allLinked.length} linked staff offline; roles=${ASSIGNMENT_ROLE_NAMES.join(",")})`
         );
         return { eligible: [], mode: "none" };
     }

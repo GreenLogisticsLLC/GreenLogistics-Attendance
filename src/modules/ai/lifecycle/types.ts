@@ -131,6 +131,8 @@ export type LifecycleEvidence = {
     status: string;
     documents?: DocumentChecklistItem[];
     carrierCompliance?: { readiness?: string | null; light?: string | null };
+    /** Broker Approved Carrier for this load — clears compliance RED for closeout. */
+    loadCarrierApproved?: boolean;
     ratePresent?: boolean;
     communication?: Pick<CommunicationContext, "waitingFor" | "followUp"> | null;
     tracking?: LifecycleTracking;

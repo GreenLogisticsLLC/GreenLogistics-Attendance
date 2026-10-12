@@ -630,6 +630,225 @@ window.GreenOSModules["dispatch"] = {
     });
   },
 
+  /**
+   * Assign Carrier autofill — lookup GreenOS carriers by name / MC / DOT
+   * and fill form fields when the broker picks a match.
+   */
+  bindCarrierAutofill(main, currentCarrier) {
+    var self = this;
+    var form = main && main.querySelector("#ld-carrier-form");
+    if (!form || form.dataset.autofillBound === "1") return;
+    form.dataset.autofillBound = "1";
+
+    var nameInput = form.querySelector("#ld-carrier");
+    var mcInput = form.querySelector("#ld-mc");
+    if (!nameInput && !mcInput) return;
+
+    var wrap = document.createElement("div");
+    wrap.className = "ld-carrier-suggest";
+    wrap.innerHTML =
+      '<p class="gos-muted" style="margin:0 0 0.5rem;font-size:0.8rem">Type carrier name or MC — matches from GreenOS fill the form. Click a row to autofill.</p>' +
+      '<div id="ld-carrier-suggest-panel" class="ld-carrier-suggest-panel hidden" role="listbox"></div>' +
+      '<input type="hidden" id="ld-carrier-profile-id" value="' +
+      self.esc((currentCarrier && currentCarrier.carrierProfileId) || "") +
+      '">';
+    form.insertBefore(wrap, form.querySelector(".load-form-grid") || form.firstChild);
+
+    var panel = wrap.querySelector("#ld-carrier-suggest-panel");
+    var profileInput = wrap.querySelector("#ld-carrier-profile-id");
+    var timer = null;
+    var reqSeq = 0;
+    var items = [];
+    var active = -1;
+
+    function hide() {
+      panel.classList.add("hidden");
+      panel.innerHTML = "";
+      items = [];
+      active = -1;
+    }
+
+    function setActive(idx) {
+      var buttons = panel.querySelectorAll(".ld-carrier-suggest-item");
+      if (!buttons.length) {
+        active = -1;
+        return;
+      }
+      if (idx < 0) idx = buttons.length - 1;
+      if (idx >= buttons.length) idx = 0;
+      active = idx;
+      buttons.forEach(function (btn, i) {
+        btn.classList.toggle("is-active", i === active);
+      });
+    }
+
+    function applyCarrier(row) {
+      if (!row) return;
+      if (nameInput) nameInput.value = row.legalName || "";
+      var emailEl = form.querySelector("#ld-carrier-email");
+      var phoneEl = form.querySelector("#ld-carrier-phone");
+      var mcEl = form.querySelector("#ld-mc");
+      var dotEl = form.querySelector("#ld-dot");
+      var insEl = form.querySelector("#ld-ins");
+      var statusEl = form.querySelector("#ld-cstatus");
+      if (emailEl) emailEl.value = row.email || "";
+      if (phoneEl) phoneEl.value = self.formatUsPhone(row.phone || "") || row.phone || "";
+      if (mcEl) mcEl.value = row.mcNumber || "";
+      if (dotEl) dotEl.value = row.dotNumber || "";
+      if (insEl && row.insuranceHint && !(insEl.value || "").trim()) {
+        insEl.value = row.insuranceHint;
+      }
+      if (statusEl && row.onboardingStatus === "APPROVED") {
+        statusEl.value = "Approved";
+      } else if (statusEl && !(statusEl.value || "").trim()) {
+        statusEl.value = "Assigned";
+      }
+      if (profileInput) profileInput.value = row.carrierId || "";
+      hide();
+      var status = form.querySelector("#ld-carrier-autofill-status");
+      if (!status) {
+        status = document.createElement("p");
+        status.id = "ld-carrier-autofill-status";
+        status.className = "gos-muted";
+        status.style.margin = "0.35rem 0 0";
+        wrap.appendChild(status);
+      }
+      status.textContent =
+        "Autofilled from GreenOS: " +
+        (row.legalName || "carrier") +
+        (row.mcNumber ? " · MC " + row.mcNumber : "") +
+        ". Review fields, then Save.";
+    }
+
+    function render(list, query) {
+      items = list || [];
+      if (!items.length) {
+        panel.innerHTML =
+          '<div class="ld-carrier-suggest-empty">No carriers in GreenOS match “' +
+          self.esc(query) +
+          '”.</div>';
+        panel.classList.remove("hidden");
+        return;
+      }
+      panel.innerHTML = items
+        .map(function (row, idx) {
+          return (
+            '<button type="button" class="ld-carrier-suggest-item" role="option" data-idx="' +
+            idx +
+            '">' +
+            "<strong>" +
+            self.esc(row.legalName || "Carrier") +
+            "</strong>" +
+            "<span>" +
+            self.esc(row.label || "") +
+            "</span>" +
+            "</button>"
+          );
+        })
+        .join("");
+      panel.querySelectorAll(".ld-carrier-suggest-item").forEach(function (btn) {
+        btn.addEventListener("mousedown", function (e) {
+          e.preventDefault();
+        });
+        btn.addEventListener("click", function () {
+          applyCarrier(items[Number(btn.getAttribute("data-idx"))]);
+        });
+      });
+      panel.classList.remove("hidden");
+      setActive(0);
+    }
+
+    async function runSearch(query) {
+      var q = String(query || "").trim();
+      if (q.length < 2) {
+        hide();
+        return;
+      }
+      var seq = ++reqSeq;
+      panel.innerHTML = '<div class="ld-carrier-suggest-empty">Searching GreenOS carriers…</div>';
+      panel.classList.remove("hidden");
+      try {
+        var token = localStorage.getItem("gl_token") || "";
+        var res = await fetch(
+          "/api/carriers/lookup?q=" + encodeURIComponent(q) + "&limit=10",
+          {
+            headers: {
+              Accept: "application/json",
+              Authorization: token ? "Bearer " + token : "",
+            },
+            cache: "no-store",
+          }
+        );
+        var json = await res.json().catch(function () {
+          return {};
+        });
+        if (seq !== reqSeq) return;
+        if (!res.ok || json.success === false) {
+          panel.innerHTML =
+            '<div class="ld-carrier-suggest-empty">' +
+            self.esc(json.message || "Lookup failed") +
+            "</div>";
+          return;
+        }
+        render(json.data || [], q);
+      } catch (err) {
+        if (seq !== reqSeq) return;
+        panel.innerHTML =
+          '<div class="ld-carrier-suggest-empty">' +
+          self.esc((err && err.message) || "Lookup failed") +
+          "</div>";
+      }
+    }
+
+    function schedule(el) {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function () {
+        runSearch(el && el.value);
+      }, 220);
+    }
+
+    function onKey(e, el) {
+      if (e.key === "Escape") {
+        hide();
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (panel.classList.contains("hidden")) schedule(el);
+        else setActive(active + 1);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActive(active - 1);
+        return;
+      }
+      if (e.key === "Enter" && !panel.classList.contains("hidden") && active >= 0 && items[active]) {
+        e.preventDefault();
+        applyCarrier(items[active]);
+      }
+    }
+
+    [nameInput, mcInput].forEach(function (el) {
+      if (!el) return;
+      el.setAttribute("autocomplete", "off");
+      el.addEventListener("input", function () {
+        if (profileInput) profileInput.value = "";
+        schedule(el);
+      });
+      el.addEventListener("focus", function () {
+        if (String(el.value || "").trim().length >= 2) schedule(el);
+      });
+      el.addEventListener("keydown", function (e) {
+        onKey(e, el);
+      });
+    });
+
+    main.addEventListener("click", function (ev) {
+      if (!form.contains(ev.target)) hide();
+    });
+  },
+
   /** Normalize text for carrier-form change detection (trim + lower). */
   normCarrierText(raw) {
     return String(raw == null ? "" : raw).trim().toLowerCase();
@@ -1228,6 +1447,17 @@ window.GreenOSModules["dispatch"] = {
       return;
     }
 
+    if (active.id === "tracking") {
+      if (window.GreenOSModules && window.GreenOSModules.trucking) {
+        window.GreenOSModules.trucking.render(body);
+      } else {
+        body.innerHTML =
+          "<h2>Tracking</h2>" +
+          '<p class="gos-muted">Trucking board not loaded — hard refresh (Ctrl+F5).</p>';
+      }
+      return;
+    }
+
     body.innerHTML =
       "<h2>Dispatch — " + self.esc(active.title) + "</h2>" +
       "<p class=\"gos-muted\">Placeholder — load documents, carriers, and GPS will attach to each Load.</p>";
@@ -1619,7 +1849,7 @@ window.GreenOSModules["dispatch"] = {
       btn.addEventListener("click", function () {
         var next = btn.getAttribute("data-tab");
         self._tab = next;
-        if (next === "tracking" && !(data.gps && data.gps.configured != null)) {
+        if (next === "tracking" && !(data.gps && data.gps.providerReady != null)) {
           self.openLoad(body, id, "tracking");
           return;
         }
@@ -2098,6 +2328,7 @@ window.GreenOSModules["dispatch"] = {
       self.bindUsPhoneInput(main.querySelector("#ld-driver-phone"));
       self.bindApptFields(main, "ld-c-pickup");
       self.bindApptFields(main, "ld-c-delivery");
+      self.bindCarrierAutofill(main, c);
       self.bindCarrierOnboardingActions(main, c, { loadId: id, tab: "carrier" });
       main.querySelector("#ld-save-carrier")?.addEventListener("click", async function () {
         var name = (main.querySelector("#ld-carrier").value || "").trim();
@@ -2109,6 +2340,7 @@ window.GreenOSModules["dispatch"] = {
         try {
           var pickupAppt = self.readApptFields(main, "ld-c-pickup");
           var deliveryAppt = self.readApptFields(main, "ld-c-delivery");
+          var profileIdEl = main.querySelector("#ld-carrier-profile-id");
           var carrierPayload = {
             carrierName: name,
             carrierEmail: main.querySelector("#ld-carrier-email").value || null,
@@ -2121,6 +2353,8 @@ window.GreenOSModules["dispatch"] = {
             truckNumber: main.querySelector("#ld-truck").value || null,
             trailerNumber: main.querySelector("#ld-trailer").value || null,
             carrierStatus: main.querySelector("#ld-cstatus").value || "Assigned",
+            carrierProfileId:
+              profileIdEl && profileIdEl.value ? String(profileIdEl.value).trim() : null,
             pickupFrom: pickupAppt.from,
             pickupTo: pickupAppt.to,
             deliveryFrom: deliveryAppt.from,
@@ -2332,6 +2566,13 @@ window.GreenOSModules["dispatch"] = {
       var active = gps.active || null;
       var ready = gps.providerReady && gps.providerReady.carrier_view;
       var gpsHtml = "";
+      var gpsErrorHtml = "";
+      if (gps.error) {
+        gpsErrorHtml =
+          '<p style="margin-top:0.75rem;color:var(--red)">GPS status error: ' +
+          self.esc(gps.error) +
+          "</p>";
+      }
       if (active) {
         gpsHtml =
           '<div class="load-grid" style="margin-top:1rem">' +
@@ -2354,6 +2595,12 @@ window.GreenOSModules["dispatch"] = {
           field("Tracking URL", active.trackingUrl || "—") +
           field("Client URL", active.clientTrackingUrl || "—") +
           "</div>";
+        if (active.lastError) {
+          gpsHtml +=
+            '<p style="margin-top:0.5rem;color:var(--red)">CarrierView last error: ' +
+            self.esc(active.lastError) +
+            "</p>";
+        }
         if (active.lastLatitude != null && active.lastLongitude != null) {
           var mapUrl =
             "https://www.openstreetmap.org/?mlat=" +
@@ -2384,6 +2631,7 @@ window.GreenOSModules["dispatch"] = {
             ? '<p class="gos-muted">Provider connected. Webhooks update live position.</p>'
             : '<p class="gos-muted">CarrierView token configured but <code>CARRIER_VIEW_ENABLED=false</code>.</p>'
           : '<p class="gos-muted">Set <code>CARRIER_VIEW_API_BASE_URL</code> + <code>CARRIER_VIEW_API_TOKEN</code> on the server.</p>') +
+        gpsErrorHtml +
         gpsHtml +
         '<div class="load-edit-panel" style="margin-top:1rem">' +
         '<div class="load-form-grid">' +

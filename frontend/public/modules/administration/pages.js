@@ -163,6 +163,13 @@ window.GreenOSModules['administration'] = {
       '<p id="cv-msg" class="gos-muted" style="margin-top:0.75rem"></p>';
 
     var token = localStorage.getItem('gl_token') || '';
+    function esc(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
     async function api(path, opts) {
       var res = await fetch('/api/integrations/carrier-view' + path, Object.assign({
         headers: {
@@ -186,21 +193,31 @@ window.GreenOSModules['administration'] = {
               : d.healthy === false
                 ? 'FAILED'
                 : 'CONFIGURED';
+        var warnHtml = '';
+        if (d.warnings && d.warnings.length) {
+          warnHtml =
+            '<ul style="margin:0.5rem 0;padding-left:1.25rem;color:var(--red);font-size:0.9rem">' +
+            d.warnings.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') +
+            '</ul>';
+        }
         card.innerHTML =
           '<h3 style="margin:0 0 0.5rem">CarrierView — <strong>' + conn + '</strong></h3>' +
           '<p>Enabled: <strong>' + (d.enabled ? 'yes' : 'no') + '</strong></p>' +
           '<p>API token: <strong>' + (d.tokenConfigured ? 'configured' : 'missing') + '</strong></p>' +
           '<p>API base URL: <strong>' + (d.baseUrlConfigured ? (d.baseUrlHost || 'set') : 'missing') + '</strong></p>' +
+          '<p>Public app URL: <strong>' + esc(d.publicAppHost || d.publicAppUrl || 'missing') + '</strong></p>' +
+          '<p>Webhook secret: <strong>' + (d.webhookSecretConfigured ? 'configured' : 'empty') + '</strong></p>' +
           '<p>Connection: <strong>' +
           (d.healthy === true ? 'healthy' : d.healthy === false ? 'failed' : 'not tested') +
           '</strong>' +
-          (d.error ? ' — ' + d.error : '') +
+          (d.error ? ' — ' + esc(d.error) : '') +
           '</p>' +
+          warnHtml +
           '<p>Webhooks (register these in CarrierView or use Register):</p>' +
           '<ul style="margin:0.35rem 0;padding-left:1.25rem;font-size:0.9rem;word-break:break-all">' +
-          '<li>Position: ' + (d.webhooks && d.webhooks.position) + '</li>' +
-          '<li>Load status: ' + (d.webhooks && d.webhooks.loadStatus) + '</li>' +
-          '<li>Chat: ' + (d.webhooks && d.webhooks.chat) + '</li>' +
+          '<li>Position: ' + esc(d.webhooks && d.webhooks.position) + '</li>' +
+          '<li>Load status: ' + esc(d.webhooks && d.webhooks.loadStatus) + '</li>' +
+          '<li>Chat: ' + esc(d.webhooks && d.webhooks.chat) + '</li>' +
           '</ul>';
       } catch (err) {
         body.querySelector('#cv-status-card').textContent = err.message || err;
