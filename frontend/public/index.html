@@ -78,12 +78,12 @@
                     <option value="Owner">Owner — full system access</option>
                 </select>
                 <div id="signup-team-lead-wrap" class="hidden">
-                    <label>Team Lead</label>
+                    <label>Team Lead (optional)</label>
                     <select id="signup-team-lead">
-                        <option value="">Select Team Lead…</option>
+                        <option value="">No Team Lead yet — Owner will assign later</option>
                     </select>
                     <p class="gos-muted" style="font-size:0.85rem;margin:0.35rem 0 0">
-                        Brokers under Alen are visible only to Alen. Brokers under Gary are visible only to Gary.
+                        Optional. Leave empty if there is no Team Lead right now — the main account can assign one later.
                     </p>
                 </div>
                 <button type="submit" class="btn-primary">Create Account</button>
@@ -446,10 +446,11 @@
                         <p class="gos-muted" style="font-size:0.8rem;margin:0.35rem 0 0">Sets Green OS access for the linked login (modules match this role). User must sign in again after a change.</p>
                     </div>
                     <div id="emp-transfer-wrap" class="hidden" style="grid-column:1 / -1">
-                        <label>Transfer team to (required if leaving Team Lead with brokers)</label>
+                        <label>Transfer team to (optional)</label>
                         <select id="emp-transfer-team">
-                            <option value="">Select who takes the brokers…</option>
+                            <option value="">Leave vacant — no Team Lead until Owner assigns one</option>
                         </select>
+                        <p class="gos-muted" style="font-size:0.8rem;margin:0.35rem 0 0">If empty, brokers stay without a Team Lead until the main account appoints a new one.</p>
                     </div>
                     <div><label>Card Number (UID) *</label><input id="emp-card" required placeholder="уникальный UID карты"></div>
                     <div><label>External Ref</label><input id="emp-extref" placeholder="ORD-10045"></div>

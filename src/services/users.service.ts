@@ -17,7 +17,11 @@ import {
     canManageUserRoles,
     isKnownRole,
 } from "../auth/roles.js";
-import { assertValidTeamLeadId, transferTeamLeadership } from "../auth/team-scope.js";
+import {
+    assertValidTeamLeadId,
+    clearTeamLeadership,
+    transferTeamLeadership,
+} from "../auth/team-scope.js";
 
 export class UsersService {
     listAssignableRoles(actorRole: string) {
@@ -195,22 +199,22 @@ export class UsersService {
                 );
                 if (brokerCount > 0) {
                     const target = String(options?.transferTeamToUserId || "").trim();
-                    if (!target) {
-                        return {
-                            ok: false as const,
-                            status: 422,
-                            message: `This Team Lead still has ${brokerCount} broker(s). Choose who takes the team (transferTeamToUserId) before changing the role.`,
-                        };
+                    if (target) {
+                        if (target === userId) {
+                            return {
+                                ok: false as const,
+                                status: 422,
+                                message: "Cannot transfer the team to the same person",
+                            };
+                        }
+                        const moved = await transferTeamLeadership(userId, target);
+                        transferNote = ` Moved ${moved.brokersMoved} broker(s) and ${moved.notificationsMoved} notification(s) to the new Team Lead.`;
+                    } else {
+                        // Owner may leave the Team Lead seat vacant — brokers stay
+                        // unassigned until a new TL is appointed later.
+                        const cleared = await clearTeamLeadership(userId);
+                        transferNote = ` Left Team Lead vacant — unassigned ${cleared.brokersUnassigned} broker(s). Assign a new Team Lead when ready.`;
                     }
-                    if (target === userId) {
-                        return {
-                            ok: false as const,
-                            status: 422,
-                            message: "Cannot transfer the team to the same person",
-                        };
-                    }
-                    const moved = await transferTeamLeadership(userId, target);
-                    transferNote = ` Moved ${moved.brokersMoved} broker(s) and ${moved.notificationsMoved} notification(s) to the new Team Lead.`;
                 }
             }
 
