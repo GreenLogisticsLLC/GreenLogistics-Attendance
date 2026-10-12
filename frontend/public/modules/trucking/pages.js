@@ -441,9 +441,10 @@ window.GreenOSModules.trucking = {
       [39.5, -98.35],
       4
     );
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
-      subdomains: "abcd",
+    // OSM tiles — no API key (Carto dark_all now requires a key and shows blank tiles).
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      subdomains: "abc",
       maxZoom: 19,
     }).addTo(this._map);
     return this._map;

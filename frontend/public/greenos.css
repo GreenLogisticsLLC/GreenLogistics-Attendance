@@ -2866,7 +2866,7 @@ button.load-review-choice:hover {
   border: 1px solid var(--gos-border);
   border-radius: 14px;
   overflow: hidden;
-  background: #0b1220;
+  background: #d4dce8;
 }
 
 .gos-trucking__map {
