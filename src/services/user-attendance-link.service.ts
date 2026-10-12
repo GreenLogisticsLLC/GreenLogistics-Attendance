@@ -136,7 +136,14 @@ export async function syncPlatformRoleFromEmployeePosition(input: {
     | { ok: false; status: number; message: string }
 > {
     const roleName = roleFromPosition(input.position);
-    const canonicalPosition = roleName || (input.position ? String(input.position).trim() : null);
+    const { accountingSubRoleFromBadgePosition } = await import("../auth/position-role-map.js");
+    const accountingSubRole = accountingSubRoleFromBadgePosition(input.position);
+    const canonicalPosition =
+        roleName === Roles.Accounting && accountingSubRole
+            ? accountingSubRole === "PAYMENTS"
+                ? "Accounting Payments"
+                : "Accounting Documents"
+            : roleName || (input.position ? String(input.position).trim() : null);
 
     if (!roleName) {
         return { ok: true, roleSynced: false, canonicalPosition };
@@ -153,7 +160,12 @@ export async function syncPlatformRoleFromEmployeePosition(input: {
         };
     }
 
-    if (user.role.roleName === roleName) {
+    const sameRole = user.role.roleName === roleName;
+    const sameSub =
+        roleName !== Roles.Accounting ||
+        String(user.accountingSubRole || "DOCUMENTS") ===
+            String(accountingSubRole || "DOCUMENTS");
+    if (sameRole && sameSub) {
         return { ok: true, roleSynced: false, canonicalPosition };
     }
 
@@ -172,6 +184,8 @@ export async function syncPlatformRoleFromEmployeePosition(input: {
     const { usersService } = await import("./users.service.js");
     const result = await usersService.updateUserRole(input.actor, user.userId, roleName, {
         transferTeamToUserId: input.transferTeamToUserId,
+        accountingSubRole:
+            roleName === Roles.Accounting ? accountingSubRole || "DOCUMENTS" : null,
     });
     if (!result.ok) {
         return { ok: false, status: result.status, message: result.message };

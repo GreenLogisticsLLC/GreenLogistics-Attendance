@@ -1,5 +1,7 @@
 ﻿/**
- * // future API layer
+ * Accounting Team API helpers (optional shared layer).
  */
 window.GreenOSServices = window.GreenOSServices || {};
-window.GreenOSServices['accounting'] = {};
+window.GreenOSServices.accounting = {
+  base: "/api/accounting",
+};

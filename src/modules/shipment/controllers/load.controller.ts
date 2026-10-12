@@ -186,7 +186,8 @@ export const loadController = {
                 action,
                 req.user?.userId,
                 req.body || {},
-                req.user?.role
+                req.user?.role,
+                req.user?.accountingSubRole
             );
             res.json({ success: true, data });
         } catch (err) {
