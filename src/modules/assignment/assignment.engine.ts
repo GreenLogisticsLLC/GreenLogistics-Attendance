@@ -984,7 +984,7 @@ export class AssignmentEngine {
         }
 
         console.info(
-            `[assignment] no broker In Office — parking NEW shipments as UNASSIGNED until check-in (${allLinked.length} linked broker(s) offline)`
+            `[assignment] no eligible staff In Office — parking NEW shipments as UNASSIGNED until check-in (${allLinked.length} linked staff offline; roles=${ASSIGNMENT_ROLE_NAMES.join(",")})`
         );
         return { eligible: [], mode: "none" };
     }
