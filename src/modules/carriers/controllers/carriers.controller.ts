@@ -48,6 +48,22 @@ export const carriersController = {
         }
     },
 
+    async lookup(req: AuthRequest, res: Response) {
+        try {
+            const data = await carrierService.lookupForAutofill(actorFrom(req), {
+                q: req.query.q ? String(req.query.q) : undefined,
+                mc: req.query.mc ? String(req.query.mc) : undefined,
+                limit: req.query.limit ? Number(req.query.limit) : undefined,
+            });
+            res.json({ success: true, data });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Carrier lookup failed",
+            });
+        }
+    },
+
     async dashboard(req: AuthRequest, res: Response) {
         try {
             const data = await carrierService.dashboard(actorFrom(req));

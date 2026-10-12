@@ -12,6 +12,7 @@ const staff = ["Administrator", "Owner", "Manager", "Team Lead", "Broker", "Disp
 export const carriersRouter = Router();
 carriersRouter.use(authMiddleware);
 carriersRouter.get("/", requireRole(...staff), carriersController.list);
+carriersRouter.get("/lookup", requireRole(...staff), carriersController.lookup);
 carriersRouter.get("/dashboard", requireRole(...staff), carriersController.dashboard);
 carriersRouter.post("/", requireRole(...staff), carriersController.create);
 carriersRouter.post(

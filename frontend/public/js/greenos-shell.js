@@ -386,19 +386,7 @@
       document.getElementById("gos-sidebar-toggle")?.addEventListener("click", () => {
         document.getElementById("gos-sidebar")?.classList.toggle("is-open");
       });
-      const globalSearch = document.getElementById("gos-global-search");
-      if (globalSearch && globalSearch.dataset.routeBound !== "1") {
-        globalSearch.dataset.routeBound = "1";
-        globalSearch.addEventListener("keydown", (e) => {
-          if (e.key !== "Enter" || !globalSearch.value.trim()) return;
-          if (this.role() === "Broker") {
-            e.preventDefault();
-            this.navigate("broker", "shipments");
-            // My Shipments reads the existing search value while rendering.
-            globalSearch.dispatchEvent(new Event("input"));
-          }
-        });
-      }
+      this.bindGlobalSearch();
       document.getElementById("gos-notifications-btn")?.addEventListener("click", () => {
         if (window.GreenOSRealtime) window.GreenOSRealtime.clearUnread();
         if (this.role() === "Broker") {
@@ -458,6 +446,320 @@
       document.querySelectorAll(".gos-nav-item").forEach((el) => {
         el.classList.toggle("is-active", el.dataset.module === moduleId);
       });
+    },
+
+    /**
+     * Main GreenOS search — queries all modules and shows matching records.
+     */
+    bindGlobalSearch() {
+      const self = this;
+      const input = document.getElementById("gos-global-search");
+      const panel = document.getElementById("gos-global-search-results");
+      if (!input || !panel || input.dataset.globalSearchBound === "1") return;
+      input.dataset.globalSearchBound = "1";
+
+      let timer = null;
+      let reqSeq = 0;
+      let activeIndex = -1;
+      let flatItems = [];
+
+      function esc(s) {
+        return self.esc ? self.esc(s) : String(s == null ? "" : s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function hidePanel() {
+        panel.classList.add("hidden");
+        panel.innerHTML = "";
+        input.setAttribute("aria-expanded", "false");
+        activeIndex = -1;
+        flatItems = [];
+      }
+
+      function showPanel() {
+        panel.classList.remove("hidden");
+        input.setAttribute("aria-expanded", "true");
+      }
+
+      function setActive(idx) {
+        const buttons = panel.querySelectorAll(".gos-search-item");
+        if (!buttons.length) {
+          activeIndex = -1;
+          return;
+        }
+        if (idx < 0) idx = buttons.length - 1;
+        if (idx >= buttons.length) idx = 0;
+        activeIndex = idx;
+        buttons.forEach(function (btn, i) {
+          btn.classList.toggle("is-active", i === activeIndex);
+        });
+        const el = buttons[activeIndex];
+        if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+      }
+
+      function renderResults(data, query) {
+        flatItems = [];
+        const groups = (data && data.groups) || [];
+        if (!groups.length) {
+          panel.innerHTML =
+            '<div class="gos-search-empty">No matches for “' +
+            esc(query) +
+            '” across GreenOS.</div>';
+          showPanel();
+          return;
+        }
+        let html = "";
+        groups.forEach(function (group) {
+          html +=
+            '<div class="gos-search-group-label">' +
+            esc(group.label || group.type) +
+            " · " +
+            (group.count || (group.items || []).length) +
+            "</div>";
+          (group.items || []).forEach(function (item) {
+            const idx = flatItems.length;
+            flatItems.push(item);
+            html +=
+              '<button type="button" class="gos-search-item" role="option" data-idx="' +
+              idx +
+              '">' +
+              "<em>" +
+              esc(group.label || item.type) +
+              "</em>" +
+              "<strong>" +
+              esc(item.title) +
+              "</strong>" +
+              "<span>" +
+              esc(
+                [item.subtitle, item.snippet].filter(Boolean).join(" · ") ||
+                  item.type
+              ) +
+              "</span>" +
+              "</button>";
+          });
+        });
+        panel.innerHTML = html;
+        panel.querySelectorAll(".gos-search-item").forEach(function (btn) {
+          btn.addEventListener("mousedown", function (e) {
+            e.preventDefault();
+          });
+          btn.addEventListener("click", function () {
+            const item = flatItems[Number(btn.getAttribute("data-idx"))];
+            if (item) self.openGlobalSearchResult(item);
+            hidePanel();
+          });
+        });
+        showPanel();
+        setActive(0);
+      }
+
+      async function runSearch(query) {
+        const seq = ++reqSeq;
+        panel.innerHTML = '<div class="gos-search-status">Searching GreenOS…</div>';
+        showPanel();
+        try {
+          const token = localStorage.getItem("gl_token") || "";
+          const res = await fetch(
+            "/api/search?q=" + encodeURIComponent(query) + "&limit=8",
+            {
+              headers: {
+                Accept: "application/json",
+                Authorization: token ? "Bearer " + token : "",
+              },
+              cache: "no-store",
+            }
+          );
+          const json = await res.json().catch(function () {
+            return {};
+          });
+          if (seq !== reqSeq) return;
+          if (!res.ok || json.success === false) {
+            panel.innerHTML =
+              '<div class="gos-search-empty">' +
+              esc(json.message || "Search failed") +
+              "</div>";
+            showPanel();
+            return;
+          }
+          renderResults(json.data || {}, query);
+        } catch (err) {
+          if (seq !== reqSeq) return;
+          panel.innerHTML =
+            '<div class="gos-search-empty">' +
+            esc((err && err.message) || "Search failed") +
+            "</div>";
+          showPanel();
+        }
+      }
+
+      function scheduleSearch() {
+        const query = String(input.value || "").trim();
+        if (timer) clearTimeout(timer);
+        if (!query) {
+          hidePanel();
+          return;
+        }
+        timer = setTimeout(function () {
+          runSearch(query);
+        }, 220);
+      }
+
+      input.addEventListener("input", scheduleSearch);
+      input.addEventListener("focus", function () {
+        if (String(input.value || "").trim() && panel.innerHTML) showPanel();
+        else if (String(input.value || "").trim()) scheduleSearch();
+      });
+      input.addEventListener("keydown", function (e) {
+        const query = String(input.value || "").trim();
+        if (e.key === "Escape") {
+          hidePanel();
+          input.blur();
+          return;
+        }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          if (panel.classList.contains("hidden") && query) runSearch(query);
+          else setActive(activeIndex + 1);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setActive(activeIndex - 1);
+          return;
+        }
+        if (e.key === "Enter") {
+          if (!query) return;
+          e.preventDefault();
+          if (
+            !panel.classList.contains("hidden") &&
+            activeIndex >= 0 &&
+            flatItems[activeIndex]
+          ) {
+            self.openGlobalSearchResult(flatItems[activeIndex]);
+            hidePanel();
+            return;
+          }
+          runSearch(query).then(function () {
+            if (flatItems[0]) {
+              self.openGlobalSearchResult(flatItems[0]);
+              hidePanel();
+            }
+          });
+        }
+      });
+
+      document.addEventListener("click", function (e) {
+        const wrap = document.getElementById("gos-search-wrap");
+        if (wrap && !wrap.contains(e.target)) hidePanel();
+      });
+    },
+
+    openGlobalSearchResult(item) {
+      if (!item) return;
+      const type = String(item.type || "").toUpperCase();
+      const meta = item.meta || {};
+      const role = this.role();
+
+      if (type === "CARRIER" || meta.carrierId) {
+        const id = meta.carrierId || item.id;
+        this.navigate("carriers", null, { detail: { type: "carrier", id: id } });
+        return;
+      }
+      if (type === "CUSTOMER" || meta.customerId) {
+        const id = meta.customerId || item.id;
+        this.navigate("customers", "list", {
+          detail: { type: "customer", id: id },
+        });
+        return;
+      }
+      if (type === "LOAD" || (meta.hasLoad && meta.shipmentLeadId)) {
+        const id = meta.shipmentLeadId || item.id;
+        if (this.canAccessModule("dispatch")) {
+          this.navigate("dispatch", "active-loads", {
+            detail: { type: "load", id: id },
+          });
+        } else if (this.canAccessModule("loads")) {
+          this.navigate("loads", "active-loads", {
+            detail: { type: "load", id: id },
+          });
+        } else if (role === "Broker") {
+          this.navigate("broker", "loads", { detail: { type: "load", id: id } });
+        } else {
+          this.openGlobalSearchShipment(id);
+        }
+        return;
+      }
+      if (type === "SHIPMENT" || meta.shipmentLeadId) {
+        this.openGlobalSearchShipment(meta.shipmentLeadId || item.id);
+        return;
+      }
+      if (type === "DOCUMENT") {
+        if (meta.carrierId) {
+          this.navigate("carriers", null, {
+            detail: { type: "carrier", id: meta.carrierId },
+          });
+          return;
+        }
+        if (meta.shipmentLeadId) {
+          if (meta.hasLoad) {
+            const mod = this.canAccessModule("dispatch") ? "dispatch" : "loads";
+            this.navigate(mod, "active-loads", {
+              detail: { type: "load", id: meta.shipmentLeadId },
+            });
+          } else {
+            this.openGlobalSearchShipment(meta.shipmentLeadId);
+          }
+          return;
+        }
+      }
+      if (type === "EMAIL") {
+        if (meta.shipmentLeadId) {
+          this.openGlobalSearchShipment(meta.shipmentLeadId);
+          return;
+        }
+        if (this.canAccessModule("email")) this.navigate("email");
+        return;
+      }
+      if (type === "EMPLOYEE") {
+        if (this.canAccessModule("employees")) this.navigate("employees");
+        else if (this.canAccessModule("attendance")) this.navigate("attendance");
+        return;
+      }
+      if (type === "USER") {
+        if (this.canAccessModule("administration")) {
+          this.navigate("administration", "users");
+        }
+        return;
+      }
+      if (item.href && String(item.href).startsWith("#/")) {
+        const path = String(item.href).replace(/^#\//, "").split("/");
+        this.navigate(path[0], path[1] || null);
+      }
+    },
+
+    openGlobalSearchShipment(shipmentLeadId) {
+      if (!shipmentLeadId) return;
+      const role = this.role();
+      if (role === "Broker") this.navigate("broker", "shipments");
+      else if (this.canAccessModule("crm")) this.navigate("crm", "shipments");
+      else if (this.canAccessModule("shipments")) this.navigate("shipments");
+      else this.navigate(role === "Broker" ? "broker" : "dashboard");
+
+      const self = this;
+      setTimeout(function () {
+        const hostEl = document.getElementById("gos-module-host");
+        if (
+          hostEl &&
+          window.GreenOSModules &&
+          window.GreenOSModules.crm &&
+          typeof window.GreenOSModules.crm.openShipmentCard === "function"
+        ) {
+          window.GreenOSModules.crm.openShipmentCard(hostEl, shipmentLeadId);
+        }
+      }, 350);
     },
 
     navigate(moduleId, subPageId, opts) {

@@ -190,22 +190,17 @@ export class AuthService {
 
         let requestedTeamLeadId: string | null = null;
         if (roleName === Roles.Broker) {
-            const leads = await listTeamLeadOptions();
-            if (!leads.length) {
-                return {
-                    ok: false as const,
-                    status: 422,
-                    message:
-                        "No Team Lead candidates yet. Ask the Owner to create at least one active employee first.",
-                };
-            }
-            requestedTeamLeadId = await assertValidTeamLeadId(input.teamLeadId);
-            if (!requestedTeamLeadId) {
-                return {
-                    ok: false as const,
-                    status: 422,
-                    message: "Select a Team Lead for this Broker account",
-                };
+            // Team Lead is optional — Owner may leave the seat vacant and assign later.
+            const rawTl = String(input.teamLeadId || "").trim();
+            if (rawTl) {
+                requestedTeamLeadId = await assertValidTeamLeadId(rawTl);
+                if (!requestedTeamLeadId) {
+                    return {
+                        ok: false as const,
+                        status: 422,
+                        message: "Invalid Team Lead — leave empty or pick another person",
+                    };
+                }
             }
         }
 
@@ -482,21 +477,24 @@ export class AuthService {
                 options?.teamLeadId !== undefined && options?.teamLeadId !== null && options.teamLeadId !== ""
                     ? options.teamLeadId
                     : pending.requestedTeamLeadId;
-            teamLeadId = await assertValidTeamLeadId(preferred);
-            if (!teamLeadId) {
-                return {
-                    ok: false as const,
-                    status: 422,
-                    message:
-                        "Cannot approve: select a Team Lead for this Broker first.",
-                };
+            if (preferred) {
+                teamLeadId = await assertValidTeamLeadId(preferred);
+                if (!teamLeadId) {
+                    return {
+                        ok: false as const,
+                        status: 422,
+                        message:
+                            "Invalid Team Lead. Leave vacant or choose another person before approving.",
+                    };
+                }
+                if (pending.requestedTeamLeadId !== teamLeadId) {
+                    await prisma.pendingRegistration.update({
+                        where: { pendingId: pending.pendingId },
+                        data: { requestedTeamLeadId: teamLeadId },
+                    });
+                }
             }
-            if (pending.requestedTeamLeadId !== teamLeadId) {
-                await prisma.pendingRegistration.update({
-                    where: { pendingId: pending.pendingId },
-                    data: { requestedTeamLeadId: teamLeadId },
-                });
-            }
+            // No Team Lead selected → approve with vacant seat; Owner assigns later.
         }
 
         const createdUser = await prisma.user.create({

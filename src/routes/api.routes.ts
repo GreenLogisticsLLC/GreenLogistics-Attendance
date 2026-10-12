@@ -68,6 +68,7 @@ import { trackingRouter } from "../modules/tracking/routes/tracking.routes.js";
 import { carriersRouter, carrierOnboardingPublicRouter } from "../modules/carriers/routes/carriers.routes.js";
 import { customerRouter } from "../modules/customers/routes/customer.routes.js";
 import { geoRouter } from "../modules/geo/geo.routes.js";
+import { searchRouter } from "../modules/search/search.routes.js";
 
 export const apiRouter = Router();
 
@@ -84,6 +85,7 @@ apiRouter.use("/integrations/carrier-view", trackingRouter);
 apiRouter.use("/carriers", carriersRouter);
 apiRouter.use("/customers", customerRouter);
 apiRouter.use("/geo", geoRouter);
+apiRouter.use("/search", searchRouter);
 apiRouter.use("/carrier-onboarding", carrierOnboardingPublicRouter);
 
 apiRouter.post("/v1/auth/login", loginController);

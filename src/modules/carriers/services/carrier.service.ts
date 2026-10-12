@@ -18,6 +18,7 @@ import {
     computeCarrierSuperseded,
     isSameCarrierIdentity,
     normMc,
+    normName,
 } from "../carrier-superseded.js";
 import { carrierEmailService } from "./carrier-email.service.js";
 import { carrierStorageService } from "./carrier-storage.service.js";
@@ -194,6 +195,94 @@ export class CarrierService {
             take: 200,
         });
         return this.enrichListSuperseded(rows);
+    }
+
+    /**
+     * Company-wide carrier lookup for Assign Carrier autofill (name / MC / DOT).
+     * Read-only match — does not bypass document access on the carrier profile page.
+     */
+    async lookupForAutofill(actor: Actor, query: { q?: string; mc?: string; limit?: number }) {
+        void actor;
+        const raw = String(query.q || query.mc || "").trim();
+        if (raw.length < 2) return [];
+
+        const mcNorm = normMc(raw);
+        const limit = Math.min(Math.max(Number(query.limit) || 12, 1), 25);
+        const or: Record<string, unknown>[] = [
+            { legalName: { contains: raw } },
+            { dbaName: { contains: raw } },
+            { email: { contains: raw } },
+            { mcNumber: { contains: raw } },
+            { dotNumber: { contains: raw } },
+            { contactName: { contains: raw } },
+        ];
+        if (mcNorm && mcNorm !== raw.toUpperCase().replace(/\s+/g, "")) {
+            or.push({ mcNumber: { contains: mcNorm } });
+            or.push({ mcNumber: { contains: `MC${mcNorm}` } });
+        }
+
+        const rows = await prisma.carrier.findMany({
+            where: { OR: or },
+            orderBy: { updatedAt: "desc" },
+            take: 80,
+            select: {
+                carrierId: true,
+                legalName: true,
+                dbaName: true,
+                email: true,
+                phone: true,
+                mcNumber: true,
+                dotNumber: true,
+                contactName: true,
+                status: true,
+                onboardingStatus: true,
+                notes: true,
+                equipmentNotes: true,
+                paymentOption: true,
+                city: true,
+                state: true,
+                updatedAt: true,
+            },
+        });
+
+        const scored = rows
+            .map((row) => {
+                const rowMc = normMc(row.mcNumber);
+                let score = 10;
+                if (mcNorm && rowMc && rowMc === mcNorm) score = 100;
+                else if (mcNorm && rowMc && rowMc.includes(mcNorm)) score = 80;
+                else if (normName(row.legalName) === normName(raw)) score = 90;
+                else if (normName(row.legalName).includes(normName(raw))) score = 60;
+                else if (normName(row.dbaName || "").includes(normName(raw))) score = 55;
+                return { row, score };
+            })
+            .sort((a, b) => b.score - a.score || b.row.updatedAt.getTime() - a.row.updatedAt.getTime())
+            .slice(0, limit);
+
+        return scored.map(({ row, score }) => ({
+            carrierId: row.carrierId,
+            legalName: row.legalName,
+            dbaName: row.dbaName,
+            email: row.email,
+            phone: row.phone,
+            mcNumber: row.mcNumber,
+            dotNumber: row.dotNumber,
+            contactName: row.contactName,
+            status: row.status,
+            onboardingStatus: row.onboardingStatus,
+            insuranceHint: row.equipmentNotes || row.notes || row.paymentOption || null,
+            city: row.city,
+            state: row.state,
+            score,
+            label: [
+                row.legalName,
+                row.mcNumber ? `MC ${row.mcNumber}` : null,
+                row.dotNumber ? `DOT ${row.dotNumber}` : null,
+                [row.city, row.state].filter(Boolean).join(", ") || null,
+            ]
+                .filter(Boolean)
+                .join(" · "),
+        }));
     }
 
     /**
