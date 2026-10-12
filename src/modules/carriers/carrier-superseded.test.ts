@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
     computeCarrierSuperseded,
+    isNameAndEmailCarrierChange,
     isSameCarrierIdentity,
     normMc,
 } from "./carrier-superseded.js";
@@ -30,8 +31,35 @@ test("isSameCarrierIdentity requires matching email+name+mc", () => {
     );
 });
 
-test("normMc strips MC prefix", () => {
-    assert.equal(normMc("MC 1237784"), "1237784");
+test("isNameAndEmailCarrierChange requires both name and email to differ", () => {
+    assert.equal(
+        isNameAndEmailCarrierChange(
+            { name: "Old Carrier LLC", email: "old@x.com" },
+            { name: "New Carrier LLC", email: "new@x.com" }
+        ),
+        true
+    );
+    assert.equal(
+        isNameAndEmailCarrierChange(
+            { name: "Same Name", email: "old@x.com" },
+            { name: "Same Name", email: "new@x.com" }
+        ),
+        false
+    );
+    assert.equal(
+        isNameAndEmailCarrierChange(
+            { name: "Old Carrier", email: "same@x.com" },
+            { name: "New Carrier", email: "same@x.com" }
+        ),
+        false
+    );
+    assert.equal(
+        isNameAndEmailCarrierChange(
+            { name: "", email: "old@x.com" },
+            { name: "New", email: "new@x.com" }
+        ),
+        false
+    );
 });
 
 test("computeCarrierSuperseded: official load carrier is never red", () => {

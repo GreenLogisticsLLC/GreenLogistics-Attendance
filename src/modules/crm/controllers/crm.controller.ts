@@ -73,7 +73,9 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
     }
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
     const assignmentKind =
-        req.query.assignmentKind === "new" || req.query.assignmentKind === "other"
+        req.query.assignmentKind === "new" ||
+        req.query.assignmentKind === "other" ||
+        req.query.assignmentKind === "accepted"
             ? req.query.assignmentKind
             : undefined;
     const pageRaw = Number(req.query.page);
@@ -444,8 +446,19 @@ export async function crmOnRoadController(req: AuthRequest, res: Response) {
     }
     const brokerId = scopedBrokerId(req);
     const teamLeadId = teamScopeUserId(req);
+    // Keep aligned with Trucking board road statuses (incl. IN_TRANSIT / In Road).
     let where: Record<string, unknown> = {
-        status: { in: ["DISPATCH", "PICKED_UP"] },
+        status: {
+            in: [
+                "CARRIER_ASSIGNED",
+                "RATE_CON_GENERATED",
+                "CARRIER_ACCEPTED",
+                "PICKUP",
+                "IN_TRANSIT",
+                "DISPATCH",
+                "PICKED_UP",
+            ],
+        },
     };
     if (brokerId) {
         where.assignedBrokerId = brokerId;

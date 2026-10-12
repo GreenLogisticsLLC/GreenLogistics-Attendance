@@ -99,6 +99,39 @@ export const MANUAL_CRM_STATUSES = [
     "NEGOTIATION",
 ] as const;
 
+/**
+ * My Shipments board order (lower = higher on the list).
+ * Waiting → Open in uShip → BROKER REPLY → Bid Submitted → Shipment Accepted → rest.
+ */
+export const BOARD_STATUS_PRIORITY: Record<string, number> = {
+    AWAITING_ACCEPTANCE: 0,
+    ASSIGNED: 0,
+    AGENT_OPEN: 1,
+    BROKER_REPLY: 2,
+    FOLLOW_UP: 2,
+    CUSTOMER_REPLIED: 2,
+    BID_SUBMITTED: 3,
+    QUOTE_SENT: 3,
+    WORKING: 4,
+};
+
+export function boardStatusPriority(status: string | null | undefined): number {
+    const key = String(status || "").toUpperCase();
+    return BOARD_STATUS_PRIORITY[key] != null ? BOARD_STATUS_PRIORITY[key] : 9;
+}
+
+export function compareShipmentsForBoard(
+    a: { status?: string | null; updatedAt?: Date | string | null },
+    b: { status?: string | null; updatedAt?: Date | string | null }
+): number {
+    const pa = boardStatusPriority(a.status);
+    const pb = boardStatusPriority(b.status);
+    if (pa !== pb) return pa - pb;
+    const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    return tb - ta;
+}
+
 export const STATUS_LABELS: Record<string, string> = {
     NEW: "New",
     UNASSIGNED: "Unassigned",

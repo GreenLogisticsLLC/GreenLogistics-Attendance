@@ -42,27 +42,75 @@ export class DocumentAiJobService {
             carrierId = lead?.carrierProfileId || null;
         }
 
-        const job = await prisma.aiDocumentJob.create({
-            data: {
-                documentSource: input.documentSource,
-                documentId,
-                carrierId,
-                shipmentLeadId,
-                actorUserId: input.actor.userId,
-                checksum,
-                declaredDocType,
-                status: "QUEUED",
-            },
+        return this.createAndKickJob({
+            documentSource: input.documentSource,
+            documentId,
+            carrierId,
+            shipmentLeadId,
+            actorUserId: input.actor.userId,
+            checksum,
+            declaredDocType,
         });
+    }
 
-        // Non-blocking kick — scheduler also drains queue
-        setImmediate(() => {
-            processDocumentJob(job.jobId).catch((err) =>
-                console.warn("[doc-ai] immediate process failed", err)
-            );
+    /**
+     * Queue Document AI for a carrier portal upload without broker session ACL.
+     * Uses the assigned broker (or provided system actor) as the job owner.
+     */
+    async enqueueCarrierUpload(input: {
+        documentId: string;
+        actorUserId: string;
+    }) {
+        const documentId = String(input.documentId || "").trim();
+        const actorUserId = String(input.actorUserId || "").trim();
+        if (!documentId || !actorUserId) {
+            throw Object.assign(new Error("documentId and actorUserId are required"), {
+                status: 422,
+            });
+        }
+        const doc = await prisma.carrierDocument.findUnique({ where: { documentId } });
+        if (!doc) throw Object.assign(new Error("Carrier document not found"), { status: 404 });
+        return this.createAndKickJob({
+            documentSource: "CARRIER",
+            documentId,
+            carrierId: doc.carrierId,
+            shipmentLeadId: doc.shipmentLeadId,
+            actorUserId,
+            checksum: doc.checksum || "pending",
+            declaredDocType: doc.documentType,
         });
+    }
 
-        return { jobId: job.jobId, status: job.status };
+    private createAndKickJob(input: {
+        documentSource: "CARRIER" | "LOAD";
+        documentId: string;
+        carrierId: string | null;
+        shipmentLeadId: string | null;
+        actorUserId: string;
+        checksum: string;
+        declaredDocType: string | null;
+    }) {
+        return prisma.aiDocumentJob
+            .create({
+                data: {
+                    documentSource: input.documentSource,
+                    documentId: input.documentId,
+                    carrierId: input.carrierId,
+                    shipmentLeadId: input.shipmentLeadId,
+                    actorUserId: input.actorUserId,
+                    checksum: input.checksum,
+                    declaredDocType: input.declaredDocType,
+                    status: "QUEUED",
+                },
+            })
+            .then((job) => {
+                setImmediate(() => {
+                    processDocumentJob(job.jobId).catch((err) =>
+                        console.warn("[doc-ai] immediate process failed", err)
+                    );
+                });
+                return { jobId: job.jobId, status: job.status };
+            });
     }
 
     async getJob(actor: DocAiActor, jobId: string) {

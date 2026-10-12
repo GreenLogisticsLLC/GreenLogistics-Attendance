@@ -281,7 +281,14 @@ export async function brokerGmailMessagesController(req: AuthRequest, res: Respo
 }
 
 export async function listBrokerGmailAccountsController(req: AuthRequest, res: Response) {
-    const where: Record<string, unknown> = { role: { roleName: "Broker" } };
+    // Only active brokers still linked to a live Attendance employee.
+    // Orphans (deleted contact / unlinked employee) must not appear here.
+    const where: Record<string, unknown> = {
+        role: { roleName: "Broker" },
+        isActive: true,
+        employeeId: { not: null },
+        employee: { is: { status: "ACTIVE" } },
+    };
     const { teamScopeUserId } = await import("../../../auth/access.js");
     const { listTeamBrokerIds } = await import("../../../auth/team-scope.js");
     const teamLeadId = teamScopeUserId(req);
@@ -300,10 +307,12 @@ export async function listBrokerGmailAccountsController(req: AuthRequest, res: R
                     employeeNumber: true,
                     firstName: true,
                     lastName: true,
+                    status: true,
                 },
             },
             brokerGmailAccount: {
                 select: {
+                    brokerGmailId: true,
                     gmailAddress: true,
                     isActive: true,
                     status: true,
@@ -327,6 +336,8 @@ export async function listBrokerGmailAccountsController(req: AuthRequest, res: R
                     `${broker.employee?.firstName || broker.firstName} ${
                         broker.employee?.lastName || broker.lastName
                     }`.trim(),
+                hasAccount: Boolean(broker.brokerGmailAccount),
+                brokerGmailId: broker.brokerGmailAccount?.brokerGmailId || null,
                 gmailAddress: broker.brokerGmailAccount?.gmailAddress || null,
                 isActive: broker.brokerGmailAccount?.isActive || false,
                 status: broker.brokerGmailAccount?.status || "DISCONNECTED",
@@ -353,6 +364,42 @@ export async function adminDisconnectBrokerGmailController(req: AuthRequest, res
         return res.status(404).json(apiResponse(false, "Broker Gmail account not found"));
     }
     return res.json(apiResponse(true, "Broker Gmail disconnected"));
+}
+
+/**
+ * DELETE /api/email/broker/accounts/:userId
+ * Permanently remove broker Gmail from GreenOS (tokens + sync history).
+ */
+export async function adminDeleteBrokerGmailController(req: AuthRequest, res: Response) {
+    const userId = String(req.params.userId || "").trim();
+    const { teamScopeUserId } = await import("../../../auth/access.js");
+    const { listTeamBrokerIds } = await import("../../../auth/team-scope.js");
+    const teamLeadId = teamScopeUserId(req);
+    if (teamLeadId) {
+        const ids = await listTeamBrokerIds(teamLeadId);
+        if (!ids.includes(userId)) {
+            return res.status(403).json(apiResponse(false, "You can only delete Gmail for brokers on your team"));
+        }
+    }
+
+    const broker = await prisma.user.findUnique({
+        where: { userId },
+        include: { role: true },
+    });
+    if (!broker || broker.role.roleName !== "Broker") {
+        return res.status(404).json(apiResponse(false, "Broker not found"));
+    }
+
+    const removed = await brokerGmailOAuthService.removeAccount(userId);
+    if (!removed) {
+        return res.status(404).json(apiResponse(false, "Broker Gmail account not found"));
+    }
+    return res.json(
+        apiResponse(true, "Broker Gmail deleted", {
+            userId,
+            gmailAddress: removed.gmailAddress || null,
+        })
+    );
 }
 
 /**

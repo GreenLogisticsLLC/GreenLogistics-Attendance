@@ -48,6 +48,22 @@ export const carriersController = {
         }
     },
 
+    async lookup(req: AuthRequest, res: Response) {
+        try {
+            const data = await carrierService.lookupForAutofill(actorFrom(req), {
+                q: req.query.q ? String(req.query.q) : undefined,
+                mc: req.query.mc ? String(req.query.mc) : undefined,
+                limit: req.query.limit ? Number(req.query.limit) : undefined,
+            });
+            res.json({ success: true, data });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Carrier lookup failed",
+            });
+        }
+    },
+
     async dashboard(req: AuthRequest, res: Response) {
         try {
             const data = await carrierService.dashboard(actorFrom(req));
@@ -146,16 +162,23 @@ export const carriersController = {
 
     async inviteRcBolFromLoad(req: AuthRequest, res: Response) {
         try {
+            const rawKind = String(req.body?.kind || req.query?.kind || "bol_pod").toLowerCase();
+            const kind =
+                rawKind === "rc_sign" || rawKind === "rc"
+                    ? ("rc_sign" as const)
+                    : rawKind === "rc_bol"
+                      ? ("rc_bol" as const)
+                      : ("bol_pod" as const);
             const data = await carrierService.inviteRcBolFromLoad(
                 String(req.params.shipmentLeadId),
-                actorFrom(req)
+                { ...actorFrom(req), kind }
             );
             res.json({ success: true, data });
         } catch (err) {
             res.status(errStatus(err)).json({
                 success: false,
                 code: (err as { code?: string }).code,
-                message: err instanceof Error ? err.message : "Failed to send RC/BOL link",
+                message: err instanceof Error ? err.message : "Failed to send carrier document link",
             });
         }
     },
@@ -240,6 +263,22 @@ export const carriersController = {
             res.status(errStatus(err)).json({
                 success: false,
                 message: err instanceof Error ? err.message : "Failed",
+            });
+        }
+    },
+
+    async deleteDocument(req: AuthRequest, res: Response) {
+        try {
+            const data = await carrierService.deleteDocument(
+                String(req.params.id),
+                String(req.params.documentId),
+                actorFrom(req)
+            );
+            res.json({ success: true, data, message: "Document deleted" });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to delete document",
             });
         }
     },
@@ -333,6 +372,13 @@ export const carrierOnboardingPublicController = {
                 } catch {
                     /* ignore */
                 }
+            }
+            const multerErr = err as { code?: string; message?: string };
+            if (multerErr?.code === "LIMIT_FILE_SIZE") {
+                return res.status(400).json({
+                    success: false,
+                    message: "File too large (max 15 MB). Try a smaller PDF or photo.",
+                });
             }
             res.status(errStatus(err)).json({
                 success: false,

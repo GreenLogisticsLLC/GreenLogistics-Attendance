@@ -56,18 +56,19 @@ Carrier agrees to assume full responsibility for the payment of all local, state
 IN WITNESS WHEREOF:
 
 (BROKER) – GREEN LOGISTICS LLC
-Authorized Signature / Printed Name – SPARTAK KAZARYAN / Title – PRESIDENT
-Company Address: 91 N YORK RD APT 500-40, WILLOW GROVE PA 19090
-Phone – (484) 929-1404
-E-Mail tbgreenlogistics@gmail.com
+Authorized Signature: (electronic signature of Spartak Kazaryan applied on every Green OS agreement PDF)
+Printed Name – SPARTAK KAZARYAN / Title – PRESIDENT
+Company Address: 121 Frog Hollow Rd, Churchville, PA 18966
+Phone – (267) 703-5313
+E-Mail accounting@greengrouplogistics.com
 
-(CARRIER) – signature, printed name, title, address, phone, and email to be completed in the Green OS portal.
+(CARRIER) – signature, printed name, title, address, phone, and email completed electronically in the Green OS portal and stamped onto the signed PDF.
 
 PAYMENT OPTIONS (choose one in the portal):
 • Standard Payment: Receive payment within 20-25 days from receipt of Invoice and all required documents.
 • Quick Pay (3%): Receive payment within 3-5 business days. Fee is 3% deducted from the invoiced amount. ACH Direct Deposit.
 • Quick Pay (5%): Receive payment within 24hrs. Fee is 5% from the invoiced amount.
-• Factoring company notice: If using a factoring company, a LOR will be required prior to any Quick Pay being processed.
+• Factoring company: Available as a payment option in the portal.
 
-Green Logistics LLC — Broker-Carrier Agreement Version 2.0
+Green Logistics LLC — Broker-Carrier Agreement Version 2.3
 `;

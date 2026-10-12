@@ -22,10 +22,34 @@
     .grid { display:grid; grid-template-columns:1fr 1fr; gap:0.65rem; }
     @media (max-width:640px){ .grid{ grid-template-columns:1fr; } }
     input, textarea, select { border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.65rem; font:inherit; color:var(--text); background:#fff; }
+    input.invalid, textarea.invalid { border-color:var(--danger); }
     .actions { display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:1rem; }
-    button { border:0; border-radius:8px; padding:0.65rem 1rem; font:inherit; font-weight:600; cursor:pointer; }
+    button,
+    a.btn-primary,
+    a.btn-secondary,
+    a.btn-doc-pdf {
+      border:0;
+      border-radius:8px;
+      padding:0.65rem 1rem;
+      font:inherit;
+      font-weight:700;
+      cursor:pointer;
+      display:inline-block;
+      text-decoration:none;
+      line-height:1.2;
+    }
     .btn-primary { background:var(--accent); color:#fff; }
     .btn-secondary { background:#eef2f8; color:var(--text); }
+    /* Rate Confirmation / BOL PDF — louder than gray secondary links */
+    .btn-doc-pdf {
+      background:#0b6e4f;
+      color:#fff;
+      font-weight:800;
+      letter-spacing:0.01em;
+      box-shadow:0 2px 0 rgba(11,110,79,0.35);
+    }
+    .btn-doc-pdf:hover { background:#095c42; color:#fff; }
+    .btn-doc-pdf:focus-visible { outline:2px solid #34d399; outline-offset:2px; }
     .error { color:var(--danger); white-space:pre-wrap; }
     .ok { color:var(--accent); }
     .muted { color:var(--muted); font-size:0.9rem; }
@@ -46,11 +70,62 @@
     .doc-actions { margin:0.55rem 0 0; }
     .doc-actions a { display:inline-block; text-decoration:none; }
     .sig-pad { border:1px dashed var(--border); border-radius:8px; background:#fff; width:100%; height:140px; touch-action:none; }
+    .sig-pad.invalid { border-color:var(--danger); }
     .hidden { display:none !important; }
-    .doc-row { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; margin:0.65rem 0; }
-    .badge { font-size:0.75rem; padding:0.2rem 0.45rem; border-radius:6px; background:#eef2f8; }
+    .doc-list { display:flex; flex-direction:column; gap:0.75rem; margin:0.85rem 0 0.35rem; }
+    .doc-row {
+      display:flex;
+      flex-wrap:wrap;
+      align-items:center;
+      gap:0.55rem;
+      margin:0;
+      padding:0.7rem 0.85rem;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:#f8fafc;
+    }
+    .doc-label { flex:0 0 auto; min-width:7.5rem; }
+    .doc-file-name {
+      flex:1 1 auto;
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      max-width:min(42vw, 22rem);
+    }
+    .doc-pick {
+      margin-left:auto;
+      flex:0 0 auto;
+      position:relative;
+      overflow:hidden;
+      cursor:pointer;
+      font-weight:700;
+      font-size:0.85rem;
+      padding:0.5rem 0.85rem;
+      border-radius:8px;
+      background:#eef2f8;
+      color:var(--text);
+      border:1px solid var(--border);
+      white-space:nowrap;
+    }
+    .doc-pick:hover { background:#e2e8f0; }
+    .doc-pick.is-busy { opacity:0.65; pointer-events:none; }
+    .doc-pick input[type="file"] {
+      position:absolute;
+      inset:0;
+      opacity:0;
+      width:100%;
+      height:100%;
+      cursor:pointer;
+      font-size:0;
+    }
+    .badge { font-size:0.75rem; padding:0.2rem 0.45rem; border-radius:6px; background:#eef2f8; white-space:nowrap; }
     .badge.ok { background:rgba(5,150,105,0.15); color:var(--accent); }
+    .badge.warn { background:rgba(217,119,6,0.15); color:#b45309; }
+    .badge.bad { background:rgba(220,38,38,0.12); color:var(--danger); }
     .pay label { flex-direction:row; align-items:flex-start; gap:0.5rem; margin:0.4rem 0; }
+    .req { color:var(--danger); font-weight:700; margin-left:0.2rem; }
+    .pay-block.invalid { outline:1px solid var(--danger); border-radius:8px; padding:0.35rem 0.5rem; }
   </style>
 </head>
 <body>
@@ -67,11 +142,20 @@
   var token = (location.pathname.split("/").filter(Boolean).pop() || "").trim();
   var state = null;
   var step = 0;
+  var stepHydrated = false;
+  var REQUIRED_DOCS = ["MC_AUTHORITY", "W9", "INSURANCE"];
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
-  function isRcBol() { return state && state.session && state.session.purpose === "RC_BOL_PACKET"; }
+  function reqMark() { return '<span class="req" title="Required" aria-label="Required">●</span>'; }
+  function purpose() { return (state && state.session && state.session.purpose) || ""; }
+  function isRcBol() {
+    var p = purpose();
+    return p === "RC_BOL_PACKET" || p === "RC_SIGN_PACKET" || p === "BOL_POD_PACKET";
+  }
+  function isRcSignOnly() { return purpose() === "RC_SIGN_PACKET"; }
+  function isBolPodOnly() { return purpose() === "BOL_POD_PACKET"; }
   async function api(path, opts) {
     var res = await fetch("/api/carrier-onboarding/" + encodeURIComponent(token) + path, opts);
     var data = await res.json().catch(function () { return {}; });
@@ -99,14 +183,27 @@
     canvas.addEventListener("touchstart", start, {passive:false}); canvas.addEventListener("touchmove", move, {passive:false}); canvas.addEventListener("touchend", end);
   }
   function sigData(){ var c=document.getElementById("sig-canvas"); return c?c.toDataURL("image/png"):""; }
-  function clearSig(){ var c=document.getElementById("sig-canvas"); if(!c)return; c.getContext("2d").clearRect(0,0,c.width,c.height); }
+  function isBlankSig(){
+    var c=document.getElementById("sig-canvas");
+    if(!c) return true;
+    var blank=document.createElement("canvas");
+    blank.width=c.width; blank.height=c.height;
+    return c.toDataURL("image/png") === blank.toDataURL("image/png");
+  }
+  function clearSig(){ var c=document.getElementById("sig-canvas"); if(!c)return; c.getContext("2d").clearRect(0,0,c.width,c.height); c.classList.remove("invalid"); }
   function setMsg(text, ok){ var el=document.getElementById("msg"); if(!el)return; el.className=ok?"ok":"error"; el.textContent=text||""; }
 
   function labels() {
+    if (isRcSignOnly()) return ["Rate Confirmation", "Sign", "Done"];
+    if (isBolPodOnly()) return ["BOL / POD", "Done"];
     if (isRcBol()) return ["RC & BOL", "Sign", "Done"];
     return ["Company", "Agreement", "Documents", "Review", "Done"];
   }
-  function maxStep() { return isRcBol() ? 1 : 3; }
+  function maxStep() {
+    if (isBolPodOnly()) return 0;
+    if (isRcBol()) return 1;
+    return 3;
+  }
   function stepsHtml() {
     return labels().map(function (l, i) {
       var cls = "step" + (i < step ? " done" : "") + (i === step ? " active" : "");
@@ -114,63 +211,100 @@
     }).join("");
   }
 
+  async function persistStep(nextStep) {
+    try {
+      await api("/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ progress: { step: nextStep } }),
+      });
+    } catch (_e) { /* non-blocking */ }
+  }
+
+  function goBack() {
+    step = Math.max(0, step - 1);
+    persistStep(step).then(function () { render(); });
+  }
+
   function companyForm() {
     var c = state.carrier || {};
     var pay = c.paymentOption || "";
     return '<div class="card"><h2 style="margin:0 0 0.75rem;font-size:1.1rem">Carrier Profile</h2><div class="grid">' +
-      '<label>Carrier Name<input id="f-legal" value="' + esc(c.legalName) + '"></label>' +
+      '<label>Carrier Name' + reqMark() + '<input id="f-legal" required value="' + esc(c.legalName) + '"></label>' +
       '<label>DBA<input id="f-dba" value="' + esc(c.dbaName) + '"></label>' +
       '<label>Dispatch Contact<input id="f-contact" value="' + esc(c.contactName) + '"></label>' +
-      '<label>Dispatch E-mail<input id="f-email" type="email" value="' + esc(c.email) + '"></label>' +
-      '<label>Phone<input id="f-phone" value="' + esc(c.phone) + '"></label>' +
+      '<label>Dispatch E-mail' + reqMark() + '<input id="f-email" type="email" required value="' + esc(c.email) + '"></label>' +
+      '<label>Phone' + reqMark() + '<input id="f-phone" required value="' + esc(c.phone) + '"></label>' +
       '<label>Fax<input id="f-fax" value="' + esc(c.fax) + '"></label>' +
       '<label>FED ID #<input id="f-fed" value="' + esc(c.federalTaxId) + '"></label>' +
       '<label>MC#<input id="f-mc" value="' + esc(c.mcNumber) + '"></label>' +
-      '<label>DOT#<input id="f-dot" value="' + esc(c.dotNumber) + '"></label>' +
-      '<label>Address<input id="f-address" value="' + esc(c.address) + '"></label>' +
-      '<label>City<input id="f-city" value="' + esc(c.city) + '"></label>' +
-      '<label>State<input id="f-state" maxlength="2" value="' + esc(c.state) + '"></label>' +
-      '<label>ZIP<input id="f-zip" value="' + esc(c.zip) + '"></label>' +
+      '<label>DOT#' + reqMark() + '<input id="f-dot" required value="' + esc(c.dotNumber) + '"></label>' +
+      '<label>Address' + reqMark() + '<input id="f-address" required value="' + esc(c.address) + '"></label>' +
+      '<label>City' + reqMark() + '<input id="f-city" required value="' + esc(c.city) + '"></label>' +
+      '<label>State' + reqMark() + '<input id="f-state" maxlength="2" required value="' + esc(c.state) + '"></label>' +
+      '<label>ZIP' + reqMark() + '<input id="f-zip" required value="' + esc(c.zip) + '"></label>' +
       '<label class="full" style="grid-column:1/-1">Equipment and Quantity<textarea id="f-equip">' + esc(c.equipmentNotes) + '</textarea></label>' +
-      '</div><p class="muted" style="margin:0.75rem 0 0.35rem">Payment option</p><div class="pay">' +
+      '</div><p class="muted" style="margin:0.75rem 0 0.35rem">Payment option' + reqMark() + '</p><div class="pay" id="pay-block">' +
       '<label><input type="radio" name="pay" value="STANDARD"' + (pay==="STANDARD"?" checked":"") + '> Standard Payment (20-25 days)</label>' +
       '<label><input type="radio" name="pay" value="QUICK_3"' + (pay==="QUICK_3"?" checked":"") + '> Quick Pay 3% (3-5 business days, ACH)</label>' +
       '<label><input type="radio" name="pay" value="QUICK_5"' + (pay==="QUICK_5"?" checked":"") + '> Quick Pay 5% (24hrs)</label>' +
-      '<label><input type="radio" name="pay" value="FACTORING"' + (pay==="FACTORING"?" checked":"") + '> Factoring company (LOR required)</label>' +
+      '<label><input type="radio" name="pay" value="FACTORING"' + (pay==="FACTORING"?" checked":"") + '> Factoring company</label>' +
       '</div><div class="actions"><button type="button" class="btn-secondary" id="btn-save">Save Progress</button><button type="button" class="btn-primary" id="btn-next">Continue</button></div><p id="msg" class="muted"></p></div>';
   }
 
   function agreementForm() {
     var t = state.agreementTemplate || {};
+    var backBtn = '<button type="button" class="btn-secondary" id="btn-back">Back</button>';
     return '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">' + esc(t.title) +
       ' <span class="badge">v' + esc(t.version) + '</span></h2><div class="agreement-box">' + esc(t.bodyText) + "</div>" +
       (state.agreementSigned
-        ? '<p class="ok">✓ Agreement already signed</p><div class="actions"><button type="button" class="btn-primary" id="btn-next">Continue</button></div>'
-        : '<label style="margin-top:0.75rem">Full Legal Name<input id="sig-name" value="' + esc(state.carrier.contactName || "") + '"></label>' +
-          '<p class="muted" style="margin:0.5rem 0 0.25rem">Signature</p><canvas id="sig-canvas" class="sig-pad" width="640" height="140"></canvas>' +
-          '<label style="margin-top:0.65rem;flex-direction:row;align-items:center;gap:0.5rem"><input type="checkbox" id="sig-agree"> I have read and agree to the Broker-Carrier Agreement.</label>' +
-          '<div class="actions"><button type="button" class="btn-secondary" id="btn-clear-sig">Clear signature</button><button type="button" class="btn-primary" id="btn-sign-ag">Sign &amp; Continue</button></div>') +
+        ? '<p class="ok">✓ Agreement already signed</p><div class="actions">' + backBtn + '<button type="button" class="btn-primary" id="btn-next">Continue</button></div>'
+        : '<label style="margin-top:0.75rem">Full Legal Name' + reqMark() + '<input id="sig-name" required value="' + esc(state.carrier.contactName || "") + '"></label>' +
+          '<p class="muted" style="margin:0.5rem 0 0.25rem">Signature' + reqMark() + '</p><canvas id="sig-canvas" class="sig-pad" width="640" height="140"></canvas>' +
+          '<label style="margin-top:0.65rem;flex-direction:row;align-items:center;gap:0.5rem">' + reqMark() + '<input type="checkbox" id="sig-agree"> I have read and agree to the Broker-Carrier Agreement.</label>' +
+          '<div class="actions">' + backBtn + '<button type="button" class="btn-secondary" id="btn-clear-sig">Clear signature</button><button type="button" class="btn-primary" id="btn-sign-ag">Sign &amp; Continue</button></div>') +
       '<p id="msg" class="muted"></p></div>';
+  }
+
+  function aiBadge(d) {
+    if (!d) return "";
+    var ai = d.ai;
+    // Online link: never show "Not Approved" to the carrier — broker reviews manually.
+    if (!ai) return '<span class="badge warn">( UNDER REVIEW )</span>';
+    if (ai.status === "QUEUED" || ai.status === "PROCESSING") return '<span class="badge warn">( UNDER REVIEW )</span>';
+    if (ai.status === "FAILED") return '<span class="badge warn">( UNDER REVIEW )</span>';
+    if (ai.trafficLight === "GREEN") return '<span class="badge ok">Approved</span>';
+    return '<span class="badge warn">( UNDER REVIEW )</span>';
   }
 
   function docsForm() {
     var types = [
-      { id: "MC_AUTHORITY", label: "MC Authority" },
-      { id: "NOA", label: "NOA" },
-      { id: "W9", label: "W-9" },
-      { id: "INSURANCE", label: "Insurance (optional)" },
-      { id: "OTHER", label: "Other (optional)" },
+      { id: "MC_AUTHORITY", label: "MC Authority", required: true },
+      { id: "NOA", label: "NOA", required: false },
+      { id: "W9", label: "W-9", required: true },
+      { id: "INSURANCE", label: "Insurance", required: true },
+      { id: "OTHER", label: "Other (optional)", required: false },
     ];
     var current = {};
     (state.documents || []).forEach(function (d) { current[d.documentType] = d; });
     return '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Required Documents</h2>' +
+      '<p class="muted">Our document bot checks each upload automatically.</p>' +
+      '<div class="doc-list">' +
       types.map(function (t) {
         var d = current[t.id];
-        return '<div class="doc-row"><strong style="min-width:8rem">' + esc(t.label) + "</strong>" +
-          (d ? '<span class="badge ok">✓ v' + d.version + " " + esc(d.originalFilename) + "</span>" : '<span class="badge">Missing</span>') +
-          '<input type="file" data-type="' + t.id + '" accept=".pdf,image/*"></div>';
+        var status = d
+          ? '<span class="badge ok doc-file-name" title="' + esc(d.originalFilename) + '">✓ v' + d.version + " " + esc(d.originalFilename) + "</span>" + aiBadge(d)
+          : '<span class="badge">Missing</span>';
+        return '<div class="doc-row">' +
+          '<strong class="doc-label">' + esc(t.label) + (t.required ? reqMark() : "") + "</strong>" +
+          status +
+          '<label class="doc-pick">Choose file' +
+          '<input type="file" data-type="' + t.id + '" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,application/pdf,image/*">' +
+          "</label>" +
+          "</div>";
       }).join("") +
-      '<div class="actions"><button type="button" class="btn-secondary" id="btn-save-docs">Refresh</button><button type="button" class="btn-primary" id="btn-next">Continue</button></div><p id="msg" class="muted"></p></div>';
+      "</div>" +
+      '<div class="actions"><button type="button" class="btn-secondary" id="btn-back">Back</button><button type="button" class="btn-primary" id="btn-next">Continue</button></div><p id="msg" class="muted"></p></div>';
   }
 
   function reviewForm() {
@@ -179,7 +313,7 @@
       "<li>" + (cl.companyInformation ? "✓" : "○") + " Company Information</li>" +
       "<li>" + (cl.agreement ? "✓" : "○") + " Broker-Carrier Agreement</li>" +
       (cl.documents || []).map(function (d) {
-        var label = d.type === "MC_AUTHORITY" ? "MC Authority" : d.type === "W9" ? "W-9" : d.type;
+        var label = d.type === "MC_AUTHORITY" ? "MC Authority" : d.type === "W9" ? "W-9" : d.type === "INSURANCE" ? "Insurance" : d.type;
         return "<li>" + (d.ok ? "✓" : "○") + " " + esc(label) + "</li>";
       }).join("") +
       "</ul>" +
@@ -203,7 +337,7 @@
   function block(title, bodyHtml) {
     return '<div class="doc-block"><strong>' + esc(title) + "</strong>" + bodyHtml + "</div>";
   }
-  function pdfBtn(docMeta, downloadLabel) {
+  function pdfBtn(docMeta, downloadLabel, viewLabel) {
     if (!docMeta || !docMeta.documentId || !docMeta.hasPdf) return "";
     var base =
       "/api/carrier-onboarding/" +
@@ -213,10 +347,12 @@
       "/download";
     return (
       '<div class="doc-actions" style="display:flex;flex-wrap:wrap;gap:0.45rem">' +
-      '<a class="btn-secondary" href="' +
+      '<a class="btn-doc-pdf" href="' +
       base +
-      '?inline=1" target="_blank" rel="noopener">View</a>' +
-      '<a class="btn-secondary" href="' +
+      '?inline=1" target="_blank" rel="noopener">' +
+      esc(viewLabel || "View PDF") +
+      "</a>" +
+      '<a class="btn-doc-pdf" href="' +
       base +
       '" target="_blank" rel="noopener">' +
       esc(downloadLabel || "Download PDF") +
@@ -234,7 +370,6 @@
       "<h3>Load Confirmation and Payment Agreement</h3>" +
       '<div class="doc-meta">' +
       "<span>Load #: <strong>" + dash(c.loadNumber) + "</strong></span>" +
-      (c.shipmentNumber ? "<span>Shipment: <strong>" + dash(c.shipmentNumber) + "</strong></span>" : "") +
       "<span>Date: <strong>" + dash(c.confirmationDate) + "</strong></span>" +
       (meta && meta.version ? "<span>v" + esc(meta.version) + "</span>" : "") +
       "</div>" +
@@ -278,10 +413,9 @@
             .join(" · ")
         )
       ) +
-      kv("Delivery note", dash(c.deliveryNote)) +
       (notes ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Special notes</strong>' + esc(notes) + "</div>" : "") +
       (terms ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Terms</strong>' + esc(terms) + "</div>" : "") +
-      pdfBtn(meta, "Download Rate Confirmation PDF") +
+      pdfBtn(meta, "Download Rate Confirmation PDF", "View Rate Confirmation PDF") +
       "</div>"
     );
   }
@@ -294,7 +428,6 @@
       '<div class="doc-meta">' +
       "<span>BOL #: <strong>" + dash(c.bolNumber || c.loadNumber) + "</strong></span>" +
       "<span>Load #: <strong>" + dash(c.loadNumber) + "</strong></span>" +
-      (c.shipmentNumber ? "<span>Shipment: <strong>" + dash(c.shipmentNumber) + "</strong></span>" : "") +
       "<span>Pickup: <strong>" + dash(c.pickupDate || c.confirmationDate) + "</strong></span>" +
       (meta && meta.version ? "<span>v" + esc(meta.version) + "</span>" : "") +
       "</div>" +
@@ -327,13 +460,19 @@
       kv("Commodity", dash(c.commodity)) +
       kv("Weight", dash(c.weight)) +
       kv("# pkgs", dash(c.packageQty != null ? c.packageQty : c.pieces)) +
-      kv("Third party bill to", dash(c.thirdPartyBillTo || c.customerName)) +
+      kv(
+        "Third party bill to",
+        dash(
+          c.thirdPartyBillTo ||
+            "Green Logistics LLC\n121 Frog Hollow RD, Churchville, PA 18966\nPhone: 267 703 5313"
+        )
+      ) +
       (c.specialInstructions
         ? '<div class="doc-notes"><strong style="display:block;margin-bottom:0.25rem;color:var(--muted);font-size:0.75rem">Additional instructions</strong>' +
           esc(c.specialInstructions) +
           "</div>"
         : "") +
-      pdfBtn(meta, "Download BOL PDF") +
+      pdfBtn(meta, "Download BOL PDF", "View BOL PDF") +
       "</div>"
     );
   }
@@ -345,42 +484,116 @@
     var bol = (bolMeta && bolMeta.content) || {};
     var hasRc = rc && (rc.loadNumber || rc.carrierName || rc.pickupAddress || rc.flatRate != null || rc.carrierRate != null);
     var hasBol = bol && (bol.bolNumber || bol.loadNumber || bol.pickupAddress || bol.deliveryAddress);
-    return '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">Rate Confirmation</h2>' +
-      '<p class="muted">Pre-filled from Green OS — review only.</p>' +
-      (hasRc ? renderRcSheet(rc, rcMeta) : '<p class="error">Rate Confirmation is not available yet. Ask your broker to generate it in Green OS.</p>') +
-      '<h2 style="margin:1rem 0 0.5rem;font-size:1.1rem">Bill of Lading</h2>' +
-      (hasBol ? renderBolSheet(bol, bolMeta) : '<p class="error">Bill of Lading is not available yet. Ask your broker to generate it in Green OS.</p>') +
-      (state.rcSigned
-        ? '<p class="ok">✓ Already signed</p><div class="actions"><button type="button" class="btn-primary" id="btn-submit">Finish</button></div>'
-        : '<label style="margin-top:0.75rem">Full Legal Name<input id="sig-name" value="' + esc(state.carrier.contactName || "") + '"></label>' +
-          '<canvas id="sig-canvas" class="sig-pad" width="640" height="140"></canvas>' +
-          '<div class="actions"><button type="button" class="btn-secondary" id="btn-clear-sig">Clear</button><button type="button" class="btn-primary" id="btn-sign-rc">I Agree &amp; Sign RC / BOL</button></div>') +
-      '<p id="msg" class="muted"></p></div>';
+    var showRc = !isBolPodOnly();
+    var showBol = !isRcSignOnly();
+    var title = isRcSignOnly()
+      ? "Rate Confirmation"
+      : isBolPodOnly()
+        ? "Bill of Lading / POD"
+        : "Rate Confirmation & BOL";
+    var html = '<div class="card"><h2 style="margin:0 0 0.5rem;font-size:1.1rem">' + esc(title) + "</h2>";
+    if (isBolPodOnly()) {
+      html += '<p class="muted">BOL for delivery. After delivery, the receiver-signed BOL is your Proof of Delivery (POD). This link does <strong>not</strong> include Rate Confirmation.</p>';
+    } else if (isRcSignOnly()) {
+      html += '<p class="muted">Electronic Rate Confirmation — review and sign. BOL / POD is sent separately after BOL is generated.</p>';
+    } else {
+      html += '<p class="muted">Pre-filled from Green OS — review only.</p>';
+    }
+    if (showRc) {
+      html += '<h2 style="margin:1rem 0 0.5rem;font-size:1.1rem">Rate Confirmation</h2>' +
+        (hasRc ? renderRcSheet(rc, rcMeta) : '<p class="error">Rate Confirmation is not available yet. Ask your broker to generate it in Green OS.</p>');
+    }
+    if (showBol) {
+      html += '<h2 style="margin:1rem 0 0.5rem;font-size:1.1rem">Bill of Lading</h2>' +
+        (hasBol ? renderBolSheet(bol, bolMeta) : '<p class="error">Bill of Lading is not available yet. Ask your broker to generate it in Green OS.</p>');
+    }
+    if (isBolPodOnly()) {
+      html += state.rcSigned || (state.progress && state.progress.bolPodAck)
+        ? '<p class="ok">✓ BOL / POD acknowledged</p><div class="actions"><button type="button" class="btn-primary" id="btn-submit">Finish</button></div>'
+        : '<p class="muted" style="margin-top:0.75rem">Confirm you received the BOL for this load. After delivery, send the signed BOL (POD) to your broker.</p>' +
+          '<div class="actions"><button type="button" class="btn-primary" id="btn-ack-bol-pod">Acknowledge BOL / POD</button></div>';
+    } else if (state.rcSigned) {
+      html += '<p class="ok">✓ Already signed</p><div class="actions"><button type="button" class="btn-primary" id="btn-submit">Finish</button></div>';
+    } else {
+      var btnLabel = isRcSignOnly() ? "I Agree &amp; Sign Rate Confirmation" : "I Agree &amp; Sign RC / BOL";
+      html += '<label style="margin-top:0.75rem">Full Legal Name<input id="sig-name" value="' + esc(state.carrier.contactName || "") + '"></label>' +
+        '<canvas id="sig-canvas" class="sig-pad" width="640" height="140"></canvas>' +
+        '<div class="actions"><button type="button" class="btn-secondary" id="btn-clear-sig">Clear</button><button type="button" class="btn-primary" id="btn-sign-rc">' + btnLabel + "</button></div>";
+    }
+    html += '<p id="msg" class="muted"></p></div>';
+    return html;
   }
 
-  function companyPayload() {
+  function companyPayload(extra) {
     var pay = "";
     var checked = document.querySelector('input[name="pay"]:checked');
     if (checked) pay = checked.value;
-    return {
+    var base = {
       legalName: val("f-legal"), dbaName: val("f-dba"), contactName: val("f-contact"), email: val("f-email"),
       phone: val("f-phone"), fax: val("f-fax"), federalTaxId: val("f-fed"), mcNumber: val("f-mc"), dotNumber: val("f-dot"),
       address: val("f-address"), city: val("f-city"), state: val("f-state"), zip: val("f-zip"),
       equipmentNotes: val("f-equip"), paymentOption: pay, progress: { step: step },
     };
+    if (extra) Object.keys(extra).forEach(function (k) { base[k] = extra[k]; });
+    return base;
+  }
+
+  function validateCompanyClient() {
+    var fields = [
+      ["f-legal", "Carrier Name"],
+      ["f-email", "Dispatch E-mail"],
+      ["f-phone", "Phone"],
+      ["f-dot", "DOT#"],
+      ["f-address", "Address"],
+      ["f-city", "City"],
+      ["f-state", "State"],
+      ["f-zip", "ZIP"],
+    ];
+    var missing = [];
+    fields.forEach(function (pair) {
+      var el = document.getElementById(pair[0]);
+      if (!el) return;
+      var empty = !String(el.value || "").trim();
+      el.classList.toggle("invalid", empty);
+      if (empty) missing.push(pair[1]);
+    });
+    var pay = document.querySelector('input[name="pay"]:checked');
+    var payBlock = document.getElementById("pay-block");
+    if (payBlock) payBlock.classList.toggle("invalid", !pay);
+    if (!pay) missing.push("Payment option");
+    return missing;
+  }
+
+  function validateDocsClient() {
+    var current = {};
+    (state.documents || []).forEach(function (d) { current[d.documentType] = d; });
+    var missing = [];
+    // Do not block the carrier on bot RED — show UNDER REVIEW and let the broker decide.
+    REQUIRED_DOCS.forEach(function (t) {
+      var d = current[t];
+      var label = t === "MC_AUTHORITY" ? "MC Authority" : t === "W9" ? "W-9" : t === "INSURANCE" ? "Insurance" : t;
+      if (!d) missing.push(label);
+    });
+    return { missing: missing, rejected: [] };
   }
 
   function render() {
     document.getElementById("boot").classList.add("hidden");
     var app = document.getElementById("app");
     app.classList.remove("hidden");
-    document.getElementById("hdr-sub").textContent = isRcBol() ? "Review RC & BOL" : "Carrier-Broker Agreement Packet";
+    document.getElementById("hdr-sub").textContent = isRcSignOnly()
+      ? "Sign Rate Confirmation"
+      : isBolPodOnly()
+        ? "BOL / POD"
+        : isRcBol()
+          ? "Review RC & BOL"
+          : "Carrier-Broker Agreement Packet";
     var c = state.carrier || {};
     var note = state.session.changeRequestNote ? '<div class="card"><p class="error"><strong>Changes requested:</strong> ' + esc(state.session.changeRequestNote) + "</p></div>" : "";
     var body = "";
     if (isRcBol()) {
       if (step === 0) body = rcBolForm();
-      else body = '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">Thank you. Your RC/BOL signature was submitted to Green Logistics.</p></div>';
+      else body = '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">Thank you. Your response was submitted to Green Logistics.</p></div>';
     } else {
       if (step === 0) body = companyForm();
       else if (step === 1) body = agreementForm();
@@ -393,7 +606,14 @@
     wire();
   }
 
-  async function reload() { state = await api(""); render(); }
+  async function reload() {
+    state = await api("");
+    if (!stepHydrated && state.progress && typeof state.progress.step === "number") {
+      step = Math.min(Math.max(0, Number(state.progress.step) || 0), maxStep());
+      stepHydrated = true;
+    }
+    render();
+  }
 
   function wire() {
     document.getElementById("btn-save")?.addEventListener("click", async function () {
@@ -402,42 +622,129 @@
     });
     document.getElementById("btn-next")?.addEventListener("click", async function () {
       if (step === 0 && !isRcBol()) {
-        try { await api("/save", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(companyPayload()) }); } catch (e) { setMsg(e.message, false); return; }
+        var companyMissing = validateCompanyClient();
+        if (companyMissing.length) {
+          setMsg("Please complete required fields:\n- " + companyMissing.join("\n- "), false);
+          return;
+        }
+        try {
+          await api("/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(companyPayload({ requireComplete: true, progress: { step: 1 } })),
+          });
+        } catch (e) { setMsg(e.message, false); return; }
+        step = 1;
+        await reload();
+        return;
+      }
+      if (step === 2 && !isRcBol()) {
+        var docsCheck = validateDocsClient();
+        if (docsCheck.missing.length) {
+          setMsg("Please upload required documents:\n- " + docsCheck.missing.join("\n- "), false);
+          return;
+        }
+        step = 3;
+        await persistStep(3);
+        await reload();
+        return;
       }
       step = Math.min(step + 1, maxStep());
+      await persistStep(step);
       await reload();
     });
-    document.getElementById("btn-back")?.addEventListener("click", function () { step = Math.max(0, step - 1); render(); });
+    document.getElementById("btn-back")?.addEventListener("click", goBack);
     document.getElementById("btn-clear-sig")?.addEventListener("click", clearSig);
     document.getElementById("btn-sign-ag")?.addEventListener("click", async function () {
+      var nameEl = document.getElementById("sig-name");
+      var agreeEl = document.getElementById("sig-agree");
+      var canvas = document.getElementById("sig-canvas");
+      var missing = [];
+      if (!String(val("sig-name") || "").trim()) {
+        missing.push("Full Legal Name");
+        if (nameEl) nameEl.classList.add("invalid");
+      } else if (nameEl) nameEl.classList.remove("invalid");
+      if (isBlankSig()) {
+        missing.push("Signature");
+        if (canvas) canvas.classList.add("invalid");
+      } else if (canvas) canvas.classList.remove("invalid");
+      if (!agreeEl || !agreeEl.checked) missing.push("Agreement checkbox");
+      if (missing.length) {
+        setMsg("Please complete required fields:\n- " + missing.join("\n- "), false);
+        return;
+      }
       try {
-        await api("/sign-agreement", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ signerName: val("sig-name"), signatureData: sigData(), agreed: document.getElementById("sig-agree")?.checked }) });
-        step += 1; await reload();
+        await api("/sign-agreement", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ signerName: val("sig-name"), signatureData: sigData(), agreed: true }) });
+        step = 2;
+        await persistStep(2);
+        await reload();
       } catch (e) { setMsg(e.message, false); }
+    });
+    document.getElementById("btn-ack-bol-pod")?.addEventListener("click", async function () {
+      try {
+        await api("/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ progress: { step: 1, bolPodAck: true } }),
+        });
+        var data = await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body: "{}" });
+        step = 1;
+        var extra = data.brokerNotified
+          ? '<p class="ok" style="margin-top:0.75rem">Your broker was emailed the BOL / POD confirmation.</p>'
+          : (data.warning ? '<p class="error" style="margin-top:0.75rem">' + esc(data.warning) + "</p>" : "");
+        document.getElementById("app").innerHTML =
+          '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">' +
+          esc(data.message || "Thank you. BOL / POD was acknowledged in Green Logistics.") +
+          "</p>" + extra + "</div>";
+      } catch (e) { setMsg(e.message, false); await reload(); }
     });
     document.getElementById("btn-sign-rc")?.addEventListener("click", async function () {
       try {
         await api("/sign-rc", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ signerName: val("sig-name"), signatureData: sigData() }) });
         var data = await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body: "{}" });
         step = 2;
+        var doneMsg = isRcSignOnly()
+          ? "Thank you. Your Rate Confirmation signature was submitted to Green Logistics."
+          : "Thank you. Your RC/BOL signature was submitted to Green Logistics.";
         var extra = data.brokerNotified
-          ? '<p class="ok" style="margin-top:0.75rem">Your broker was emailed the filled RC/BOL package.</p>'
+          ? '<p class="ok" style="margin-top:0.75rem">Your broker was emailed your signed package.</p>'
           : (data.warning ? '<p class="error" style="margin-top:0.75rem">' + esc(data.warning) + "</p>" : "");
         document.getElementById("app").innerHTML =
           '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">' +
-          esc(data.message || "Thank you. Your RC/BOL signature was submitted to Green Logistics.") +
+          esc(data.message || doneMsg) +
           "</p>" + extra + "</div>";
       } catch (e) { setMsg(e.message, false); await reload(); }
     });
     document.querySelectorAll('input[type="file"][data-type]').forEach(function (inp) {
       inp.addEventListener("change", async function () {
         if (!inp.files || !inp.files[0]) return;
-        var fd = new FormData(); fd.append("file", inp.files[0]); fd.append("documentType", inp.getAttribute("data-type"));
-        try { setMsg("Uploading…", true); await api("/documents", { method:"POST", body: fd }); await reload(); setMsg("Uploaded.", true); }
-        catch (e) { setMsg(e.message, false); }
+        var file = inp.files[0];
+        var docType = inp.getAttribute("data-type") || "";
+        var pick = inp.closest(".doc-pick");
+        var fd = new FormData();
+        fd.append("file", file);
+        fd.append("documentType", docType);
+        try {
+          if (pick) pick.classList.add("is-busy");
+          setMsg("Uploading " + (file.name || "file") + "… Document bot will check this file.", true);
+          var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+          var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 120000) : null;
+          await api("/documents", { method: "POST", body: fd, signal: ctrl ? ctrl.signal : undefined });
+          if (timer) clearTimeout(timer);
+          inp.value = "";
+          await reload();
+          setMsg("Uploaded. Bot is checking the document.", true);
+        } catch (e) {
+          var msg = (e && e.name === "AbortError")
+            ? "Upload timed out. Try a smaller PDF (under 15 MB) or a photo of the W-9."
+            : (e && e.message) || "Upload failed";
+          setMsg(msg, false);
+          inp.value = "";
+        } finally {
+          if (pick) pick.classList.remove("is-busy");
+        }
       });
     });
-    document.getElementById("btn-save-docs")?.addEventListener("click", reload);
     document.getElementById("btn-submit")?.addEventListener("click", async function () {
       try {
         var data = await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body:"{}" });

@@ -17,7 +17,11 @@ import {
     canManageUserRoles,
     isKnownRole,
 } from "../auth/roles.js";
-import { assertValidTeamLeadId, transferTeamLeadership } from "../auth/team-scope.js";
+import {
+    assertValidTeamLeadId,
+    clearTeamLeadership,
+    transferTeamLeadership,
+} from "../auth/team-scope.js";
 
 export class UsersService {
     listAssignableRoles(actorRole: string) {
@@ -48,6 +52,7 @@ export class UsersService {
                 lastName: u.lastName,
                 email: u.email,
                 role: u.role.roleName,
+                accountingSubRole: u.accountingSubRole || null,
                 isActive: u.isActive,
                 lastLogin: u.lastLogin,
                 createdAt: u.createdAt,
@@ -138,6 +143,7 @@ export class UsersService {
         options?: {
             transferTeamToUserId?: string | null;
             takeOverFromUserId?: string | null;
+            accountingSubRole?: string | null;
         }
     ) {
         if (!roleName || !isKnownRole(roleName)) {
@@ -195,22 +201,22 @@ export class UsersService {
                 );
                 if (brokerCount > 0) {
                     const target = String(options?.transferTeamToUserId || "").trim();
-                    if (!target) {
-                        return {
-                            ok: false as const,
-                            status: 422,
-                            message: `This Team Lead still has ${brokerCount} broker(s). Choose who takes the team (transferTeamToUserId) before changing the role.`,
-                        };
+                    if (target) {
+                        if (target === userId) {
+                            return {
+                                ok: false as const,
+                                status: 422,
+                                message: "Cannot transfer the team to the same person",
+                            };
+                        }
+                        const moved = await transferTeamLeadership(userId, target);
+                        transferNote = ` Moved ${moved.brokersMoved} broker(s) and ${moved.notificationsMoved} notification(s) to the new Team Lead.`;
+                    } else {
+                        // Owner may leave the Team Lead seat vacant — brokers stay
+                        // unassigned until a new TL is appointed later.
+                        const cleared = await clearTeamLeadership(userId);
+                        transferNote = ` Left Team Lead vacant — unassigned ${cleared.brokersUnassigned} broker(s). Assign a new Team Lead when ready.`;
                     }
-                    if (target === userId) {
-                        return {
-                            ok: false as const,
-                            status: 422,
-                            message: "Cannot transfer the team to the same person",
-                        };
-                    }
-                    const moved = await transferTeamLeadership(userId, target);
-                    transferNote = ` Moved ${moved.brokersMoved} broker(s) and ${moved.notificationsMoved} notification(s) to the new Team Lead.`;
                 }
             }
 
@@ -227,17 +233,71 @@ export class UsersService {
                 })
             );
 
+            const {
+                AccountingSubRoles,
+                isAccountingTeam,
+                normalizeAccountingSubRole,
+            } = await import("../auth/accounting.js");
+            const accountingSubRole = isAccountingTeam(roleName)
+                ? normalizeAccountingSubRole(
+                      options?.accountingSubRole,
+                      AccountingSubRoles.Documents
+                  )
+                : null;
+
+            const prevAccountingSubRole = user.accountingSubRole || null;
             const updated = await withDbRetry("updateUserRole", () =>
                 prisma.user.update({
                     where: { userId },
                     data: {
                         roleId: role.roleId,
+                        accountingSubRole,
                         // Non-brokers do not report to a Team Lead.
                         ...(roleName !== Roles.Broker ? { teamLeadId: null } : {}),
                     },
                     include: { role: true },
                 })
             );
+
+            try {
+                const roleChanged = user.role.roleName !== updated.role.roleName;
+                const subChanged = String(prevAccountingSubRole || "") !== String(accountingSubRole || "");
+                if (
+                    roleChanged ||
+                    subChanged ||
+                    updated.role.roleName === Roles.Accounting ||
+                    user.role.roleName === Roles.Accounting
+                ) {
+                    await prisma.auditLog.create({
+                        data: {
+                            userId: actor.userId,
+                            module: "ACCOUNTING",
+                            action:
+                                updated.role.roleName === Roles.Accounting &&
+                                user.role.roleName !== Roles.Accounting
+                                    ? "EMPLOYEE_ASSIGNED_ACCOUNTING"
+                                    : user.role.roleName === Roles.Accounting &&
+                                        updated.role.roleName !== Roles.Accounting
+                                      ? "EMPLOYEE_REMOVED_ACCOUNTING"
+                                      : "ACCOUNTING_ROLE_CHANGED",
+                            entityName: "User",
+                            entityId: updated.userId,
+                            oldValue: JSON.stringify({
+                                role: user.role.roleName,
+                                accountingSubRole: prevAccountingSubRole,
+                            }),
+                            newValue: JSON.stringify({
+                                role: updated.role.roleName,
+                                accountingSubRole,
+                            }),
+                            ipAddress: null,
+                            userAgent: null,
+                        },
+                    });
+                }
+            } catch (auditErr) {
+                console.warn("[users] accounting role audit failed:", auditErr);
+            }
 
             // Optional: promote to Team Lead and take over another TL's team in one step.
             if (
@@ -287,8 +347,11 @@ export class UsersService {
                     lastName: updated.lastName,
                     email: updated.email,
                     role: updated.role.roleName,
+                    accountingSubRole: updated.accountingSubRole || null,
                     isActive: updated.isActive,
-                    message: `Role updated: ${user.role.roleName} → ${updated.role.roleName}. User must sign in again for the new access to apply.${transferNote}${attendanceNote}`,
+                    message: `Role updated: ${user.role.roleName} → ${updated.role.roleName}${
+                        accountingSubRole ? ` (${accountingSubRole})` : ""
+                    }. User must sign in again for the new access to apply.${transferNote}${attendanceNote}`,
                 },
             };
         } catch (err) {

@@ -2,7 +2,10 @@ import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { getInOfficeEmployeeIds } from "../../../services/attendance-presence.service.js";
 import { ACTIVE_STATUSES } from "../crm.constants.js";
-import { AUTO_PIPELINE_STATUSES } from "../../shipment/shipment.constants.js";
+import {
+    AUTO_PIPELINE_STATUSES,
+    compareShipmentsForBoard,
+} from "../../shipment/shipment.constants.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { ensureGreenOsShipmentId } from "../../shipment/shipment.id.js";
@@ -98,9 +101,7 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
         opsDeliveryAt: lead.opsDeliveryAt || null,
         ushipUrl: ushipListingUrlFromLead(lead),
         brokerReplyDeadline: lead.brokerReplyDeadline || null,
-        customerReplied:
-            String(lead.status || "") === "CUSTOMER_REPLIED" ||
-            Boolean(lead.brokerReplyDeadline),
+        customerReplied: String(lead.status || "") === "CUSTOMER_REPLIED",
     };
 }
 
@@ -381,8 +382,8 @@ export class CrmService {
         teamLeadId?: string;
         /** Broker My Shipments — slim payload, no heavy blobs. */
         lite?: boolean;
-        /** new | other — filter by first-time vs passed-from-another-broker assignment. */
-        assignmentKind?: "new" | "other";
+        /** new | other | accepted — board tabs for first-time / passed / broker-accepted. */
+        assignmentKind?: "new" | "other" | "accepted";
         /** Include terminal deleted rows (default: hide — they are purged from CRM). */
         includeDeleted?: boolean;
     }) {
@@ -417,13 +418,22 @@ export class CrmService {
             where.status = { not: "DELETED_FROM_CUSTOMER" };
         }
 
+        /** Waiting for broker Accept — stay in New / Other. */
+        const waitingStatuses = [
+            "NEW",
+            "UNASSIGNED",
+            "ASSIGNED",
+            "AWAITING_ACCEPTANCE",
+            "AGENT_OPEN",
+        ];
+        const excludeTerminal = ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"];
+
         if (options?.assignmentKind === "new") {
             where.isReassignment = false;
             where.wasEverReassigned = false;
-            // Accepted-another lives in its own Shipments subsection.
             where.AND = [
                 ...(Array.isArray(where.AND) ? where.AND : []),
-                { status: { notIn: ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"] } },
+                { status: { in: waitingStatuses } },
             ];
             delete where.status;
         } else if (options?.assignmentKind === "other") {
@@ -433,7 +443,14 @@ export class CrmService {
             where.AND = [
                 ...(Array.isArray(where.AND) ? where.AND : []),
                 passed,
-                { status: { notIn: ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"] } },
+                { status: { in: waitingStatuses } },
+            ];
+            delete where.status;
+        } else if (options?.assignmentKind === "accepted") {
+            // Broker accepted (Shipment Accepted) or progressed further — leave New/Other.
+            where.AND = [
+                ...(Array.isArray(where.AND) ? where.AND : []),
+                { status: { notIn: [...waitingStatuses, ...excludeTerminal] } },
             ];
             delete where.status;
         }
@@ -444,20 +461,38 @@ export class CrmService {
         const page = Math.max(1, Number(options?.page) || 1);
         const skip = (page - 1) * pageSize;
 
-        const [total, rows] = await Promise.all([
-            prisma.shipmentLead.count({ where }),
-            prisma.shipmentLead.findMany({
+        // Broker My Shipments: priority board order must apply across pages
+        // (Waiting → BROKER REPLY / Bid Submitted → Shipment Accepted), not only
+        // within the current page after a client-side re-sort.
+        const priorityBoard = Boolean(options?.brokerId || lite || options?.assignmentKind);
+        let total: number;
+        let rows: Array<Record<string, unknown>>;
+        if (priorityBoard) {
+            const all = await prisma.shipmentLead.findMany({
                 where,
-                orderBy: { updatedAt: "desc" },
-                skip,
-                take: pageSize,
                 select: SHIPMENT_LIST_SELECT,
-            }),
-        ]);
-        const brokers = await userMap(rows.map((r) => r.assignedBrokerId || ""));
+            });
+            all.sort(compareShipmentsForBoard);
+            total = all.length;
+            rows = all.slice(skip, skip + pageSize) as Array<Record<string, unknown>>;
+        } else {
+            const [count, pageRows] = await Promise.all([
+                prisma.shipmentLead.count({ where }),
+                prisma.shipmentLead.findMany({
+                    where,
+                    orderBy: { updatedAt: "desc" },
+                    skip,
+                    take: pageSize,
+                    select: SHIPMENT_LIST_SELECT,
+                }),
+            ]);
+            total = count;
+            rows = pageRows as Array<Record<string, unknown>>;
+        }
+        const brokers = await userMap(rows.map((r) => (r.assignedBrokerId as string) || ""));
         const items = lite
-            ? rows.map((r) => toBrokerListRow(r as unknown as Record<string, unknown>, brokers))
-            : rows.map((r) => enrichLead(r as unknown as Record<string, unknown>, brokers));
+            ? rows.map((r) => toBrokerListRow(r, brokers))
+            : rows.map((r) => enrichLead(r, brokers));
         return {
             items,
             total,
@@ -751,7 +786,11 @@ export class CrmService {
         const brokers = await prisma.user.findMany({
             where: {
                 isActive: true,
-                role: { roleName: { in: ["Broker", "Manager", "Owner"] } },
+                role: {
+                    roleName: {
+                        in: ["Broker", "Team Lead", "Manager", "Accounting", "Owner"],
+                    },
+                },
                 ...(options?.teamLeadId ? { teamLeadId: options.teamLeadId } : {}),
             },
             select: {
@@ -760,6 +799,7 @@ export class CrmService {
                 role: { select: { roleName: true } },
             },
         });
+        // Prefer Brokers for presence stats; fall back to other assignment-eligible roles.
         const brokerOnly = brokers.filter((b) => b.role.roleName === "Broker");
         const pool = brokerOnly.length ? brokerOnly : brokers;
         const poolIds = pool.map((b) => b.userId);
@@ -812,7 +852,11 @@ export class CrmService {
         const brokers = await prisma.user.findMany({
             where: {
                 isActive: true,
-                role: { roleName: { in: ["Broker", "Manager", "Owner"] } },
+                role: {
+                    roleName: {
+                        in: ["Broker", "Team Lead", "Manager", "Accounting", "Owner"],
+                    },
+                },
                 ...(options?.teamLeadId ? { teamLeadId: options.teamLeadId } : {}),
             },
             include: {

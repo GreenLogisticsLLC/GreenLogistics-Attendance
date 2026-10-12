@@ -93,8 +93,8 @@ export async function periodReportPdfController(req: Request, res: Response) {
         doc.text(row.workDate, colX[0], y, { width: 52 });
         doc.text(`${row.employeeName}\n${row.employeeNumber}`, colX[1], y, { width: 75 });
         doc.text(row.department || "—", colX[2], y, { width: 52 });
-        doc.text(row.firstEntry?.split(",")[1]?.trim() || row.firstEntry || "—", colX[3], y, { width: 58 });
-        doc.text(row.lastExit?.split(",")[1]?.trim() || row.lastExit || "—", colX[4], y, { width: 58 });
+        doc.text(row.firstEntry || "—", colX[3], y, { width: 58 });
+        doc.text(row.lastExit || "—", colX[4], y, { width: 58 });
         doc.text(formatMinutes(row.timeInOfficeMinutes), colX[5], y, { width: 55 });
         doc.text(formatMinutes(row.totalOutsideMinutes), colX[6], y, { width: 55 });
         doc.text(formatMinutes(row.overtimeInOfficeMinutes), colX[7], y, { width: 60 });

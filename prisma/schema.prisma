@@ -30,6 +30,11 @@ model User {
   employeeId             String?                @unique @map("employee_id")
   /** Broker → Team Lead (e.g. all brokers report to Gary Michael). */
   teamLeadId             String?                @map("team_lead_id")
+  /**
+   * Accounting Team sub-role — only when role = Accounting.
+   * DOCUMENTS | PAYMENTS. Null for all other roles.
+   */
+  accountingSubRole      String?                @map("accounting_sub_role")
   lastLogin              DateTime?              @map("last_login")
   createdAt              DateTime               @default(now()) @map("created_at")
   updatedAt              DateTime               @updatedAt @map("updated_at")
@@ -46,8 +51,11 @@ model User {
   aiRuns                 AiRun[]
   aiDocumentJobs         AiDocumentJob[]
   aiActions              AiAction[]
+  aiAgentThreads         AiAgentThread[]
+  aiAgentFolders         AiAgentFolder[]
 
   @@index([teamLeadId])
+  @@index([accountingSubRole])
   @@map("users")
 }
 
@@ -346,6 +354,15 @@ model ShipmentLead {
   /// Accounting confirms carrier / factoring company was paid.
   carrierPaidAt         DateTime?               @map("carrier_paid_at")
   carrierPaidById       String?                 @map("carrier_paid_by_id")
+  /// Accounting Documents workflow — PENDING | NEEDS_CORRECTION | VERIFIED | REJECTED
+  accountingDocStatus   String?                 @map("accounting_doc_status")
+  accountingDocVerifiedAt DateTime?             @map("accounting_doc_verified_at")
+  accountingDocVerifiedById String?            @map("accounting_doc_verified_by_id")
+  accountingFinancialVerified Boolean          @default(false) @map("accounting_financial_verified")
+  accountingReadyForBilling Boolean            @default(false) @map("accounting_ready_for_billing")
+  accountingReadyForCarrierPayment Boolean     @default(false) @map("accounting_ready_for_carrier_payment")
+  accountingNotes          String?                 @map("accounting_notes")
+  accountingClosedAt       DateTime?               @map("accounting_closed_at")
   /// Thank-you / review link emails sent by the broker before Close Load.
   reviewCustomerSentAt  DateTime?               @map("review_customer_sent_at")
   reviewCustomerSentTo  String?                 @map("review_customer_sent_to")
@@ -1015,6 +1032,40 @@ model AiRun {
   @@index([createdAt])
   @@index([status])
   @@map("ai_runs")
+}
+
+/// Folders for grouping GREEN agent chats.
+model AiAgentFolder {
+  folderId  String          @id @default(uuid()) @map("folder_id")
+  userId    String          @map("user_id")
+  name      String
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+  user      User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  threads   AiAgentThread[]
+
+  @@index([userId, updatedAt])
+  @@map("ai_agent_folders")
+}
+
+/// Saved GREEN agent chat threads (ChatGPT-style sidebar history).
+model AiAgentThread {
+  threadId   String   @id @default(uuid()) @map("thread_id")
+  userId     String   @map("user_id")
+  folderId   String?  @map("folder_id")
+  title      String   @default("New chat")
+  pinned     Boolean  @default(false)
+  /// JSON array: [{ role: "user"|"assistant", content: string, at?: string }]
+  messagesJson String @default("[]") @map("messages_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  user       User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  folder     AiAgentFolder? @relation(fields: [folderId], references: [folderId], onDelete: SetNull)
+
+  @@index([userId, updatedAt])
+  @@index([userId, pinned])
+  @@index([folderId])
+  @@map("ai_agent_threads")
 }
 
 /// Phase 2B — Document AI processing job (async; non-blocking HTTP).

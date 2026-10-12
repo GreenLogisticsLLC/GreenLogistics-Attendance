@@ -35,20 +35,16 @@ export class AiAssistantService {
                 {
                     role: "system",
                     content:
-                        "You are GreenOS AI Assistant for Green Logistics. Be concise. " +
+                        "You are GREEN, the GreenOS AI Agent for Green Logistics brokers. Be concise. " +
                         "Never invent confidential customer or financial data. " +
-                        'Prefix: "[General AI answer — not GreenOS data] "',
+                        "Do not prefix replies with labels like [General AI answer].",
                 },
                 ...history,
                 { role: "user", content: message.slice(0, 8000) },
             ],
             temperature: 0.4,
         });
-        let reply = llm.reply;
-        if (!reply.startsWith("[General AI answer")) {
-            reply = `[General AI answer — not GreenOS data] ${reply}`;
-        }
-        return { reply, model: llm.model };
+        return { reply: llm.reply, model: llm.model };
     }
 }
 

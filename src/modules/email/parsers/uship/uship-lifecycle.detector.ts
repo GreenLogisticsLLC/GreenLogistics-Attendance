@@ -38,6 +38,57 @@ function haystack(subject: string, body: string): string {
     return `${subject}\n${body}`.toLowerCase();
 }
 
+/** New listing / Instant Alert subjects — never treat as quote/bid confirmation. */
+export function isNewListingAlertSubject(subject: string): boolean {
+    const s = String(subject || "").toLowerCase();
+    if (/quote\s+confirmation|bid\s+confirmation|bid\s+submitted|quote\s+submitted/.test(s)) {
+        return false;
+    }
+    return (
+        /\binstant\s+alert\b/.test(s) ||
+        /\bmatches\s+your\b.{0,40}\bsaved\s+search\b/.test(s) ||
+        /^new\s+shipment\b/.test(s.trim())
+    );
+}
+
+/**
+ * True only for real quote/bid confirmation language.
+ * Rejects instructional / CTA copy common in Instant Alerts
+ * ("once you have submitted a quote", "have you submitted a quote yet").
+ */
+export function isQuoteOrBidConfirmation(subjectH: string, hay: string): boolean {
+    if (/quote\s+confirmation|bid\s+confirmation|bid\s+submitted|quote\s+submitted/.test(subjectH)) {
+        return true;
+    }
+    if (
+        /quote\s+confirmation|bid\s+confirmation|confirmation\s+of\s+your\s+(?:quote|bid)/.test(hay)
+    ) {
+        return true;
+    }
+    if (
+        /we\s+received\s+your\s+(?:quote|bid)|(?:quote|bid)\s+was\s+submitted|successfully\s+(?:submitted|posted)\s+(?:your\s+)?(?:quote|bid)/.test(
+            hay
+        )
+    ) {
+        return true;
+    }
+    // Past-tense confirmation only — block "once/when/after/before/if/have you … submitted".
+    const instructional =
+        /(?:once|when|after|before|if|unless|until|should)\s+you\s+(?:have\s+)?(?:submitted|placed|posted)\s+a\s+(?:quote|bid)|have\s+you\s+(?:submitted|placed|posted)\s+a\s+(?:quote|bid)|submit\s+(?:a\s+)?(?:quote|bid)\s+now|place\s+(?:a\s+)?(?:quote|bid)\s+now/.test(
+            hay
+        );
+    if (instructional) return false;
+    if (
+        /your\s+(?:quote|bid)\s+has\s+been\s+(?:submitted|received|confirmed|posted|placed)/.test(hay)
+    ) {
+        return true;
+    }
+    if (/you\s+(?:have\s+)?(?:submitted|placed|posted)\s+a\s+(?:quote|bid)/.test(hay)) {
+        return true;
+    }
+    return false;
+}
+
 function extractLoadNumber(text: string): string | undefined {
     const patterns = [
         /load\s*(?:number|#|no\.?)[:\s#-]*([A-Z0-9-]{3,})/i,
@@ -134,6 +185,17 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
+    // Instant Alert / new listing — NEVER Customer Replied / Bid Submitted.
+    // Must run before "new message" / Q&A patterns (Alert bodies often say "new message").
+    const subjectH = String(subject || "").toLowerCase();
+    if (isNewListingAlertSubject(subjectH)) {
+        return {
+            kind: "UNKNOWN",
+            title: "uShip Instant Alert",
+            domainEventType: "STATUS_CHANGED",
+        };
+    }
+
     // Customer reply/question BEFORE quote-confirmation — uShip footers often mention "your quote".
     if (
         /customer\s+question|asked\s+a\s+question|new\s+question|question\s+from\s+(?:the\s+)?customer|you\s+have\s+a\s+new\s+question/.test(
@@ -162,7 +224,12 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    if (/new\s+message|message\s+from\s+customer|message\s+from\s+(?:the\s+)?shipper/.test(h)) {
+    // Require customer/shipper context — bare "new message" matches Instant Alert footers.
+    if (
+        /message\s+from\s+(?:the\s+)?customer|message\s+from\s+(?:the\s+)?shipper|customer\s+(?:sent\s+)?(?:you\s+)?(?:a\s+)?message|shipper\s+(?:sent\s+)?(?:you\s+)?(?:a\s+)?message/.test(
+            h
+        )
+    ) {
         return {
             kind: "CUSTOMER_RESPOND",
             title: "Customer Respond",
@@ -180,14 +247,9 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    const subjectH = String(subject || "").toLowerCase();
-    // uShip "Quote Confirmation" / "Bid Submitted" — prefer the subject so body footers do not steal it.
-    if (
-        /quote\s+confirmation|bid\s+confirmation|bid\s+submitted|quote\s+submitted/.test(subjectH) ||
-        /quote\s+confirmation|confirmation\s+of\s+your\s+(?:quote|bid)|your\s+(?:quote|bid)\s+(?:has\s+been\s+)?(?:submitted|received|confirmed|posted|placed)|you\s+(?:have\s+)?(?:submitted|placed|posted)\s+a\s+(?:quote|bid)|successfully\s+(?:submitted|posted)\s+(?:your\s+)?(?:quote|bid)|we\s+received\s+your\s+(?:quote|bid)|(?:quote|bid)\s+was\s+submitted/.test(
-            h
-        )
-    ) {
+    // uShip "Quote Confirmation" / "Bid Submitted" — subject first; body only for
+    // clear past-tense confirmations (not "once you have submitted a quote" CTAs).
+    if (isQuoteOrBidConfirmation(subjectH, h)) {
         return {
             kind: /quote/.test(h) ? "QUOTE_SUBMITTED" : "BID_SUBMITTED",
             title: /quote/.test(h) ? "Quote Submitted" : "Bid Submitted",
@@ -263,12 +325,68 @@ export async function applyUshipLifecycleEvent(input: {
         };
     }
 
+    // Never promote Bid Submitted from Instant Alert / new-listing subjects.
+    if (
+        (detected.kind === "BID_SUBMITTED" ||
+            detected.kind === "QUOTE_SUBMITTED" ||
+            detected.kind === "BID_UPDATED") &&
+        isNewListingAlertSubject(input.subject)
+    ) {
+        return {
+            applied: false as const,
+            detected,
+            reason: "Instant Alert / new listing email cannot set Bid Submitted",
+        };
+    }
+
     const customerReplyKinds = new Set<UshipLifecycleKind>([
         "CUSTOMER_RESPOND",
         "CUSTOMER_QUESTION",
         "CUSTOMER_REPLIED",
         "NEW_MESSAGE",
     ]);
+
+    // Old emails rematched by soft title ("1 Pallet") must not stamp Bid Submitted
+    // or Customer Replied onto a newer Instant Alert card.
+    const ageSensitiveKinds = new Set<UshipLifecycleKind>([
+        "BID_SUBMITTED",
+        "QUOTE_SUBMITTED",
+        "BID_UPDATED",
+        "CUSTOMER_RESPOND",
+        "CUSTOMER_QUESTION",
+        "CUSTOMER_REPLIED",
+        "NEW_MESSAGE",
+    ]);
+    if (ageSensitiveKinds.has(detected.kind)) {
+        let mailReceivedAt: Date | null = null;
+        if (input.gmailMessageId) {
+            const mail = await prisma.brokerMailboxMessage.findFirst({
+                where: { gmailMessageId: input.gmailMessageId },
+                select: { receivedAt: true },
+            });
+            mailReceivedAt = mail?.receivedAt || null;
+            if (!mailReceivedAt) {
+                const companyMail = await prisma.emailMessage.findFirst({
+                    where: { gmailMessageId: input.gmailMessageId },
+                    select: { receivedAt: true },
+                });
+                mailReceivedAt = companyMail?.receivedAt || null;
+            }
+        }
+        if (mailReceivedAt && shipment.createdAt) {
+            // Allow small clock skew; reject mail clearly older than the card.
+            const skewMs = 2 * 60_000;
+            if (mailReceivedAt.getTime() + skewMs < shipment.createdAt.getTime()) {
+                return {
+                    applied: false as const,
+                    detected,
+                    reason: customerReplyKinds.has(detected.kind)
+                        ? "Customer reply email is older than this shipment card"
+                        : "Quote/bid confirmation email is older than this shipment card",
+                };
+            }
+        }
+    }
 
     // Idempotency: never re-apply the same Gmail message as Customer Respond.
     // Rematch used to re-emit CUSTOMER_RESPOND with a fresh timestamp after the

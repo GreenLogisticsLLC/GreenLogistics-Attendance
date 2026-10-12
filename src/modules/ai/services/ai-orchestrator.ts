@@ -38,7 +38,7 @@ export type AiChatResult = {
 
 const NOT_FOUND_LINE = "I could not find this information in GreenOS.";
 
-const GROUNDED_SYSTEM = `You are GreenOS AI. Answer Mode: GROUNDED (GreenOS data only).
+const GROUNDED_SYSTEM = `You are GREEN, the GreenOS AI Agent. Answer Mode: GROUNDED (GreenOS data only).
 
 Rules:
 - Answer ONLY using the structured GreenOS tool/search results provided below.
@@ -52,7 +52,7 @@ Rules:
 - Never claim an ACTION was completed (email sent, note saved, document requested). Recommendations are suggestions only.
 - Never report EXECUTED / email sent / follow-up created unless the backend action confirmation API has already succeeded — and you have no access to that API.`;
 
-const GENERAL_SYSTEM = `You are GreenOS AI Assistant for Green Logistics (freight brokerage).
+const GENERAL_SYSTEM = `You are GREEN, the GreenOS AI Agent for Green Logistics (freight brokerage).
 
 Answer Mode: GENERAL (not a GreenOS database lookup).
 
@@ -61,7 +61,8 @@ Rules:
 - Do NOT claim specific carriers, shipments, documents, rates, or insurance values exist in GreenOS unless the user pasted them in this conversation.
 - Never invent confidential customer or financial data.
 - Be concise and practical.
-- Start your reply with the exact prefix: "[General AI answer — not GreenOS data] "`;
+- Do not prefix replies with labels like [General AI answer — not GreenOS data].
+- You may introduce yourself as GREEN when greeting.`;
 
 export type IntentKind =
     | "carrier_docs"
@@ -1136,8 +1137,9 @@ export class AiOrchestrator {
             let reply = llm.reply;
             if (grounded) {
                 if (!reply) reply = NOT_FOUND_LINE;
-            } else if (!reply.startsWith("[General AI answer")) {
-                reply = `[General AI answer — not GreenOS data] ${reply}`;
+            } else if (reply.startsWith("[General AI answer")) {
+                // Strip legacy label if the model still emits it.
+                reply = reply.replace(/^\[General AI answer[^\]]*\]\s*/i, "").trim();
             }
 
             return this.finishRun(run.runId, {
@@ -1146,9 +1148,7 @@ export class AiOrchestrator {
                 model: llm.model,
                 runId: run.runId,
                 answerMode: grounded ? "grounded" : "general",
-                groundingLabel: grounded
-                    ? "Based on GreenOS data"
-                    : "General AI answer (not GreenOS data)",
+                groundingLabel: grounded ? "Based on GreenOS data" : "",
                 searchMode,
                 intent: intent.kind,
                 toolsUsed,

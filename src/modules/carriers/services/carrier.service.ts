@@ -18,12 +18,15 @@ import {
     computeCarrierSuperseded,
     isSameCarrierIdentity,
     normMc,
+    normName,
 } from "../carrier-superseded.js";
 import { carrierEmailService } from "./carrier-email.service.js";
 import { carrierStorageService } from "./carrier-storage.service.js";
 import { storeCarrierAgreementPdf } from "./carrier-agreement-pdf.service.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
+import { loadDocumentsService } from "../../shipment/services/load-documents.service.js";
 import { normalizeStatus } from "../../shipment/shipment.lifecycle.js";
+import { canDeleteCarrierDocuments } from "../../../auth/roles.js";
 
 type Actor = { userId?: string; role?: string; ip?: string; userAgent?: string };
 
@@ -62,6 +65,20 @@ function money(n: number | null | undefined): string {
 
 function place(city?: string | null, state?: string | null, zip?: string | null): string {
     return [city, state, zip].filter(Boolean).join(", ") || "—";
+}
+
+/** Normalize portal upload types (W-9 → W9, Certificate of Insurance → COI, etc.). */
+function normalizePortalDocType(raw: string): string {
+    const t = String(raw || "")
+        .trim()
+        .toUpperCase()
+        .replace(/[\s\-]+/g, "_");
+    if (t === "W_9" || t === "W9" || t === "FORM_W9" || t === "FORM_W_9") return "W9";
+    if (t === "COI" || t === "CERTIFICATE_OF_INSURANCE" || t === "CERTIFICATE_OF_HOLDER") {
+        return "INSURANCE";
+    }
+    if (t === "MC" || t === "AUTHORITY" || t === "MC_AUTHORITY_LETTER") return "MC_AUTHORITY";
+    return t;
 }
 
 export class CarrierService {
@@ -181,6 +198,94 @@ export class CarrierService {
     }
 
     /**
+     * Company-wide carrier lookup for Assign Carrier autofill (name / MC / DOT).
+     * Read-only match — does not bypass document access on the carrier profile page.
+     */
+    async lookupForAutofill(actor: Actor, query: { q?: string; mc?: string; limit?: number }) {
+        void actor;
+        const raw = String(query.q || query.mc || "").trim();
+        if (raw.length < 2) return [];
+
+        const mcNorm = normMc(raw);
+        const limit = Math.min(Math.max(Number(query.limit) || 12, 1), 25);
+        const or: Record<string, unknown>[] = [
+            { legalName: { contains: raw } },
+            { dbaName: { contains: raw } },
+            { email: { contains: raw } },
+            { mcNumber: { contains: raw } },
+            { dotNumber: { contains: raw } },
+            { contactName: { contains: raw } },
+        ];
+        if (mcNorm && mcNorm !== raw.toUpperCase().replace(/\s+/g, "")) {
+            or.push({ mcNumber: { contains: mcNorm } });
+            or.push({ mcNumber: { contains: `MC${mcNorm}` } });
+        }
+
+        const rows = await prisma.carrier.findMany({
+            where: { OR: or },
+            orderBy: { updatedAt: "desc" },
+            take: 80,
+            select: {
+                carrierId: true,
+                legalName: true,
+                dbaName: true,
+                email: true,
+                phone: true,
+                mcNumber: true,
+                dotNumber: true,
+                contactName: true,
+                status: true,
+                onboardingStatus: true,
+                notes: true,
+                equipmentNotes: true,
+                paymentOption: true,
+                city: true,
+                state: true,
+                updatedAt: true,
+            },
+        });
+
+        const scored = rows
+            .map((row) => {
+                const rowMc = normMc(row.mcNumber);
+                let score = 10;
+                if (mcNorm && rowMc && rowMc === mcNorm) score = 100;
+                else if (mcNorm && rowMc && rowMc.includes(mcNorm)) score = 80;
+                else if (normName(row.legalName) === normName(raw)) score = 90;
+                else if (normName(row.legalName).includes(normName(raw))) score = 60;
+                else if (normName(row.dbaName || "").includes(normName(raw))) score = 55;
+                return { row, score };
+            })
+            .sort((a, b) => b.score - a.score || b.row.updatedAt.getTime() - a.row.updatedAt.getTime())
+            .slice(0, limit);
+
+        return scored.map(({ row, score }) => ({
+            carrierId: row.carrierId,
+            legalName: row.legalName,
+            dbaName: row.dbaName,
+            email: row.email,
+            phone: row.phone,
+            mcNumber: row.mcNumber,
+            dotNumber: row.dotNumber,
+            contactName: row.contactName,
+            status: row.status,
+            onboardingStatus: row.onboardingStatus,
+            insuranceHint: row.equipmentNotes || row.notes || row.paymentOption || null,
+            city: row.city,
+            state: row.state,
+            score,
+            label: [
+                row.legalName,
+                row.mcNumber ? `MC ${row.mcNumber}` : null,
+                row.dotNumber ? `DOT ${row.dotNumber}` : null,
+                [row.city, row.state].filter(Boolean).join(", ") || null,
+            ]
+                .filter(Boolean)
+                .join(" · "),
+        }));
+    }
+
+    /**
      * Mark carriers that were registered for a load but replaced by a newer official
      * carrier (carrier change). Those names show red in the Carriers UI.
      */
@@ -280,7 +385,6 @@ export class CarrierService {
         }> = rows;
 
         if (mcValues.length && brokerIds.length) {
-            // Pull same-broker MC peers so older "carrier change" rows turn red even without sessions.
             const peers = await prisma.carrier.findMany({
                 where: {
                     assignedBrokerId: { in: brokerIds },
@@ -297,7 +401,6 @@ export class CarrierService {
             peerPool = peers.filter((p) => mcValues.includes(normMc(p.mcNumber)));
         }
 
-        // Also treat any carrier that is official on a load (even outside the page rows) as peers.
         const officialIdSet = new Set(
             [
                 ...officialLeads.map((l) => l.carrierProfileId),
@@ -305,7 +408,6 @@ export class CarrierService {
             ].filter((id): id is string => Boolean(id))
         );
 
-        // Expand official set with peers that are current profiles for any load (MC cohort).
         if (peerPool.length) {
             const peerIds = peerPool.map((p) => p.carrierId);
             const peerOfficial = await prisma.shipmentLead.findMany({
@@ -427,14 +529,9 @@ export class CarrierService {
         return {
             ...carrier,
             activeAgreementTemplate: template,
-            isSuperseded: Boolean(enriched && "isSuperseded" in enriched && enriched.isSuperseded),
-            isOfficialLoadCarrier: Boolean(
-                enriched && "isOfficialLoadCarrier" in enriched && enriched.isOfficialLoadCarrier
-            ),
-            supersededReason:
-                enriched && "supersededReason" in enriched
-                    ? (enriched.supersededReason as string | null)
-                    : null,
+            isSuperseded: Boolean(enriched?.isSuperseded),
+            isOfficialLoadCarrier: Boolean(enriched?.isOfficialLoadCarrier),
+            supersededReason: enriched?.supersededReason ?? null,
         };
     }
 
@@ -580,7 +677,7 @@ export class CarrierService {
                 ? await prisma.carrier.findUnique({ where: { carrierId: previousCarrierId } })
                 : null;
 
-        // Carrier change (different name/email/MC) → keep old profile, create a new official one.
+        // Carrier change → keep previous profile + its documents; create a new official profile.
         if (carrier && !isSameCarrierIdentity(carrier, desired)) {
             carrier = null;
         }
@@ -622,6 +719,7 @@ export class CarrierService {
                 userAgent: actor.userAgent,
             });
         } else {
+            // Same identity — never overwrite name/email/MC (keeps document ownership clean).
             carrier = await prisma.carrier.update({
                 where: { carrierId: carrier.carrierId },
                 data: {
@@ -656,7 +754,6 @@ export class CarrierService {
             });
         }
 
-        // Touch an event on the new carrier so list enrichment links them to this load.
         if (createdNew || profileChanged) {
             await this.emitEvent({
                 carrierId: carrier.carrierId,
@@ -696,9 +793,22 @@ export class CarrierService {
     }
 
     /**
-     * Step 2 — after BOL Save: email RC+BOL review link FROM broker Gmail.
+     * After RC or BOL generate: email the matching secure carrier link FROM broker Gmail.
+     * - rc_sign → Rate Confirmation only (carrier signs RC)
+     * - bol_pod → BOL / POD only (no Rate Confirmation)
      */
-    async inviteRcBolFromLoad(shipmentLeadId: string, actor: Actor) {
+    async inviteRcBolFromLoad(
+        shipmentLeadId: string,
+        actor: Actor & { kind?: "rc_sign" | "bol_pod" | "rc_bol" }
+    ) {
+        const kind = actor.kind || "bol_pod";
+        const purpose =
+            kind === "rc_sign"
+                ? ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                : kind === "rc_bol"
+                  ? ONBOARDING_PURPOSE.RC_BOL_PACKET
+                  : ONBOARDING_PURPOSE.BOL_POD_PACKET;
+
         const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!lead) throw Object.assign(new Error("Load not found"), { status: 404 });
         if (actor.role === "Broker" && lead.assignedBrokerId && lead.assignedBrokerId !== actor.userId) {
@@ -709,7 +819,7 @@ export class CarrierService {
             const legalName = String(lead.carrierName || "").trim();
             if (!legalName || !email) {
                 throw Object.assign(
-                    new Error("Carrier name and email are required on the load before RC/BOL link"),
+                    new Error("Carrier name and email are required on the load before the carrier link"),
                     { status: 400 }
                 );
             }
@@ -735,20 +845,33 @@ export class CarrierService {
         if (!refreshed?.carrierProfileId) {
             throw Object.assign(new Error("Carrier profile missing on load"), { status: 400 });
         }
-        const bol = await prisma.loadDocument.findFirst({
-            where: { shipmentLeadId, docType: "BOL", isCurrent: true },
-        });
-        if (!bol) {
-            throw Object.assign(new Error("Save BOL first, then the RC/BOL link can be sent"), {
-                status: 400,
+
+        if (purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET) {
+            const rc = await prisma.loadDocument.findFirst({
+                where: { shipmentLeadId, docType: "RATE_CONFIRMATION", isCurrent: true },
             });
+            if (!rc) {
+                throw Object.assign(new Error("Generate Rate Confirmation first, then the RC sign link can be sent"), {
+                    status: 400,
+                });
+            }
+        } else {
+            const bol = await prisma.loadDocument.findFirst({
+                where: { shipmentLeadId, docType: "BOL", isCurrent: true },
+            });
+            if (!bol) {
+                throw Object.assign(new Error("Save BOL first, then the BOL / POD link can be sent"), {
+                    status: 400,
+                });
+            }
         }
+
         const invite = await this.createSessionAndSendInvite(refreshed.carrierProfileId, {
             ...actor,
             shipmentLeadId,
-            purpose: ONBOARDING_PURPOSE.RC_BOL_PACKET,
+            purpose,
         });
-        return { invite, carrierId: refreshed.carrierProfileId };
+        return { invite, carrierId: refreshed.carrierProfileId, purpose };
     }
 
     async createSessionAndSendInvite(
@@ -817,26 +940,23 @@ export class CarrierService {
         let warning: string | undefined;
         let sentVia = "broker-gmail";
         try {
+            const invitePayload = {
+                brokerUserId: carrier.assignedBrokerId,
+                to: carrier.email,
+                contactName: carrier.contactName || "",
+                carrierLegalName: carrier.legalName,
+                onboardingUrl: url,
+                brokerName,
+                loadNumber,
+            };
             const mail =
-                purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                    ? await carrierEmailService.sendRcBolInvite({
-                          brokerUserId: carrier.assignedBrokerId,
-                          to: carrier.email,
-                          contactName: carrier.contactName || "",
-                          carrierLegalName: carrier.legalName,
-                          onboardingUrl: url,
-                          brokerName,
-                          loadNumber,
-                      })
-                    : await carrierEmailService.sendAgreementInvite({
-                          brokerUserId: carrier.assignedBrokerId,
-                          to: carrier.email,
-                          contactName: carrier.contactName || "",
-                          carrierLegalName: carrier.legalName,
-                          onboardingUrl: url,
-                          brokerName,
-                          loadNumber,
-                      });
+                purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                    ? await carrierEmailService.sendRcSignInvite(invitePayload)
+                    : purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET
+                      ? await carrierEmailService.sendBolPodInvite(invitePayload)
+                      : purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                        ? await carrierEmailService.sendRcBolInvite(invitePayload)
+                        : await carrierEmailService.sendAgreementInvite(invitePayload);
             sentVia = mail.via;
         } catch (err) {
             warning = err instanceof Error ? err.message : "Failed to send invite email";
@@ -852,7 +972,9 @@ export class CarrierService {
             data: {
                 onboardingStatus:
                     carrier.onboardingStatus === "REQUEST_CHANGES" ||
-                    purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                    purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+                    purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET ||
+                    purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET
                         ? carrier.onboardingStatus === "APPROVED"
                             ? "APPROVED"
                             : carrier.onboardingStatus === "SUBMITTED"
@@ -862,18 +984,28 @@ export class CarrierService {
             },
         });
 
+        const loadPacket =
+            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+            purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET ||
+            purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET;
         await this.emitEvent({
             carrierId,
             sessionId: session.sessionId,
             shipmentLeadId: session.shipmentLeadId,
-            action:
-                purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                    ? "RC_BOL_INVITATION_SENT"
-                    : "INVITATION_SENT",
-            title:
-                purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                    ? "RC/BOL invitation sent from broker Gmail"
-                    : "Agreement invitation sent from broker Gmail",
+            action: loadPacket
+                ? purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                    ? "RC_SIGN_INVITATION_SENT"
+                    : purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET
+                      ? "BOL_POD_INVITATION_SENT"
+                      : "RC_BOL_INVITATION_SENT"
+                : "INVITATION_SENT",
+            title: loadPacket
+                ? purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                    ? "RC sign invitation sent from broker Gmail"
+                    : purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET
+                      ? "BOL / POD invitation sent from broker Gmail"
+                      : "RC/BOL invitation sent from broker Gmail"
+                : "Agreement invitation sent from broker Gmail",
             message: `Emailed ${carrier.email} via ${sentVia}`,
             actorType: "BROKER",
             actorId: actor.userId,
@@ -1088,6 +1220,54 @@ export class CarrierService {
             where: { carrierId: session.carrierId, status: "CURRENT" },
             orderBy: { uploadedAt: "desc" },
         });
+        const docIds = documents.map((d) => d.documentId);
+        const aiJobs =
+            docIds.length === 0
+                ? []
+                : await prisma.aiDocumentJob.findMany({
+                      where: { documentId: { in: docIds }, documentSource: "CARRIER" },
+                      orderBy: { createdAt: "desc" },
+                      include: { validation: true },
+                  });
+        const safeJson = (raw: string | null | undefined) => {
+            if (!raw) return null;
+            try {
+                return JSON.parse(raw);
+            } catch {
+                return null;
+            }
+        };
+        const latestAiByDoc = new Map<
+            string,
+            {
+                jobId: string;
+                status: string;
+                trafficLight: string | null;
+                overallStatus: string | null;
+                requiresReview: boolean | null;
+                levels: unknown;
+                checks: unknown;
+                warnings: unknown;
+                errors: unknown;
+                classifiedDocType: string | null;
+            }
+        >();
+        for (const job of aiJobs) {
+            if (latestAiByDoc.has(job.documentId)) continue;
+            const v = job.validation;
+            latestAiByDoc.set(job.documentId, {
+                jobId: job.jobId,
+                status: job.status,
+                trafficLight: v?.trafficLight || null,
+                overallStatus: v?.overallStatus || null,
+                requiresReview: v?.requiresReview ?? null,
+                levels: safeJson(v?.levelsJson),
+                checks: safeJson(v?.checksJson),
+                warnings: safeJson(v?.warningsJson),
+                errors: safeJson(v?.errorsJson),
+                classifiedDocType: job.classifiedDocType,
+            });
+        }
         const agreement = await prisma.carrierAgreementSignature.findFirst({
             where: { carrierId: session.carrierId, sessionId: session.sessionId },
             orderBy: { signedAt: "desc" },
@@ -1150,7 +1330,11 @@ export class CarrierService {
         const purpose = session.purpose || ONBOARDING_PURPOSE.AGREEMENT_PACKET;
         let rateConDoc: Record<string, unknown> | null = null;
         let bolDoc: Record<string, unknown> | null = null;
-        if (purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET && session.shipmentLeadId) {
+        const isLoadPacket =
+            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+            purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET ||
+            purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET;
+        if (isLoadPacket && session.shipmentLeadId) {
             const [rcRow, bolRow] = await Promise.all([
                 prisma.loadDocument.findFirst({
                     where: {
@@ -1200,9 +1384,8 @@ export class CarrierService {
         const requireDocs = purpose === ONBOARDING_PURPOSE.AGREEMENT_PACKET;
         const requireAgreement = purpose === ONBOARDING_PURPOSE.AGREEMENT_PACKET;
         const requireRc =
-            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
-                ? true
-                : Boolean(session.shipmentLeadId) && purpose !== ONBOARDING_PURPOSE.AGREEMENT_PACKET;
+            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+            purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET;
 
         return {
             session: {
@@ -1211,7 +1394,8 @@ export class CarrierService {
                 shipmentLeadId: session.shipmentLeadId,
                 changeRequestNote: session.changeRequestNote,
                 purpose,
-                requireRc: purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET || Boolean(session.shipmentLeadId && purpose !== ONBOARDING_PURPOSE.AGREEMENT_PACKET),
+                requireRc,
+                requireBolPod: purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET,
                 requireAgreement,
                 requireDocs,
             },
@@ -1230,6 +1414,7 @@ export class CarrierService {
                 fileSize: d.fileSize,
                 version: d.version,
                 uploadedAt: d.uploadedAt,
+                ai: latestAiByDoc.get(d.documentId) || null,
             })),
             agreementSigned: Boolean(agreement),
             agreementSignature: agreement
@@ -1249,7 +1434,9 @@ export class CarrierService {
                 documents,
                 agreementSigned: Boolean(agreement),
                 rcSigned: Boolean(rc),
-                requireRc: purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET,
+                requireRc:
+                    purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+                    purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET,
                 requireAgreement,
                 requireDocs,
             }),
@@ -1268,6 +1455,7 @@ export class CarrierService {
             city: string | null;
             state: string | null;
             zip: string | null;
+            paymentOption?: string | null;
         };
         documents: Array<{ documentType: string; status: string }>;
         agreementSigned: boolean;
@@ -1278,17 +1466,17 @@ export class CarrierService {
     }) {
         const requireAgreement = input.requireAgreement !== false;
         const requireDocs = input.requireDocs !== false;
+        // Required fields match red indicators on the carrier portal Company step.
         const companyOk = Boolean(
             input.carrier.legalName &&
                 input.carrier.email &&
-                input.carrier.contactName &&
                 input.carrier.phone &&
-                input.carrier.mcNumber &&
                 input.carrier.dotNumber &&
                 input.carrier.address &&
                 input.carrier.city &&
                 input.carrier.state &&
-                input.carrier.zip
+                input.carrier.zip &&
+                input.carrier.paymentOption
         );
         const currentTypes = new Set(
             input.documents.filter((d) => d.status === "CURRENT").map((d) => d.documentType)
@@ -1300,6 +1488,7 @@ export class CarrierService {
         const missing: string[] = [];
         if (requireDocs || requireAgreement) {
             if (!companyOk) missing.push("Company Information");
+            if (!input.carrier.paymentOption) missing.push("Payment option");
         }
         if (requireAgreement && !input.agreementSigned) {
             missing.push("Carrier-Broker Agreement signature");
@@ -1309,8 +1498,9 @@ export class CarrierService {
             for (const d of docs) {
                 if (!d.ok) {
                     if (d.type === "MC_AUTHORITY") missing.push("MC Authority");
-                    else if (d.type === "NOA") missing.push("NOA");
                     else if (d.type === "W9") missing.push("W-9");
+                    else if (d.type === "INSURANCE") missing.push("Insurance");
+                    else if (d.type === "NOA") missing.push("NOA");
                 }
             }
         }
@@ -1357,13 +1547,76 @@ export class CarrierService {
             throw Object.assign(new Error("Valid email is required"), { status: 400 });
         }
 
+        const requireComplete =
+            body.requireComplete === true ||
+            body.requireComplete === "true" ||
+            body.requireComplete === 1;
+        if (requireComplete) {
+            const merged = {
+                legalName: (data.legalName as string | null | undefined) ?? session.carrier.legalName,
+                email: (data.email as string | null | undefined) ?? session.carrier.email,
+                phone: (data.phone as string | null | undefined) ?? session.carrier.phone,
+                dotNumber: (data.dotNumber as string | null | undefined) ?? session.carrier.dotNumber,
+                address: (data.address as string | null | undefined) ?? session.carrier.address,
+                city: (data.city as string | null | undefined) ?? session.carrier.city,
+                state: (data.state as string | null | undefined) ?? session.carrier.state,
+                zip: (data.zip as string | null | undefined) ?? session.carrier.zip,
+                paymentOption:
+                    (data.paymentOption as string | null | undefined) ??
+                    session.carrier.paymentOption,
+            };
+            const missingCompany: string[] = [];
+            if (!merged.legalName) missingCompany.push("Carrier Name");
+            if (!merged.email) missingCompany.push("Dispatch E-mail");
+            if (!merged.phone) missingCompany.push("Phone");
+            if (!merged.dotNumber) missingCompany.push("DOT#");
+            if (!merged.address) missingCompany.push("Address");
+            if (!merged.city) missingCompany.push("City");
+            if (!merged.state) missingCompany.push("State");
+            if (!merged.zip) missingCompany.push("ZIP");
+            if (!merged.paymentOption) missingCompany.push("Payment option");
+            if (missingCompany.length) {
+                throw Object.assign(
+                    new Error(`Please complete required fields:\n- ${missingCompany.join("\n- ")}`),
+                    { status: 400, missing: missingCompany }
+                );
+            }
+            const pay = String(merged.paymentOption || "").toUpperCase();
+            if (!["STANDARD", "QUICK_3", "QUICK_5", "FACTORING"].includes(pay)) {
+                throw Object.assign(new Error("Payment option is required"), { status: 400 });
+            }
+            data.paymentOption = pay;
+        }
+
         const progressJson =
             body.progress != null ? JSON.stringify(body.progress) : session.progressJson;
 
-        const carrier = await prisma.carrier.update({
-            where: { carrierId: session.carrierId },
-            data,
-        });
+        const carrier =
+            Object.keys(data).length > 0
+                ? await prisma.carrier.update({
+                      where: { carrierId: session.carrierId },
+                      data,
+                  })
+                : session.carrier;
+        // Sync mandatory packet fields onto linked loads so Rate Con can auto-fill DOT#.
+        if (data.dotNumber !== undefined || data.mcNumber !== undefined || data.phone !== undefined || data.email !== undefined) {
+            const leadPatch: {
+                carrierDot?: string | null;
+                carrierMc?: string | null;
+                carrierPhone?: string | null;
+                carrierEmail?: string | null;
+            } = {};
+            if (data.dotNumber !== undefined) leadPatch.carrierDot = (data.dotNumber as string | null) || null;
+            if (data.mcNumber !== undefined) leadPatch.carrierMc = (data.mcNumber as string | null) || null;
+            if (data.phone !== undefined) leadPatch.carrierPhone = (data.phone as string | null) || null;
+            if (data.email !== undefined) leadPatch.carrierEmail = (data.email as string | null) || null;
+            if (Object.keys(leadPatch).length) {
+                await prisma.shipmentLead.updateMany({
+                    where: { carrierProfileId: session.carrierId },
+                    data: leadPatch,
+                });
+            }
+        }
         await prisma.carrierOnboardingSession.update({
             where: { sessionId: session.sessionId },
             data: { progressJson: progressJson || null },
@@ -1436,6 +1689,28 @@ export class CarrierService {
                 message: err instanceof Error ? err.message : "PDF failed",
                 actorType: "SYSTEM",
             });
+        }
+
+        // Document AI bot — review signed Agreement PDF like other packet uploads.
+        if (pdfDocumentId) {
+            const botActorId =
+                session.carrier.assignedBrokerId || session.createdById || null;
+            if (botActorId) {
+                try {
+                    const { documentAiJobService } = await import(
+                        "../../ai/documents/job.service.js"
+                    );
+                    await documentAiJobService.enqueueCarrierUpload({
+                        documentId: pdfDocumentId,
+                        actorUserId: botActorId,
+                    });
+                } catch (err) {
+                    console.warn(
+                        `[doc-ai] agreement PDF enqueue failed for ${pdfDocumentId}`,
+                        err instanceof Error ? err.message : err
+                    );
+                }
+            }
         }
 
         await this.emitEvent({
@@ -1569,7 +1844,7 @@ export class CarrierService {
         if (!signature) {
             throw Object.assign(new Error("No agreement signature on file"), { status: 400 });
         }
-        const template = signature.template || (await this.ensureAgreementTemplate());
+        const template = await this.ensureAgreementTemplate();
         const pdfDocumentId = await this.archiveSignedAgreementPdf({
             carrierId,
             signature,
@@ -1587,6 +1862,54 @@ export class CarrierService {
             userAgent: actor.userAgent,
         });
         return { pdfDocumentId };
+    }
+
+    /**
+     * One-shot after deploy: rebuild signed agreement PDFs so broker + carrier
+     * signatures appear on the form (not only blank placeholder lines).
+     */
+    async regenerateAllSignedAgreementPdfsOnce(): Promise<number> {
+        const template = await this.ensureAgreementTemplate();
+        const allSignatures = await prisma.carrierAgreementSignature.findMany({
+            orderBy: { signedAt: "desc" },
+        });
+        const seen = new Set<string>();
+        const signatures = allSignatures.filter((s) => {
+            if (seen.has(s.carrierId)) return false;
+            seen.add(s.carrierId);
+            return true;
+        });
+        let done = 0;
+        for (const signature of signatures) {
+            const carrier = await prisma.carrier.findUnique({
+                where: { carrierId: signature.carrierId },
+            });
+            if (!carrier) continue;
+            if (!signature.signatureData || !String(signature.signatureData).startsWith("data:image")) {
+                console.warn(
+                    `[agreement-pdf] skip ${carrier.legalName}: no signature image data`
+                );
+                continue;
+            }
+            try {
+                await this.archiveSignedAgreementPdf({
+                    carrierId: carrier.carrierId,
+                    signature,
+                    template,
+                    carrier,
+                });
+                done += 1;
+            } catch (err) {
+                console.warn(
+                    `[agreement-pdf] regenerate failed for ${carrier.carrierId}:`,
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+        if (done) {
+            console.log(`[agreement-pdf] regenerated ${done} signed agreement PDF(s) with signatures`);
+        }
+        return done;
     }
 
     async publicSignRc(
@@ -1645,6 +1968,21 @@ export class CarrierService {
                 documentHash,
             },
         });
+        let stampedDocumentId: string | null = null;
+        try {
+            const stamped = await loadDocumentsService.stampCarrierSignatureOnRateCon({
+                shipmentLeadId: session.shipmentLeadId,
+                signerName,
+                signatureData,
+                signedAt: row.signedAt,
+            });
+            stampedDocumentId = stamped?.documentId || null;
+        } catch (err) {
+            console.warn(
+                `[rc-sign] failed to stamp load Rate Confirmation PDF for ${session.shipmentLeadId}:`,
+                err instanceof Error ? err.message : err
+            );
+        }
         const archived = await this.archiveSignedRcBolPdfs({
             carrierId: session.carrierId,
             shipmentLeadId: session.shipmentLeadId,
@@ -1661,7 +1999,7 @@ export class CarrierService {
             actorType: "CARRIER",
             ip: meta.ip,
             userAgent: meta.userAgent,
-            metadata: { documentHash, ...archived },
+            metadata: { documentHash, stampedDocumentId, ...archived },
         });
         const shipmentStatus = normalizeStatus(lead.status);
         if (["CARRIER_ASSIGNED", "RATE_CON_GENERATED"].includes(shipmentStatus)) {
@@ -1670,7 +2008,7 @@ export class CarrierService {
                 status: "CARRIER_ACCEPTED",
             });
         }
-        return { ...row, ...archived };
+        return { ...row, stampedDocumentId, ...archived };
     }
 
     /**
@@ -1694,7 +2032,7 @@ export class CarrierService {
         return { rateConDocumentId: null, bolDocumentId: null };
     }
 
-    /** Backfill RC/BOL PDFs for an existing carrier signature from the linked load. */
+    /** Backfill: stamp the latest portal RC signature onto the load Rate Confirmation PDF. */
     async regenerateRcBolPdfs(carrierId: string, actor: Actor) {
         await this.assertCarrierAccess(carrierId, actor);
         const latest = await prisma.carrierRcSignature.findFirst({
@@ -1704,18 +2042,27 @@ export class CarrierService {
         if (!latest?.shipmentLeadId) {
             throw Object.assign(new Error("No RC signature with a linked load found"), { status: 404 });
         }
-        await this.archiveSignedRcBolPdfs({
-            carrierId,
+        const stamped = await loadDocumentsService.stampCarrierSignatureOnRateCon({
             shipmentLeadId: latest.shipmentLeadId,
-            sessionId: latest.sessionId,
-            uploadedBy: "STAFF",
+            signerName: latest.signerName,
+            signatureData: latest.signatureData,
+            signedAt: latest.signedAt,
+            actorUserId: actor.userId || null,
         });
-        throw Object.assign(
-            new Error(
-                "Rate Confirmation and BOL stay on the load that created them. Open Documents on that load number — they are not copied onto the carrier packet."
-            ),
-            { status: 422 }
-        );
+        if (!stamped) {
+            throw Object.assign(
+                new Error(
+                    "No Rate Confirmation on that load to stamp. Open Documents on the load and generate Rate Con first."
+                ),
+                { status: 422 }
+            );
+        }
+        return {
+            shipmentLeadId: latest.shipmentLeadId,
+            rateConDocumentId: stamped.documentId,
+            version: stamped.version,
+            changeReason: stamped.changeReason,
+        };
     }
 
     async publicUpload(
@@ -1729,7 +2076,7 @@ export class CarrierService {
         meta: { ip?: string; userAgent?: string }
     ) {
         const session = await this.resolveSession(rawToken, meta.ip);
-        const documentType = String(input.documentType || "").toUpperCase();
+        const documentType = normalizePortalDocType(input.documentType);
         const allowed = [
             "MC_AUTHORITY",
             "NOA",
@@ -1806,12 +2153,33 @@ export class CarrierService {
             });
         }
 
+        // Automatic Document AI bot — classify/validate every portal upload.
+        const botActorId = session.carrier.assignedBrokerId || session.createdById || null;
+        let aiJob: { jobId: string; status: string } | null = null;
+        if (botActorId) {
+            try {
+                const { documentAiJobService } = await import(
+                    "../../ai/documents/job.service.js"
+                );
+                aiJob = await documentAiJobService.enqueueCarrierUpload({
+                    documentId: doc.documentId,
+                    actorUserId: botActorId,
+                });
+            } catch (err) {
+                console.warn(
+                    `[doc-ai] carrier portal enqueue failed for ${doc.documentId}`,
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+
         return {
             documentId: doc.documentId,
             documentType: doc.documentType,
             version: doc.version,
             originalFilename: doc.originalFilename,
             uploadedAt: doc.uploadedAt,
+            aiJob,
         };
     }
 
@@ -1875,9 +2243,17 @@ export class CarrierService {
             },
         });
 
-        const isRcBol = (session.purpose || "") === ONBOARDING_PURPOSE.RC_BOL_PACKET;
+        const purposeNow = session.purpose || "";
+        const isRcBol =
+            purposeNow === ONBOARDING_PURPOSE.RC_BOL_PACKET ||
+            purposeNow === ONBOARDING_PURPOSE.RC_SIGN_PACKET ||
+            purposeNow === ONBOARDING_PURPOSE.BOL_POD_PACKET;
         const docs = isRcBol
-            ? ["Rate Confirmation signed", "BOL acknowledged"]
+            ? purposeNow === ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                ? ["Rate Confirmation signed"]
+                : purposeNow === ONBOARDING_PURPOSE.BOL_POD_PACKET
+                  ? ["BOL / POD acknowledged"]
+                  : ["Rate Confirmation signed", "BOL acknowledged"]
             : [
                   ...(carrier?.agreementSigns?.length ? ["Broker-Carrier Agreement signed"] : []),
                   ...(carrier?.documents || []).map(
@@ -1922,7 +2298,14 @@ export class CarrierService {
                     mcNumber: carrier.mcNumber,
                     dotNumber: carrier.dotNumber,
                     carrierUrl: carrierEmailService.carrierRecordUrl(carrier.carrierId),
-                    purposeLabel: isRcBol ? "RC / BOL signed by carrier" : "Agreement package SUBMITTED by carrier",
+                    purposeLabel:
+                        purposeNow === ONBOARDING_PURPOSE.RC_SIGN_PACKET
+                            ? "Rate Confirmation signed by carrier"
+                            : purposeNow === ONBOARDING_PURPOSE.BOL_POD_PACKET
+                              ? "BOL / POD acknowledged by carrier"
+                              : purposeNow === ONBOARDING_PURPOSE.RC_BOL_PACKET
+                                ? "RC / BOL signed by carrier"
+                                : "Agreement package SUBMITTED by carrier",
                     docs: docs.length ? docs : ["Package submitted"],
                     packageFields,
                     signedBy: latestSign?.signerName || null,
@@ -1986,6 +2369,71 @@ export class CarrierService {
         if (!doc) throw Object.assign(new Error("Document not found"), { status: 404 });
         const absolutePath = carrierStorageService.absolutePath(carrierId, doc.storageKey);
         return { doc, absolutePath };
+    }
+
+    /**
+     * Permanently delete a carrier packet document (Owner / Administrator only).
+     * Removes DB row, related Document AI jobs, and the file on disk.
+     * If the deleted row was CURRENT, promotes the latest ARCHIVED of that type.
+     */
+    async deleteDocument(carrierId: string, documentId: string, actor: Actor) {
+        if (!canDeleteCarrierDocuments(String(actor.role || ""))) {
+            throw Object.assign(
+                new Error("Only Owner / Administrator can delete carrier documents"),
+                { status: 403 }
+            );
+        }
+        await this.assertCarrierAccess(carrierId, actor);
+        const doc = await prisma.carrierDocument.findFirst({
+            where: { documentId, carrierId },
+        });
+        if (!doc) throw Object.assign(new Error("Document not found"), { status: 404 });
+
+        const aiJobs = await prisma.aiDocumentJob.findMany({
+            where: { documentId, documentSource: "CARRIER" },
+            select: { jobId: true },
+        });
+        if (aiJobs.length) {
+            await prisma.aiDocumentJob.deleteMany({
+                where: { jobId: { in: aiJobs.map((j) => j.jobId) } },
+            });
+        }
+
+        await prisma.carrierDocument.delete({ where: { documentId } });
+        carrierStorageService.tryUnlink(carrierId, doc.storageKey);
+
+        let promotedDocumentId: string | null = null;
+        if (doc.status === "CURRENT") {
+            const next = await prisma.carrierDocument.findFirst({
+                where: {
+                    carrierId,
+                    documentType: doc.documentType,
+                    status: "ARCHIVED",
+                },
+                orderBy: { version: "desc" },
+            });
+            if (next) {
+                await prisma.carrierDocument.update({
+                    where: { documentId: next.documentId },
+                    data: { status: "CURRENT" },
+                });
+                promotedDocumentId = next.documentId;
+            }
+        }
+
+        console.log(
+            `[carriers] document deleted by ${actor.role || "?"} ${actor.userId || "?"}:`,
+            documentId,
+            doc.documentType,
+            doc.originalFilename
+        );
+
+        return {
+            deleted: true,
+            documentId,
+            documentType: doc.documentType,
+            promotedDocumentId,
+        };
     }
 
     /** Public RC/BOL PDF download for carrier portal (token-scoped). */

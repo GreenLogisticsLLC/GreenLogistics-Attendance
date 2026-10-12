@@ -211,7 +211,17 @@ export class BrokerGmailOAuthService {
     /** Send email as the broker's connected Gmail (From = broker). */
     async sendMailAsBroker(
         userId: string,
-        options: { to: string; subject: string; text: string; html: string }
+        options: {
+            to: string;
+            subject: string;
+            text: string;
+            html: string;
+            attachments?: Array<{
+                filename: string;
+                content: Buffer;
+                contentType?: string;
+            }>;
+        }
     ): Promise<{ from: string }> {
         if (!this.isClientConfigured()) {
             throw Object.assign(
@@ -234,31 +244,69 @@ export class BrokerGmailOAuthService {
         });
         const gmail = google.gmail({ version: "v1", auth: oauth2 });
         const from = account!.gmailAddress;
-        const boundary = `greenos_${Date.now()}`;
         const encodeSubject = (subject: string) => {
             if (/^[\x20-\x7E]*$/.test(subject)) return subject;
             return `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`;
         };
-        const raw = [
-            `From: ${from}`,
-            `To: ${options.to}`,
-            `Subject: ${encodeSubject(options.subject)}`,
-            "MIME-Version: 1.0",
-            `Content-Type: multipart/alternative; boundary="${boundary}"`,
-            "",
-            `--${boundary}`,
+        const attachments = options.attachments || [];
+        const altBoundary = `greenos_alt_${Date.now()}`;
+        const mixedBoundary = `greenos_mixed_${Date.now()}`;
+        const altParts = [
+            `--${altBoundary}`,
             'Content-Type: text/plain; charset="UTF-8"',
             "Content-Transfer-Encoding: 7bit",
             "",
             options.text,
-            `--${boundary}`,
+            `--${altBoundary}`,
             'Content-Type: text/html; charset="UTF-8"',
             "Content-Transfer-Encoding: 7bit",
             "",
             options.html,
-            `--${boundary}--`,
-            "",
+            `--${altBoundary}--`,
         ].join("\r\n");
+
+        let raw: string;
+        if (!attachments.length) {
+            raw = [
+                `From: ${from}`,
+                `To: ${options.to}`,
+                `Subject: ${encodeSubject(options.subject)}`,
+                "MIME-Version: 1.0",
+                `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+                "",
+                altParts,
+                "",
+            ].join("\r\n");
+        } else {
+            const attachmentParts = attachments.map((att) => {
+                const safeName = String(att.filename || "attachment.pdf").replace(/"/g, "");
+                const ctype = att.contentType || "application/pdf";
+                const b64 = att.content.toString("base64").replace(/(.{76})/g, "$1\r\n");
+                return [
+                    `--${mixedBoundary}`,
+                    `Content-Type: ${ctype}; name="${safeName}"`,
+                    "Content-Transfer-Encoding: base64",
+                    `Content-Disposition: attachment; filename="${safeName}"`,
+                    "",
+                    b64,
+                ].join("\r\n");
+            });
+            raw = [
+                `From: ${from}`,
+                `To: ${options.to}`,
+                `Subject: ${encodeSubject(options.subject)}`,
+                "MIME-Version: 1.0",
+                `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
+                "",
+                `--${mixedBoundary}`,
+                `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+                "",
+                altParts,
+                ...attachmentParts,
+                `--${mixedBoundary}--`,
+                "",
+            ].join("\r\n");
+        }
         const encoded = Buffer.from(raw)
             .toString("base64")
             .replace(/\+/g, "-")
@@ -440,6 +488,31 @@ export class BrokerGmailOAuthService {
                 lastError: null,
             },
         });
+    }
+
+    /**
+     * Permanently remove a broker Gmail account (tokens + mailbox message history).
+     * Distinct from disconnect, which keeps the row for later reconnect.
+     */
+    async removeAccount(userId: string) {
+        const existing = await this.getAccount(userId);
+        if (!existing) return null;
+        this.invalidateBrokerClient(existing.brokerGmailId);
+        if (existing.refreshToken) {
+            try {
+                const oauth2 = createOAuthClient();
+                await oauth2.revokeToken(decryptBrokerRefreshToken(existing.refreshToken));
+            } catch (err) {
+                console.warn(
+                    "[BROKER GMAIL] Google token revocation failed on delete:",
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+        await prisma.brokerGmailAccount.delete({
+            where: { brokerGmailId: existing.brokerGmailId },
+        });
+        return existing;
     }
 
     listActiveAccounts() {

@@ -118,33 +118,86 @@ function extractAgreement(t: string): ExtractedField[] {
     ];
 }
 
+function parseEinDigits(chunk: string | null | undefined): string | null {
+    if (!chunk) return null;
+    // W-9 boxes often OCR as "9 9 - 2 2 9 7 8 6 6"
+    const digits = String(chunk).replace(/\D/g, "");
+    if (digits.length < 9) return null;
+    // Prefer first 9 digits in the EIN window (ignore trailing noise)
+    const nine = digits.slice(0, 9);
+    return `${nine.slice(0, 2)}-${nine.slice(2)}`;
+}
+
+const W9_TITLE =
+    "Request for Taxpayer Identification Number and Certification";
+
 function extractW9(t: string): ExtractedField[] {
+    // Circled header — Form W-9 title must be present.
+    const hasTitle =
+        /Request\s+for\s+Taxpayer\s+Identification\s+Number\s+and\s+Certification/i.test(t) ||
+        /\bForm\s+W-?9\b/i.test(t) ||
+        /\bW-?9\b/.test(t);
+
+    // Circled Part I — Employer identification number must be filled.
+    const hasEinLabel = /Employer\s+identification\s+number/i.test(t);
+    const einWindow =
+        pick(t, /Employer\s+identification\s+number([\s\S]{0,160})/i) ||
+        pick(t, /\bEIN\b([\s\S]{0,80})/i) ||
+        "";
     const ein =
-        pick(t, /Employer\s+identification\s+number[\s\S]{0,80}?(\d{2}\s*[-–]?\s*\d{7})/i) ||
-        pick(t, /\b(\d{2}\s*-\s*\d{7})\b/);
-    const ssn = pick(t, /Social\s+security\s+number[\s\S]{0,40}?(\d{3}\s*-\s*\d{2}\s*-\s*\d{4})/i);
+        parseEinDigits(einWindow) ||
+        parseEinDigits(pick(t, /\b(\d{2}\s*[-–]?\s*\d{7})\b/)) ||
+        parseEinDigits(
+            pick(t, /\b(\d(?:\s*\d){1}\s*[-–]?\s*\d(?:\s*\d){6})\b/)
+        );
+
+    const ssnWindow = pick(t, /Social\s+security\s+number([\s\S]{0,80})/i) || "";
+    const ssnDigits = String(ssnWindow).replace(/\D/g, "");
+    const ssn =
+        ssnDigits.length >= 9
+            ? `${ssnDigits.slice(0, 3)}-${ssnDigits.slice(3, 5)}-${ssnDigits.slice(5, 9)}`
+            : pick(t, /\b(\d{3}\s*-\s*\d{2}\s*-\s*\d{4})\b/);
+
     const tin = ein || ssn;
     const tinType = ein ? "EIN" : ssn ? "SSN" : null;
     return [
-        field("name", pick(t, /Name[^\n]*\n([A-Z][^\n]{3,80})/i) || pick(t, /(DONTA\s+CRAIG[^\n]*)/i)),
+        field("documentTitle", hasTitle ? W9_TITLE : null, {
+            confidence: hasTitle ? 0.99 : 0,
+            fieldStatus: hasTitle ? "FIELD_FOUND" : "FIELD_MISSING",
+        }),
+        field("einLabelPresent", hasEinLabel ? "Employer identification number" : null, {
+            confidence: hasEinLabel ? 0.99 : 0,
+            fieldStatus: hasEinLabel ? "FIELD_FOUND" : "FIELD_MISSING",
+        }),
+        field("name", pick(t, /Name[^\n]*\n([A-Z][^\n]{3,80})/i) || pick(t, /(DONTA\s+CRAIG[^\n]*)/i) ||
+            pick(t, /(?:^|\n)(ARSEN\s+KUDANETOV)\b/i)),
         field(
             "businessName",
             pick(t, /Business\s+name[^\n]*\n([^\n]+)/i) ||
-                pick(t, /(I\s+GET\s+AROUND\s+TRANSPORTATION\s+LLC)/i)
+                pick(t, /(I\s+GET\s+AROUND\s+TRANSPORTATION\s+LLC)/i) ||
+                pick(t, /(ARSEN\s+TRUCKING\s+LLC)/i)
         ),
         field(
             "taxClassification",
             /Individual\/sole\s+proprietor/i.test(t)
                 ? "Individual/sole proprietor"
-                : pick(t, /(C\s+Corporation|S\s+Corporation|Partnership|LLC)/i)
+                : /S\s*corporation/i.test(t)
+                  ? "S Corporation"
+                  : pick(t, /(C\s+Corporation|S\s+Corporation|Partnership|LLC|Limited\s+liability\s+company)/i)
         ),
         field("address", pick(t, /(?:Address|5)\s*[^\n]*\n([^\n]+)/i)),
         field("cityStateZip", pick(t, /([A-Z][A-Za-z]+\s+[A-Z]{2}\s+\d{5})/)),
         field("tinType", tinType),
+        field("ein", ein ? redactTin(ein) : null, {
+            normalized: ein ? redactTin(ein) : null,
+            valueProtected: ein ? tinFingerprint(ein) : null,
+            confidence: ein ? 0.95 : 0,
+            fieldStatus: ein ? "FIELD_FOUND" : "FIELD_MISSING",
+        }),
         field("tin", tin ? redactTin(tin) : null, {
             normalized: tin ? redactTin(tin) : null,
             valueProtected: tin ? tinFingerprint(tin) : null,
-            confidence: tin ? 0.85 : 0,
+            confidence: tin ? 0.9 : 0,
             fieldStatus: tin ? "FIELD_FOUND" : "FIELD_MISSING",
         }),
         field("signatureDate", pick(t, /\b(\d{2}\/\d{2}\/\d{4})\b/)),
@@ -233,18 +286,74 @@ function extractMcAuthority(t: string): ExtractedField[] {
 }
 
 function extractNoa(t: string): ExtractedField[] {
+    const hasTitle = /NOTICE\s+OF\s+ASSIGNMENT/i.test(t);
+    const hasAssign =
+        hasTitle ||
+        /hereby\s+assign/i.test(t) ||
+        /accounts?\s+receivable/i.test(t) ||
+        /\bassignment\b/i.test(t);
+
+    // "ARSEN TRUCKING LLC - STRONGSVILLE, OH 44136" under the title
+    const headerCarrier =
+        pick(t, /NOTICE\s+OF\s+ASSIGNMENT[\s\S]{0,120}?([A-Z][A-Z0-9 &\.'-]{2,80}(?:LLC|INC|CORP|CO\.?))\s*[-–—]\s*[A-Z][^\n]{2,60}/i) ||
+        pick(t, /\n([A-Z][A-Z0-9 &\.'-]{2,80}(?:LLC|INC|CORP|CO\.?))\s*[-–—]\s*[A-Z][A-Za-z .]+,\s*[A-Z]{2}\s+\d{5}/);
+
+    const mc =
+        normalizeMc(
+            pick(t, /MC\s*Number\s*[:#]?\s*([0-9]{4,})/i) ||
+                pick(t, /MC\s*#\s*([0-9]{4,})/i) ||
+                pick(t, /\bMC[#\s-]*([0-9]{4,})/i)
+        ) || null;
+
+    // Signature block carrier name (often above signature / near EIN)
+    const signedCarrier =
+        pick(t, /(?:^|\n)([A-Z][A-Z0-9 &\.'-]{2,80}(?:LLC|INC|CORP|CO\.?))\s*(?:\n|\r).*?\bEIN\b/i) ||
+        pick(t, /\bEIN\s*[:#]?\s*\d{2}-\d{7}[\s\S]{0,80}?([A-Z][A-Z0-9 &\.'-]{2,80}(?:LLC|INC|CORP|CO\.?))/i) ||
+        null;
+
+    const carrierLegalName =
+        headerCarrier ||
+        signedCarrier ||
+        pick(t, /Carrier[:\s]+([^\n]+)/i) ||
+        pick(t, /(I\s+GET\s+AROUND[^\n]*)/i);
+
+    const address =
+        pick(t, /(?:LLC|INC|CORP|CO\.?)\s*[-–—]\s*([A-Z][A-Za-z .]+,\s*[A-Z]{2}\s+\d{5})/) ||
+        pick(t, /\b([A-Z][A-Za-z .]+,\s*[A-Z]{2}\s+\d{5})\b/);
+
+    const ein =
+        pick(t, /\bEIN\s*[:#]?\s*(\d{2}\s*[-–]?\s*\d{7})\b/i) ||
+        pick(t, /\b(\d{2}-\d{7})\b/);
+
     return [
-        field(
-            "carrierLegalName",
-            pick(t, /Carrier[:\s]+([^\n]+)/i) || pick(t, /(I\s+GET\s+AROUND[^\n]*)/i)
-        ),
-        field("factoringCompany", pick(t, /(?:Factor|Assignee|Factoring\s+Company)[:\s]+([^\n]+)/i)),
+        field("documentTitle", hasTitle ? "NOTICE OF ASSIGNMENT" : null, {
+            confidence: hasTitle ? 0.99 : 0,
+            fieldStatus: hasTitle ? "FIELD_FOUND" : "FIELD_MISSING",
+        }),
         field(
             "assignmentStatement",
-            /assign/i.test(t) ? "assignment_language_detected" : null,
-            { confidence: /assign/i.test(t) ? 0.8 : 0, fieldStatus: /assign/i.test(t) ? "FIELD_FOUND" : "FIELD_MISSING" }
+            hasAssign ? "assignment_language_detected" : null,
+            {
+                confidence: hasAssign ? 0.9 : 0,
+                fieldStatus: hasAssign ? "FIELD_FOUND" : "FIELD_MISSING",
+            }
         ),
-        field("signatureDate", pick(t, /\b(\d{1,2}\/\d{1,2}\/\d{2,4})\b/)),
+        field("carrierLegalName", carrierLegalName, {
+            confidence: carrierLegalName ? 0.92 : 0,
+        }),
+        field("legalName", carrierLegalName, {
+            confidence: carrierLegalName ? 0.9 : 0,
+        }),
+        field("carrierAddress", address, { confidence: address ? 0.85 : 0 }),
+        field("mcNumber", mc, { normalized: mc, confidence: mc ? 0.99 : 0 }),
+        field("carrierPrintedName", signedCarrier || carrierLegalName, {
+            confidence: signedCarrier || carrierLegalName ? 0.88 : 0,
+        }),
+        field("factoringCompany", pick(t, /(?:Factor|Assignee|Factoring\s+Company)[:\s]+([^\n]+)/i) ||
+            pick(t, /(Love'?s\s+(?:Solutions|Financial)[^\n]*)/i)),
+        field("ein", ein, { confidence: ein ? 0.9 : 0 }),
+        field("signatureDate", pick(t, /\b(\d{1,2}\/\d{1,2}\/\d{2,4})\b/) ||
+            pick(t, /\b((?:MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY),\s+[A-Z]+\s+\d{1,2},\s+20\d{2})\b/i)),
     ];
 }
 

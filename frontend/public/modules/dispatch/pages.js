@@ -88,6 +88,42 @@ window.GreenOSModules["dispatch"] = {
     URL.revokeObjectURL(obj);
   },
 
+  carrierDocBotVerdictHtml(ai, opts) {
+    var self = this;
+    opts = opts || {};
+    if (!ai) {
+      return '<span class="ld-carrier-doc-verdict is-pending">Pending</span>';
+    }
+    var verdict = String(ai.verdict || "").trim() || "Pending";
+    var light = String(ai.trafficLight || "").toUpperCase();
+    var reviewDecision = String(ai.reviewDecision || "").toUpperCase();
+    var cls = "is-pending";
+    if (verdict === "Approved" || light === "GREEN") cls = "is-approved";
+    else if (verdict === "Not Approved" || light === "RED" || light === "YELLOW") cls = "is-rejected";
+    else if (verdict === "Checking…" || verdict === "Checking...") cls = "is-checking";
+    else if (verdict === "Failed") cls = "is-failed";
+    var tip = [ai.overallStatus, ai.classifiedDocType, ai.status].filter(Boolean).join(" · ");
+    var botNotApproved =
+      verdict === "Not Approved" || light === "RED" || light === "YELLOW";
+    var brokerOverride =
+      botNotApproved &&
+      (opts.brokerApproved === true || reviewDecision === "ACCEPT");
+    return (
+      '<span class="ld-carrier-doc-verdict-wrap">' +
+      '<span class="ld-carrier-doc-verdict ' +
+      cls +
+      '"' +
+      (tip ? ' title="' + self.esc(tip) + '"' : "") +
+      ">" +
+      self.esc(verdict) +
+      "</span>" +
+      (brokerOverride
+        ? '<span class="ld-carrier-doc-broker-ok" title="Broker approved after bot review">(approved by Broker)</span>'
+        : "") +
+      "</span>"
+    );
+  },
+
   carrierPacketDocsHtml(c) {
     var self = this;
     var skip = { RATE_CONFIRMATION: 1, BOL: 1, POD: 1 };
@@ -119,6 +155,9 @@ window.GreenOSModules["dispatch"] = {
             (d.uploadedBy ? " · " + self.esc(d.uploadedBy) : "") +
             "</span>" +
             "</div>" +
+            self.carrierDocBotVerdictHtml(d.ai, {
+              brokerApproved: c.loadCarrierApproved === true,
+            }) +
             '<div class="ld-carrier-doc-actions">' +
             '<button type="button" class="btn-primary ld-carrier-doc-view" data-id="' +
             self.esc(d.documentId) +
@@ -173,26 +212,57 @@ window.GreenOSModules["dispatch"] = {
       signMeta = "Signed";
     }
     var loadApproved = c.loadCarrierApproved === true;
+    var slots = reviewSlots.length ? reviewSlots : null;
+    var botAllApproved = false;
+    if (slots && slots.length) {
+      botAllApproved = slots.every(function (slot) {
+        if (!slot.present || !slot.document) return false;
+        var ai = slot.ai || {};
+        var light = String(ai.trafficLight || "").toUpperCase();
+        var verdict = String(ai.verdict || "").trim();
+        return light === "GREEN" || verdict === "Approved";
+      });
+    }
     var headline = loadApproved
       ? "Carrier documents — approved for this load"
       : "Review carrier documents for this load";
     var lead = loadApproved
       ? "Broker already approved this carrier for the current load. Rate Confirmation is unlocked."
-      : "Open MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement. Then click <strong>Approved Carrier</strong>. New Rate Confirmation and BOL are created on this load after that.";
-    var actions = "";
-    if (!loadApproved && c.carrierProfileId) {
-      actions =
-        '<div class="load-actions" style="margin:0.75rem 0">' +
-        '<button type="button" class="btn-primary" id="ld-approve-carrier">Approved Carrier</button>' +
-        (c.carrierProfileId
-          ? '<button type="button" class="btn-secondary" id="ld-open-carrier-record">Open full carrier record</button>'
-          : "") +
-        "</div>";
-    } else if (c.carrierProfileId) {
-      actions =
-        '<div class="load-actions" style="margin:0.75rem 0">' +
-        '<button type="button" class="btn-secondary" id="ld-open-carrier-record">Open full carrier record</button>' +
-        "</div>";
+      : botAllApproved
+        ? "Document bot marked every file <strong>Approved</strong> — still click <strong>Approve Carrier</strong> after you review. Rate Confirmation stays locked until then."
+        : "Document bot shows <strong>Approved</strong> or <strong>Not Approved</strong> for each file. Open docs to review, then click <strong>Approve Carrier</strong>. Rate Confirmation stays locked until the broker confirms.";
+
+    function approveActionsHtml(place) {
+      if (!c.carrierProfileId) return "";
+      var suffix = place === "bottom" ? "-bottom" : "";
+      if (loadApproved) {
+        return (
+          '<div class="load-actions ld-approve-carrier-actions" data-place="' +
+          place +
+          '" style="margin:0.75rem 0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">' +
+          '<button type="button" class="btn-primary" id="ld-approved-carrier-next' +
+          suffix +
+          '" style="background:#067647;border-color:#067647">Approved Carrier</button>' +
+          '<button type="button" class="btn-secondary" id="ld-open-carrier-record' +
+          suffix +
+          '">Open full carrier record</button>' +
+          '<span class="gos-muted" style="flex:1 1 12rem">Click to continue — Generate Rate Confirmation.</span>' +
+          "</div>"
+        );
+      }
+      return (
+        '<div class="load-actions ld-approve-carrier-actions" data-place="' +
+        place +
+        '" style="margin:0.75rem 0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">' +
+        '<button type="button" class="btn-primary" id="ld-approve-carrier' +
+        suffix +
+        '">Approved Carrier</button>' +
+        '<button type="button" class="btn-secondary" id="ld-open-carrier-record' +
+        suffix +
+        '">Open full carrier record</button>' +
+        '<span class="gos-muted" style="flex:1 1 12rem">Required even when the bot shows Approved on every file.</span>' +
+        "</div>"
+      );
     }
 
     var slotsHtml = "";
@@ -203,6 +273,9 @@ window.GreenOSModules["dispatch"] = {
           .map(function (slot) {
             var doc = slot.document || null;
             var from = "Carrier packet — review only";
+            var verdictCell = doc
+              ? self.carrierDocBotVerdictHtml(slot.ai, { brokerApproved: loadApproved })
+              : '<span class="ld-carrier-doc-verdict is-pending">Missing</span>';
             var actionsCell = doc
               ? '<div class="ld-carrier-doc-actions">' +
                 '<button type="button" class="btn-primary ld-review-doc-open" data-source="' +
@@ -229,6 +302,7 @@ window.GreenOSModules["dispatch"] = {
                 : "") +
               "</span>" +
               "</div>" +
+              verdictCell +
               actionsCell +
               "</article>"
             );
@@ -250,11 +324,12 @@ window.GreenOSModules["dispatch"] = {
       '<div class="load-grid">' +
       field("Onboarding", status || "—") +
       field("Agreement", signMeta) +
-      field("Approved for this load", loadApproved ? "Yes" : "No — review required") +
+      field("Approved for this load", loadApproved ? "Yes" : "No — broker must click Approve Carrier") +
       field("Carrier status", c.carrierStatus || "—") +
       "</div>" +
-      actions +
+      approveActionsHtml("top") +
       slotsHtml +
+      approveActionsHtml("bottom") +
       "</section>"
     );
   },
@@ -310,22 +385,44 @@ window.GreenOSModules["dispatch"] = {
         }
       });
     });
-    root.querySelector("#ld-open-carrier-record")?.addEventListener("click", function () {
-      if (!carrierId) return;
-      if (window.GreenOSModules && window.GreenOSModules.carriers) {
-        window.GreenOSModules.carriers._carrierId = carrierId;
-        window.GreenOSModules.carriers._tab = "documents";
-      }
-      if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
-        window.GreenOS.navigate("carriers");
-      } else {
-        window.location.hash = "#/carriers";
-      }
+    root.querySelectorAll("#ld-open-carrier-record, #ld-open-carrier-record-bottom").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (!carrierId) return;
+        if (window.GreenOSModules && window.GreenOSModules.carriers) {
+          window.GreenOSModules.carriers._carrierId = carrierId;
+          window.GreenOSModules.carriers._tab = "documents";
+        }
+        if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
+          window.GreenOS.navigate("carriers", null, {
+            detail: { type: "carrier", id: carrierId },
+          });
+        } else {
+          window.location.hash = "#/carriers/" + encodeURIComponent(carrierId);
+        }
+      });
     });
-    root.querySelector("#ld-approve-carrier")?.addEventListener("click", async function () {
+    async function openRateConNext(loadId) {
+      var host = document.querySelector("#load-tms-body");
+      if (!host || !loadId) return;
+      // Reload load details on Documents tab, then open Rate Con wizard.
+      await self.openLoad(host, loadId, "documents");
+      setTimeout(function () {
+        var mainEl = document.querySelector("#load-details-main") || document.querySelector(".load-details-main");
+        var genBtn = document.querySelector('[data-action="generate_rate_con"]');
+        if (genBtn && genBtn.getAttribute("data-state") !== "locked") {
+          genBtn.click();
+          return;
+        }
+        if (genBtn) {
+          genBtn.scrollIntoView({ behavior: "smooth", block: "center" });
+          genBtn.focus();
+        }
+      }, 120);
+    }
+    async function runApproveCarrier() {
       if (
         !confirm(
-          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement for THIS load?"
+          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement for THIS load?\n\nAfter Approved Carrier you can generate Rate Confirmation."
         )
       ) {
         return;
@@ -337,13 +434,26 @@ window.GreenOSModules["dispatch"] = {
           method: "POST",
           body: "{}",
         });
-        alert("Carrier approved for this load. Generate Rate Confirmation is now available.");
-        var host = document.querySelector("#load-tms-body");
-        var tab = (reloadTab && reloadTab.tab) || "carrier";
-        self.openLoad(host, loadId, tab);
+        await openRateConNext(loadId);
       } catch (err) {
         alert(err.message || err);
       }
+    }
+    root.querySelectorAll("#ld-approve-carrier, #ld-approve-carrier-bottom").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        runApproveCarrier();
+      });
+    });
+    root.querySelectorAll("#ld-approved-carrier-next, #ld-approved-carrier-next-bottom").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        try {
+          var loadId = (reloadTab && reloadTab.loadId) || self._loadId;
+          if (!loadId) throw new Error("Load id missing");
+          await openRateConNext(loadId);
+        } catch (err) {
+          alert(err.message || err);
+        }
+      });
     });
   },
 
@@ -384,6 +494,21 @@ window.GreenOSModules["dispatch"] = {
       .replace(/"/g, "&quot;");
   },
 
+  carrierPaymentOptionLabel(code) {
+    switch (String(code || "").toUpperCase()) {
+      case "STANDARD":
+        return "Standard Payment (20-25 days)";
+      case "QUICK_3":
+        return "Quick Pay 3% (3-5 business days, ACH)";
+      case "QUICK_5":
+        return "Quick Pay 5% (24hrs)";
+      case "FACTORING":
+        return "Factoring company";
+      default:
+        return code ? String(code) : "";
+    }
+  },
+
   money(n) {
     var v = Number(n);
     if (!Number.isFinite(v)) return "—";
@@ -398,6 +523,354 @@ window.GreenOSModules["dispatch"] = {
     if (d.length <= 3) return "(" + d;
     if (d.length <= 6) return "(" + d.slice(0, 3) + ") " + d.slice(3);
     return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6, 10);
+  },
+
+  /** Collect extra Origin / Destination inputs for RC and BOL wizards. */
+  collectExtraStops(box, wrapSel) {
+    var self = this;
+    var wrap = box.querySelector(wrapSel);
+    if (!wrap) return [];
+    var out = [];
+    wrap.querySelectorAll(".load-extra-stop").forEach(function (row) {
+      var addrEl = row.querySelector("[data-extra-field=\"address\"]");
+      var dateEl = row.querySelector("[data-extra-field=\"date\"]");
+      var prefix = row.getAttribute("data-time-prefix") || "";
+      var address = String((addrEl && addrEl.value) || "").trim();
+      if (!address) return;
+      var time24 = prefix ? self.readAmPmTime(row, prefix) : "";
+      out.push({
+        address: address,
+        date: String((dateEl && dateEl.value) || "").trim() || null,
+        time: self.formatAmPmLabel(time24) || time24 || null,
+      });
+    });
+    return out;
+  },
+
+  /** Normalize saved extra stop (string or {address,date,time}). */
+  normalizeExtraStop(raw) {
+    if (raw && typeof raw === "object") {
+      var dateRaw = String(raw.date || raw.pickupDate || raw.deliveryDate || "").trim();
+      return {
+        address: String(raw.address || raw.pickupAddress || raw.deliveryAddress || "").trim(),
+        date: this.toInputDate(dateRaw) || dateRaw,
+        time: String(raw.time || raw.pickupTime || raw.deliveryTime || "").trim(),
+      };
+    }
+    return { address: String(raw == null ? "" : raw).trim(), date: "", time: "" };
+  },
+
+  /** Render one removable extra stop row with address + date + time. */
+  extraStopRowHtml(value, kind, seq) {
+    var stop = this.normalizeExtraStop(value);
+    var prefix = "extra-" + kind + "-" + String(seq || Date.now());
+    return (
+      '<div class="load-extra-stop" data-time-prefix="' +
+      this.esc(prefix) +
+      '">' +
+      '<label>Address<input data-extra-field="address" data-extra-stop="' +
+      kind +
+      '" placeholder="' +
+      (kind === "origin" ? "Additional origin / pickup" : "Additional destination") +
+      '" value="' +
+      this.esc(stop.address || "") +
+      '"></label>' +
+      '<label>' +
+      (kind === "origin" ? "Pickup date" : "Delivery date") +
+      '<input type="date" data-extra-field="date" value="' +
+      this.esc(stop.date || "") +
+      '"></label>' +
+      "<label>" +
+      (kind === "origin" ? "Pickup time" : "Delivery time") +
+      this.timeFieldHtml(prefix, stop.time || "") +
+      "</label>" +
+      '<button type="button" class="btn-secondary extra-stop-remove">Remove</button>' +
+      "</div>"
+    );
+  },
+
+  /** Wire + Add Origin / + Add Destination buttons and restore saved extras. */
+  bindExtraStops(box, opts) {
+    var self = this;
+    var originWrap = box.querySelector(opts.originWrap);
+    var destWrap = box.querySelector(opts.destWrap);
+    var addOrigin = box.querySelector(opts.addOriginBtn);
+    var addDest = box.querySelector(opts.addDestBtn);
+    var seq = 0;
+    function addRow(wrap, kind, value) {
+      if (!wrap) return;
+      seq += 1;
+      wrap.insertAdjacentHTML("beforeend", self.extraStopRowHtml(value, kind, seq));
+    }
+    (opts.initialOrigins || []).forEach(function (v) {
+      addRow(originWrap, "origin", v);
+    });
+    (opts.initialDests || []).forEach(function (v) {
+      addRow(destWrap, "dest", v);
+    });
+    addOrigin?.addEventListener("click", function () {
+      addRow(originWrap, "origin", { address: "", date: "", time: "" });
+      var rows = originWrap.querySelectorAll(".load-extra-stop");
+      var last = rows[rows.length - 1];
+      var focusEl = last && last.querySelector("[data-extra-field=\"address\"]");
+      if (focusEl) focusEl.focus();
+    });
+    addDest?.addEventListener("click", function () {
+      addRow(destWrap, "dest", { address: "", date: "", time: "" });
+      var rows = destWrap.querySelectorAll(".load-extra-stop");
+      var last = rows[rows.length - 1];
+      var focusEl = last && last.querySelector("[data-extra-field=\"address\"]");
+      if (focusEl) focusEl.focus();
+    });
+    box.addEventListener("click", function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest(".extra-stop-remove") : null;
+      if (!btn) return;
+      var row = btn.closest(".load-extra-stop");
+      if (row) row.remove();
+    });
+  },
+
+  /**
+   * Assign Carrier autofill — lookup GreenOS carriers by name / MC / DOT
+   * and fill form fields when the broker picks a match.
+   */
+  bindCarrierAutofill(main, currentCarrier) {
+    var self = this;
+    var form = main && main.querySelector("#ld-carrier-form");
+    if (!form || form.dataset.autofillBound === "1") return;
+    form.dataset.autofillBound = "1";
+
+    var nameInput = form.querySelector("#ld-carrier");
+    var mcInput = form.querySelector("#ld-mc");
+    if (!nameInput && !mcInput) return;
+
+    var wrap = document.createElement("div");
+    wrap.className = "ld-carrier-suggest";
+    wrap.innerHTML =
+      '<p class="gos-muted" style="margin:0 0 0.5rem;font-size:0.8rem">Type carrier name or MC — matches from GreenOS fill the form. Click a row to autofill.</p>' +
+      '<div id="ld-carrier-suggest-panel" class="ld-carrier-suggest-panel hidden" role="listbox"></div>' +
+      '<input type="hidden" id="ld-carrier-profile-id" value="' +
+      self.esc((currentCarrier && currentCarrier.carrierProfileId) || "") +
+      '">';
+    form.insertBefore(wrap, form.querySelector(".load-form-grid") || form.firstChild);
+
+    var panel = wrap.querySelector("#ld-carrier-suggest-panel");
+    var profileInput = wrap.querySelector("#ld-carrier-profile-id");
+    var timer = null;
+    var reqSeq = 0;
+    var items = [];
+    var active = -1;
+
+    function hide() {
+      panel.classList.add("hidden");
+      panel.innerHTML = "";
+      items = [];
+      active = -1;
+    }
+
+    function setActive(idx) {
+      var buttons = panel.querySelectorAll(".ld-carrier-suggest-item");
+      if (!buttons.length) {
+        active = -1;
+        return;
+      }
+      if (idx < 0) idx = buttons.length - 1;
+      if (idx >= buttons.length) idx = 0;
+      active = idx;
+      buttons.forEach(function (btn, i) {
+        btn.classList.toggle("is-active", i === active);
+      });
+    }
+
+    function applyCarrier(row) {
+      if (!row) return;
+      if (nameInput) nameInput.value = row.legalName || "";
+      var emailEl = form.querySelector("#ld-carrier-email");
+      var phoneEl = form.querySelector("#ld-carrier-phone");
+      var mcEl = form.querySelector("#ld-mc");
+      var dotEl = form.querySelector("#ld-dot");
+      var insEl = form.querySelector("#ld-ins");
+      var statusEl = form.querySelector("#ld-cstatus");
+      if (emailEl) emailEl.value = row.email || "";
+      if (phoneEl) phoneEl.value = self.formatUsPhone(row.phone || "") || row.phone || "";
+      if (mcEl) mcEl.value = row.mcNumber || "";
+      if (dotEl) dotEl.value = row.dotNumber || "";
+      if (insEl && row.insuranceHint && !(insEl.value || "").trim()) {
+        insEl.value = row.insuranceHint;
+      }
+      if (statusEl && row.onboardingStatus === "APPROVED") {
+        statusEl.value = "Approved";
+      } else if (statusEl && !(statusEl.value || "").trim()) {
+        statusEl.value = "Assigned";
+      }
+      if (profileInput) profileInput.value = row.carrierId || "";
+      hide();
+      var status = form.querySelector("#ld-carrier-autofill-status");
+      if (!status) {
+        status = document.createElement("p");
+        status.id = "ld-carrier-autofill-status";
+        status.className = "gos-muted";
+        status.style.margin = "0.35rem 0 0";
+        wrap.appendChild(status);
+      }
+      status.textContent =
+        "Autofilled from GreenOS: " +
+        (row.legalName || "carrier") +
+        (row.mcNumber ? " · MC " + row.mcNumber : "") +
+        ". Review fields, then Save.";
+    }
+
+    function render(list, query) {
+      items = list || [];
+      if (!items.length) {
+        panel.innerHTML =
+          '<div class="ld-carrier-suggest-empty">No carriers in GreenOS match “' +
+          self.esc(query) +
+          '”.</div>';
+        panel.classList.remove("hidden");
+        return;
+      }
+      panel.innerHTML = items
+        .map(function (row, idx) {
+          return (
+            '<button type="button" class="ld-carrier-suggest-item" role="option" data-idx="' +
+            idx +
+            '">' +
+            "<strong>" +
+            self.esc(row.legalName || "Carrier") +
+            "</strong>" +
+            "<span>" +
+            self.esc(row.label || "") +
+            "</span>" +
+            "</button>"
+          );
+        })
+        .join("");
+      panel.querySelectorAll(".ld-carrier-suggest-item").forEach(function (btn) {
+        btn.addEventListener("mousedown", function (e) {
+          e.preventDefault();
+        });
+        btn.addEventListener("click", function () {
+          applyCarrier(items[Number(btn.getAttribute("data-idx"))]);
+        });
+      });
+      panel.classList.remove("hidden");
+      setActive(0);
+    }
+
+    async function runSearch(query) {
+      var q = String(query || "").trim();
+      if (q.length < 2) {
+        hide();
+        return;
+      }
+      var seq = ++reqSeq;
+      panel.innerHTML = '<div class="ld-carrier-suggest-empty">Searching GreenOS carriers…</div>';
+      panel.classList.remove("hidden");
+      try {
+        var token = localStorage.getItem("gl_token") || "";
+        var res = await fetch(
+          "/api/carriers/lookup?q=" + encodeURIComponent(q) + "&limit=10",
+          {
+            headers: {
+              Accept: "application/json",
+              Authorization: token ? "Bearer " + token : "",
+            },
+            cache: "no-store",
+          }
+        );
+        var json = await res.json().catch(function () {
+          return {};
+        });
+        if (seq !== reqSeq) return;
+        if (!res.ok || json.success === false) {
+          panel.innerHTML =
+            '<div class="ld-carrier-suggest-empty">' +
+            self.esc(json.message || "Lookup failed") +
+            "</div>";
+          return;
+        }
+        render(json.data || [], q);
+      } catch (err) {
+        if (seq !== reqSeq) return;
+        panel.innerHTML =
+          '<div class="ld-carrier-suggest-empty">' +
+          self.esc((err && err.message) || "Lookup failed") +
+          "</div>";
+      }
+    }
+
+    function schedule(el) {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function () {
+        runSearch(el && el.value);
+      }, 220);
+    }
+
+    function onKey(e, el) {
+      if (e.key === "Escape") {
+        hide();
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (panel.classList.contains("hidden")) schedule(el);
+        else setActive(active + 1);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActive(active - 1);
+        return;
+      }
+      if (e.key === "Enter" && !panel.classList.contains("hidden") && active >= 0 && items[active]) {
+        e.preventDefault();
+        applyCarrier(items[active]);
+      }
+    }
+
+    [nameInput, mcInput].forEach(function (el) {
+      if (!el) return;
+      el.setAttribute("autocomplete", "off");
+      el.addEventListener("input", function () {
+        if (profileInput) profileInput.value = "";
+        schedule(el);
+      });
+      el.addEventListener("focus", function () {
+        if (String(el.value || "").trim().length >= 2) schedule(el);
+      });
+      el.addEventListener("keydown", function (e) {
+        onKey(e, el);
+      });
+    });
+
+    main.addEventListener("click", function (ev) {
+      if (!form.contains(ev.target)) hide();
+    });
+  },
+
+  /** Normalize text for carrier-form change detection (trim + lower). */
+  normCarrierText(raw) {
+    return String(raw == null ? "" : raw).trim().toLowerCase();
+  },
+
+  /** Digits-only phone compare so formatting alone is not a "change". */
+  normCarrierPhone(raw) {
+    var d = String(raw == null ? "" : raw).replace(/\D/g, "");
+    if (d.length === 11 && d.charAt(0) === "1") d = d.slice(1);
+    return d;
+  },
+
+  /** Stable ISO compare for pickup/delivery timestamps. */
+  normCarrierIso(raw) {
+    if (raw == null || raw === "") return "";
+    try {
+      var d = new Date(raw);
+      if (Number.isNaN(d.getTime())) return String(raw);
+      return d.toISOString();
+    } catch (e) {
+      return String(raw);
+    }
   },
 
   /** E.164 for APIs (CarrierView SMS): +1XXXXXXXXXX */
@@ -540,8 +1013,21 @@ window.GreenOSModules["dispatch"] = {
   ampmPartsFromRaw(raw) {
     var hhmm = "";
     if (raw == null || raw === "") return { h: "", m: "", p: "" };
-    if (typeof raw === "string" && /^\d{1,2}:\d{2}/.test(raw.trim())) {
-      hhmm = raw.trim().slice(0, 5);
+    if (typeof raw === "string") {
+      var s = raw.trim();
+      var ampm = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)\b/i);
+      if (ampm) {
+        var h12 = parseInt(ampm[1], 10);
+        var mm = ampm[2];
+        var period = ampm[3].toUpperCase();
+        if (!Number.isFinite(h12) || h12 < 1 || h12 > 12) return { h: "", m: "", p: "" };
+        return { h: String(h12), m: mm, p: period };
+      }
+      if (/^\d{1,2}:\d{2}/.test(s)) {
+        hhmm = s.slice(0, 5);
+      } else {
+        hhmm = this.toInputTime(raw);
+      }
     } else {
       hhmm = this.toInputTime(raw);
     }
@@ -551,10 +1037,10 @@ window.GreenOSModules["dispatch"] = {
     var m = parseInt(bits[1], 10);
     if (!Number.isFinite(h24) || !Number.isFinite(m)) return { h: "", m: "", p: "" };
     var p = h24 >= 12 ? "PM" : "AM";
-    var h12 = h24 % 12;
-    if (h12 === 0) h12 = 12;
+    var h12b = h24 % 12;
+    if (h12b === 0) h12b = 12;
     return {
-      h: String(h12),
+      h: String(h12b),
       m: String(m).padStart(2, "0"),
       p: p,
     };
@@ -654,6 +1140,245 @@ window.GreenOSModules["dispatch"] = {
     return d.toISOString();
   },
 
+  /** Infer Exact / Window / Before / Till from saved from/to timestamps. */
+  inferApptMode(fromIso, toIso) {
+    if (!fromIso && !toIso) return "exact";
+    if (fromIso && !toIso) return "exact";
+    if (!fromIso && toIso) return "before";
+    var from = new Date(fromIso);
+    var to = new Date(toIso);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return "exact";
+    if (
+      from.getHours() === 0 &&
+      from.getMinutes() === 0 &&
+      from.getSeconds() === 0 &&
+      to.getTime() > from.getTime()
+    ) {
+      return "till";
+    }
+    if (from.getTime() !== to.getTime()) return "window";
+    return "exact";
+  },
+
+  /** Human label for summary cards: "28.09.2026, 8:00 AM – 3:00 PM" etc. */
+  formatApptSummary(fromIso, toIso, opsAt) {
+    var mode = this.inferApptMode(fromIso, toIso);
+    if (!fromIso && !toIso && !opsAt) return "—";
+    var dateSrc =
+      mode === "before" || mode === "till"
+        ? toIso || opsAt || fromIso
+        : fromIso || opsAt || toIso;
+    var dateLabel = "";
+    try {
+      var d = new Date(dateSrc);
+      if (!Number.isNaN(d.getTime())) {
+        dateLabel = d.toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        });
+      }
+    } catch (e) {
+      dateLabel = "";
+    }
+    var timeOnly = this.formatApptTimeOnly(fromIso, toIso, opsAt);
+    if (timeOnly) return (dateLabel ? dateLabel + ", " : "") + timeOnly;
+    if (dateLabel) return dateLabel;
+    return "—";
+  },
+
+  /** Time-only label for RC/BOL: "Before 3:00 PM", "8:00 AM – 3:00 PM", etc. */
+  formatApptTimeOnly(fromIso, toIso, opsAt) {
+    var mode = this.inferApptMode(fromIso, toIso);
+    var tFrom = fromIso ? this.formatAmPmLabel(this.toInputTime(fromIso)) : "";
+    var tTo = toIso ? this.formatAmPmLabel(this.toInputTime(toIso)) : "";
+    var tOps = opsAt ? this.formatAmPmLabel(this.toInputTime(opsAt)) : "";
+    if (mode === "window" && tFrom && tTo) return tFrom + " – " + tTo;
+    if (mode === "before" && (tTo || tOps)) return "Before " + (tTo || tOps);
+    if (mode === "till" && (tTo || tOps)) return "Till " + (tTo || tOps);
+    return tFrom || tTo || tOps || "";
+  },
+
+  /**
+   * Pickup/Delivery appointment block: date + mode (Exact / Window / Before / Till).
+   * Window supports 8–3 style ranges; Before / Till are upper-bound (final) times.
+   */
+  apptFieldHtml(prefix, label, fromIso, toIso) {
+    var mode = this.inferApptMode(fromIso, toIso);
+    var dateIso =
+      mode === "before" || mode === "till"
+        ? toIso || fromIso
+        : fromIso || toIso;
+    var dateVal = this.toInputDate(dateIso || "");
+    var exactSrc = fromIso || toIso || "";
+    var fromSrc = fromIso || "";
+    var toSrc = toIso || "";
+    var boundSrc = toIso || fromIso || "";
+    return (
+      '<div class="load-appt-block" data-appt="' +
+      this.esc(prefix) +
+      '">' +
+      "<h4>" +
+      this.esc(label) +
+      "</h4>" +
+      '<div class="load-appt-fields">' +
+      '<label>Date <input type="date" id="' +
+      prefix +
+      '-date" value="' +
+      this.esc(dateVal) +
+      '"></label>' +
+      '<label>Time type <select id="' +
+      prefix +
+      '-mode" class="gos-appt-mode">' +
+      '<option value="exact"' +
+      (mode === "exact" ? " selected" : "") +
+      ">Exact time</option>" +
+      '<option value="window"' +
+      (mode === "window" ? " selected" : "") +
+      ">Window (e.g. 8–3)</option>" +
+      '<option value="before"' +
+      (mode === "before" ? " selected" : "") +
+      ">Before (final time)</option>" +
+      '<option value="till"' +
+      (mode === "till" ? " selected" : "") +
+      ">Till</option>" +
+      "</select></label>" +
+      '<label class="gos-appt-exact" data-appt-show="exact">Time' +
+      this.timeFieldHtml(prefix + "-exact", exactSrc) +
+      "</label>" +
+      '<label class="gos-appt-from" data-appt-show="window">From' +
+      this.timeFieldHtml(prefix + "-from", fromSrc) +
+      "</label>" +
+      '<label class="gos-appt-to" data-appt-show="window">To' +
+      this.timeFieldHtml(prefix + "-to", toSrc) +
+      "</label>" +
+      '<label class="gos-appt-bound" data-appt-show="before till">Final time' +
+      this.timeFieldHtml(prefix + "-bound", boundSrc) +
+      "</label>" +
+      '<label class="gos-appt-quick" data-appt-show="window">Quick window' +
+      '<input type="text" id="' +
+      prefix +
+      '-quick" placeholder="8-3 or 8am-3pm" autocomplete="off">' +
+      "</label>" +
+      "</div>" +
+      "</div>"
+    );
+  },
+
+  /** Show/hide Exact / Window / Before / Till controls and parse quick "8-3". */
+  bindApptFields(root, prefix) {
+    var self = this;
+    var block = root.querySelector('[data-appt="' + prefix + '"]');
+    if (!block) return;
+    var modeEl = block.querySelector("#" + prefix + "-mode");
+    function sync() {
+      var mode = (modeEl && modeEl.value) || "exact";
+      block.querySelectorAll("[data-appt-show]").forEach(function (el) {
+        var modes = String(el.getAttribute("data-appt-show") || "").split(/\s+/);
+        el.style.display = modes.indexOf(mode) >= 0 ? "" : "none";
+      });
+    }
+    modeEl?.addEventListener("change", sync);
+    sync();
+    var quick = block.querySelector("#" + prefix + "-quick");
+    quick?.addEventListener("change", function () {
+      var parsed = self.parseQuickWindow(quick.value);
+      if (!parsed) return;
+      if (modeEl) modeEl.value = "window";
+      sync();
+      self.writeAmPmTime(block, prefix + "-from", parsed.from);
+      self.writeAmPmTime(block, prefix + "-to", parsed.to);
+    });
+  },
+
+  /** Parse "8-3", "8am-3pm", "08:00-15:00" → { from: "08:00", to: "15:00" }. */
+  parseQuickWindow(raw) {
+    var s = String(raw || "").trim().toLowerCase().replace(/\s+/g, "");
+    if (!s) return null;
+    var m = s.match(
+      /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[-–—to]+\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i
+    );
+    if (!m) return null;
+    function to24(hStr, minStr, period, fallbackPeriod) {
+      var h = parseInt(hStr, 10);
+      var min = minStr ? parseInt(minStr, 10) : 0;
+      if (!Number.isFinite(h) || h < 0 || h > 23) return null;
+      var p = (period || fallbackPeriod || "").toLowerCase();
+      if (p === "am" || p === "pm") {
+        if (h < 1 || h > 12) return null;
+        h = h % 12;
+        if (p === "pm") h += 12;
+      } else if (h <= 12 && !period) {
+        // Bare "8-3" → assume AM start, PM end when end < start or end <= 12
+      }
+      return String(h).padStart(2, "0") + ":" + String(min).padStart(2, "0");
+    }
+    var p1 = m[3] || "";
+    var p2 = m[6] || "";
+    // "8-3" without am/pm → 8 AM – 3 PM (common broker shorthand)
+    if (!p1 && !p2) {
+      var h1 = parseInt(m[1], 10);
+      var h2 = parseInt(m[4], 10);
+      if (h1 >= 1 && h1 <= 12 && h2 >= 1 && h2 <= 12) {
+        p1 = "am";
+        p2 = "pm";
+      }
+    }
+    if (p1 && !p2) p2 = p1;
+    if (!p1 && p2) p1 = p2;
+    var from = to24(m[1], m[2], p1);
+    var to = to24(m[4], m[5], p2);
+    if (!from || !to) return null;
+    return { from: from, to: to };
+  },
+
+  /** Set AM/PM selects from HH:MM 24h. */
+  writeAmPmTime(root, idPrefix, hhmm) {
+    if (!root || !hhmm) return;
+    var parts = this.ampmPartsFromRaw(hhmm);
+    var hEl = root.querySelector("#" + idPrefix + "-h");
+    var mEl = root.querySelector("#" + idPrefix + "-m");
+    var pEl = root.querySelector("#" + idPrefix + "-p");
+    if (hEl && parts.h) hEl.value = parts.h;
+    if (mEl && parts.m) mEl.value = parts.m;
+    if (pEl && parts.p) pEl.value = parts.p;
+  },
+
+  /**
+   * Read appointment block → { from, to, opsAt } ISO strings.
+   * exact: from only; window: from+to; before: to only; till: from=midnight, to=bound.
+   */
+  readApptFields(root, prefix) {
+    var block = root.querySelector('[data-appt="' + prefix + '"]');
+    if (!block) return { from: null, to: null, opsAt: null };
+    var dateStr = (block.querySelector("#" + prefix + "-date") || {}).value || "";
+    var mode = (block.querySelector("#" + prefix + "-mode") || {}).value || "exact";
+    if (!dateStr) return { from: null, to: null, opsAt: null };
+
+    if (mode === "exact") {
+      var exact = this.readAmPmTime(block, prefix + "-exact");
+      var exactIso = this.combineDateTime(dateStr, exact || "00:00");
+      return { from: exactIso, to: null, opsAt: exactIso };
+    }
+    if (mode === "window") {
+      var fromT = this.readAmPmTime(block, prefix + "-from");
+      var toT = this.readAmPmTime(block, prefix + "-to");
+      var fromIso = this.combineDateTime(dateStr, fromT || "00:00");
+      var toIso = this.combineDateTime(dateStr, toT || fromT || "00:00");
+      return { from: fromIso, to: toIso, opsAt: toIso || fromIso };
+    }
+    if (mode === "before") {
+      var beforeT = this.readAmPmTime(block, prefix + "-bound");
+      var beforeIso = this.combineDateTime(dateStr, beforeT || "00:00");
+      return { from: null, to: beforeIso, opsAt: beforeIso };
+    }
+    // till — midnight start marks the mode when reloading
+    var tillT = this.readAmPmTime(block, prefix + "-bound");
+    var tillFrom = this.combineDateTime(dateStr, "00:00");
+    var tillTo = this.combineDateTime(dateStr, tillT || "00:00");
+    return { from: tillFrom, to: tillTo, opsAt: tillTo };
+  },
+
   render(root, subPageId) {
     if (!root) return;
     var self = this;
@@ -719,6 +1444,17 @@ window.GreenOSModules["dispatch"] = {
 
     if (active.id === "active-loads" || active.id === "completed-loads") {
       self.renderList(body, active.id === "completed-loads" ? "completed" : "active");
+      return;
+    }
+
+    if (active.id === "tracking") {
+      if (window.GreenOSModules && window.GreenOSModules.trucking) {
+        window.GreenOSModules.trucking.render(body);
+      } else {
+        body.innerHTML =
+          "<h2>Tracking</h2>" +
+          '<p class="gos-muted">Trucking board not loaded — hard refresh (Ctrl+F5).</p>';
+      }
       return;
     }
 
@@ -848,6 +1584,22 @@ window.GreenOSModules["dispatch"] = {
       sessionStorage.setItem("gos_viewing_load_id", id);
       if (self._tab) sessionStorage.setItem("gos_open_load_tab", self._tab);
     } catch (e) {}
+    if (window.GreenOS && typeof window.GreenOS.rememberDetail === "function") {
+      var st = window.history.state;
+      var already =
+        st &&
+        st.gos &&
+        st.detail &&
+        st.detail.type === "load" &&
+        st.detail.id === id;
+      if (!already) {
+        window.GreenOS.rememberDetail({
+          type: "load",
+          id: id,
+          tab: self._tab || "general",
+        });
+      }
+    }
     if (!body) {
       body = document.getElementById("load-tms-body");
     }
@@ -955,7 +1707,7 @@ window.GreenOSModules["dispatch"] = {
     var nowLabel = qaCurrent
       ? "Now: " + self.esc(qaCurrent.label)
       : waitingCarrierApproval
-        ? "Now: Approved Carrier"
+        ? "Now: Approve Carrier"
         : qaDone === qaSteps.length
           ? "All steps complete"
           : "In progress";
@@ -1050,7 +1802,7 @@ window.GreenOSModules["dispatch"] = {
     body.innerHTML =
       '<div class="load-layout">' +
       '<aside class="load-nav">' +
-      '<button type="button" class="load-back-btn" id="load-back">← All loads</button>' +
+      '<button type="button" class="load-back-btn" id="load-back">← Back</button>' +
       "<h3>" +
       self.esc(data.identity.loadNumber || "No Load #") +
       "</h3>" +
@@ -1082,15 +1834,22 @@ window.GreenOSModules["dispatch"] = {
     self.loadShipmentMarketRate(body, id);
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
-      self.clearOpenLoad();
-      self.renderList(body, self._listPhase || "active");
+      var fallback = function () {
+        self.clearOpenLoad();
+        self.renderList(body, self._listPhase || "active");
+      };
+      if (window.GreenOS && typeof window.GreenOS.goBack === "function") {
+        window.GreenOS.goBack(fallback);
+      } else {
+        fallback();
+      }
     });
 
     body.querySelectorAll(".load-tab").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var next = btn.getAttribute("data-tab");
         self._tab = next;
-        if (next === "tracking" && !(data.gps && data.gps.configured != null)) {
+        if (next === "tracking" && !(data.gps && data.gps.providerReady != null)) {
           self.openLoad(body, id, "tracking");
           return;
         }
@@ -1310,27 +2069,41 @@ window.GreenOSModules["dispatch"] = {
         field("Delivery", place(g.delivery)) +
         field(
           "Pickup date",
-          g.pickup && (g.pickup.from || g.pickup.opsAt)
-            ? new Date(g.pickup.from || g.pickup.opsAt).toLocaleString()
-            : "—"
+          self.formatApptSummary(
+            g.pickup && g.pickup.from,
+            g.pickup && g.pickup.to,
+            g.pickup && g.pickup.opsAt
+          )
         ) +
         field(
           "Delivery date",
-          g.delivery && (g.delivery.from || g.delivery.opsAt)
-            ? new Date(g.delivery.from || g.delivery.opsAt).toLocaleString()
-            : "—"
+          self.formatApptSummary(
+            g.delivery && g.delivery.from,
+            g.delivery && g.delivery.to,
+            g.delivery && g.delivery.opsAt
+          )
         ) +
         field("Equipment", g.equipment) +
         field("Commodity", g.commodity) +
         field("Weight", g.weight) +
         field("Pieces", g.pieces) +
         field("Miles", g.miles) +
-        field("Rate", self.money(custPrice)) +
+        field(
+          "Customer rate",
+          custPrice !== "" ? self.money(custPrice) : "— enter below"
+        ) +
         moneyGrid +
         field("Created", g.createdAt ? new Date(g.createdAt).toLocaleString() : "—") +
         field("Last Updated", g.updatedAt ? new Date(g.updatedAt).toLocaleString() : "—") +
         "</div>" +
         '<div class="load-edit-panel">' +
+        "<h3>Customer rate (взяли у customer)</h3>" +
+        '<p class="gos-muted">How much you took this load for from the customer. Brokers set this when the Load is created — used on Customer Invoice.</p>' +
+        '<div class="load-form-grid" style="margin-bottom:1rem">' +
+        "<label>Customer rate" +
+        self.moneyFieldHtml("ld-rate", custPrice, "1500.00") +
+        "</label>" +
+        "</div>" +
         moneyPanel +
         "<h3>Emails — Broker Gmail / Customer / Carrier</h3>" +
         '<p class="gos-muted">These emails go on Rate Con and BOL. Fill them as soon as the Load is created.</p>' +
@@ -1364,25 +2137,27 @@ window.GreenOSModules["dispatch"] = {
         '<label>Weight <input id="ld-weight" value="' + self.esc(g.weight || "") + '"></label>' +
         '<label>Pieces <input id="ld-pieces" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
         '<label>Miles <input id="ld-miles" type="number" value="' + self.esc(g.miles == null ? "" : g.miles) + '"></label>' +
-        '<label>Pickup date <input id="ld-pickup-date" type="date" value="' +
-        self.esc(self.toInputDate((g.pickup && (g.pickup.from || g.pickup.opsAt)) || "")) +
-        '"></label>' +
-        "<label>Pickup time" +
-        self.timeFieldHtml("ld-pickup-time", (g.pickup && (g.pickup.from || g.pickup.opsAt)) || "") +
-        "</label>" +
-        '<label>Delivery date <input id="ld-delivery-date" type="date" value="' +
-        self.esc(self.toInputDate((g.delivery && (g.delivery.from || g.delivery.opsAt)) || "")) +
-        '"></label>' +
-        "<label>Delivery time" +
-        self.timeFieldHtml("ld-delivery-time", (g.delivery && (g.delivery.from || g.delivery.opsAt)) || "") +
-        "</label>" +
-        "<label>Rate" +
-        self.moneyFieldHtml("ld-rate", custPrice, "0.00") +
-        "</label>" +
+        '<div class="full load-appt-row">' +
+        self.apptFieldHtml(
+          "ld-pickup",
+          "Pickup",
+          g.pickup && g.pickup.from,
+          g.pickup && g.pickup.to
+        ) +
+        self.apptFieldHtml(
+          "ld-delivery",
+          "Delivery",
+          g.delivery && g.delivery.from,
+          g.delivery && g.delivery.to
+        ) +
+        "</div>" +
         '<label class="full">Special Instructions <textarea id="ld-special">' + self.esc(g.specialInstructions || "") + "</textarea></label>" +
         "</div>" +
         '<button type="button" class="btn-primary" id="ld-save-general">Save</button>' +
         "</div>";
+
+      self.bindApptFields(main, "ld-pickup");
+      self.bindApptFields(main, "ld-delivery");
 
       function updateProfitView() {
         var a = parseFloat(self.parseMoneyInput(main.querySelector("#ld-cust-price").value));
@@ -1414,6 +2189,8 @@ window.GreenOSModules["dispatch"] = {
         try {
           var phoneRaw = main.querySelector("#ld-customer-phone").value || "";
           var phoneFmt = self.formatUsPhone(phoneRaw);
+          var pickupAppt = self.readApptFields(main, "ld-pickup");
+          var deliveryAppt = self.readApptFields(main, "ld-delivery");
           var payload = {
             customerName: main.querySelector("#ld-customer").value || null,
             customerEmail: main.querySelector("#ld-customer-email").value || null,
@@ -1425,22 +2202,12 @@ window.GreenOSModules["dispatch"] = {
             pieces: main.querySelector("#ld-pieces").value || null,
             miles: main.querySelector("#ld-miles").value || null,
             specialInstructions: main.querySelector("#ld-special").value || null,
-            pickupFrom: self.combineDateTime(
-              main.querySelector("#ld-pickup-date").value,
-              self.readAmPmTime(main, "ld-pickup-time")
-            ),
-            deliveryFrom: self.combineDateTime(
-              main.querySelector("#ld-delivery-date").value,
-              self.readAmPmTime(main, "ld-delivery-time")
-            ),
-            opsPickupAt: self.combineDateTime(
-              main.querySelector("#ld-pickup-date").value,
-              self.readAmPmTime(main, "ld-pickup-time")
-            ),
-            opsDeliveryAt: self.combineDateTime(
-              main.querySelector("#ld-delivery-date").value,
-              self.readAmPmTime(main, "ld-delivery-time")
-            ),
+            pickupFrom: pickupAppt.from,
+            pickupTo: pickupAppt.to,
+            deliveryFrom: deliveryAppt.from,
+            deliveryTo: deliveryAppt.to,
+            opsPickupAt: pickupAppt.opsAt,
+            opsDeliveryAt: deliveryAppt.opsAt,
             customerRate: self.parseMoneyInput(main.querySelector("#ld-rate").value),
           };
           if (showMoney) {
@@ -1477,7 +2244,7 @@ window.GreenOSModules["dispatch"] = {
       var nextStepHint = !c.carrierName
         ? "Next: assign carrier."
         : !carrierApproved
-          ? "Next: review carrier packet documents below, then click <strong>Approved Carrier</strong> — Rate Confirmation stays locked until then."
+          ? "Next: review carrier packet documents below, then click <strong>Approve Carrier</strong> — Rate Confirmation stays locked until then."
           : "Next: Generate Rate Confirmation.";
       main.innerHTML =
         "<h2>Assign Carrier</h2>" +
@@ -1533,30 +2300,35 @@ window.GreenOSModules["dispatch"] = {
         '<label>Truck <input id="ld-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
         '<label>Trailer <input id="ld-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
         '<label>Carrier Status <input id="ld-cstatus" value="' + self.esc(c.carrierStatus || "Assigned") + '"></label>' +
-        '<label>Pickup date <input id="ld-c-pickup-date" type="date" value="' +
-        self.esc(self.toInputDate((g.pickup && (g.pickup.from || g.pickup.opsAt)) || "")) +
-        '"></label>' +
-        "<label>Pickup time" +
-        self.timeFieldHtml("ld-c-pickup-time", (g.pickup && (g.pickup.from || g.pickup.opsAt)) || "") +
-        "</label>" +
-        '<label>Delivery date <input id="ld-c-delivery-date" type="date" value="' +
-        self.esc(self.toInputDate((g.delivery && (g.delivery.from || g.delivery.opsAt)) || "")) +
-        '"></label>' +
-        "<label>Delivery time" +
-        self.timeFieldHtml("ld-c-delivery-time", (g.delivery && (g.delivery.from || g.delivery.opsAt)) || "") +
-        "</label>" +
+        '<div class="full load-appt-row">' +
+        self.apptFieldHtml(
+          "ld-c-pickup",
+          "Pickup",
+          g.pickup && g.pickup.from,
+          g.pickup && g.pickup.to
+        ) +
+        self.apptFieldHtml(
+          "ld-c-delivery",
+          "Delivery",
+          g.delivery && g.delivery.from,
+          g.delivery && g.delivery.to
+        ) +
+        "</div>" +
         "</div>" +
         '<button type="button" class="btn-primary" id="ld-save-carrier">' +
         (c.carrierName ? "Save Carrier Changes" : "Save &amp; Assign Carrier") +
         "</button>" +
         '<p class="gos-muted" style="margin-top:0.5rem">' +
         (c.carrierName
-          ? "You can change the carrier or details. Status stays where the load already is."
+          ? "Changing <strong>both</strong> Carrier name and email creates a new Load Number for the new carrier. The previous Load Number keeps the old carrier and documents. Other field edits stay on this Load and may resend the onboarding link."
           : "After save → status <strong>Carrier Assigned</strong>. Green OS emails the Agreement + MC/NOA/W-9 link from <strong>your Gmail</strong> to the carrier.") +
         "</p>" +
         "</div>";
       self.bindUsPhoneInput(main.querySelector("#ld-carrier-phone"));
       self.bindUsPhoneInput(main.querySelector("#ld-driver-phone"));
+      self.bindApptFields(main, "ld-c-pickup");
+      self.bindApptFields(main, "ld-c-delivery");
+      self.bindCarrierAutofill(main, c);
       self.bindCarrierOnboardingActions(main, c, { loadId: id, tab: "carrier" });
       main.querySelector("#ld-save-carrier")?.addEventListener("click", async function () {
         var name = (main.querySelector("#ld-carrier").value || "").trim();
@@ -1566,14 +2338,9 @@ window.GreenOSModules["dispatch"] = {
           return;
         }
         try {
-          var pickupIso = self.combineDateTime(
-            main.querySelector("#ld-c-pickup-date").value,
-            self.readAmPmTime(main, "ld-c-pickup-time")
-          );
-          var deliveryIso = self.combineDateTime(
-            main.querySelector("#ld-c-delivery-date").value,
-            self.readAmPmTime(main, "ld-c-delivery-time")
-          );
+          var pickupAppt = self.readApptFields(main, "ld-c-pickup");
+          var deliveryAppt = self.readApptFields(main, "ld-c-delivery");
+          var profileIdEl = main.querySelector("#ld-carrier-profile-id");
           var carrierPayload = {
             carrierName: name,
             carrierEmail: main.querySelector("#ld-carrier-email").value || null,
@@ -1586,55 +2353,141 @@ window.GreenOSModules["dispatch"] = {
             truckNumber: main.querySelector("#ld-truck").value || null,
             trailerNumber: main.querySelector("#ld-trailer").value || null,
             carrierStatus: main.querySelector("#ld-cstatus").value || "Assigned",
-            pickupFrom: pickupIso,
-            deliveryFrom: deliveryIso,
-            opsPickupAt: pickupIso,
-            opsDeliveryAt: deliveryIso,
+            carrierProfileId:
+              profileIdEl && profileIdEl.value ? String(profileIdEl.value).trim() : null,
+            pickupFrom: pickupAppt.from,
+            pickupTo: pickupAppt.to,
+            deliveryFrom: deliveryAppt.from,
+            deliveryTo: deliveryAppt.to,
+            opsPickupAt: pickupAppt.opsAt,
+            opsDeliveryAt: deliveryAppt.opsAt,
           };
           var curStatus = String((data.identity && data.identity.status) || "").toUpperCase();
-          if (!c.carrierName || curStatus === "LOAD_CREATED" || curStatus === "DISPATCH") {
+          var isFirstAssign = !c.carrierName;
+          if (isFirstAssign || curStatus === "LOAD_CREATED" || curStatus === "DISPATCH") {
             carrierPayload.status = "CARRIER_ASSIGNED";
           }
           if (showMoney && main.querySelector("#ld-carr-price")) {
             carrierPayload.carrierRate = self.parseMoneyInput(main.querySelector("#ld-carr-price").value);
           }
-          await self.api("/" + encodeURIComponent(id), {
+
+          // 2nd / 3rd / later "Save Carrier Changes": resend online link only if fields changed.
+          var prevPickup = (g.pickup && (g.pickup.from || g.pickup.opsAt || g.pickup.to)) || null;
+          var prevDelivery =
+            (g.delivery && (g.delivery.from || g.delivery.opsAt || g.delivery.to)) || null;
+          var nextPickup = pickupAppt.opsAt || pickupAppt.from || pickupAppt.to || null;
+          var nextDelivery = deliveryAppt.opsAt || deliveryAppt.from || deliveryAppt.to || null;
+          var fieldChanges = [
+            self.normCarrierText(carrierPayload.carrierName) !== self.normCarrierText(c.carrierName),
+            self.normCarrierText(carrierPayload.carrierEmail) !== self.normCarrierText(c.carrierEmail),
+            self.normCarrierPhone(carrierPayload.carrierPhone) !== self.normCarrierPhone(c.carrierPhone),
+            self.normCarrierText(carrierPayload.carrierMc) !== self.normCarrierText(c.mc),
+            self.normCarrierText(carrierPayload.carrierDot) !== self.normCarrierText(c.dot),
+            self.normCarrierText(carrierPayload.carrierInsurance) !== self.normCarrierText(c.insurance),
+            self.normCarrierText(carrierPayload.driverName) !== self.normCarrierText(c.driverName),
+            self.normCarrierPhone(carrierPayload.driverPhone) !== self.normCarrierPhone(c.driverPhone),
+            self.normCarrierText(carrierPayload.truckNumber) !== self.normCarrierText(c.truckNumber),
+            self.normCarrierText(carrierPayload.trailerNumber) !== self.normCarrierText(c.trailerNumber),
+            self.normCarrierText(carrierPayload.carrierStatus) !==
+              self.normCarrierText(c.carrierStatus || "Assigned"),
+            self.normCarrierIso(nextPickup) !== self.normCarrierIso(prevPickup) ||
+              self.normCarrierIso(pickupAppt.from) !== self.normCarrierIso(g.pickup && g.pickup.from) ||
+              self.normCarrierIso(pickupAppt.to) !== self.normCarrierIso(g.pickup && g.pickup.to),
+            self.normCarrierIso(nextDelivery) !== self.normCarrierIso(prevDelivery) ||
+              self.normCarrierIso(deliveryAppt.from) !==
+                self.normCarrierIso(g.delivery && g.delivery.from) ||
+              self.normCarrierIso(deliveryAppt.to) !== self.normCarrierIso(g.delivery && g.delivery.to),
+          ];
+          if (showMoney && main.querySelector("#ld-carr-price")) {
+            var prevRate =
+              p.carrierRate != null && p.carrierRate !== "" ? Number(p.carrierRate) : null;
+            var nextRate =
+              carrierPayload.carrierRate != null && carrierPayload.carrierRate !== ""
+                ? Number(carrierPayload.carrierRate)
+                : null;
+            var prevRateKey = Number.isFinite(prevRate) ? prevRate.toFixed(2) : "";
+            var nextRateKey = Number.isFinite(nextRate) ? nextRate.toFixed(2) : "";
+            fieldChanges.push(prevRateKey !== nextRateKey);
+          }
+          var hasCarrierFieldChanges = fieldChanges.some(Boolean);
+          var shouldResendInvite = isFirstAssign || hasCarrierFieldChanges;
+
+          var nameAndEmailChange =
+            !isFirstAssign &&
+            self.normCarrierText(carrierPayload.carrierName) !== self.normCarrierText(c.carrierName) &&
+            self.normCarrierText(carrierPayload.carrierEmail) !== self.normCarrierText(c.carrierEmail);
+
+          var saved = await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
             body: JSON.stringify(carrierPayload),
           });
+          var fork = saved && saved.carrierChangeFork ? saved.carrierChangeFork : null;
+          var targetId =
+            fork && fork.newShipmentLeadId ? String(fork.newShipmentLeadId) : id;
           var inviteMsg = "";
-          try {
-            var token = localStorage.getItem("gl_token") || "";
-            var invRes = await fetch(
-              "/api/carriers/from-load/" + encodeURIComponent(id) + "/invite-agreement",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: "Bearer " + token,
-                },
-                body: "{}",
-              }
-            );
-            var invJson = await invRes.json().catch(function () { return {}; });
-            if (!invRes.ok || invJson.success === false) {
-              inviteMsg =
-                "\n\nCarrier saved, but onboarding email failed:\n" +
-                (invJson.message || "Connect Broker Gmail, then Resend from Carriers.");
-            } else if (invJson.data && invJson.data.invite && invJson.data.invite.skipped) {
-              inviteMsg =
-                "\n\nRegistered carrier linked. Review packet documents below, then click Approved Carrier.";
-            } else {
-              inviteMsg =
-                "\n\nSecure Agreement link emailed to the carrier from your Gmail.";
-            }
-          } catch (inviteErr) {
+          if (fork && fork.newLoadNumber) {
             inviteMsg =
-              "\n\nCarrier saved, but onboarding email failed. Connect Broker Gmail and resend.";
+              "\n\nCarrier change (Name + Email) → new Load Number " +
+              fork.newLoadNumber +
+              " created. Prior Load " +
+              (fork.previousLoadNumber || "—") +
+              " keeps the previous carrier and documents. Continuing on the new Load.";
           }
-          alert((c.carrierName ? "Carrier updated." : "Carrier assigned.") + inviteMsg);
+          if (!shouldResendInvite && !fork) {
+            inviteMsg =
+              "\n\nNo field changes — onboarding link was not resent to the same carrier.";
+          } else {
+            try {
+              var token = localStorage.getItem("gl_token") || "";
+              var invRes = await fetch(
+                "/api/carriers/from-load/" + encodeURIComponent(targetId) + "/invite-agreement",
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: "Bearer " + token,
+                  },
+                  body: JSON.stringify({
+                    reason: isFirstAssign
+                      ? "assign"
+                      : nameAndEmailChange || fork
+                        ? "carrier_change"
+                        : "carrier_fields_changed",
+                  }),
+                }
+              );
+              var invJson = await invRes.json().catch(function () { return {}; });
+              if (!invRes.ok || invJson.success === false) {
+                inviteMsg +=
+                  "\n\nCarrier saved, but onboarding email failed:\n" +
+                  (invJson.message || "Connect Broker Gmail, then Resend from Carriers.");
+              } else if (invJson.data && invJson.data.invite && invJson.data.invite.skipped) {
+                inviteMsg +=
+                  "\n\nRegistered carrier linked. Review packet documents below, then click Approve Carrier.";
+              } else if (isFirstAssign) {
+                inviteMsg +=
+                  "\n\nSecure Agreement link emailed to the carrier from your Gmail.";
+              } else if (fork || nameAndEmailChange) {
+                inviteMsg +=
+                  "\n\nNew carrier registration — secure Agreement link emailed from your Gmail.";
+              } else {
+                inviteMsg +=
+                  "\n\nFields changed — secure Agreement link emailed again to the carrier from your Gmail.";
+              }
+            } catch (inviteErr) {
+              inviteMsg +=
+                "\n\nCarrier saved, but onboarding email failed. Connect Broker Gmail and resend.";
+            }
+          }
+          alert(
+            (fork
+              ? "New Load created for carrier change."
+              : c.carrierName
+                ? "Carrier updated."
+                : "Carrier assigned.") + inviteMsg
+          );
           var host = document.querySelector("#load-tms-body");
-          self.openLoad(host, id, "carrier");
+          self.openLoad(host, targetId, "carrier");
         } catch (err) {
           alert(err.message || err);
         }
@@ -1713,6 +2566,13 @@ window.GreenOSModules["dispatch"] = {
       var active = gps.active || null;
       var ready = gps.providerReady && gps.providerReady.carrier_view;
       var gpsHtml = "";
+      var gpsErrorHtml = "";
+      if (gps.error) {
+        gpsErrorHtml =
+          '<p style="margin-top:0.75rem;color:var(--red)">GPS status error: ' +
+          self.esc(gps.error) +
+          "</p>";
+      }
       if (active) {
         gpsHtml =
           '<div class="load-grid" style="margin-top:1rem">' +
@@ -1735,6 +2595,12 @@ window.GreenOSModules["dispatch"] = {
           field("Tracking URL", active.trackingUrl || "—") +
           field("Client URL", active.clientTrackingUrl || "—") +
           "</div>";
+        if (active.lastError) {
+          gpsHtml +=
+            '<p style="margin-top:0.5rem;color:var(--red)">CarrierView last error: ' +
+            self.esc(active.lastError) +
+            "</p>";
+        }
         if (active.lastLatitude != null && active.lastLongitude != null) {
           var mapUrl =
             "https://www.openstreetmap.org/?mlat=" +
@@ -1765,6 +2631,7 @@ window.GreenOSModules["dispatch"] = {
             ? '<p class="gos-muted">Provider connected. Webhooks update live position.</p>'
             : '<p class="gos-muted">CarrierView token configured but <code>CARRIER_VIEW_ENABLED=false</code>.</p>'
           : '<p class="gos-muted">Set <code>CARRIER_VIEW_API_BASE_URL</code> + <code>CARRIER_VIEW_API_TOKEN</code> on the server.</p>') +
+        gpsErrorHtml +
         gpsHtml +
         '<div class="load-edit-panel" style="margin-top:1rem">' +
         '<div class="load-form-grid">' +
@@ -2564,8 +3431,6 @@ window.GreenOSModules["dispatch"] = {
       }
     }
 
-    var pickupSrc = (g.pickup && (g.pickup.opsAt || g.pickup.from)) || null;
-    var deliverySrc = (g.delivery && (g.delivery.opsAt || g.delivery.from)) || null;
     var prev = self.currentDocContent(data, "RATE_CONFIRMATION");
     function pick(key, fallback) {
       var v = prev[key];
@@ -2582,13 +3447,13 @@ window.GreenOSModules["dispatch"] = {
 
     box.innerHTML =
       "<h3>Generate Rate Confirmation</h3>" +
-      '<p class="gos-muted">Fields auto-fill from this Load. Add contacts, times, rate and notes — then create the PDF (new version, never overwrite).</p>' +
+      '<p class="gos-muted">Fields auto-fill from this Load. Add contacts, times, rate and notes — then create the PDF. Green OS emails a secure link from your Gmail so the carrier can sign the Rate Confirmation.</p>' +
       '<div class="load-form-grid">' +
       '<label>Load No <input id="rc-load" value="' + self.esc(g.loadNumber || "") + '" readonly></label>' +
       '<label>Shipment <input id="rc-ship" value="' + self.esc(g.shipmentNumber || "") + '" readonly></label>' +
       '<label>Confirmation date <input id="rc-date" value="' + self.esc(new Date().toLocaleDateString()) + '"></label>' +
       '<label>Broker <input id="rc-broker" value="' + self.esc((g.broker && g.broker.name) || "") + '"></label>' +
-      '<label>Broker Gmail <input id="rc-broker-email" value="' +
+      '<label>Broker Email <input id="rc-broker-email" value="' +
       self.esc((data.contacts && data.contacts.brokerGmail) || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "") +
       '" readonly></label>' +
       '<label>Customer email * <input id="rc-customer-email" type="email" value="' +
@@ -2603,25 +3468,47 @@ window.GreenOSModules["dispatch"] = {
       '<label>Carrier phone <input id="rc-cphone" type="tel" value="' +
       self.esc(self.formatUsPhone(c.carrierPhone || "")) +
       '" placeholder="(XXX) XXX-XXXX"></label>' +
-      '<label>Equipment <input id="rc-equip" value="' + self.esc(g.equipment || "") + '"></label>' +
+      '<label>Equipment <input id="rc-equip" value="' + self.esc(g.equipment || "") + '" placeholder="FTL / LTL"></label>' +
+      '<label>Truck / Trailer type <input id="rc-truck-type" value="' +
+      self.esc(pick("truckTrailerType", "")) +
+      '" placeholder="Dry Van, Reefer, Flatbed…"></label>' +
       '<label>Weight * <input id="rc-weight" value="' + self.esc(g.weight || "") + '" required></label>' +
       '<label>Commodity * <input id="rc-commodity" value="' + self.esc(g.commodity || "") + '" required></label>' +
       "<label>Flat Rate $USD *" +
       self.moneyFieldHtml("rc-rate", p.carrierRate || "", "1000.00") +
       "</label>" +
-      '<label class="full">Origin (pickup address) * <input id="rc-origin" value="' + self.esc(place(g.pickup)) + '" required></label>' +
-      '<label>Pickup date * <input id="rc-pdate" type="date" value="' + self.esc(self.toInputDate(pickupSrc)) + '" required></label>' +
-      "<label>Pickup time" +
-      self.timeFieldHtml("rc-ptime", pickupSrc) +
-      "</label>" +
+      '<label class="full">Origin (pickup address) * <input id="rc-origin" value="' +
+      self.esc(pick("pickupAddress", place(g.pickup))) +
+      '" required></label>' +
+      '<div class="full">' +
+      self.apptFieldHtml(
+        "rc-pickup",
+        "Pickup time *",
+        g.pickup && g.pickup.from,
+        g.pickup && g.pickup.to
+      ) +
+      "</div>" +
+      '<div id="rc-extra-origins" class="load-extra-stops"></div>' +
+      '<div class="load-extra-stops-actions">' +
+      '<button type="button" class="btn-secondary" id="rc-add-origin">+ Add Origin</button></div>' +
       '<label class="full">Pickup contact <input id="rc-pcontact" placeholder="Name / phone at shipper" value="' +
       self.esc(pick("pickupContact", "")) +
       '"></label>' +
-      '<label class="full">Final destination * <input id="rc-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '" required></label>' +
-      '<label>Delivery date * <input id="rc-ddate" type="date" value="' + self.esc(self.toInputDate(deliverySrc)) + '" required></label>' +
-      "<label>Delivery time" +
-      self.timeFieldHtml("rc-dtime", deliverySrc) +
-      "</label>" +
+      '<div class="full load-form-section-break" aria-hidden="true"></div>' +
+      '<label class="full load-form-section-start">Final destination * <input id="rc-dest" value="' +
+      self.esc(pick("deliveryAddress", place(g.delivery))) +
+      '" required></label>' +
+      '<div class="full">' +
+      self.apptFieldHtml(
+        "rc-delivery",
+        "Delivery time *",
+        g.delivery && g.delivery.from,
+        g.delivery && g.delivery.to
+      ) +
+      "</div>" +
+      '<div id="rc-extra-dests" class="load-extra-stops"></div>' +
+      '<div class="load-extra-stops-actions">' +
+      '<button type="button" class="btn-secondary" id="rc-add-dest">+ Add Destination</button></div>' +
       '<label class="full">Delivery contact <input id="rc-dcontact" placeholder="Name / phone at consignee" value="' +
       self.esc(pick("deliveryContact", "")) +
       '"></label>' +
@@ -2632,7 +3519,12 @@ window.GreenOSModules["dispatch"] = {
       '<label>Truck # <input id="rc-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
       '<label>Trailer # <input id="rc-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
       '<label class="full">Payment option <input id="rc-pay" value="' +
-      self.esc(pick("paymentOption", "")) +
+      self.esc(
+        pick(
+          "paymentOption",
+          c.paymentOptionLabel || self.carrierPaymentOptionLabel(c.paymentOption) || ""
+        )
+      ) +
       '" placeholder="QuickPay / Factoring / Net 30…"></label>' +
       '<label class="full">Delivery note <textarea id="rc-delnote" rows="2">' +
       self.esc(pick("deliveryNote", "")) +
@@ -2654,6 +3546,16 @@ window.GreenOSModules["dispatch"] = {
     box.scrollIntoView({ behavior: "smooth", block: "start" });
     self.bindUsPhoneInput(box.querySelector("#rc-cphone"));
     self.bindUsPhoneInput(box.querySelector("#rc-dphone"));
+    self.bindApptFields(box, "rc-pickup");
+    self.bindApptFields(box, "rc-delivery");
+    self.bindExtraStops(box, {
+      originWrap: "#rc-extra-origins",
+      destWrap: "#rc-extra-dests",
+      addOriginBtn: "#rc-add-origin",
+      addDestBtn: "#rc-add-dest",
+      initialOrigins: Array.isArray(prev.additionalOrigins) ? prev.additionalOrigins : [],
+      initialDests: Array.isArray(prev.additionalDestinations) ? prev.additionalDestinations : [],
+    });
 
     box.querySelector("#rc-cancel")?.addEventListener("click", function () {
       box.classList.add("hidden");
@@ -2668,9 +3570,13 @@ window.GreenOSModules["dispatch"] = {
       var commodity = (box.querySelector("#rc-commodity").value || "").trim();
       var rate = self.parseMoneyInput(box.querySelector("#rc-rate").value);
       var origin = (box.querySelector("#rc-origin").value || "").trim();
-      var pickupDate = (box.querySelector("#rc-pdate").value || "").trim();
       var dest = (box.querySelector("#rc-dest").value || "").trim();
-      var deliveryDate = (box.querySelector("#rc-ddate").value || "").trim();
+      var pickupAppt = self.readApptFields(box, "rc-pickup");
+      var deliveryAppt = self.readApptFields(box, "rc-delivery");
+      var pickupDate =
+        self.toInputDate(pickupAppt.opsAt || pickupAppt.to || pickupAppt.from || "") || "";
+      var deliveryDate =
+        self.toInputDate(deliveryAppt.opsAt || deliveryAppt.to || deliveryAppt.from || "") || "";
       var emailOk = function (v) {
         return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
       };
@@ -2684,9 +3590,9 @@ window.GreenOSModules["dispatch"] = {
         { ok: !!commodity, el: "#rc-commodity", msg: "Commodity is required." },
         { ok: !!rate, el: "#rc-rate", msg: "Flat Rate ($USD) is required." },
         { ok: !!origin, el: "#rc-origin", msg: "Origin (pickup address) is required." },
-        { ok: !!pickupDate, el: "#rc-pdate", msg: "Pickup date is required." },
+        { ok: !!pickupDate, el: "#rc-pickup-date", msg: "Pickup date is required." },
         { ok: !!dest, el: "#rc-dest", msg: "Final destination is required." },
-        { ok: !!deliveryDate, el: "#rc-ddate", msg: "Delivery date is required." },
+        { ok: !!deliveryDate, el: "#rc-delivery-date", msg: "Delivery date is required." },
       ];
       for (var i = 0; i < required.length; i++) {
         if (!required[i].ok) {
@@ -2722,22 +3628,12 @@ window.GreenOSModules["dispatch"] = {
                 commodity: commodity,
                 specialInstructions: box.querySelector("#rc-notes").value || null,
                 carrierNotes: box.querySelector("#rc-delnote").value || null,
-                pickupFrom: self.combineDateTime(
-                  pickupDate,
-                  self.readAmPmTime(box, "rc-ptime")
-                ),
-                deliveryFrom: self.combineDateTime(
-                  deliveryDate,
-                  self.readAmPmTime(box, "rc-dtime")
-                ),
-                opsPickupAt: self.combineDateTime(
-                  pickupDate,
-                  self.readAmPmTime(box, "rc-ptime")
-                ),
-                opsDeliveryAt: self.combineDateTime(
-                  deliveryDate,
-                  self.readAmPmTime(box, "rc-dtime")
-                ),
+                pickupFrom: pickupAppt.from,
+                pickupTo: pickupAppt.to,
+                deliveryFrom: deliveryAppt.from,
+                deliveryTo: deliveryAppt.to,
+                opsPickupAt: pickupAppt.opsAt,
+                opsDeliveryAt: deliveryAppt.opsAt,
               },
               // Money / books: Accounting+Owner only. Brokers still put Flat Rate on the PDF.
               self.canSeeMoney() ? { carrierRate: rate } : {}
@@ -2746,8 +3642,6 @@ window.GreenOSModules["dispatch"] = {
         });
 
         if (statusEl) statusEl.textContent = "Generating Rate Confirmation PDF…";
-        var pickupTime24 = self.readAmPmTime(box, "rc-ptime");
-        var deliveryTime24 = self.readAmPmTime(box, "rc-dtime");
         var content = {
           loadNumber: box.querySelector("#rc-load").value,
           shipmentNumber: box.querySelector("#rc-ship").value,
@@ -2761,17 +3655,28 @@ window.GreenOSModules["dispatch"] = {
           carrierDot: box.querySelector("#rc-dot").value,
           carrierPhone: self.formatUsPhone(box.querySelector("#rc-cphone").value) || box.querySelector("#rc-cphone").value,
           equipment: box.querySelector("#rc-equip").value,
+          truckTrailerType: (box.querySelector("#rc-truck-type").value || "").trim() || null,
           weight: box.querySelector("#rc-weight").value,
           commodity: box.querySelector("#rc-commodity").value,
           flatRate: rate,
           carrierRate: rate,
           pickupAddress: box.querySelector("#rc-origin").value,
-          pickupDate: box.querySelector("#rc-pdate").value,
-          pickupTime: self.formatAmPmLabel(pickupTime24) || pickupTime24,
+          additionalOrigins: self.collectExtraStops(box, "#rc-extra-origins"),
+          pickupDate: pickupDate,
+          pickupTime: self.formatApptTimeOnly(
+            pickupAppt.from,
+            pickupAppt.to,
+            pickupAppt.opsAt
+          ),
           pickupContact: box.querySelector("#rc-pcontact").value,
           deliveryAddress: box.querySelector("#rc-dest").value,
-          deliveryDate: box.querySelector("#rc-ddate").value,
-          deliveryTime: self.formatAmPmLabel(deliveryTime24) || deliveryTime24,
+          additionalDestinations: self.collectExtraStops(box, "#rc-extra-dests"),
+          deliveryDate: deliveryDate,
+          deliveryTime: self.formatApptTimeOnly(
+            deliveryAppt.from,
+            deliveryAppt.to,
+            deliveryAppt.opsAt
+          ),
           deliveryContact: box.querySelector("#rc-dcontact").value,
           driverName: box.querySelector("#rc-driver").value,
           driverPhone: self.formatUsPhone(box.querySelector("#rc-dphone").value) || box.querySelector("#rc-dphone").value,
@@ -2801,6 +3706,30 @@ window.GreenOSModules["dispatch"] = {
           }),
         });
 
+                if (statusEl) statusEl.textContent = "Sending Rate Confirmation sign link to carrier…";
+        try {
+          var rcToken = localStorage.getItem("gl_token") || "";
+          var rcInvRes = await fetch(
+            "/api/carriers/from-load/" + encodeURIComponent(id) + "/invite-rc-bol",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + rcToken,
+              },
+              body: JSON.stringify({ kind: "rc_sign" }),
+            }
+          );
+          var rcInvJson = await rcInvRes.json().catch(function () { return {}; });
+          if (!rcInvRes.ok || rcInvJson.success === false) {
+            alert(
+              "Rate Confirmation saved, but RC sign email failed:\n" +
+                (rcInvJson.message || "Connect Broker Gmail and retry.")
+            );
+          }
+        } catch (rcInvErr) {
+          alert("Rate Confirmation saved, but RC sign email failed. Connect Broker Gmail.");
+        }
         if (statusEl) statusEl.textContent = "Done — opening PDF…";
         await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");
         if (row && row.documentId) {
@@ -2861,21 +3790,20 @@ window.GreenOSModules["dispatch"] = {
 
     box.innerHTML =
       "<h3>Generate Bill of Lading</h3>" +
-      '<p class="gos-muted">Layout matches Green Logistics Master BOL (SHIPS FROM / SHIPS TO / Carrier / Order / Signatures). Emails included.</p>' +
+      '<p class="gos-muted">Layout matches Green Logistics Master BOL (SHIPS FROM / SHIPS TO / Carrier / Order / Signatures). Broker + carrier emails only — no customer info on BOL.</p>' +
       '<div class="load-form-grid">' +
       '<label>BOL / Load No <input id="bol-no" value="' + self.esc(g.loadNumber || "") + '"></label>' +
       '<label>Pickup date <input id="bol-pdate" value="' + self.esc(dt(pickupSrc)) + '"></label>' +
       '<label>Broker Gmail <input id="bol-broker-email" value="' +
       self.esc(contacts.brokerGmail || (g.broker && g.broker.gmail) || (g.broker && g.broker.email) || "") +
       '" readonly></label>' +
-      '<label>Customer email <input id="bol-customer-email" type="email" value="' +
-      self.esc(contacts.customerEmail || g.customerEmail || "") +
-      '"></label>' +
       '<label>Carrier email * <input id="bol-carrier-email" type="email" value="' +
       self.esc(c.carrierEmail || contacts.carrierEmail || "") +
       '"></label>' +
-      '<label>Customer <input id="bol-customer" value="' + self.esc(g.customer || "") + '"></label>' +
       '<label class="full">SHIPS FROM (origin) * <input id="bol-origin" value="' + self.esc(pick("pickupAddress", place(g.pickup))) + '" required></label>' +
+      '<div id="bol-extra-origins" class="load-extra-stops"></div>' +
+      '<div class="load-extra-stops-actions">' +
+      '<button type="button" class="btn-secondary" id="bol-add-origin">+ Add Origin</button></div>' +
       '<label>Shipper ID No. <input id="bol-shipper-id" value="' + self.esc(pick("shipperIdNo", "")) + '"></label>' +
       '<label>Seal No. <input id="bol-seal" value="' + self.esc(pick("sealNo", "")) + '"></label>' +
       '<label>FOB <input id="bol-fob" value="' + self.esc(pick("fob", "")) + '"></label>' +
@@ -2885,6 +3813,9 @@ window.GreenOSModules["dispatch"] = {
       '<option value="3RD_PARTY">3RD PARTY</option>' +
       "</select></label>" +
       '<label class="full">SHIPS TO (destination) * <input id="bol-dest" value="' + self.esc(pick("deliveryAddress", place(g.delivery))) + '" required></label>' +
+      '<div id="bol-extra-dests" class="load-extra-stops"></div>' +
+      '<div class="load-extra-stops-actions">' +
+      '<button type="button" class="btn-secondary" id="bol-add-dest">+ Add Destination</button></div>' +
       '<label>Consignee ID No. <input id="bol-consignee-id" value="' + self.esc(pick("consigneeIdNo", "")) + '"></label>' +
       '<label>Delivery contact <input id="bol-dcontact" value="' + self.esc(pick("deliveryContact", "")) + '"></label>' +
       '<label>Carrier <input id="bol-carrier" value="' + self.esc(c.carrierName || "") + '"></label>' +
@@ -2893,7 +3824,15 @@ window.GreenOSModules["dispatch"] = {
       '<label>Trailer# <input id="bol-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
       '<label>VIN# <input id="bol-vin" value="' + self.esc(pick("vinNumber", "")) + '"></label>' +
       '<label>Carrier / driver contact <input id="bol-cphone" value="' + self.esc(c.driverName || "") + '"></label>' +
-      '<label class="full">Third party freight bills to <input id="bol-third" value="' + self.esc(g.customer || "") + '"></label>' +
+      '<label class="full">Third party freight bills to <input id="bol-third" value="' +
+      self.esc(
+        pick(
+          "thirdPartyBillTo",
+          "Green Logistics LLC\n121 Frog Hollow RD, Churchville, PA 18966\nPhone: 267 703 5313"
+        )
+      ) +
+      '" readonly></label>' +
+      '<p class="gos-muted" style="margin:-0.35rem 0 0.5rem">Always Green Logistics LLC (company address + phone) — not the customer.</p>' +
       '<label>Customer order no. <input id="bol-order" value="' + self.esc(pick("customerOrderNo", "")) + '"></label>' +
       '<label># Pkgs <input id="bol-pkgs" type="number" value="' + self.esc(g.pieces == null ? "" : g.pieces) + '"></label>' +
       '<label>Weight * <input id="bol-weight" value="' + self.esc(g.weight || "") + '" required></label>' +
@@ -2912,7 +3851,7 @@ window.GreenOSModules["dispatch"] = {
       "</div>" +
       '<div class="load-actions" style="margin-top:0.75rem">' +
       '<button type="button" class="btn-primary" id="bol-generate">Save &amp; Generate BOL PDF</button>' +
-      '<p class="gos-muted" style="margin:0.35rem 0 0">After Save, Green OS emails the filled RC + BOL secure link from your Gmail to the carrier.</p>' +
+      '<p class="gos-muted" style="margin:0.35rem 0 0">After Save, Green OS emails a BOL / POD secure link from your Gmail (no Rate Confirmation).</p>' +
       '<button type="button" class="btn-secondary" id="bol-cancel">Cancel</button>' +
       "</div>" +
       '<p id="bol-status" class="gos-muted" style="margin-top:0.5rem"></p>';
@@ -2939,6 +3878,15 @@ window.GreenOSModules["dispatch"] = {
     if (box.querySelector("#bol-ptype") && prev.packageType) {
       box.querySelector("#bol-ptype").value = prev.packageType;
     }
+    self.bindExtraStops(box, {
+      originWrap: "#bol-extra-origins",
+      destWrap: "#bol-extra-dests",
+      addOriginBtn: "#bol-add-origin",
+      addDestBtn: "#bol-add-dest",
+      initialOrigins: Array.isArray(prev.additionalOrigins) ? prev.additionalOrigins : [],
+      initialDests: Array.isArray(prev.additionalDestinations) ? prev.additionalDestinations : [],
+    });
+
     box.querySelector("#bol-cancel")?.addEventListener("click", function () {
       box.classList.add("hidden");
       box.innerHTML = "";
@@ -2971,8 +3919,6 @@ window.GreenOSModules["dispatch"] = {
         await self.api("/" + encodeURIComponent(id), {
           method: "PATCH",
           body: JSON.stringify({
-            customerName: box.querySelector("#bol-customer").value || null,
-            customerEmail: box.querySelector("#bol-customer-email").value || null,
             carrierName: box.querySelector("#bol-carrier").value || null,
             carrierEmail: carrierEmail,
             carrierMc: box.querySelector("#bol-mc").value || null,
@@ -2987,14 +3933,11 @@ window.GreenOSModules["dispatch"] = {
         if (statusEl) statusEl.textContent = "Generating Master BOL PDF…";
         var content = {
           loadNumber: g.loadNumber,
-          shipmentNumber: g.shipmentNumber,
           bolNumber: box.querySelector("#bol-no").value,
           pickupDate: box.querySelector("#bol-pdate").value,
           deliveryDate: dt(deliverySrc),
           brokerEmail: box.querySelector("#bol-broker-email").value,
           brokerName: (g.broker && g.broker.name) || "",
-          customerName: box.querySelector("#bol-customer").value,
-          customerEmail: box.querySelector("#bol-customer-email").value,
           carrierName: box.querySelector("#bol-carrier").value,
           carrierEmail: carrierEmail,
           carrierMc: box.querySelector("#bol-mc").value,
@@ -3003,13 +3946,16 @@ window.GreenOSModules["dispatch"] = {
           trailerNumber: box.querySelector("#bol-trailer").value,
           vinNumber: box.querySelector("#bol-vin").value,
           pickupAddress: origin,
+          additionalOrigins: self.collectExtraStops(box, "#bol-extra-origins"),
           deliveryAddress: dest,
+          additionalDestinations: self.collectExtraStops(box, "#bol-extra-dests"),
           shipperIdNo: box.querySelector("#bol-shipper-id").value,
           consigneeIdNo: box.querySelector("#bol-consignee-id").value,
           sealNo: box.querySelector("#bol-seal").value,
           fob: box.querySelector("#bol-fob").value,
           freightTerms: box.querySelector("#bol-terms").value,
-          thirdPartyBillTo: box.querySelector("#bol-third").value,
+          thirdPartyBillTo:
+            "Green Logistics LLC\n121 Frog Hollow RD, Churchville, PA 18966\nPhone: 267 703 5313",
           deliveryContact: box.querySelector("#bol-dcontact").value,
           customerOrderNo: box.querySelector("#bol-order").value,
           pieces: box.querySelector("#bol-pkgs").value,
@@ -3036,7 +3982,7 @@ window.GreenOSModules["dispatch"] = {
           method: "POST",
           body: JSON.stringify({ changeReason: changeReason || "GENERATED", content: content }),
         });
-        if (statusEl) statusEl.textContent = "Sending RC/BOL secure link to carrier…";
+        if (statusEl) statusEl.textContent = "Sending BOL / POD secure link to carrier…";
         try {
           var bolToken = localStorage.getItem("gl_token") || "";
           var bolInvRes = await fetch(
@@ -3047,18 +3993,18 @@ window.GreenOSModules["dispatch"] = {
                 "Content-Type": "application/json",
                 Authorization: "Bearer " + bolToken,
               },
-              body: "{}",
+              body: JSON.stringify({ kind: "bol_pod" }),
             }
           );
           var bolInvJson = await bolInvRes.json().catch(function () { return {}; });
           if (!bolInvRes.ok || bolInvJson.success === false) {
             alert(
-              "BOL saved, but RC/BOL email failed:\n" +
+              "BOL saved, but BOL / POD email failed:\n" +
                 (bolInvJson.message || "Connect Broker Gmail and retry.")
             );
           }
         } catch (bolInvErr) {
-          alert("BOL saved, but RC/BOL email failed. Connect Broker Gmail.");
+          alert("BOL saved, but BOL / POD email failed. Connect Broker Gmail.");
         }
         if (statusEl) statusEl.textContent = "Done — opening PDF…";
         await self.openLoad(document.querySelector("#load-tms-body"), id, "documents");

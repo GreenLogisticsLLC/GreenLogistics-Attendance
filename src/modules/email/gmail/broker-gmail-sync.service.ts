@@ -4,7 +4,11 @@ import {
     brokerGmailOAuthService,
 } from "./broker-gmail-oauth.service.js";
 import type { RawEmailMessage } from "../models/types.js";
-import { applyUshipLifecycleEvent } from "../parsers/uship/uship-lifecycle.detector.js";
+import {
+    applyUshipLifecycleEvent,
+    detectUshipLifecycleEvent,
+    isNewListingAlertSubject,
+} from "../parsers/uship/uship-lifecycle.detector.js";
 import {
     canonicalUshipListingUrl,
     followUshipToListingUrl,
@@ -20,8 +24,10 @@ import {
 const USHIP_QUERY =
     "from:(uship.com OR email.uship.com OR notifications.uship.com OR mail.uship.com) newer_than:21d";
 
+// Rematch only clear lifecycle mail — bare "quote" matched Instant Alerts
+// ("Submit Quote Now") and re-applied Bid Submitted onto brand-new cards.
 const CUSTOMER_REPLY_REMATCH =
-    /quote|bid\s+confirmation|bid\s+submitted|submitted\s+a\s+(?:quote|bid)|customer\s+respond|respond\s+to\s+question|customer\s+replied|new\s+message|question\s+answered|answered\s+your\s+question|a\s+customer\s+has\s+answered/i;
+    /quote\s+confirmation|bid\s+confirmation|bid\s+submitted|quote\s+submitted|submitted\s+a\s+(?:quote|bid)|your\s+(?:quote|bid)\s+has\s+been|we\s+received\s+your\s+(?:quote|bid)|customer\s+respond|respond\s+to\s+question|customer\s+replied|new\s+message|question\s+answered|answered\s+your\s+question|a\s+customer\s+has\s+answered/i;
 
 function decodeBase64Url(data?: string | null): string {
     if (!data) return "";
@@ -448,7 +454,36 @@ export class BrokerGmailSyncService {
         body: string;
         actorUserId: string;
         gmailMessageId: string;
+        matchMethod?: string | null;
     }) {
+        // Instant Alert / new listing copies in broker Gmail must not mutate the card.
+        // Company inbox already imported the shipment as NEW — applying the broker copy
+        // used to false-promote Bid Submitted from CTA / rematch noise.
+        if (isNewListingAlertSubject(input.subject)) {
+            return;
+        }
+
+        const detected = detectUshipLifecycleEvent(input.subject, input.body);
+        const bidKinds = new Set(["BID_SUBMITTED", "QUOTE_SUBMITTED", "BID_UPDATED"]);
+        if (bidKinds.has(detected.kind)) {
+            const method = String(input.matchMethod || "");
+            const listingStrong = ["viewUrl", "externalShipmentId", "greenOsShipmentId"].includes(
+                method
+            );
+            const subjectConfirms =
+                /quote\s+confirmation|bid\s+confirmation|bid\s+submitted|quote\s+submitted/i.test(
+                    input.subject
+                );
+            // Soft title/route matches are OK only for clear confirmation subjects.
+            // Body-only "you submitted a quote" text must share the listing id.
+            if (!listingStrong && !subjectConfirms) {
+                console.warn(
+                    `[BROKER GMAIL] skip Bid Submitted without listing id or confirmation subject (${method || "none"}): ${input.subject.slice(0, 120)}`
+                );
+                return;
+            }
+        }
+
         await applyUshipLifecycleEvent({
             shipmentLeadId: input.shipmentLeadId,
             subject: input.subject,
@@ -520,6 +555,7 @@ export class BrokerGmailSyncService {
                     body,
                     actorUserId: account.userId,
                     gmailMessageId: row.gmailMessageId,
+                    matchMethod: method,
                 });
                 rematched += 1;
             }
@@ -587,6 +623,7 @@ export class BrokerGmailSyncService {
                                     body,
                                     actorUserId: account.userId,
                                     gmailMessageId,
+                                    matchMethod: match.method,
                                 });
                                 matched += 1;
                             }
@@ -648,6 +685,7 @@ export class BrokerGmailSyncService {
                             body,
                             actorUserId: account.userId,
                             gmailMessageId,
+                            matchMethod: match.method,
                         });
                     } else {
                         console.warn(

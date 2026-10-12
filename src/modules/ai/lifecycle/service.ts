@@ -9,6 +9,7 @@ import { deriveLifecycleHealth } from "./health.js";
 import { deriveNextBestAction } from "./next-action.js";
 import { buildStageChecklist, buildStageHistory, deriveCurrentStage } from "./stages.js";
 import { normalizeStatus } from "../../shipment/shipment.lifecycle.js";
+import { isLoadCarrierApproved } from "../../shipment/load-carrier-review.js";
 import type {
     CloseoutChecklistItem,
     LifecycleEvidence,
@@ -77,6 +78,8 @@ function trackingView(
 export function buildCloseoutChecklist(input: {
     status: string;
     carrierCompliance?: { readiness?: string | null; light?: string | null } | null;
+    /** When broker clicked Approved Carrier on this load, compliance gate is satisfied. */
+    loadCarrierApproved?: boolean | null;
     documents?: DocumentChecklistItem[];
     loadDocuments?: Array<{ docType: string; contentJson?: string | null }>;
     customerPaidAt?: Date | string | null;
@@ -135,9 +138,10 @@ export function buildCloseoutChecklist(input: {
             input.reviewCarrierSentTo === "SKIPPED"
     );
     const complianceOk =
-        Boolean(input.carrierCompliance) &&
-        input.carrierCompliance?.readiness !== "NOT_READY" &&
-        input.carrierCompliance?.light !== "RED";
+        input.loadCarrierApproved === true ||
+        (Boolean(input.carrierCompliance) &&
+            input.carrierCompliance?.readiness !== "NOT_READY" &&
+            input.carrierCompliance?.light !== "RED");
 
     return [
         {
@@ -145,7 +149,10 @@ export function buildCloseoutChecklist(input: {
             label: "Carrier compliance is not RED",
             ok: complianceOk,
             required: true,
-            detail: input.carrierCompliance?.light || "Compliance unavailable",
+            detail:
+                input.loadCarrierApproved === true
+                    ? "Approved Carrier for this load"
+                    : input.carrierCompliance?.light || "Compliance unavailable",
         },
         {
             id: "rate_confirmation",
@@ -227,10 +234,13 @@ export class ShipmentLifecycleService {
                 reviewCarrierSentAt: true,
                 reviewCustomerSentTo: true,
                 reviewCarrierSentTo: true,
+                loadCarrierApprovedAt: true,
+                loadCarrierApprovedProfileId: true,
                 updatedAt: true,
             },
         });
         if (!lead) throw Object.assign(new Error("Shipment not found"), { status: 404 });
+        const loadCarrierApproved = isLoadCarrierApproved(lead);
 
         const [operational, communication, market, tracking, timeline, carrierCompliance] =
             await Promise.allSettled([
@@ -326,6 +336,7 @@ export class ShipmentLifecycleService {
                       light: carrierOps.compliance.light,
                   }
                 : null,
+            loadCarrierApproved,
             documents,
             loadDocuments,
             customerPaidAt: lead.customerPaidAt,
@@ -352,6 +363,7 @@ export class ShipmentLifecycleService {
                       light: carrierOps.compliance.light,
                   }
                 : undefined,
+            loadCarrierApproved,
             ratePresent: lead.carrierRate != null,
             communication: comm,
             tracking: trackingData,

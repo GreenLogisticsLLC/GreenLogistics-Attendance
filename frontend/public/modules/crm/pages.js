@@ -72,11 +72,7 @@ window.GreenOSModules.crm = {
       '<div id="crm-modal" class="crm-modal hidden" role="dialog" aria-modal="true"></div>' +
       "</div>";
 
-    root.querySelectorAll("[data-subpage]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        self.render(root, btn.getAttribute("data-subpage"));
-      });
-    });
+    // Subnav is wired by GreenOS.navigate (history-aware). Do not bind here.
 
     var body = root.querySelector("#crm-body");
     var page = active ? active.id : "dashboard";
@@ -101,6 +97,18 @@ window.GreenOSModules.crm = {
       paint();
     };
     paint();
+
+    // Restore broker workspace after Back / deep-link (#/crm/brokers/<id>).
+    if (page === "brokers") {
+      var openBrokerId = null;
+      try {
+        openBrokerId = sessionStorage.getItem("gos_open_broker_id");
+        if (openBrokerId) sessionStorage.removeItem("gos_open_broker_id");
+      } catch (e) {}
+      if (openBrokerId) {
+        self.openBrokerWorkspace(root, openBrokerId);
+      }
+    }
   },
 
   async api(path, options) {
@@ -527,7 +535,11 @@ window.GreenOSModules.crm = {
     try {
       var params = [];
       if (brokerId) params.push("brokerId=" + encodeURIComponent(brokerId));
-      if (options.assignmentKind === "new" || options.assignmentKind === "other") {
+      if (
+        options.assignmentKind === "new" ||
+        options.assignmentKind === "other" ||
+        options.assignmentKind === "accepted"
+      ) {
         params.push("assignmentKind=" + options.assignmentKind);
       }
       if (options.status) {
@@ -556,19 +568,23 @@ window.GreenOSModules.crm = {
       var tabLabel =
         options.status === "ACCEPTED_ANOTHER_COMPANY"
           ? "Accepted to another company"
-          : options.assignmentKind === "other"
-            ? "Other Shipment"
-            : options.assignmentKind === "new"
-              ? "New Shipment"
-              : "All Shipments";
+          : options.assignmentKind === "accepted"
+            ? "Accepted shipments"
+            : options.assignmentKind === "other"
+              ? "Other Shipment"
+              : options.assignmentKind === "new"
+                ? "New Shipment"
+                : "All Shipments";
       var tabHelp =
         options.status === "ACCEPTED_ANOTHER_COMPANY"
           ? "Broker Gmail Decline Reason = Accepted another quote — moved here automatically."
-          : options.assignmentKind === "other"
-            ? "Loads passed from another broker who did not accept in time."
-            : options.assignmentKind === "new"
-              ? "Fresh imports and first-time assignments — prioritized in round-robin."
-              : "All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).";
+          : options.assignmentKind === "accepted"
+            ? "Broker accepted the shipment (Shipment Accepted) and active work beyond waiting."
+            : options.assignmentKind === "other"
+              ? "Loads passed from another broker who did not accept in time."
+              : options.assignmentKind === "new"
+                ? "Fresh imports and first-time assignments — prioritized in round-robin."
+                : "All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).";
       var fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
       var toIdx = Math.min(total, (page - 1) * pageSize + rows.length);
       body.innerHTML =
@@ -818,6 +834,23 @@ window.GreenOSModules.crm = {
   async openBrokerWorkspace(root, brokerId) {
     var body = root.querySelector("#crm-body");
     if (!body) return;
+    // Ensure shell thinks we are on CRM → Brokers before pushing detail.
+    if (window.GreenOS) {
+      window.GreenOS.currentModule = "crm";
+      window.GreenOS.currentSub = "brokers";
+    }
+    if (window.GreenOS && typeof window.GreenOS.rememberDetail === "function") {
+      var st = window.history.state;
+      var already =
+        st &&
+        st.gos &&
+        st.detail &&
+        st.detail.type === "broker" &&
+        st.detail.id === brokerId;
+      if (!already) {
+        window.GreenOS.rememberDetail({ type: "broker", id: brokerId });
+      }
+    }
     body.innerHTML = "<p>Loading workspace…</p>";
     try {
       var data = await this.api("/brokers/" + encodeURIComponent(brokerId));
@@ -830,7 +863,7 @@ window.GreenOSModules.crm = {
       var shipments = d.shipments || [];
       body.innerHTML =
         '<section class="gos-dash-hero">' +
-        '<button type="button" class="btn-secondary crm-back" id="crm-back-brokers">← Brokers</button>' +
+        '<button type="button" class="btn-secondary crm-back" id="crm-back-brokers">← Back</button>' +
         "<h1>" +
         this.esc(d.broker.name) +
         "</h1>" +
@@ -858,7 +891,14 @@ window.GreenOSModules.crm = {
         '<div class="crm-ws-list" id="crm-ws-list"></div>';
 
       body.querySelector("#crm-back-brokers")?.addEventListener("click", function () {
-        window.GreenOSModules.crm.render(root, "brokers");
+        var fallback = function () {
+          window.GreenOSModules.crm.render(root, "brokers");
+        };
+        if (window.GreenOS && typeof window.GreenOS.goBack === "function") {
+          window.GreenOS.goBack(fallback);
+        } else {
+          fallback();
+        }
       });
 
       var list = body.querySelector("#crm-ws-list");
@@ -1031,8 +1071,7 @@ window.GreenOSModules.crm = {
       var customerRepliedNotice =
         Boolean(s.customerReplied) ||
         String(s.status || "") === "CUSTOMER_REPLIED" ||
-        (customerR && customerR.done) ||
-        Boolean(s.brokerReplyDeadline);
+        (customerR && customerR.done);
 
       function pipeNodeHtml(p, opts) {
         opts = opts || {};
@@ -1423,8 +1462,16 @@ window.GreenOSModules.crm = {
             esc(s.loadNumber) +
             "</button>"
           : s.status === "ACCEPTED" || s.status === "ACCEPT_GREEN" || s.status === "BOOKED"
-            ? '<button type="button" class="btn-primary" id="crm-save-load">Create Load (auto GL#)</button>' +
-              '<small class="gos-muted" style="display:block;width:100%">Accept Green — Load Number is generated by GreenOS only</small>'
+            ? '<div class="crm-create-load-rate" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;width:100%;margin:0.35rem 0">' +
+              '<label style="display:flex;flex-direction:column;gap:0.2rem;min-width:10rem">' +
+              '<span class="gos-muted">Customer rate (взяли)</span>' +
+              '<span class="gos-money-field">' +
+              '<span class="gos-money-prefix" aria-hidden="true">$</span>' +
+              '<input id="crm-create-customer-rate" type="text" inputmode="decimal" placeholder="1500.00" autocomplete="off">' +
+              "</span></label>" +
+              '<button type="button" class="btn-primary" id="crm-save-load">Create Load (auto GL#)</button>' +
+              "</div>" +
+              '<small class="gos-muted" style="display:block;width:100%">Accept Green — enter what you took from the customer, then create the Load. GL# is generated by GreenOS only.</small>'
             : s.status === "LOAD_CREATED" ||
                 s.status === "CARRIER_ASSIGNED" ||
                 s.status === "DISPATCH"
@@ -1730,13 +1777,23 @@ window.GreenOSModules.crm = {
         var btn = modal.querySelector("#crm-save-load");
         if (btn) btn.disabled = true;
         try {
+          var rateEl = modal.querySelector("#crm-create-customer-rate");
+          var rateRaw = rateEl ? String(rateEl.value || "").replace(/[^0-9.-]/g, "") : "";
+          var body = {};
+          if (rateRaw !== "") {
+            var rateNum = Number(rateRaw);
+            if (!Number.isFinite(rateNum) || rateNum < 0) {
+              throw new Error("Customer rate must be a non-negative number");
+            }
+            body.customerRate = rateNum;
+          }
           var res = await fetch("/api/loads/" + encodeURIComponent(id) + "/create", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: "Bearer " + token,
             },
-            body: JSON.stringify({}),
+            body: JSON.stringify(body),
           });
           var json = await res.json().catch(function () {
             return {};

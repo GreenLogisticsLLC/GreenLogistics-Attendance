@@ -186,9 +186,10 @@ window.GreenOSModules.carriers = {
       if (rows.some(function (r) { return r.isSuperseded; })) {
         main.insertAdjacentHTML(
           "afterbegin",
-          '<p class="gos-muted" style="margin:0 0 0.75rem">Names in <span style="color:var(--gos-danger,#dc2626);font-weight:600">red</span> were replaced by a newer carrier registration (carrier change). The latest registered carrier is the official hauler for the load.</p>'
+          '<p class="gos-muted" style="margin:0 0 0.75rem">Names in <span style="color:var(--gos-danger,#dc2626);font-weight:600">red</span> were replaced by a newer carrier registration (carrier change). Each carrier keeps only its own Documents.</p>'
         );
-      }      main.querySelectorAll("[data-open]").forEach(function (btn) {
+      }
+      main.querySelectorAll("[data-open]").forEach(function (btn) {
         btn.addEventListener("click", function () {
           self._carrierId = btn.getAttribute("data-open");
           self._tab = "overview";
@@ -271,6 +272,19 @@ window.GreenOSModules.carriers = {
 
   async showDetail(main, id) {
     var self = this;
+    self._carrierId = id;
+    if (window.GreenOS && typeof window.GreenOS.rememberDetail === "function") {
+      var st = window.history.state;
+      var already =
+        st &&
+        st.gos &&
+        st.detail &&
+        st.detail.type === "carrier" &&
+        st.detail.id === id;
+      if (!already) {
+        window.GreenOS.rememberDetail({ type: "carrier", id: id });
+      }
+    }
     main.innerHTML = '<p class="gos-muted">Loading carrier…</p>';
     try {
       var data = await self.api("/" + encodeURIComponent(id));
@@ -281,14 +295,13 @@ window.GreenOSModules.carriers = {
       var tabs = [
         { id: "overview", label: "Overview" },
         { id: "documents", label: "Documents" },
-        { id: "agreement", label: "Agreement" },
-        { id: "rc", label: "RC/BOL" },
-        { id: "onboarding", label: "Onboarding" },
-        { id: "timeline", label: "Timeline" },
       ];
+      if (["agreement", "rc", "onboarding", "timeline"].indexOf(self._tab) >= 0) {
+        self._tab = "documents";
+      }
       main.innerHTML =
         '<div class="load-actions" style="margin-bottom:0.5rem">' +
-        '<button type="button" class="btn-secondary" id="cr-back">← Carriers</button>' +
+        '<button type="button" class="btn-secondary" id="cr-back">← Back</button>' +
         '<button type="button" class="btn-secondary" id="cr-resend">Resend Invitation</button>' +
         '<button type="button" class="btn-secondary" id="cr-changes">Request Changes</button>' +
         '<button type="button" class="btn-primary" id="cr-approve">Approve</button>' +
@@ -300,17 +313,12 @@ window.GreenOSModules.carriers = {
         (c.isSuperseded ? ' <span style="font-size:0.85rem">(replaced)</span>' : "") +
         "</h2>" +
         (c.isSuperseded
-          ? '<p class="error" style="margin:0.35rem 0 0.5rem">This carrier was replaced by a newer registration (carrier change). The latest registered carrier is the official hauler for the load.</p>'
+          ? '<p class="error" style="margin:0.35rem 0 0.5rem">This carrier was replaced by a newer registration (carrier change). Documents below belong only to this carrier.</p>'
           : "") +
         '<p class="gos-muted">Onboarding: <strong>' + self.esc(c.onboardingStatus) +
         "</strong> · Broker: " + broker +
         (c.isOfficialLoadCarrier ? " · <strong>Official load carrier</strong>" : "") +
         "</p>" +
-        '<aside id="cr-ai-ops" class="gos-card" style="margin:0.75rem 0;padding:0.75rem 1rem;border:1px solid var(--gos-border, #ddd)">' +
-        '<div style="font-weight:600;margin-bottom:0.35rem">AI Operational Summary</div>' +
-        '<p class="gos-muted" id="cr-ai-ops-status">Loading readiness…</p>' +
-        '<div id="cr-ai-ops-body" style="font-size:0.9rem;white-space:pre-wrap"></div>' +
-        "</aside>" +
         '<nav class="gos-subnav" style="margin:0.75rem 0">' +
         tabs.map(function (t) {
           return (
@@ -323,10 +331,16 @@ window.GreenOSModules.carriers = {
         '<div id="cr-tab"></div>';
 
       main.querySelector("#cr-back")?.addEventListener("click", function () {
-        self._carrierId = null;
-        self.showList(main);
+        var fallback = function () {
+          self._carrierId = null;
+          self.showList(main);
+        };
+        if (window.GreenOS && typeof window.GreenOS.goBack === "function") {
+          window.GreenOS.goBack(fallback);
+        } else {
+          fallback();
+        }
       });
-      self.loadCarrierAiOps(main, id);
       main.querySelectorAll("[data-tab]").forEach(function (btn) {
         btn.addEventListener("click", function () {
           self._tab = btn.getAttribute("data-tab");
@@ -367,10 +381,6 @@ window.GreenOSModules.carriers = {
 
       var tab = main.querySelector("#cr-tab");
       if (self._tab === "documents") self.renderDocs(tab, c);
-      else if (self._tab === "agreement") self.renderAgreement(tab, c);
-      else if (self._tab === "rc") self.renderRc(tab, c);
-      else if (self._tab === "onboarding") self.renderOnboarding(tab, c);
-      else if (self._tab === "timeline") self.renderTimeline(tab, c);
       else self.renderOverview(tab, c);
     } catch (e) {
       main.innerHTML = '<p class="error">' + self.esc(e.message) + "</p>";
@@ -406,43 +416,62 @@ window.GreenOSModules.carriers = {
   renderDocs(el, c) {
     var self = this;
     var docs = c.documents || [];
-    if (!docs.length) {
-      el.innerHTML = '<p class="gos-muted">No documents uploaded yet.</p>';
-      return;
-    }
+    var role =
+      (window.GreenOSUser && (window.GreenOSUser.role || window.GreenOSUser.roleName)) || "";
+    var canDeleteDocs = role === "Owner" || role === "Administrator";
+    var docsHtml = !docs.length
+      ? '<p class="gos-muted">No packet documents uploaded yet.</p>'
+      : '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+        "<th>Type</th><th>File</th><th>Version</th><th>Status</th><th>AI</th><th>Uploaded</th><th></th>" +
+        "</tr></thead><tbody>" +
+        docs.map(function (d) {
+          return (
+            "<tr data-doc-id=\"" + self.esc(d.documentId) + "\">" +
+            "<td>" + self.esc(d.documentType) + "</td>" +
+            "<td>" + self.esc(d.originalFilename) + "</td>" +
+            "<td>" + d.version + "</td>" +
+            "<td>" + self.esc(d.status) + "</td>" +
+            '<td class="cr-doc-ai" data-id="' + self.esc(d.documentId) + '"><span class="gos-muted">—</span></td>' +
+            "<td>" + self.esc(d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "") + "</td>" +
+            '<td style="white-space:nowrap">' +
+            '<button type="button" class="btn-secondary cr-doc-view" data-id="' +
+            self.esc(d.documentId) +
+            '" data-name="' +
+            self.esc(d.originalFilename) +
+            '">View</button> ' +
+            '<button type="button" class="btn-secondary cr-doc-dl" data-id="' +
+            self.esc(d.documentId) +
+            '" data-name="' +
+            self.esc(d.originalFilename) +
+            '">Download</button> ' +
+            '<button type="button" class="btn-secondary cr-doc-ai-run" data-id="' +
+            self.esc(d.documentId) +
+            '">Validate AI</button>' +
+            (canDeleteDocs
+              ? ' <button type="button" class="btn-secondary cr-doc-del" style="border-color:#b42318;color:#b42318" data-id="' +
+                self.esc(d.documentId) +
+                '" data-name="' +
+                self.esc(d.originalFilename) +
+                '">Delete</button>'
+              : "") +
+            "</td>" +
+            "</tr>"
+          );
+        }).join("") +
+        "</tbody></table></div>" +
+        '<p class="gos-muted" style="margin-top:8px">Documents for this carrier only. Carrier change creates a new registration — previous carriers keep their own files. Document AI: GREEN / REVIEW / RED — never auto-changes carrier master data.' +
+        (canDeleteDocs
+          ? " Owner / Administrator can permanently delete documents."
+          : "") +
+        "</p>";
+
     el.innerHTML =
-      '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-      "<th>Type</th><th>File</th><th>Version</th><th>Status</th><th>AI</th><th>Uploaded</th><th></th>" +
-      "</tr></thead><tbody>" +
-      docs.map(function (d) {
-        return (
-          "<tr data-doc-id=\"" + self.esc(d.documentId) + "\">" +
-          "<td>" + self.esc(d.documentType) + "</td>" +
-          "<td>" + self.esc(d.originalFilename) + "</td>" +
-          "<td>" + d.version + "</td>" +
-          "<td>" + self.esc(d.status) + "</td>" +
-          '<td class="cr-doc-ai" data-id="' + self.esc(d.documentId) + '"><span class="gos-muted">—</span></td>' +
-          "<td>" + self.esc(d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "") + "</td>" +
-          '<td style="white-space:nowrap">' +
-          '<button type="button" class="btn-secondary cr-doc-view" data-id="' +
-          self.esc(d.documentId) +
-          '" data-name="' +
-          self.esc(d.originalFilename) +
-          '">View</button> ' +
-          '<button type="button" class="btn-secondary cr-doc-dl" data-id="' +
-          self.esc(d.documentId) +
-          '" data-name="' +
-          self.esc(d.originalFilename) +
-          '">Download</button> ' +
-          '<button type="button" class="btn-secondary cr-doc-ai-run" data-id="' +
-          self.esc(d.documentId) +
-          '">Validate AI</button>' +
-          "</td>" +
-          "</tr>"
-        );
-      }).join("") +
-      "</tbody></table></div>" +
-      '<p class="gos-muted" style="margin-top:8px">Document AI: GREEN / REVIEW / RED — never auto-changes carrier master data.</p>';
+      docsHtml +
+      '<section id="cr-rcbol-section" style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--gos-border)">' +
+      "<h3 style=\"margin:0 0 0.65rem\">RC / BOL</h3>" +
+      '<div id="cr-rcbol-body"></div>' +
+      "</section>";
+
     el.querySelectorAll(".cr-doc-view").forEach(function (btn) {
       btn.addEventListener("click", async function () {
         try {
@@ -468,6 +497,48 @@ window.GreenOSModules.carriers = {
           );
         } catch (e) {
           alert(e.message);
+        }
+      });
+    });
+    el.querySelectorAll(".cr-doc-del").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        var docId = btn.getAttribute("data-id");
+        var name = btn.getAttribute("data-name") || "this document";
+        if (
+          !confirm(
+            "Permanently delete \"" +
+              name +
+              "\"?\n\nThis cannot be undone. If it is the current version, the latest archived file of the same type (if any) becomes CURRENT."
+          )
+        ) {
+          return;
+        }
+        btn.disabled = true;
+        try {
+          var token = localStorage.getItem("gl_token") || "";
+          var res = await fetch(
+            "/api/carriers/" +
+              encodeURIComponent(c.carrierId) +
+              "/documents/" +
+              encodeURIComponent(docId),
+            {
+              method: "DELETE",
+              headers: { Authorization: token ? "Bearer " + token : "" },
+            }
+          );
+          var json = await res.json().catch(function () {
+            return {};
+          });
+          if (!res.ok || !json.success) {
+            throw new Error(json.message || "Delete failed");
+          }
+          self._tab = "documents";
+          var mainEl = document.getElementById("cr-main");
+          if (!mainEl) throw new Error("Carrier panel not found");
+          await self.showDetail(mainEl, c.carrierId);
+        } catch (e) {
+          btn.disabled = false;
+          alert(e.message || "Delete failed");
         }
       });
     });
@@ -499,6 +570,9 @@ window.GreenOSModules.carriers = {
     docs.forEach(function (d) {
       self.loadDocAiStatus(d.documentId, el.querySelector('.cr-doc-ai[data-id="' + d.documentId + '"]'));
     });
+
+    var rcBody = el.querySelector("#cr-rcbol-body");
+    if (rcBody) self.renderRc(rcBody, c);
   },
 
   async loadDocAiStatus(documentId, cell) {
@@ -564,111 +638,6 @@ window.GreenOSModules.carriers = {
       this.esc(status) +
       "</span>"
     );
-  },
-
-  renderAgreement(el, c) {
-    var self = this;
-    var signs = c.agreementSigns || [];
-    var pdfDocs = (c.documents || []).filter(function (d) {
-      return d.documentType === "BROKER_CARRIER_AGREEMENT";
-    });
-    var currentPdf = pdfDocs.find(function (d) { return d.status === "CURRENT"; }) || pdfDocs[0];
-
-    if (!signs.length && !currentPdf) {
-      el.innerHTML = '<p class="gos-muted">Agreement not signed yet.</p>';
-      return;
-    }
-
-    var pdfBlock =
-      '<div class="load-edit-panel" style="margin-bottom:0.75rem">' +
-      "<h3 style=\"margin:0 0 0.35rem\">Signed Agreement PDF</h3>" +
-      (currentPdf
-        ? '<p class="gos-muted">v' +
-          currentPdf.version +
-          " · " +
-          self.esc(currentPdf.originalFilename) +
-          " · " +
-          self.esc(currentPdf.uploadedAt ? new Date(currentPdf.uploadedAt).toLocaleString() : "") +
-          "</p>" +
-          '<div style="display:flex;flex-wrap:wrap;gap:0.45rem">' +
-          '<button type="button" class="btn-secondary" id="cr-view-agreement">View</button>' +
-          '<button type="button" class="btn-primary" id="cr-dl-agreement">Download PDF</button>' +
-          "</div>"
-        : '<p class="gos-muted">PDF not generated yet for this signature.</p>' +
-          '<button type="button" class="btn-secondary" id="cr-gen-agreement">Generate PDF</button>') +
-      '<p id="cr-agreement-msg" class="gos-muted" style="margin-top:0.5rem"></p>' +
-      "</div>";
-
-    el.innerHTML =
-      pdfBlock +
-      (signs.length
-        ? signs.map(function (s) {
-            return (
-              '<div class="load-edit-panel">' +
-              "<p><strong>" +
-              self.esc(s.signerName) +
-              "</strong> · " +
-              self.esc(s.signedAt ? new Date(s.signedAt).toLocaleString() : "") +
-              "</p>" +
-              '<p class="gos-muted">Template ' +
-              self.esc(s.template && s.template.version) +
-              " · IP " +
-              self.esc(s.ipAddress) +
-              "</p>" +
-              (s.signatureData && String(s.signatureData).indexOf("data:image") === 0
-                ? '<img alt="Signature" src="' +
-                  s.signatureData +
-                  '" style="max-width:320px;background:#fff;border:1px solid var(--gos-border);border-radius:8px">'
-                : "") +
-              "</div>"
-            );
-          }).join("")
-        : "");
-
-    async function openDoc(inline) {
-      await self.openCarrierDoc(
-        c.carrierId,
-        currentPdf.documentId,
-        (currentPdf && currentPdf.originalFilename) || "Broker-Carrier-Agreement.pdf",
-        inline
-      );
-    }
-
-    el.querySelector("#cr-view-agreement")?.addEventListener("click", async function () {
-      var msg = el.querySelector("#cr-agreement-msg");
-      try {
-        if (msg) msg.textContent = "Opening…";
-        await openDoc(true);
-        if (msg) msg.textContent = "";
-      } catch (e) {
-        if (msg) msg.textContent = e.message || "Failed to open";
-      }
-    });
-
-    el.querySelector("#cr-dl-agreement")?.addEventListener("click", async function () {
-      var msg = el.querySelector("#cr-agreement-msg");
-      try {
-        if (msg) msg.textContent = "Downloading…";
-        await openDoc(false);
-        if (msg) msg.textContent = "";
-      } catch (e) {
-        if (msg) msg.textContent = e.message || "Download failed";
-      }
-    });
-
-    el.querySelector("#cr-gen-agreement")?.addEventListener("click", async function () {
-      var msg = el.querySelector("#cr-agreement-msg");
-      try {
-        if (msg) msg.textContent = "Generating PDF…";
-        await self.api("/" + encodeURIComponent(c.carrierId) + "/agreement/regenerate-pdf", {
-          method: "POST",
-          body: "{}",
-        });
-        self.showDetail(document.getElementById("cr-main") || el.parentElement, c.carrierId);
-      } catch (e) {
-        if (msg) msg.textContent = e.message || "Generate failed";
-      }
-    });
   },
 
   renderRc(el, c) {
@@ -815,7 +784,7 @@ window.GreenOSModules.carriers = {
           method: "POST",
           body: "{}",
         });
-        self._tab = "rc";
+        self._tab = "documents";
         self.showDetail(document.getElementById("cr-main") || el.parentElement, c.carrierId);
       } catch (e) {
         if (msg) msg.textContent = e.message || "Generate failed";
@@ -823,208 +792,4 @@ window.GreenOSModules.carriers = {
     });
   },
 
-  renderOnboarding(el, c) {
-    var sessions = c.sessions || [];
-    el.innerHTML =
-      '<div class="load-grid">' +
-      this.field("Current status", c.onboardingStatus) +
-      "</div>" +
-      "<h3>Sessions</h3>" +
-      (sessions.length
-        ? '<ul>' +
-          sessions.map(function (s) {
-            return (
-              "<li>" +
-              this.esc(s.status) +
-              " · expires " +
-              this.esc(s.expiresAt ? new Date(s.expiresAt).toLocaleString() : "") +
-              (s.submittedAt ? " · submitted " + new Date(s.submittedAt).toLocaleString() : "") +
-              "</li>"
-            );
-          }, this).join("") +
-          "</ul>"
-        : '<p class="gos-muted">No sessions.</p>');
-  },
-
-  renderTimeline(el, c) {
-    var events = c.events || [];
-    if (!events.length) {
-      el.innerHTML = '<p class="gos-muted">No timeline events yet.</p>';
-      return;
-    }
-    el.innerHTML =
-      '<ul style="list-style:none;padding:0;margin:0">' +
-      events.map(function (e) {
-        return (
-          '<li style="padding:0.55rem 0;border-bottom:1px solid var(--gos-border)">' +
-          "<strong>" + this.esc(e.title) + "</strong>" +
-          '<div class="gos-muted" style="font-size:0.82rem">' +
-          this.esc(e.createdAt ? new Date(e.createdAt).toLocaleString() : "") +
-          " · " + this.esc(e.actorType) +
-          (e.message ? " — " + this.esc(e.message) : "") +
-          "</div></li>"
-        );
-      }, this).join("") +
-      "</ul>";
-  },
-
-  async loadCarrierAiOps(main, id) {
-    var statusEl = main.querySelector("#cr-ai-ops-status");
-    var bodyEl = main.querySelector("#cr-ai-ops-body");
-    if (!statusEl || !bodyEl) return;
-    try {
-      var token = localStorage.getItem("gl_token");
-      var res = await fetch("/api/ai/carriers/" + encodeURIComponent(id) + "/summary", {
-        headers: { Authorization: token ? "Bearer " + token : "" },
-        cache: "no-store",
-      });
-      var json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.message || "AI summary failed");
-      var d = json.data || {};
-      var commRes = await fetch("/api/ai/carriers/" + encodeURIComponent(id) + "/communications", {
-        headers: { Authorization: token ? "Bearer " + token : "" },
-        cache: "no-store",
-      });
-      var commJson = await commRes.json();
-      if (!commRes.ok || !commJson.success) {
-        throw new Error(commJson.message || "Communication status failed");
-      }
-      var comm = commJson.data || {};
-      statusEl.textContent =
-        "Readiness: " + (d.readiness || "—") + " · Compliance: " + ((d.compliance && d.compliance.light) || "—") +
-        " · Waiting: " + (comm.waitingFor || "—");
-      var lines = [];
-      (d.documents || []).forEach(function (doc) {
-        lines.push(doc.slot + " — " + doc.status);
-      });
-      if ((d.reviewItems || []).length) {
-        lines.push("");
-        lines.push("Problems:");
-        d.reviewItems.slice(0, 6).forEach(function (r, i) {
-          lines.push(i + 1 + ". " + r);
-        });
-      }
-      if ((d.nextBestActions || []).length) {
-        lines.push("");
-        lines.push("Recommendations (not executed):");
-        d.nextBestActions.slice(0, 5).forEach(function (a, i) {
-          lines.push(i + 1 + ". [" + a.priority + "] " + a.text);
-        });
-      }
-      lines.push("");
-      lines.push("COMMUNICATION STATUS");
-      lines.push("Waiting For: " + (comm.waitingFor || "—") + (comm.waitingSince ? " since " + comm.waitingSince : ""));
-      lines.push("Last Contact: " + (comm.lastContact ? comm.lastContact.at + " · " + comm.lastContact.direction + " · " + comm.lastContact.subject : "No linked contact"));
-      lines.push("Open Requests: " + ((comm.openRequests || []).length || 0));
-      if ((comm.recommendations || []).length) {
-        lines.push("Recommendation: [" + comm.recommendations[0].priority + "] " + comm.recommendations[0].text);
-      }
-      bodyEl.innerHTML = "";
-      var pre = document.createElement("pre");
-      pre.style.cssText = "font-size:0.9rem;white-space:pre-wrap;margin:0;font-family:inherit";
-      pre.textContent = lines.join("\n");
-      bodyEl.appendChild(pre);
-
-      var actions = (d.proposedActions || []).concat(comm.proposedActions || []);
-      if (actions.length) {
-        var wrap = document.createElement("div");
-        wrap.style.marginTop = "0.75rem";
-        wrap.innerHTML = "<strong>AI Actions (require confirmation)</strong>";
-        actions.forEach(function (act) {
-          var card = document.createElement("div");
-          card.style.cssText =
-            "margin:0.5rem 0;padding:0.6rem;border:1px solid var(--gos-border,#ddd);border-radius:6px;font-size:0.85rem";
-          var payload = act.payload || {};
-          var detail = "";
-          if (act.actionType === "SEND_EMAIL" || act.actionType === "REQUEST_DOCUMENT") {
-            detail =
-              "<div><b>To:</b> " +
-              this.esc(payload.to || "(GreenOS contact)") +
-              "</div>" +
-              "<div><b>Subject:</b> " +
-              this.esc(payload.subject || "—") +
-              "</div>" +
-              "<div style='white-space:pre-wrap;margin-top:0.35rem'>" +
-              this.esc(payload.bodyText || payload.body || "") +
-              "</div>";
-          } else {
-            detail =
-              "<div style='white-space:pre-wrap'>" +
-              this.esc(payload.noteText || payload.notes || act.reason || act.description || "") +
-              "</div>";
-          }
-          card.innerHTML =
-            "<div><b>" +
-            this.esc(act.title || act.actionType) +
-            "</b> · " +
-            this.esc(act.status) +
-            "</div>" +
-            "<div class='gos-muted' style='font-size:0.8rem;margin:0.25rem 0'>" +
-            this.esc(act.reason || "") +
-            "</div>" +
-            detail +
-            "<div style='margin-top:0.5rem'>" +
-            "<button type='button' class='gos-btn gos-btn-sm' data-ai-confirm='" +
-            this.esc(act.actionId) +
-            "'>Confirm &amp; Execute</button> " +
-            "<button type='button' class='gos-btn gos-btn-sm gos-btn-ghost' data-ai-cancel='" +
-            this.esc(act.actionId) +
-            "'>Cancel</button>" +
-            "</div>";
-          wrap.appendChild(card);
-        }, this);
-        bodyEl.appendChild(wrap);
-        var self = this;
-        wrap.querySelectorAll("[data-ai-confirm]").forEach(function (btn) {
-          btn.addEventListener("click", async function () {
-            var actionId = btn.getAttribute("data-ai-confirm");
-            if (!actionId || !confirm("Confirm this AI action? It will execute now.")) return;
-            btn.disabled = true;
-            try {
-              var r = await fetch("/api/ai/actions/" + encodeURIComponent(actionId) + "/confirm", {
-                method: "POST",
-                headers: {
-                  Authorization: token ? "Bearer " + token : "",
-                  "Content-Type": "application/json",
-                },
-                body: "{}",
-              });
-              var j = await r.json();
-              if (!r.ok || !j.success) throw new Error(j.message || "Confirm failed");
-              alert("Action " + ((j.data && j.data.status) || "EXECUTED"));
-              self.loadCarrierAiOps(main, id);
-            } catch (e) {
-              alert(e.message || e);
-              btn.disabled = false;
-            }
-          });
-        });
-        wrap.querySelectorAll("[data-ai-cancel]").forEach(function (btn) {
-          btn.addEventListener("click", async function () {
-            var actionId = btn.getAttribute("data-ai-cancel");
-            if (!actionId) return;
-            btn.disabled = true;
-            try {
-              var r = await fetch("/api/ai/actions/" + encodeURIComponent(actionId) + "/cancel", {
-                method: "POST",
-                headers: {
-                  Authorization: token ? "Bearer " + token : "",
-                  "Content-Type": "application/json",
-                },
-                body: "{}",
-              });
-              var j = await r.json();
-              if (!r.ok || !j.success) throw new Error(j.message || "Cancel failed");
-              self.loadCarrierAiOps(main, id);
-            } catch (e) {
-              alert(e.message || e);
-              btn.disabled = false;
-            }
-          });
-        });
-      }
-    } catch (e) {
-      statusEl.textContent = e.message || "AI summary unavailable";
-    }
-  },
 };

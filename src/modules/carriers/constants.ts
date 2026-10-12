@@ -26,10 +26,11 @@ export const CARRIER_DOC_TYPES = {
     OTHER: "OTHER",
 } as const;
 
+/** Marked required on the carrier portal Documents step (red indicators). */
 export const REQUIRED_CARRIER_DOC_TYPES = [
     CARRIER_DOC_TYPES.MC_AUTHORITY,
-    CARRIER_DOC_TYPES.NOA,
     CARRIER_DOC_TYPES.W9,
+    CARRIER_DOC_TYPES.INSURANCE,
 ] as const;
 
 export const ALLOWED_UPLOAD_MIME = new Set([
@@ -42,17 +43,60 @@ export const ALLOWED_UPLOAD_MIME = new Set([
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
+/** Extensions we accept even when the browser sends a generic MIME (octet-stream). */
+export const ALLOWED_UPLOAD_EXT = new Set([
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+    ".doc",
+    ".docx",
+]);
+
 export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
 export const DEFAULT_ONBOARDING_EXPIRY_DAYS = 7;
 
 export const ONBOARDING_PURPOSE = {
     AGREEMENT_PACKET: "AGREEMENT_PACKET",
+    /** @deprecated Prefer RC_SIGN_PACKET / BOL_POD_PACKET */
     RC_BOL_PACKET: "RC_BOL_PACKET",
+    /** After Generate Rate Con — carrier signs RC only */
+    RC_SIGN_PACKET: "RC_SIGN_PACKET",
+    /** After Generate BOL — BOL / POD link without Rate Confirmation */
+    BOL_POD_PACKET: "BOL_POD_PACKET",
 } as const;
 
 export type OnboardingPurpose = (typeof ONBOARDING_PURPOSE)[keyof typeof ONBOARDING_PURPOSE];
 
 export { GREEN_LOGISTICS_AGREEMENT_V2 as DEFAULT_AGREEMENT_BODY } from "./agreement-template-v2.js";
-export const AGREEMENT_TEMPLATE_VERSION = "2.0";
+export const AGREEMENT_TEMPLATE_VERSION = "2.3";
 export const AGREEMENT_TEMPLATE_TITLE = "Broker - Carrier Agreement";
+
+/** Broker block used on signed Agreement PDFs. */
+export const BROKER_AGREEMENT_CONTACT = {
+    legalName: "GREEN LOGISTICS LLC",
+    signerName: "SPARTAK KAZARYAN",
+    title: "PRESIDENT",
+    address: "121 Frog Hollow Rd, Churchville, PA 18966",
+    phone: "(267) 703-5313",
+    email: "accounting@greengrouplogistics.com",
+} as const;
+
+/** Human-readable label for carrier portal payment option codes. */
+export function carrierPaymentOptionLabel(code: string | null | undefined): string {
+    switch (String(code || "").toUpperCase()) {
+        case "STANDARD":
+            return "Standard Payment (20-25 days)";
+        case "QUICK_3":
+            return "Quick Pay 3% (3-5 business days, ACH)";
+        case "QUICK_5":
+            return "Quick Pay 5% (24hrs)";
+        case "FACTORING":
+            return "Factoring company";
+        default:
+            return code ? String(code) : "";
+    }
+}

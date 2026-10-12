@@ -9,6 +9,13 @@ import {
     SIGNUP_ROLE_NAMES,
     type SignupRoleName,
 } from "../auth/roles.js";
+import {
+    AccountingSubRoles,
+    accountingTeamLabel,
+    isAccountingTeam,
+    normalizeAccountingSubRole,
+    type AccountingSubRole,
+} from "../auth/accounting.js";
 import { assertValidTeamLeadId, listTeamLeadOptions } from "../auth/team-scope.js";
 import { ensureAttendanceBadgeForUser } from "./user-attendance-link.service.js";
 
@@ -27,12 +34,29 @@ export class AuthService {
         firstName: string;
         lastName: string;
         role: { roleName: string };
+        accountingSubRole?: string | null;
     }) {
+        let accountingSubRole: AccountingSubRole | null = null;
+        if (isAccountingTeam(user.role.roleName)) {
+            accountingSubRole = normalizeAccountingSubRole(
+                user.accountingSubRole,
+                AccountingSubRoles.Documents
+            );
+            // Persist default sub-role if missing so lists/API stay consistent.
+            if (!user.accountingSubRole) {
+                await prisma.user.update({
+                    where: { userId: user.userId },
+                    data: { accountingSubRole },
+                });
+            }
+        }
+
         const token = jwt.sign(
             {
                 userId: user.userId,
                 username: user.username,
                 role: user.role.roleName,
+                accountingSubRole,
             },
             config.jwtSecret,
             { expiresIn: "8h" }
@@ -46,6 +70,11 @@ export class AuthService {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 role: user.role.roleName,
+                team: isAccountingTeam(user.role.roleName) ? "ACCOUNTING" : null,
+                accountingSubRole,
+                accountingLabel: isAccountingTeam(user.role.roleName)
+                    ? accountingTeamLabel(accountingSubRole)
+                    : null,
             },
         };
     }
@@ -190,22 +219,17 @@ export class AuthService {
 
         let requestedTeamLeadId: string | null = null;
         if (roleName === Roles.Broker) {
-            const leads = await listTeamLeadOptions();
-            if (!leads.length) {
-                return {
-                    ok: false as const,
-                    status: 422,
-                    message:
-                        "No Team Lead candidates yet. Ask the Owner to create at least one active employee first.",
-                };
-            }
-            requestedTeamLeadId = await assertValidTeamLeadId(input.teamLeadId);
-            if (!requestedTeamLeadId) {
-                return {
-                    ok: false as const,
-                    status: 422,
-                    message: "Select a Team Lead for this Broker account",
-                };
+            // Team Lead is optional — Owner may leave the seat vacant and assign later.
+            const rawTl = String(input.teamLeadId || "").trim();
+            if (rawTl) {
+                requestedTeamLeadId = await assertValidTeamLeadId(rawTl);
+                if (!requestedTeamLeadId) {
+                    return {
+                        ok: false as const,
+                        status: 422,
+                        message: "Invalid Team Lead — leave empty or pick another person",
+                    };
+                }
             }
         }
 
@@ -482,21 +506,24 @@ export class AuthService {
                 options?.teamLeadId !== undefined && options?.teamLeadId !== null && options.teamLeadId !== ""
                     ? options.teamLeadId
                     : pending.requestedTeamLeadId;
-            teamLeadId = await assertValidTeamLeadId(preferred);
-            if (!teamLeadId) {
-                return {
-                    ok: false as const,
-                    status: 422,
-                    message:
-                        "Cannot approve: select a Team Lead for this Broker first.",
-                };
+            if (preferred) {
+                teamLeadId = await assertValidTeamLeadId(preferred);
+                if (!teamLeadId) {
+                    return {
+                        ok: false as const,
+                        status: 422,
+                        message:
+                            "Invalid Team Lead. Leave vacant or choose another person before approving.",
+                    };
+                }
+                if (pending.requestedTeamLeadId !== teamLeadId) {
+                    await prisma.pendingRegistration.update({
+                        where: { pendingId: pending.pendingId },
+                        data: { requestedTeamLeadId: teamLeadId },
+                    });
+                }
             }
-            if (pending.requestedTeamLeadId !== teamLeadId) {
-                await prisma.pendingRegistration.update({
-                    where: { pendingId: pending.pendingId },
-                    data: { requestedTeamLeadId: teamLeadId },
-                });
-            }
+            // No Team Lead selected → approve with vacant seat; Owner assigns later.
         }
 
         const createdUser = await prisma.user.create({
@@ -628,10 +655,22 @@ export class AuthService {
 
     verifyToken(token: string) {
         try {
-            return jwt.verify(token, config.jwtSecret) as {
+            const payload = jwt.verify(token, config.jwtSecret) as {
                 userId: string;
                 username: string;
                 role: string;
+                accountingSubRole?: AccountingSubRole | null;
+            };
+            return {
+                userId: payload.userId,
+                username: payload.username,
+                role: payload.role,
+                accountingSubRole: isAccountingTeam(payload.role)
+                    ? normalizeAccountingSubRole(
+                          payload.accountingSubRole,
+                          AccountingSubRoles.Documents
+                      )
+                    : null,
             };
         } catch {
             return null;

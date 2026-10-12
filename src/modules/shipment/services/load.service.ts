@@ -6,6 +6,7 @@ import { platformNotificationService } from "./platform-notification.service.js"
 import { TRACKING_STEPS } from "../load.constants.js";
 import { isLoadPhase, normalizeStatus, statusLabel } from "../shipment.lifecycle.js";
 import { allocateLoadNumber } from "../load-number.js";
+import { allocateGreenOsShipmentId } from "../shipment.id.js";
 import { Roles } from "../../../auth/roles.js";
 import {
     assertQuickActionAllowed,
@@ -15,6 +16,8 @@ import { isLoadCarrierApproved } from "../load-carrier-review.js";
 import { buildLoadCarrierReviewPacket } from "./load-carrier-review.service.js";
 import { sendLoadReviewEmail } from "./load-review-email.service.js";
 import { shipmentLifecycleService } from "../../ai/lifecycle/service.js";
+import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
+import { isNameAndEmailCarrierChange } from "../../carriers/carrier-superseded.js";
 
 function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
@@ -119,10 +122,36 @@ export class LoadService {
     /**
      * Auto-create Load Number only. Brokers cannot supply a custom number.
      */
-    async createLoad(shipmentLeadId: string, actorUserId?: string) {
+    async createLoad(
+        shipmentLeadId: string,
+        actorUserId?: string,
+        options?: { customerRate?: number | null }
+    ) {
         const shipment = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!shipment) throw Object.assign(new Error("Shipment not found"), { status: 404 });
+
+        let rateToSave: number | undefined;
+        if (options?.customerRate !== undefined && options?.customerRate !== null) {
+            const n = Number(options.customerRate);
+            if (!Number.isFinite(n) || n < 0) {
+                throw Object.assign(new Error("Customer rate must be a non-negative number"), {
+                    status: 422,
+                });
+            }
+            rateToSave = n;
+        }
+
         if (shipment.loadNumber && String(shipment.loadNumber).trim()) {
+            // Load already exists — still allow broker to set customer rate if provided.
+            if (rateToSave !== undefined) {
+                await prisma.shipmentLead.update({
+                    where: { shipmentLeadId },
+                    data: {
+                        customerRate: rateToSave,
+                        price: rateToSave,
+                    },
+                });
+            }
             return shipmentService.createLoadAfterAccepted({ shipmentLeadId, actorUserId });
         }
         const loadNumber = await allocateLoadNumber();
@@ -130,6 +159,7 @@ export class LoadService {
             shipmentLeadId,
             loadNumber,
             actorUserId,
+            ...(rateToSave !== undefined ? { customerRate: rateToSave } : {}),
         });
     }
 
@@ -282,6 +312,12 @@ export class LoadService {
                           legalName: true,
                           onboardingStatus: true,
                           status: true,
+                          assignedBrokerId: true,
+                          mcNumber: true,
+                          dotNumber: true,
+                          paymentOption: true,
+                          phone: true,
+                          email: true,
                           documents: {
                               where: {
                                   status: "CURRENT",
@@ -379,6 +415,10 @@ export class LoadService {
                       carrierProfileId: s.carrierProfileId,
                       carrierMc: s.carrierMc,
                       packetDocs,
+                      botActorUserId:
+                          s.assignedBrokerId ||
+                          carrierProfile?.assignedBrokerId ||
+                          null,
                   })
                 : [];
         const loadCarrierApproved = isLoadCarrierApproved(s);
@@ -425,8 +465,17 @@ export class LoadService {
             try {
                 const { trackingService } = await import("../../tracking/services/tracking.service.js");
                 gps = await trackingService.buildTrackingPayload(shipmentLeadId);
-            } catch {
-                gps = null;
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn(`[LOAD_GPS] getLoadDetails includeGps failed ${shipmentLeadId}:`, msg);
+                gps = {
+                    providerReady: null,
+                    configured: false,
+                    error: msg,
+                    active: null,
+                    sessions: [],
+                    recentPositions: [],
+                };
             }
         }
 
@@ -520,16 +569,20 @@ export class LoadService {
             },
             carrier: {
                 carrierName: s.carrierName,
-                carrierEmail: s.carrierEmail,
-                carrierPhone: s.carrierPhone,
-                mc: s.carrierMc,
-                dot: s.carrierDot,
+                carrierEmail: s.carrierEmail || carrierProfile?.email || null,
+                carrierPhone: s.carrierPhone || carrierProfile?.phone || null,
+                mc: s.carrierMc || carrierProfile?.mcNumber || null,
+                // Prefer load snapshot, fall back to onboarding packet DOT#.
+                dot: s.carrierDot || carrierProfile?.dotNumber || null,
                 insurance: s.carrierInsurance,
                 carrierStatus: s.carrierStatus,
                 driverName: s.driverName,
                 driverPhone: s.driverPhone,
                 truckNumber: s.truckNumber,
                 trailerNumber: s.trailerNumber,
+                // From carrier online packet (mandatory payment radios).
+                paymentOption: carrierProfile?.paymentOption || null,
+                paymentOptionLabel: carrierPaymentOptionLabel(carrierProfile?.paymentOption) || null,
                 carrierProfileId: s.carrierProfileId || carrierProfile?.carrierId || null,
                 onboardingStatus: carrierProfile?.onboardingStatus || null,
                 loadCarrierApproved: isLoadCarrierApproved(s),
@@ -649,6 +702,199 @@ export class LoadService {
         };
     }
 
+    /**
+     * Carrier change (Name + Email both different): keep the old Load Number + data,
+     * create a sequential new Load for the new carrier registration.
+     */
+    private async forkLoadOnCarrierChange(
+        previous: {
+            shipmentLeadId: string;
+            loadNumber: string | null;
+            greenOsShipmentId: string | null;
+            source: string;
+            shipmentTitle: string;
+            customerName: string | null;
+            customerEmail: string | null;
+            customerPhone: string | null;
+            pickupCity: string | null;
+            pickupState: string | null;
+            pickupZip: string | null;
+            deliveryCity: string | null;
+            deliveryState: string | null;
+            deliveryZip: string | null;
+            pickupFrom: Date | null;
+            pickupTo: Date | null;
+            deliveryFrom: Date | null;
+            deliveryTo: Date | null;
+            opsPickupAt: Date | null;
+            opsDeliveryAt: Date | null;
+            miles: number | null;
+            equipment: string | null;
+            commodity: string | null;
+            weight: string | null;
+            pieces: number | null;
+            specialInstructions: string | null;
+            customerRate: number | null;
+            price: number | null;
+            fuelSurcharge: number | null;
+            accessorialCharges: number | null;
+            assignedBrokerId: string | null;
+            directCustomerId: string | null;
+            priority: string;
+            carrierName: string | null;
+            carrierEmail: string | null;
+        },
+        body: Record<string, unknown>,
+        actorUserId?: string
+    ) {
+        const previousLoadNumber = String(previous.loadNumber || "").trim();
+        const [greenOsShipmentId, loadNumber] = await Promise.all([
+            allocateGreenOsShipmentId(),
+            allocateLoadNumber(),
+        ]);
+
+        const str = (k: string) => {
+            if (body[k] === undefined) return undefined;
+            if (body[k] == null || body[k] === "") return null;
+            return String(body[k]);
+        };
+        const num = (k: string) => {
+            if (body[k] === undefined) return undefined;
+            if (body[k] == null || body[k] === "") return null;
+            const n = Number(body[k]);
+            return Number.isFinite(n) ? n : null;
+        };
+        const dateVal = (k: string, fallback: Date | null) => {
+            if (body[k] === undefined) return fallback;
+            if (body[k] == null || body[k] === "") return null;
+            const d = new Date(String(body[k]));
+            return Number.isNaN(d.getTime()) ? null : d;
+        };
+
+        const carrierName = str("carrierName") ?? String(body.carrierName || "");
+        const carrierEmail = str("carrierEmail");
+        const now = new Date();
+
+        const created = await prisma.shipmentLead.create({
+            data: {
+                greenOsShipmentId,
+                loadNumber,
+                source: previous.source || "carrier_change",
+                shipmentTitle: previous.shipmentTitle,
+                customerName: previous.customerName,
+                customerEmail: previous.customerEmail,
+                customerPhone: previous.customerPhone,
+                pickupCity: previous.pickupCity,
+                pickupState: previous.pickupState,
+                pickupZip: previous.pickupZip,
+                deliveryCity: previous.deliveryCity,
+                deliveryState: previous.deliveryState,
+                deliveryZip: previous.deliveryZip,
+                pickupFrom: dateVal("pickupFrom", previous.pickupFrom),
+                pickupTo: previous.pickupTo,
+                deliveryFrom: dateVal("deliveryFrom", previous.deliveryFrom),
+                deliveryTo: previous.deliveryTo,
+                opsPickupAt: dateVal("opsPickupAt", previous.opsPickupAt),
+                opsDeliveryAt: dateVal("opsDeliveryAt", previous.opsDeliveryAt),
+                miles: num("miles") !== undefined ? num("miles") : previous.miles,
+                equipment: previous.equipment,
+                commodity: previous.commodity,
+                weight: previous.weight,
+                pieces: previous.pieces,
+                specialInstructions: previous.specialInstructions,
+                customerRate: previous.customerRate,
+                price: previous.price,
+                fuelSurcharge: previous.fuelSurcharge,
+                accessorialCharges: previous.accessorialCharges,
+                // New carrier — rates/docs start fresh on this Load Number.
+                carrierRate: num("carrierRate") !== undefined ? num("carrierRate") : null,
+                carrierName: carrierName || null,
+                carrierEmail: carrierEmail ?? null,
+                carrierPhone: str("carrierPhone") ?? null,
+                carrierMc: str("carrierMc") ?? null,
+                carrierDot: str("carrierDot") ?? null,
+                carrierInsurance: str("carrierInsurance") ?? null,
+                carrierStatus: str("carrierStatus") || "Assigned",
+                driverName: str("driverName") ?? null,
+                driverPhone: str("driverPhone") ?? null,
+                truckNumber: str("truckNumber") ?? null,
+                trailerNumber: str("trailerNumber") ?? null,
+                carrierProfileId: null,
+                loadCarrierApprovedAt: null,
+                loadCarrierApprovedById: null,
+                loadCarrierApprovedProfileId: null,
+                assignedBrokerId: previous.assignedBrokerId,
+                directCustomerId: previous.directCustomerId,
+                priority: previous.priority || "NORMAL",
+                status: "CARRIER_ASSIGNED",
+                acceptedAt: now,
+                assignedAt: now,
+                receivedAt: now,
+                referenceNumber: previousLoadNumber
+                    ? `Carrier change from ${previousLoadNumber}`
+                    : "Carrier change",
+            },
+        });
+
+        await domainEventEngine.emit({
+            shipmentLeadId: previous.shipmentLeadId,
+            eventType: "STATUS_CHANGED",
+            title: "Carrier change — new Load Number",
+            message: `Carrier Name + Email changed (${previous.carrierName || "—"} / ${previous.carrierEmail || "—"} → ${carrierName || "—"} / ${carrierEmail || "—"}). Prior Load ${previousLoadNumber || "—"} kept. New Load ${loadNumber} created for the new carrier.`,
+            actorUserId,
+            payload: {
+                reason: "carrier_name_email_change",
+                previousLoadNumber,
+                successorShipmentLeadId: created.shipmentLeadId,
+                successorLoadNumber: loadNumber,
+                previousCarrierName: previous.carrierName,
+                previousCarrierEmail: previous.carrierEmail,
+                newCarrierName: carrierName,
+                newCarrierEmail: carrierEmail,
+            },
+            timelineStage: "LOAD_CREATED",
+        });
+
+        await domainEventEngine.emit({
+            shipmentLeadId: created.shipmentLeadId,
+            eventType: "LOAD_CREATED",
+            title: "Load created from carrier change",
+            message: `New Load ${loadNumber} after carrier change (was ${previousLoadNumber || "prior load"}). New carrier data is saved only on this Load Number.`,
+            actorUserId,
+            payload: {
+                reason: "carrier_name_email_change",
+                previousShipmentLeadId: previous.shipmentLeadId,
+                previousLoadNumber,
+                loadNumber,
+                carrierName,
+                carrierEmail,
+            },
+            timelineStage: "LOAD_CREATED",
+        });
+
+        await domainEventEngine.emit({
+            shipmentLeadId: created.shipmentLeadId,
+            eventType: "CARRIER_ASSIGNED",
+            title: "Carrier Assigned",
+            message: `Carrier ${carrierName} assigned to Load ${loadNumber}`,
+            actorUserId,
+            payload: { carrierName, carrierEmail, fromCarrierChange: true },
+            timelineStage: "CARRIER_ASSIGNED",
+        });
+
+        const details = await this.getLoadDetails(created.shipmentLeadId);
+        return {
+            ...details,
+            carrierChangeFork: {
+                previousShipmentLeadId: previous.shipmentLeadId,
+                previousLoadNumber,
+                newShipmentLeadId: created.shipmentLeadId,
+                newLoadNumber: loadNumber,
+                greenOsShipmentId,
+            },
+        };
+    }
+
     async updateLoad(
         shipmentLeadId: string,
         body: Record<string, unknown>,
@@ -663,6 +909,30 @@ export class LoadService {
                 new Error("Load Number is system-generated only — brokers cannot set it manually"),
                 { status: 422 }
             );
+        }
+
+        const nextName =
+            body.carrierName !== undefined
+                ? body.carrierName == null
+                    ? ""
+                    : String(body.carrierName)
+                : String(shipment.carrierName || "");
+        const nextEmail =
+            body.carrierEmail !== undefined
+                ? body.carrierEmail == null
+                    ? ""
+                    : String(body.carrierEmail)
+                : String(shipment.carrierEmail || "");
+
+        if (
+            shipment.loadNumber &&
+            isNameAndEmailCarrierChange(
+                { name: shipment.carrierName, email: shipment.carrierEmail },
+                { name: nextName, email: nextEmail }
+            )
+        ) {
+            // Keep prior Load Number + carrier history; new carrier gets a new Load.
+            return this.forkLoadOnCarrierChange(shipment, body, actorUserId);
         }
 
         const data: Record<string, unknown> = {};
@@ -739,10 +1009,25 @@ export class LoadService {
                 String(body.carrierEmail || "") !== String(shipment.carrierEmail || "")) ||
             (body.carrierMc !== undefined &&
                 String(body.carrierMc || "") !== String(shipment.carrierMc || ""));
+        const explicitProfileId =
+            body.carrierProfileId !== undefined
+                ? body.carrierProfileId
+                    ? String(body.carrierProfileId)
+                    : null
+                : undefined;
+        if (explicitProfileId !== undefined) {
+            data.carrierProfileId = explicitProfileId;
+        }
         if (identityChanged) {
             data.loadCarrierApprovedAt = null;
             data.loadCarrierApprovedById = null;
             data.loadCarrierApprovedProfileId = null;
+            // Force inviteAgreementFromLoad to create/link a new profile instead of
+            // renaming the previous carrier (which would mix documents across carriers).
+            // Keep an explicitly chosen autofill profile when the broker picked one.
+            if (explicitProfileId === undefined) {
+                data.carrierProfileId = null;
+            }
         }
 
         if (Object.keys(data).length) {
@@ -810,7 +1095,8 @@ export class LoadService {
         action: string,
         actorUserId?: string,
         body?: Record<string, unknown>,
-        actorRole?: string
+        actorRole?: string,
+        actorAccountingSubRole?: string | null
     ) {
         const shipment = await prisma.shipmentLead.findUnique({
             where: { shipmentLeadId },
@@ -819,6 +1105,8 @@ export class LoadService {
                 carrierName: true,
                 carrierProfileId: true,
                 carrierMc: true,
+                carrierDot: true,
+                carrierPhone: true,
                 customerName: true,
                 customerEmail: true,
                 carrierEmail: true,
@@ -832,6 +1120,10 @@ export class LoadService {
                 assignedBrokerId: true,
                 loadCarrierApprovedAt: true,
                 loadCarrierApprovedProfileId: true,
+                accountingDocStatus: true,
+                accountingFinancialVerified: true,
+                accountingReadyForCarrierPayment: true,
+                accountingReadyForBilling: true,
             },
         });
         if (!shipment) throw Object.assign(new Error("Load not found"), { status: 404 });
@@ -893,26 +1185,35 @@ export class LoadService {
 
         if (action === "approve_carrier") {
             if (!String(shipment.carrierName || "").trim()) {
-                throw Object.assign(new Error("Assign a carrier before Approved Carrier"), {
+                throw Object.assign(new Error("Assign a carrier before Approve Carrier"), {
                     status: 422,
                 });
             }
             let profileId = shipment.carrierProfileId;
             if (!profileId) {
                 throw Object.assign(
-                    new Error("Save the carrier on this load first, then review documents and click Approved Carrier"),
+                    new Error("Save the carrier on this load first, then review documents and click Approve Carrier"),
                     { status: 422, code: "CARRIER_PROFILE_REQUIRED" }
                 );
             }
-            const profile = await prisma.carrier.findUnique({
+            const profileFull = await prisma.carrier.findUnique({
                 where: { carrierId: profileId },
-                select: { onboardingStatus: true },
+                select: {
+                    onboardingStatus: true,
+                    assignedBrokerId: true,
+                    dotNumber: true,
+                    mcNumber: true,
+                    phone: true,
+                    email: true,
+                },
             });
-            const onboarding = String(profile?.onboardingStatus || "").toUpperCase();
+            const onboarding = String(profileFull?.onboardingStatus || "").toUpperCase();
             const reviewSlots = await buildLoadCarrierReviewPacket({
                 currentShipmentLeadId: shipmentLeadId,
                 carrierProfileId: profileId,
-                carrierMc: shipment.carrierMc || null,
+                carrierMc: shipment.carrierMc || profileFull?.mcNumber || null,
+                botActorUserId:
+                    shipment.assignedBrokerId || profileFull?.assignedBrokerId || actorUserId || null,
                 packetDocs: (
                     await prisma.carrierDocument.findMany({
                         where: { carrierId: profileId, status: "CURRENT" },
@@ -935,7 +1236,7 @@ export class LoadService {
             if (!hasReviewMaterial && onboarding !== "APPROVED") {
                 throw Object.assign(
                     new Error(
-                        "No carrier packet documents found yet. Wait for MC Authority / W-9 / Certificate of Holder / Agreement, then click Approved Carrier."
+                        "No carrier packet documents found yet. Wait for MC Authority / W-9 / Certificate of Holder / Agreement, then click Approve Carrier."
                     ),
                     { status: 422, code: "CARRIER_REVIEW_DOCS_REQUIRED" }
                 );
@@ -954,12 +1255,17 @@ export class LoadService {
                     loadCarrierApprovedById: actorUserId || null,
                     loadCarrierApprovedProfileId: profileId,
                     carrierStatus: "Approved",
+                    // Pull mandatory online-packet fields onto the load for Rate Con.
+                    carrierDot: shipment.carrierDot || profileFull?.dotNumber || null,
+                    carrierMc: shipment.carrierMc || profileFull?.mcNumber || null,
+                    carrierPhone: shipment.carrierPhone || profileFull?.phone || null,
+                    carrierEmail: shipment.carrierEmail || profileFull?.email || null,
                 },
             });
             await domainEventEngine.emit({
                 shipmentLeadId,
                 eventType: "LOAD_CARRIER_APPROVED",
-                title: "Approved Carrier",
+                title: "Approve Carrier",
                 message: `Broker approved carrier documents for Load ${shipment.loadNumber || ""}`,
                 actorUserId,
                 payload: { carrierProfileId: profileId },
@@ -981,8 +1287,48 @@ export class LoadService {
                 );
             }
 
-            const now = new Date();
+            const {
+                AccountingPermissions,
+                hasAccountingPermission,
+            } = await import("../../../auth/accounting.js");
+            const { AccountingService } = await import(
+                "../../accounting/services/accounting.service.js"
+            );
             const customerPayment = action === "mark_customer_paid";
+            if (customerPayment) {
+                if (
+                    !hasAccountingPermission(
+                        actorRole,
+                        actorAccountingSubRole,
+                        AccountingPermissions.CustomerPaymentsRecord
+                    )
+                ) {
+                    throw Object.assign(
+                        new Error(
+                            "Accounting Documents cannot record customer payments — Payments role required"
+                        ),
+                        { status: 403, code: "ACCOUNTING_FORBIDDEN" }
+                    );
+                }
+            } else {
+                if (
+                    !hasAccountingPermission(
+                        actorRole,
+                        actorAccountingSubRole,
+                        AccountingPermissions.CarrierPaymentsExecute
+                    )
+                ) {
+                    throw Object.assign(
+                        new Error(
+                            "Accounting Documents cannot execute carrier payments — Payments role required"
+                        ),
+                        { status: 403, code: "ACCOUNTING_FORBIDDEN" }
+                    );
+                }
+                AccountingService.assertCarrierPaymentAllowed(shipment, String(actorRole || ""));
+            }
+
+            const now = new Date();
             await prisma.shipmentLead.update({
                 where: { shipmentLeadId },
                 data: customerPayment
@@ -1221,6 +1567,20 @@ export class LoadService {
                 status: map[action],
                 actorUserId,
             });
+            // Stop CarrierView GPS when the load is delivered or closed (best-effort).
+            if (action === "close_load" || action === "mark_delivered") {
+                try {
+                    const { trackingService } = await import(
+                        "../../tracking/services/tracking.service.js"
+                    );
+                    await trackingService.disableTracking(shipmentLeadId, actorUserId);
+                } catch (err) {
+                    console.warn(
+                        `[LOAD_GPS] auto-disable after ${action} failed ${shipmentLeadId}:`,
+                        err instanceof Error ? err.message : String(err)
+                    );
+                }
+            }
             return this.getLoadDetails(shipmentLeadId);
         }
 

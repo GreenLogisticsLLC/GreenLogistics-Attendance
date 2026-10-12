@@ -11,6 +11,7 @@ import { startAssignmentAcceptanceScheduler } from "./modules/assignment/assignm
 import { startBrokerResponseTimeoutScheduler } from "./modules/crm/broker-response-timeout.scheduler.js";
 import { startCarrierViewReconciliation } from "./modules/tracking/scheduler.js";
 import { startDocumentAiScheduler } from "./modules/ai/documents/scheduler.js";
+import { carrierService } from "./modules/carriers/services/carrier.service.js";
 import { backfillMissingGreenOsShipmentIds, remigrateAllGreenOsShipmentIds } from "./modules/shipment/shipment.id.js";
 import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
 
@@ -64,6 +65,11 @@ app.listen(config.port, config.host, async () => {
         if (n > 0) console.log(`[shipment] Backfilled ${n} Green OS Shipment ID(s)`);
     } catch (err) {
         console.warn("[shipment] Green OS ID backfill/remigrate skipped:", err);
+    }
+    try {
+        await carrierService.regenerateAllSignedAgreementPdfsOnce();
+    } catch (err) {
+        console.warn("[agreement-pdf] signed PDF regenerate skipped:", err);
     }
     const urls = getWebhookUrls(config.port);
     const ips = getAllNetworkIps();

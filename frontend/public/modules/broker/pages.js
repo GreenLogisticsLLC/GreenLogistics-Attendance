@@ -1,6 +1,6 @@
 /**
  * Broker-only GreenOS workspace.
- * Personal Dashboard · My Shipments · My Customers · MY Carrier · ON Road · Notifications
+ * Personal Dashboard · My Shipments · My Customers · MY Carrier · ON Road · Trucking
  */
 window.GreenOSModules = window.GreenOSModules || {};
 window.GreenOSModules.broker = {
@@ -13,7 +13,6 @@ window.GreenOSModules.broker = {
     { id: "carriers", title: "MY Carrier" },
     { id: "on-road", title: "ON Road" },
     { id: "trucking", title: "Trucking" },
-    { id: "notifications", title: "Notifications" },
   ],
   _shipmentsTimer: null,
   _shipmentsCache: null,
@@ -86,7 +85,6 @@ window.GreenOSModules.broker = {
       if (window.GreenOSModules.trucking) window.GreenOSModules.trucking.render(body);
       else body.innerHTML = "<p>Trucking module not loaded — hard refresh.</p>";
     }
-    else if (active.id === "notifications") self.renderNotifications(body);
     else self.renderDashboard(body, root);
   },
 
@@ -278,7 +276,7 @@ window.GreenOSModules.broker = {
     var self = this;
     var activeTab = self._shipmentsTab || "new";
     body.innerHTML =
-      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>New imports first — passed loads in Other · accepted by another company in their own tab</p></section>' +
+      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>New imports first — passed loads in Other · accepted work in Accepted · AAC in its own tab</p></section>' +
       '<nav class="gos-subnav" id="broker-ship-tabs">' +
       '<button type="button" class="gos-subnav-item' +
       (activeTab === "new" ? " is-active" : "") +
@@ -286,6 +284,9 @@ window.GreenOSModules.broker = {
       '<button type="button" class="gos-subnav-item' +
       (activeTab === "other" ? " is-active" : "") +
       '" data-ship-tab="other">Other Shipment <span class="gos-queue-badge" id="broker-ship-count-other">…</span></button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (activeTab === "accepted" ? " is-active" : "") +
+      '" data-ship-tab="accepted">Accepted shipments <span class="gos-queue-badge" id="broker-ship-count-accepted">…</span></button>' +
       '<button type="button" class="gos-subnav-item' +
       (activeTab === "accepted-another" ? " is-active" : "") +
       '" data-ship-tab="accepted-another">Accepted to another company <span class="gos-queue-badge" id="broker-ship-count-aac">…</span></button>' +
@@ -347,8 +348,28 @@ window.GreenOSModules.broker = {
       return s.status === "ACCEPTED_ANOTHER_COMPANY";
     }
 
+    function isWaitingShipment(s) {
+      var st = String(s.status || "");
+      return (
+        st === "NEW" ||
+        st === "UNASSIGNED" ||
+        st === "ASSIGNED" ||
+        st === "AWAITING_ACCEPTANCE" ||
+        st === "AGENT_OPEN"
+      );
+    }
+
+    function stNotDeleted(s) {
+      return String(s.status || "") !== "DELETED_FROM_CUSTOMER";
+    }
+
+    function isAcceptedShipment(s) {
+      return !isAcceptedAnother(s) && !isWaitingShipment(s) && stNotDeleted(s);
+    }
+
     function tabLabelFor(tab) {
       if (tab === "other") return "Other Shipment";
+      if (tab === "accepted") return "Accepted shipments";
       if (tab === "accepted-another") return "Accepted to another company";
       return "New Shipment";
     }
@@ -358,16 +379,24 @@ window.GreenOSModules.broker = {
       return rows.filter(function (s) {
         if (isAcceptedAnother(s)) return tab === "accepted-another";
         if (tab === "accepted-another") return false;
+        if (isAcceptedShipment(s)) return tab === "accepted";
+        if (tab === "accepted") return false;
         return tab === "other" ? isOtherShipment(s) : !isOtherShipment(s);
       });
     }
 
     function sortRows(rows) {
+      // Waiting → Open in uShip → BROKER REPLY → Bid Submitted → Shipment Accepted → rest
       var priority = {
         AWAITING_ACCEPTANCE: 0,
+        ASSIGNED: 0,
         AGENT_OPEN: 1,
-        ASSIGNED: 2,
-        WORKING: 3,
+        BROKER_REPLY: 2,
+        FOLLOW_UP: 2,
+        CUSTOMER_REPLIED: 2,
+        BID_SUBMITTED: 3,
+        QUOTE_SENT: 3,
+        WORKING: 4,
       };
       return rows.slice().sort(function (a, b) {
         var pa = priority[a.status] != null ? priority[a.status] : 9;
@@ -390,9 +419,12 @@ window.GreenOSModules.broker = {
     function updateTabCounts(meta) {
       var newEl = document.getElementById("broker-ship-count-new");
       var otherEl = document.getElementById("broker-ship-count-other");
+      var acceptedEl = document.getElementById("broker-ship-count-accepted");
       var aacEl = document.getElementById("broker-ship-count-aac");
       if (newEl && meta.newCount != null) newEl.textContent = String(meta.newCount);
       if (otherEl && meta.otherCount != null) otherEl.textContent = String(meta.otherCount);
+      if (acceptedEl && meta.acceptedCount != null)
+        acceptedEl.textContent = String(meta.acceptedCount);
       if (aacEl && meta.aacCount != null) aacEl.textContent = String(meta.aacCount);
     }
 
@@ -511,6 +543,8 @@ window.GreenOSModules.broker = {
         var params = ["page=" + page, "pageSize=" + pageSize];
         if (tab === "accepted-another") {
           params.push("status=ACCEPTED_ANOTHER_COMPANY");
+        } else if (tab === "accepted") {
+          params.push("assignmentKind=accepted");
         } else {
           params.push("assignmentKind=" + encodeURIComponent(tab));
         }
@@ -542,15 +576,20 @@ window.GreenOSModules.broker = {
 
         // Lightweight count probes for the other tabs (pageSize=1 → total only).
         try {
-          var [newMeta, otherMeta, aacMeta] = await Promise.all([
+          var [newMeta, otherMeta, acceptedMeta, aacMeta] = await Promise.all([
             self.api("/shipments?assignmentKind=new&page=1&pageSize=1"),
             self.api("/shipments?assignmentKind=other&page=1&pageSize=1"),
+            self.api("/shipments?assignmentKind=accepted&page=1&pageSize=1"),
             self.api("/shipments?status=ACCEPTED_ANOTHER_COMPANY&page=1&pageSize=1"),
           ]);
           updateTabCounts({
             newCount: newMeta && newMeta.success ? (newMeta.data && newMeta.data.total) || 0 : "…",
             otherCount:
               otherMeta && otherMeta.success ? (otherMeta.data && otherMeta.data.total) || 0 : "…",
+            acceptedCount:
+              acceptedMeta && acceptedMeta.success
+                ? (acceptedMeta.data && acceptedMeta.data.total) || 0
+                : "…",
             aacCount: aacMeta && aacMeta.success ? (aacMeta.data && aacMeta.data.total) || 0 : "…",
           });
         } catch {
@@ -1052,92 +1091,4 @@ window.GreenOSModules.broker = {
     }
   },
 
-  async renderNotifications(body) {
-    body.innerHTML = "<p>Loading notifications…</p>";
-    try {
-      var data = await this.api("/notifications");
-      if (!data.success) {
-        body.innerHTML = "<p>" + this.esc(data.message) + "</p>";
-        return;
-      }
-      var payload = data.data || {};
-      var rows = Array.isArray(payload) ? payload : payload.items || [];
-      var unread = payload.unread != null ? payload.unread : 0;
-      var soundOn = localStorage.getItem("gos_notify_sound") !== "0";
-      body.innerHTML =
-        '<section class="gos-dash-hero"><h1>Notification Center</h1>' +
-        "<p>GreenOS alerts (not Gmail). Unread: <strong>" +
-        unread +
-        "</strong></p></section>" +
-        '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem">' +
-        '<label class="gos-muted" style="display:flex;align-items:center;gap:0.5rem">' +
-        '<input type="checkbox" id="broker-sound-toggle"' +
-        (soundOn ? " checked" : "") +
-        "/> Play sound</label>" +
-        '<button type="button" class="btn-secondary" id="broker-mark-all-read" style="width:auto">Mark all read</button>' +
-        "</div>" +
-        '<ul class="broker-notify-list" id="broker-notify"></ul>';
-      body.querySelector("#broker-sound-toggle")?.addEventListener("change", function (e) {
-        var on = !!e.target.checked;
-        if (window.GreenOSRealtime) window.GreenOSRealtime.setSoundEnabled(on);
-        else localStorage.setItem("gos_notify_sound", on ? "1" : "0");
-      });
-      body.querySelector("#broker-mark-all-read")?.addEventListener("click", async function () {
-        await window.GreenOSModules.broker.api("/notifications/read-all", { method: "POST" });
-        window.GreenOSModules.broker.renderNotifications(body);
-      });
-      var list = body.querySelector("#broker-notify");
-      if (!rows.length) {
-        list.innerHTML =
-          '<li class="gos-muted">No notifications yet — assignments and uShip events appear here</li>';
-        return;
-      }
-      var esc = this.esc.bind(this);
-      var fmt = this.fmtDate.bind(this);
-      list.innerHTML = rows
-        .map(function (n) {
-          return (
-            '<li class="' +
-            (n.status === "UNREAD" ? "is-unread" : "") +
-            '" data-id="' +
-            esc(n.id) +
-            '" data-shipment="' +
-            esc(n.shipmentLeadId || "") +
-            '"><strong>' +
-            esc(n.title || n.type) +
-            "</strong> — " +
-            esc(n.message) +
-            '<br><small class="gos-muted">' +
-            fmt(n.createdAt) +
-            (n.status === "UNREAD" ? " · UNREAD" : "") +
-            "</small></li>"
-          );
-        })
-        .join("");
-      list.querySelectorAll("[data-id]").forEach(function (li) {
-        li.style.cursor = "pointer";
-        li.title = "Click to open shipment";
-        li.addEventListener("click", async function () {
-          var nid = li.getAttribute("data-id");
-          var sid = li.getAttribute("data-shipment");
-          try {
-            await window.GreenOSModules.broker.api("/notifications/" + nid + "/read", {
-              method: "POST",
-            });
-          } catch (e) {}
-          li.classList.remove("is-unread");
-          if (sid) {
-            if (window.GreenOSRealtime && typeof window.GreenOSRealtime.openShipment === "function") {
-              window.GreenOSRealtime.openShipment(sid);
-            } else if (window.GreenOSModules.crm) {
-              var host = document.getElementById("gos-module-host");
-              if (host) window.GreenOSModules.crm.openShipmentCard(host, sid);
-            }
-          }
-        });
-      });
-    } catch {
-      body.innerHTML = "<p>Failed to load notifications</p>";
-    }
-  },
 };

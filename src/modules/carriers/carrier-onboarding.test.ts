@@ -17,8 +17,8 @@ test("token is long enough for security", () => {
     assert.ok(raw.length >= 40);
 });
 
-test("required document types include MC, NOA, W9", () => {
-    assert.deepEqual([...REQUIRED_CARRIER_DOC_TYPES], ["MC_AUTHORITY", "NOA", "W9"]);
+test("required document types include MC, W9, Insurance", () => {
+    assert.deepEqual([...REQUIRED_CARRIER_DOC_TYPES], ["MC_AUTHORITY", "W9", "INSURANCE"]);
 });
 
 test("different tokens produce different hashes", () => {

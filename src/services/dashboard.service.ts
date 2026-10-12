@@ -2,16 +2,19 @@ import { config } from "../config/env.js";
 import { prisma } from "../config/database.js";
 import {
     ATTENDANCE_BREAK_ALLOWANCE_MINUTES,
+    ATTENDANCE_GRACE_MINUTES,
     addDaysToDateString,
     diffMinutes,
-    excessOutsideMinutes,
     formatDateTime,
+    formatTime,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
+    toAttendanceClock,
 } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
 import { getEmployeePresenceSession, getEmployeePresenceSessionsMap } from "./attendance-presence.service.js";
+import { businessRulesEngine } from "./business-rules.engine.js";
 import type {
     DashboardEmployeeRow,
     DashboardStatistics,
@@ -64,8 +67,21 @@ export class DashboardService {
                 completedSessions++;
             }
 
-            if (session?.late && (session.lateMinutes || 0) > 0) {
-                employeesLate++;
+            if (session?.firstEntry) {
+                const grace =
+                    emp.shift?.gracePeriodMinutes ?? ATTENDANCE_GRACE_MINUTES;
+                const lateBounds = getAttendanceDayBounds(
+                    session.workDate,
+                    config.timezone
+                );
+                const lateStatus = businessRulesEngine.calculateLateStatus(
+                    toAttendanceClock(session.firstEntry),
+                    lateBounds.scheduledStart,
+                    grace
+                );
+                if (lateStatus.late && lateStatus.lateMinutes > 0) {
+                    employeesLate++;
+                }
             }
             if (!session?.firstEntry && currentStatus === "SCHEDULED") {
                 employeesNotArrived++;
@@ -121,7 +137,7 @@ export class DashboardService {
                 }
             }
 
-            const openInterval = session?.absenceIntervals?.[0];
+            const openInterval = session?.absenceIntervals?.find((i) => !i.endTime) ?? null;
             const effectiveNow = now;
 
             let currentAbsenceMinutes = 0;
@@ -134,8 +150,19 @@ export class DashboardService {
                     currentOfficeMinutes = diffMinutes(since, effectiveNow);
                 }
             }
-            const rawOutsideMinutes =
-                (session?.totalAbsenceMinutes ?? 0) + currentAbsenceMinutes;
+            // TOTAL OUTSIDE = sum of every completed exit + current open exit (if any).
+            // Do not subtract the old 60m break allowance — show the real total.
+            const closedOutsideMinutes = (session?.absenceIntervals ?? []).reduce(
+                (sum, interval) => {
+                    if (interval.endTime == null) return sum;
+                    if (interval.durationMinutes != null) {
+                        return sum + interval.durationMinutes;
+                    }
+                    return sum + diffMinutes(interval.startTime, interval.endTime);
+                },
+                0
+            );
+            const rawOutsideMinutes = closedOutsideMinutes + currentAbsenceMinutes;
             const overtimeEnd =
                 session?.currentStatus === "INSIDE_OFFICE"
                     ? now
@@ -149,6 +176,21 @@ export class DashboardService {
                     ? diffMinutes(overtimeStart, overtimeEnd)
                     : 0;
 
+            // Always recompute late from First Entry vs 17:15 (office clock) so the
+            // Live Board stays red even if an older session.late flag was wrong.
+            const grace =
+                emp.shift?.gracePeriodMinutes ?? ATTENDANCE_GRACE_MINUTES;
+            const lateBounds = session
+                ? getAttendanceDayBounds(session.workDate, config.timezone)
+                : currentBounds;
+            const lateStatus = session?.firstEntry
+                ? businessRulesEngine.calculateLateStatus(
+                      toAttendanceClock(session.firstEntry),
+                      lateBounds.scheduledStart,
+                      grace
+                  )
+                : { late: false, lateMinutes: 0 };
+
             rows.push({
                 employeeId: emp.employeeId,
                 employeeNumber: emp.employeeNumber,
@@ -156,19 +198,19 @@ export class DashboardService {
                 department: emp.department,
                 position: emp.position,
                 scheduledStart: formatDateTime(session?.scheduledStart ?? null) || "—",
-                firstEntry: formatDateTime(session?.firstEntry ?? null),
-                lastExit: formatDateTime(session?.lastExit ?? null),
+                firstEntry: formatTime(session?.firstEntry ?? null),
+                lastExit: formatTime(session?.lastExit ?? null),
                 currentStatus: session?.currentStatus ?? "SCHEDULED",
-                late: Boolean(session?.late),
-                lateMinutes: session?.lateMinutes ?? 0,
+                late: lateStatus.late,
+                lateMinutes: lateStatus.lateMinutes,
                 currentAbsenceMinutes,
                 currentOfficeMinutes,
-                totalAbsenceMinutes: excessOutsideMinutes(rawOutsideMinutes),
+                totalAbsenceMinutes: rawOutsideMinutes,
                 rawOutsideMinutes,
                 breakAllowanceMinutes: ATTENDANCE_BREAK_ALLOWANCE_MINUTES,
                 overtimeInOfficeMinutes,
                 exitCount: session?.exitCount ?? 0,
-                lastActivity: formatDateTime(session?.lastActivity ?? null),
+                lastActivity: formatTime(session?.lastActivity ?? null),
             });
         }
 

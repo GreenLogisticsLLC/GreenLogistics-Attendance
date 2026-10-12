@@ -200,4 +200,45 @@ jobs:
           fi
           echo "$HEALTH_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); o=d.get('openai') or {}; assert o.get('model') and o.get('keySuffix'), f'health missing openai runtime: {d}'; print('openai_ok', o.get('model'), o.get('keySuffix'))"
           curl --fail http://localhost:3847/api/health
+
+          # One-shot: wipe all shipment/load history when marker file is present on main.
+          if [ -f ops/RUN_CLEAN_SLATE_SHIPMENTS ]; then
+            echo "=== ONE-SHOT clean slate shipments (marker present) ==="
+            pm2 stop greenos || true
+            node scripts/ops-clean-slate-shipments.mjs --confirm=CLEAN_SLATE_SHIPMENTS
+            pm2 restart greenos --update-env || pm2 start dist/index.js --name greenos --update-env --cwd "$(pwd)"
+            pm2 save
+            sleep 3
+            curl --fail http://localhost:3847/api/health
+            echo "=== clean slate shipments done ==="
+          fi
+
+          # One-shot: print Day Shift / late-after-17:15 diagnostics (read-only).
+          if [ -f ops/RUN_DIAGNOSE_LATE_SETTINGS ]; then
+            echo "=== ONE-SHOT diagnose late settings (marker present) ==="
+            node scripts/diagnose-late-settings.mjs || true
+            echo "=== diagnose late settings done ==="
+          fi
+
+          # One-shot: diagnose false Customer Replied on GOS1000030 (read-only).
+          if [ -f ops/RUN_DIAGNOSE_CUSTOMER_REPLIED ]; then
+            echo "=== ONE-SHOT diagnose customer replied (marker present) ==="
+            node scripts/diagnose-customer-replied.mjs GOS1000030 || true
+            echo "=== diagnose customer replied done ==="
+          fi
+
+          # One-shot: repair false CUSTOMER_REPLIED (no real Q&A Gmail).
+          if [ -f ops/RUN_FIX_FALSE_CUSTOMER_REPLIED ]; then
+            echo "=== ONE-SHOT fix false customer replied (marker present) ==="
+            node scripts/ops-fix-false-customer-replied.mjs --confirm=FIX_FALSE_CUSTOMER_REPLIED || true
+            node scripts/diagnose-customer-replied.mjs GOS1000030 || true
+            echo "=== fix false customer replied done ==="
+          fi
+
+          # One-shot: align Instant Alerts to In Office brokers (Lia) + drain.
+          if [ -f ops/RUN_FIX_IN_OFFICE_ASSIGN ]; then
+            echo "=== ONE-SHOT fix in-office assign (marker present) ==="
+            node scripts/ops-fix-in-office-assign.mjs --confirm=FIX_IN_OFFICE_ASSIGN || true
+            echo "=== fix in-office assign done ==="
+          fi
           EOF

@@ -32,9 +32,16 @@ export async function updateUserRoleController(req: AuthRequest, res: Response) 
             req.body?.takeOverFromUserId === ""
                 ? null
                 : String(req.body.takeOverFromUserId);
+        const accountingSubRole =
+            req.body?.accountingSubRole === null ||
+            req.body?.accountingSubRole === undefined ||
+            req.body?.accountingSubRole === ""
+                ? null
+                : String(req.body.accountingSubRole);
         const result = await usersService.updateUserRole(req.user, userId, role, {
             transferTeamToUserId,
             takeOverFromUserId,
+            accountingSubRole,
         });
         if (!result.ok) {
             return res.status(result.status).json(apiResponse(false, result.message));

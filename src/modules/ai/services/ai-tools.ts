@@ -126,6 +126,7 @@ export class AiTools {
         if (!q || q.length < 2) return notFound("findCarriers");
 
         const mcDigits = extractMcDigits(q);
+        // list() may enrich with superseded flags — keep a flexible row type for MC search.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let rows: any[] = [];
 

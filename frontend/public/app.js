@@ -99,7 +99,24 @@ function showApp(user) {
     window.GreenOSUser = user;
     loginScreen.classList.add("hidden");
     appScreen.classList.remove("hidden");
-    $("#logged-user").textContent = `${user.firstName} ${user.lastName} (${user.role})`;
+    const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || "User";
+    const logged = $("#logged-user");
+    if (logged) logged.textContent = fullName;
+    const roleEl = document.getElementById("gos-user-role");
+    if (roleEl) {
+      roleEl.textContent =
+        user.role === "Accounting"
+          ? user.accountingLabel ||
+            (user.accountingSubRole === "PAYMENTS"
+              ? "Accounting Payments"
+              : "Accounting Documents")
+          : user.role || "";
+    }
+    const av = document.getElementById("gos-user-avatar");
+    if (av) {
+      const parts = fullName.split(/\s+/).filter(Boolean);
+      av.textContent = ((parts[0] && parts[0][0]) || "G").toUpperCase() + ((parts[1] && parts[1][0]) || "L").toUpperCase();
+    }
     syncGosThemeButtons();
 
     const canAdmin = ["Administrator", "Manager", "Owner"].includes(user.role);
@@ -384,16 +401,18 @@ async function loadSignupTeamLeads() {
         const data = await res.json();
         const leads = (data.success && data.data) || [];
         select.innerHTML =
-            '<option value="">Select Team Lead…</option>' +
+            '<option value="">No Team Lead yet — Owner will assign later</option>' +
             leads
                 .map(
                     (l) =>
                         `<option value="${l.userId}">${l.name}${l.email ? " — " + l.email : ""}</option>`
                 )
                 .join("");
-        wrap.dataset.ready = leads.length ? "1" : "0";
+        wrap.dataset.ready = "1";
     } catch {
-        select.innerHTML = '<option value="">Team Leads unavailable</option>';
+        select.innerHTML =
+            '<option value="">No Team Lead yet — Owner will assign later</option>';
+        wrap.dataset.ready = "1";
     }
     toggleSignupTeamLead();
 }
@@ -422,12 +441,8 @@ signupForm.addEventListener("submit", async (e) => {
             role,
         };
         if (role === "Broker") {
+            // Optional — Owner may leave vacant until a new Team Lead is appointed.
             body.teamLeadId = $("#signup-team-lead")?.value || "";
-            if (!body.teamLeadId) {
-                signupError.textContent = "Select a Team Lead for this Broker";
-                signupError.classList.remove("hidden");
-                return;
-            }
         }
         const res = await fetch(`${API}/auth/register`, {
             method: "POST",
@@ -486,7 +501,7 @@ function renderStats(stats) {
         ["Scheduled", stats.employeesScheduled, ""],
         ["Inside Office", stats.employeesPresent, "var(--green)"],
         ["Outside", stats.employeesOutside, "var(--yellow)"],
-        ["Late today", stats.employeesLate != null ? stats.employeesLate : (stats.employeesOvertime || 0), "var(--yellow)"],
+        ["Late today", stats.employeesLate != null ? stats.employeesLate : (stats.employeesOvertime || 0), (stats.employeesLate > 0 ? "var(--red)" : "var(--yellow)")],
         ["Not Arrived", stats.employeesNotArrived, "var(--gray)"],
         ["Left", stats.completedSessions, "var(--blue)"],
     ];
@@ -523,6 +538,21 @@ function formatLateHhMm(minutes) {
     const h = Math.floor(total / 60);
     const m = total % 60;
     return `late ${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** Attendance event clocks: time only, office TZ, −1h vs stamped absolute. */
+function formatAttendanceClock(iso) {
+    if (!iso) return "—";
+    const raw = new Date(iso);
+    if (Number.isNaN(raw.getTime())) return "—";
+    const d = new Date(raw.getTime() - 60 * 60 * 1000);
+    return d.toLocaleTimeString("en-GB", {
+        timeZone: "America/Los_Angeles",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+    });
 }
 
 function renderTable(employees) {
@@ -840,10 +870,10 @@ async function openEmployeeDrawer(employeeId) {
             <h4>Today's Session</h4>
             <div class="info-grid">
                 <div>Status: ${statusLabel(session.currentStatus)}</div>
-                <div>First Entry: ${session.firstEntry ? new Date(session.firstEntry).toLocaleString() : "—"}</div>
+                <div>First Entry: ${formatAttendanceClock(session.firstEntry)}</div>
                 <div>Late: ${session.late ? formatLateHhMm(session.lateMinutes) : "—"}</div>
                 <div>OutTime In Office: ${overtimeMinutes ? formatDuration(overtimeMinutes) : "—"}</div>
-                <div>Total Outside: ${formatDuration(Math.max(0, rawOutsideMinutes - 60))}</div>
+                <div>Total Outside: ${formatDuration(rawOutsideMinutes)}</div>
                 <div>Exits: ${session.exitCount}</div>
             </div>
         </div>` : "<p>No session today</p>"}
@@ -852,7 +882,7 @@ async function openEmployeeDrawer(employeeId) {
             <ul class="timeline">
                 ${events.map((e) => `
                     <li>
-                        <span class="time">${new Date(e.eventTime).toLocaleString()}</span>
+                        <span class="time">${formatAttendanceClock(e.eventTime)}</span>
                         <span class="dir-${e.direction}">${e.direction}</span>
                         <span>${e.deviceId} · ${e.eventType}</span>
                     </li>

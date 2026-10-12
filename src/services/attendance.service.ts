@@ -6,6 +6,7 @@ import {
     diffMinutes,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
+    toAttendanceClock,
 } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import { attendanceSessionRepository } from "../repositories/attendance-session.repository.js";
@@ -151,9 +152,14 @@ export class AttendanceService {
                 updates.firstEntry = input.eventTime;
                 const grace =
                     employee.shift?.gracePeriodMinutes ?? ATTENDANCE_GRACE_MINUTES;
+                // Compare office-clock arrival to today's 17:00 + grace (late after 17:15).
+                const dayBounds = getAttendanceDayBounds(
+                    activeSession.workDate,
+                    config.timezone
+                );
                 const lateStatus = businessRulesEngine.calculateLateStatus(
-                    input.eventTime,
-                    activeSession.scheduledStart,
+                    toAttendanceClock(input.eventTime),
+                    dayBounds.scheduledStart,
                     grace
                 );
                 updates.late = lateStatus.late;

@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import PDFDocument from "pdfkit";
+import { PDFDocument as PdfLibDocument } from "pdf-lib";
 import { fileURLToPath } from "url";
 import type { LoadDocType } from "../load.constants.js";
 import { LOAD_DOC_TYPE_LABELS } from "../load.constants.js";
@@ -8,13 +9,44 @@ import { LOAD_DOC_TYPE_LABELS } from "../load.constants.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const LOAD_DOCS_ROOT = path.join(__dirname, "..", "..", "..", "uploads", "loads");
 
+const LIA_TORRES_SIGNATURE_PNG = path.resolve(__dirname, "../assets/lia-torres-signature.png");
+const GREEN_LOGISTICS_LOGO_PNG = path.resolve(__dirname, "../assets/green-logistics-logo.png");
+
+function resolveLiaTorresSignaturePng(): string | null {
+    const candidates = [
+        LIA_TORRES_SIGNATURE_PNG,
+        path.join(process.cwd(), "src/modules/shipment/assets/lia-torres-signature.png"),
+        path.join(process.cwd(), "dist/modules/shipment/assets/lia-torres-signature.png"),
+    ];
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return null;
+}
+
+function resolveGreenLogisticsLogoPng(): string | null {
+    const candidates = [
+        GREEN_LOGISTICS_LOGO_PNG,
+        path.join(process.cwd(), "src/modules/shipment/assets/green-logistics-logo.png"),
+        path.join(process.cwd(), "dist/modules/shipment/assets/green-logistics-logo.png"),
+    ];
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return null;
+}
+
 /** Company block matching the current Green Logistics Rate Confirmation. */
 export const GREEN_LOGISTICS_RC = {
     legalName: "Green Logistics LLC",
     addressLine1: "121 Frog Hollow RD",
     addressLine2: "Churchville, PA 18966",
     mc: "1237784",
-    dispatchPhone: "(267) 703-5313",
+    /** Main company phone shown on Rate Confirmation header. */
+    mainPhone: "267 703 5313",
+    /** Main company email shown on Rate Confirmation header. */
+    mainEmail: "info@greengrouplogistics.com",
+    dispatchPhone: "888-308-68-65",
     billingEmails: ["greenlogisticsllc20@gmail.com", "info@greengrouplogistics.com"],
 };
 
@@ -25,7 +57,7 @@ export const DEFAULT_RATE_CON_TERMS = [
     "Truck Ordered Not Used pays $150. If the carrier picked up a partial load instead of the full load the deduction may apply. For the shipments with the rate less than $1000 TONU pays $100.",
     "If the shipment got damaged/scratched or the carrier picked up the shipment in damaged condition without confirming, the customer have the right to apply charges even if the damage was not mentioned on the BOL.",
     "This is a rate confirmation not a BOL. If you use this as BOL you may not be paid. Send the clear picture of POD after delivery within 24 hours. No pictures or dark images accepted.",
-].join("\n\n");
+].join("\n");
 
 export type LoadDocumentContent = {
     loadNumber?: string | null;
@@ -48,6 +80,10 @@ export type LoadDocumentContent = {
     vinNumber?: string | null;
     pickupAddress?: string | null;
     deliveryAddress?: string | null;
+    /** Extra pickup stops beyond the primary origin (Rate Con / BOL). */
+    additionalOrigins?: Array<string | { address?: string | null; date?: string | null; time?: string | null }> | null;
+    /** Extra delivery stops beyond the primary destination (Rate Con / BOL). */
+    additionalDestinations?: Array<string | { address?: string | null; date?: string | null; time?: string | null }> | null;
     pickupWindow?: string | null;
     deliveryWindow?: string | null;
     pickupDate?: string | null;
@@ -57,6 +93,8 @@ export type LoadDocumentContent = {
     deliveryTime?: string | null;
     deliveryContact?: string | null;
     equipment?: string | null;
+    /** Truck / trailer type (e.g. Dry Van, Reefer, Flatbed) on Rate Confirmation. */
+    truckTrailerType?: string | null;
     commodity?: string | null;
     weight?: string | null;
     pieces?: string | number | null;
@@ -94,6 +132,11 @@ export type LoadDocumentContent = {
     deliveredInGoodOrder?: boolean | string | null;
     exceptionsNotes?: string | null;
     receiverName?: string | null;
+    /** Carrier electronic signature on Rate Confirmation (data URL). */
+    carrierSignatureDataUrl?: string | null;
+    carrierSignerName?: string | null;
+    /** ISO date or display date when carrier signed. */
+    carrierSignedAt?: string | null;
     /** Customer Invoice (matches Green Logistics INVOICE template). */
     invoiceNumber?: string | null;
     invoiceDate?: string | null;
@@ -137,6 +180,77 @@ function txt(v: string | number | null | undefined): string {
     return s;
 }
 
+/** Format one stop line for PDF (address + optional date/time). */
+function formatExtraStop(
+    x: string | { address?: string | null; date?: string | null; time?: string | null } | null | undefined
+): string {
+    if (x == null) return "";
+    if (typeof x === "string") return txt(x);
+    const address = txt(x.address);
+    if (!address) return "";
+    const date = txt(x.date);
+    const time = txt(x.time);
+    const when = [date, time].filter(Boolean).join(" ");
+    return when ? `${address} (${when})` : address;
+}
+
+/**
+ * Build stop lines for RC/BOL.
+ * When there are extra stops, primary date/time is inlined next to the address
+ * (same style as extras) so the big DATE/TIME footer is not needed for that side.
+ */
+function stopList(
+    primary: string | null | undefined,
+    extras:
+        | Array<string | { address?: string | null; date?: string | null; time?: string | null }>
+        | null
+        | undefined,
+    primaryWhen?: { date?: string | null; time?: string | null } | null
+): string[] {
+    const extraLines: string[] = [];
+    for (const x of extras || []) {
+        const s = formatExtraStop(x);
+        if (s) extraLines.push(s);
+    }
+    const multi = extraLines.length > 0;
+    const out: string[] = [];
+    const first = txt(primary);
+    if (first) {
+        if (multi) {
+            out.push(
+                formatExtraStop({
+                    address: first,
+                    date: primaryWhen?.date,
+                    time: primaryWhen?.time,
+                })
+            );
+        } else {
+            out.push(first);
+        }
+    }
+    for (const s of extraLines) {
+        if (!out.includes(s)) out.push(s);
+    }
+    return out;
+}
+
+function formatStops(stops: string[]): string {
+    if (!stops.length) return "—";
+    if (stops.length === 1) return stops[0];
+    return stops.map((s, i) => `${i + 1}. ${s}`).join("\n");
+}
+
+/** Decode portal signature data URL (PNG/JPEG) for PDFKit embedding. */
+function signatureBufferFromDataUrl(dataUrl: string | null | undefined): Buffer | null {
+    const m = String(dataUrl || "").match(/^data:image\/\w+;base64,(.+)$/);
+    if (!m) return null;
+    try {
+        return Buffer.from(m[1], "base64");
+    } catch {
+        return null;
+    }
+}
+
 function line(doc: PDFKit.PDFDocument, label: string, value: string | null | undefined) {
     doc.font("Helvetica-Bold").text(`${label}: `, { continued: true });
     doc.font("Helvetica").text(value && String(value).trim() ? String(value) : "—");
@@ -173,100 +287,152 @@ function renderRateConfirmationPdf(
     version: number
 ) {
     const c = content;
-    const left = 40;
+    const left = 36;
     const pageW = 612;
     const usable = pageW - left * 2;
-    let y = 36;
+    // Stay inside LETTER (792) with tight bottom margin — footer must not spill to page 2.
+    doc.page.margins.top = 18;
+    doc.page.margins.bottom = 12;
+    doc.page.margins.left = left;
+    doc.page.margins.right = left;
+    const pageH = doc.page.height; // 792
+    let y = 18;
 
-    doc.font("Helvetica-Bold").fontSize(14).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, left, y);
-    y += 16;
-    doc.font("Helvetica").fontSize(9).fillColor("#222222");
-    doc.text(GREEN_LOGISTICS_RC.addressLine1, left, y);
-    y += 11;
-    doc.text(GREEN_LOGISTICS_RC.addressLine2, left, y);
-    y += 11;
-    doc.text(`MC # ${GREEN_LOGISTICS_RC.mc}`, left, y);
+    const logoSize = 46;
+    const logoPath = resolveGreenLogisticsLogoPng();
+    const textLeft = logoPath ? left + logoSize + 10 : left;
+    if (logoPath) {
+        try {
+            doc.image(logoPath, left, y, { fit: [logoSize, logoSize], align: "center", valign: "center" });
+        } catch {
+            /* keep text header if logo fails */
+        }
+    }
+
+    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f3d1f").text(GREEN_LOGISTICS_RC.legalName, textLeft, y);
+    y += 12;
+    doc.font("Helvetica").fontSize(7.5).fillColor("#222222");
+    doc.text(GREEN_LOGISTICS_RC.addressLine1, textLeft, y);
+    y += 9;
+    doc.text(GREEN_LOGISTICS_RC.addressLine2, textLeft, y);
+    y += 9;
+    doc.text(
+        `MC # ${GREEN_LOGISTICS_RC.mc}  ·  Phone: ${GREEN_LOGISTICS_RC.mainPhone}  ·  ${GREEN_LOGISTICS_RC.mainEmail}`,
+        textLeft,
+        y,
+        { width: usable - (textLeft - left) - 150 }
+    );
 
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f3d1f");
-    doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 180, 36, {
-        width: 180,
+    doc.text(`LOAD NO: ${txt(c.loadNumber) || "—"}`, left + usable - 170, 18, {
+        width: 170,
         align: "right",
     });
-    doc.font("Helvetica").fontSize(9).fillColor("#222222");
-    doc.text(txt(c.confirmationDate) || new Date().toLocaleDateString(), left + usable - 180, 50, {
-        width: 180,
+    doc.font("Helvetica").fontSize(7.5).fillColor("#222222");
+    doc.text(txt(c.confirmationDate) || new Date().toLocaleDateString(), left + usable - 170, 30, {
+        width: 170,
         align: "right",
     });
-    if (c.shipmentNumber) {
-        doc.text(`Shipment: ${txt(c.shipmentNumber)}`, left + usable - 180, 62, {
-            width: 180,
-            align: "right",
-        });
-    }
-    doc.text(`v${version}`, left + usable - 180, 74, { width: 180, align: "right" });
+    doc.text(`v${version}`, left + usable - 170, 42, { width: 170, align: "right" });
 
-    y = 88;
-    doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111");
+    y = Math.max(y + 11, logoPath ? 18 + logoSize + 8 : y + 11);
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#111111");
     doc.text("LOAD CONFIRMATION AND PAYMENT AGREEMENT — PLEASE SIGN & RETURN ASAP", left, y, {
         width: usable,
         align: "center",
     });
-    y += 22;
+    y += 12;
 
-    // Email contacts — Broker Gmail / Customer / Carrier
-    drawBox(doc, left, y, usable, 42);
-    fieldRow(doc, "BROKER GMAIL:", txt(c.brokerEmail), left + 8, y + 6, 170);
-    fieldRow(doc, "CUSTOMER EMAIL:", txt(c.customerEmail), left + 190, y + 6, 170);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 370, y + 6, 160);
-    if (c.customerName) {
-        doc.font("Helvetica").fontSize(7).fillColor("#555555").text(
-            `Customer: ${txt(c.customerName)}`,
-            left + 190,
-            y + 30,
-            { width: 170 }
-        );
+    // Carrier / equipment block
+    drawBox(doc, left, y, usable, 50);
+    fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 3, 220);
+    fieldRow(doc, "MC#", txt(c.carrierMc), left + 240, y + 3, 90);
+    fieldRow(doc, "DOT#", txt(c.carrierDot), left + 340, y + 3, 90);
+    fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 440, y + 3, 90);
+
+    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 8, y + 28, 180);
+    fieldRow(doc, "TRUCK/TRAILER TYPE:", txt(c.truckTrailerType), left + 200, y + 28, usable - 220);
+    y += 56;
+
+    // Commodity + Weight — separate sections
+    const cwBoxH = 36;
+    drawBox(doc, left, y, usable / 2 - 4, cwBoxH);
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#111111").text("COMMODITY:", left + 8, y + 5);
+    doc.font("Helvetica").fontSize(11).fillColor("#222222").text(txt(c.commodity) || "—", left + 8, y + 17, {
+        width: usable / 2 - 20,
+    });
+    drawBox(doc, left + usable / 2 + 4, y, usable / 2 - 4, cwBoxH);
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#111111").text("WEIGHT:", left + usable / 2 + 12, y + 5);
+    doc.font("Helvetica").fontSize(11).fillColor("#222222").text(txt(c.weight) || "—", left + usable / 2 + 12, y + 17, {
+        width: usable / 2 - 24,
+    });
+    y += cwBoxH + 6;
+
+    // Origin / Destination (supports multiple stops)
+    const origins = stopList(c.pickupAddress, c.additionalOrigins, {
+        date: c.pickupDate || c.pickupWindow,
+        time: c.pickupTime,
+    });
+    const destinations = stopList(c.deliveryAddress, c.additionalDestinations, {
+        date: c.deliveryDate || c.deliveryWindow,
+        time: c.deliveryTime,
+    });
+    const originsMulti = origins.length > 1;
+    const destinationsMulti = destinations.length > 1;
+    const stopLines = Math.max(origins.length, destinations.length, 1);
+    // Multi-stop sides put date/time inline; single-stop keeps DATE/TIME footer.
+    const needScheduleFooter = !originsMulti || !destinationsMulti;
+    const stopFooterReserve = needScheduleFooter ? 54 : 28;
+    const stopBoxH = Math.max(needScheduleFooter ? 88 : 72, stopFooterReserve + 20 + stopLines * 12);
+    const dateRowY = y + stopBoxH - 46;
+    const contactRowY = y + stopBoxH - 22;
+    drawBox(doc, left, y, usable / 2 - 4, stopBoxH);
+    doc.font("Helvetica-Bold").fontSize(8).text(
+        originsMulti ? "ORIGINS:" : "ORIGIN:",
+        left + 8,
+        y + 3
+    );
+    doc.font("Helvetica").fontSize(8).text(formatStops(origins), left + 8, y + 14, {
+        width: usable / 2 - 20,
+        height: stopBoxH - (originsMulti ? 28 : 54),
+    });
+    if (!originsMulti) {
+        fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, dateRowY, 100);
+        fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, dateRowY, 80);
     }
-    y += 52;
+    fieldRow(doc, "CONTACT:", txt(c.pickupContact), left + 8, contactRowY, usable / 2 - 24);
 
-    // Carrier / equipment / rate block
-    drawBox(doc, left, y, usable, 90);
-    fieldRow(doc, "CARRIER:", txt(c.carrierName), left + 8, y + 6, 220);
-    fieldRow(doc, "MC#", txt(c.carrierMc), left + 240, y + 6, 90);
-    fieldRow(doc, "DOT#", txt(c.carrierDot), left + 340, y + 6, 90);
-    fieldRow(doc, "PHONE:", txt(c.carrierPhone), left + 440, y + 6, 90);
-    fieldRow(doc, "CARRIER EMAIL:", txt(c.carrierEmail), left + 8, y + 40, 220);
-
-    fieldRow(doc, "EQUIPMENT:", txt(c.equipment), left + 240, y + 40, 120);
-    fieldRow(doc, "Weight:", txt(c.weight), left + 370, y + 40, 70);
-    fieldRow(doc, "COMMODITY:", txt(c.commodity), left + 8, y + 64, 220);
-    const rateVal = money(c.flatRate ?? c.carrierRate);
-    fieldRow(doc, "Flat Rate: $USD", rateVal || "—", left + 240, y + 64, 120);
-    y += 102;
-
-    // Origin
-    drawBox(doc, left, y, usable / 2 - 4, 92);
-    doc.font("Helvetica-Bold").fontSize(9).text("ORIGIN:", left + 8, y + 6);
-    doc.font("Helvetica").fontSize(10).text(txt(c.pickupAddress) || "—", left + 8, y + 20, {
-        width: usable / 2 - 20,
-    });
-    fieldRow(doc, "DATE:", txt(c.pickupDate) || txt(c.pickupWindow), left + 8, y + 52, 100);
-    fieldRow(doc, "TIME:", txt(c.pickupTime), left + 120, y + 52, 80);
-    fieldRow(doc, "CONTACT:", txt(c.pickupContact), left + 8, y + 72, usable / 2 - 24);
-
-    // Destination
     const dx = left + usable / 2 + 4;
-    drawBox(doc, dx, y, usable / 2 - 4, 92);
-    doc.font("Helvetica-Bold").fontSize(9).text("Final Destination", dx + 8, y + 6);
-    doc.font("Helvetica").fontSize(10).text(txt(c.deliveryAddress) || "—", dx + 8, y + 20, {
+    drawBox(doc, dx, y, usable / 2 - 4, stopBoxH);
+    doc.font("Helvetica-Bold").fontSize(8).text(
+        destinationsMulti ? "Final Destinations" : "Final Destination",
+        dx + 8,
+        y + 3
+    );
+    doc.font("Helvetica").fontSize(8).text(formatStops(destinations), dx + 8, y + 14, {
         width: usable / 2 - 20,
+        height: stopBoxH - (destinationsMulti ? 28 : 54),
     });
-    fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, y + 52, 100);
-    fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, y + 52, 80);
-    fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, y + 72, usable / 2 - 24);
-    y += 104;
+    if (!destinationsMulti) {
+        fieldRow(doc, "DATE:", txt(c.deliveryDate) || txt(c.deliveryWindow), dx + 8, dateRowY, 100);
+        fieldRow(doc, "TIME:", txt(c.deliveryTime), dx + 120, dateRowY, 80);
+    }
+    fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, contactRowY, usable / 2 - 24);
+    y += stopBoxH + 6;
+
+    // Special Notes — above Driver Information
+    drawBox(doc, left, y, usable, 30);
+    doc.font("Helvetica-Bold").fontSize(7.5).text("SPECIAL NOTES:", left + 8, y + 3);
+    doc.font("Helvetica").fontSize(7.5).text(
+        txt(c.specialNotes) || txt(c.specialInstructions) || "—",
+        left + 8,
+        y + 14,
+        { width: usable - 16, height: 12 }
+    );
+    y += 34;
 
     // Driver / payment / notes
-    drawBox(doc, left, y, usable, 70);
+    drawBox(doc, left, y, usable, 50);
     fieldRow(
         doc,
         "DRIVER INFORMATION:",
@@ -274,67 +440,151 @@ function renderRateConfirmationPdf(
             .filter(Boolean)
             .join(" · ") || "—",
         left + 8,
-        y + 6,
+        y + 3,
         usable - 16
     );
-    fieldRow(doc, "PAYMENT OPTION:", txt(c.paymentOption) || "—", left + 8, y + 36, usable / 2 - 16);
-    fieldRow(doc, "DELIVERY NOTE:", txt(c.deliveryNote) || "—", left + usable / 2, y + 36, usable / 2 - 16);
-    y += 82;
+    fieldRow(doc, "PAYMENT OPTION:", txt(c.paymentOption) || "—", left + 8, y + 28, usable - 16);
+    y += 56;
 
-    drawBox(doc, left, y, usable, 48);
-    doc.font("Helvetica-Bold").fontSize(8).text("SPECIAL NOTES:", left + 8, y + 6);
-    doc.font("Helvetica").fontSize(9).text(
-        txt(c.specialNotes) || txt(c.specialInstructions) || "—",
-        left + 8,
-        y + 18,
-        { width: usable - 16, height: 26 }
+    // Flat Rate + Total Amount — same sum, split left/right
+    const rateVal = money(c.flatRate ?? c.carrierRate) || "—";
+    const flatBoxH = 48;
+    const halfW = usable / 2 - 4;
+    drawBox(doc, left, y, halfW, flatBoxH);
+    doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111").text("FLAT RATE ($USD):", left + 10, y + 8);
+    doc.font("Helvetica-Bold").fontSize(18).fillColor("#0f3d1f").text(rateVal, left + 10, y + 24, {
+        width: halfW - 20,
+    });
+    drawBox(doc, left + usable / 2 + 4, y, halfW, flatBoxH);
+    doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111").text("TOTAL AMOUNT ($USD):", left + usable / 2 + 14, y + 8);
+    doc.font("Helvetica-Bold").fontSize(18).fillColor("#0f3d1f").text(rateVal, left + usable / 2 + 14, y + 24, {
+        width: halfW - 20,
+    });
+    y += flatBoxH + 6;
+
+    // Terms + dispatch stay compact; signatures follow immediately (no large blank gap).
+    const sigBoxH = 62;
+    const footerReserve = 18;
+    const maxSigBottom = pageH - footerReserve - 4;
+    const termsCeiling = maxSigBottom - sigBoxH - 36;
+    doc.font("Helvetica-Bold").fontSize(7).fillColor("#111111").text("Note: Please take a note:", left, y);
+    y += 9;
+    const terms = String(txt(c.terms) || DEFAULT_RATE_CON_TERMS).replace(/\n\n+/g, "\n");
+    const termsH = Math.max(36, Math.min(110, termsCeiling - y));
+    doc.font("Helvetica").fontSize(6).fillColor("#222222");
+    doc.text(terms, left, y, {
+        width: usable,
+        align: "left",
+        height: termsH,
+        lineGap: 0.2,
+        ellipsis: true,
+    });
+    // Keep cursor on page 1 — never let flowing text open page 2.
+    if (doc.bufferedPageRange && doc.bufferedPageRange().count > 1) {
+        doc.switchToPage(0);
+    }
+    y = Math.min(Math.max(doc.y + 4, y + 4), termsCeiling);
+
+    doc.font("Helvetica-Bold").fontSize(6.5).fillColor("#111111");
+    doc.text(
+        `Please have driver call for dispatch · Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`,
+        left,
+        y,
+        { width: usable, lineBreak: false }
     );
-    y += 58;
-
-    // Terms / notes from current RC
-    doc.font("Helvetica-Bold").fontSize(8).fillColor("#111111").text("Note: Please take a note:", left, y);
-    y += 12;
-    doc.font("Helvetica").fontSize(7.5).fillColor("#222222");
-    const terms = txt(c.terms) || DEFAULT_RATE_CON_TERMS;
-    doc.text(terms, left, y, { width: usable, align: "left" });
-    y = doc.y + 10;
-
-    doc.font("Helvetica-Bold").fontSize(8).text("Please have driver call for dispatch.", left, y);
-    y += 11;
-    doc.font("Helvetica").fontSize(8).text(`Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`, left, y);
-    y += 11;
-    doc.text("Confirmation must be signed and returned before driver can be dispatched.", left, y);
+    y += 9;
+    doc.font("Helvetica").fontSize(6.5).fillColor("#222222");
+    doc.text(
+        `Confirmation must be signed and returned before dispatch. Billing: ${GREEN_LOGISTICS_RC.billingEmails.join(" · ")}`,
+        left,
+        y,
+        { width: usable, lineBreak: false }
+    );
     y += 14;
-    doc.font("Helvetica-Bold").fontSize(8).text("For billing use", left, y);
-    y += 11;
-    doc.font("Helvetica").fontSize(8).text(`Email: ${GREEN_LOGISTICS_RC.billingEmails.join("  ·  ")}`, left, y);
-    y += 18;
 
-    // Signatures
-    if (y > 680) {
-        doc.addPage();
-        y = 50;
+    // Signatures + broker/carrier emails (top email strip removed).
+    if (doc.bufferedPageRange && doc.bufferedPageRange().count > 1) {
+        doc.switchToPage(0);
     }
-    drawBox(doc, left, y, usable / 2 - 4, 70);
-    doc.font("Helvetica-Bold").fontSize(8).text("CARRIER SIGNATURE:", left + 8, y + 8);
-    doc.moveTo(left + 8, y + 48).lineTo(left + usable / 2 - 16, y + 48).stroke("#666666");
-    doc.font("Helvetica").fontSize(7).text("DATE:", left + 8, y + 54);
+    const ySig = Math.min(y, maxSigBottom - sigBoxH);
+    drawBox(doc, left, ySig, usable / 2 - 4, sigBoxH);
+    const carrierBoxW = usable / 2 - 4;
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#111111").text("CARRIER SIGNATURE:", left + 8, ySig + 4);
+    const carrierPrinted = txt(c.carrierSignerName) || txt(c.carrierName);
+    if (carrierPrinted) {
+        doc.font("Helvetica").fontSize(7.5).fillColor("#222222").text(carrierPrinted, left + 8, ySig + 14, {
+            width: carrierBoxW - 110,
+        });
+    }
+    const carrierImg = signatureBufferFromDataUrl(c.carrierSignatureDataUrl);
+    if (carrierImg) {
+        try {
+            const sigMaxW = 100;
+            const sigMaxH = 24;
+            const sigX = left + carrierBoxW - sigMaxW - 8;
+            doc.image(carrierImg, sigX, ySig + 6, {
+                fit: [sigMaxW, sigMaxH],
+                align: "right",
+                valign: "bottom",
+            });
+        } catch {
+            /* keep printed name if image fails */
+        }
+    }
+    doc.moveTo(left + 8, ySig + 32).lineTo(left + usable / 2 - 16, ySig + 32).stroke("#666666");
+    const carrierDate = txt(c.carrierSignedAt);
+    doc.font("Helvetica").fontSize(6.5).fillColor("#222222").text(
+        carrierDate ? `DATE: ${carrierDate}` : "DATE:",
+        left + 8,
+        ySig + 35
+    );
+    doc.font("Helvetica").fontSize(6.5).fillColor("#222222").text(
+        `EMAIL: ${txt(c.carrierEmail) || "—"}`,
+        left + 8,
+        ySig + 46,
+        { width: carrierBoxW - 16 }
+    );
 
-    drawBox(doc, left + usable / 2 + 4, y, usable / 2 - 4, 70);
-    doc.font("Helvetica-Bold").fontSize(8).text("BROKER SIGNATURE:", left + usable / 2 + 12, y + 8);
-    doc.font("Helvetica").fontSize(9).text(GREEN_LOGISTICS_RC.legalName, left + usable / 2 + 12, y + 24);
-    if (c.brokerName) {
-        doc.text(txt(c.brokerName), left + usable / 2 + 12, y + 36);
+    drawBox(doc, left + usable / 2 + 4, ySig, usable / 2 - 4, sigBoxH);
+    const brokerBoxX = left + usable / 2 + 4;
+    const brokerBoxW = usable / 2 - 4;
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#111111").text("BROKER SIGNATURE:", brokerBoxX + 8, ySig + 4);
+    doc.font("Helvetica").fontSize(7.5).fillColor("#222222").text(GREEN_LOGISTICS_RC.legalName, brokerBoxX + 8, ySig + 14);
+    const brokerPrinted = txt(c.brokerName) || "Lia Torres";
+    doc.text(brokerPrinted, brokerBoxX + 8, ySig + 23);
+    const sigPath = resolveLiaTorresSignaturePng();
+    const brokerSigMaxW = 100;
+    const brokerSigMaxH = 24;
+    const brokerSigX = brokerBoxX + brokerBoxW - brokerSigMaxW - 8;
+    if (sigPath) {
+        try {
+            doc.image(sigPath, brokerSigX, ySig + 6, {
+                fit: [brokerSigMaxW, brokerSigMaxH],
+                align: "right",
+                valign: "bottom",
+            });
+        } catch {
+            /* keep printed name if image fails */
+        }
     }
-    doc.moveTo(left + usable / 2 + 12, y + 48)
-        .lineTo(left + usable - 8, y + 48)
+    doc
+        .moveTo(brokerBoxX + 8, ySig + 32)
+        .lineTo(left + usable - 8, ySig + 32)
         .stroke("#666666");
-    doc.font("Helvetica").fontSize(7).text("DATE:", left + usable / 2 + 12, y + 54);
+    doc.font("Helvetica").fontSize(6.5).text("DATE:", brokerBoxX + 8, ySig + 35);
+    doc.font("Helvetica").fontSize(6.5).fillColor("#222222").text(
+        `EMAIL: ${txt(c.brokerEmail) || "—"}`,
+        brokerBoxX + 8,
+        ySig + 46,
+        { width: brokerBoxW - 16 }
+    );
 
-    doc.font("Helvetica").fontSize(7).fillColor("#666666");
-    doc.text(`${GREEN_LOGISTICS_RC.legalName}  ·  Page 1 of 1  ·  Generated by GreenOS`, left, 760, {
+    const footerY = Math.min(ySig + sigBoxH + 10, pageH - 14);
+    doc.font("Helvetica").fontSize(6.5).fillColor("#666666");
+    doc.text(`${GREEN_LOGISTICS_RC.legalName}  ·  Page 1 of 1  ·  Generated by GreenOS`, left, footerY, {
         width: usable,
         align: "center",
+        lineBreak: false,
     });
 }
 
@@ -367,7 +617,7 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
         width: 160,
         align: "right",
     });
-    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(`Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`, left + 280, y + 12, {
+    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(`Phone: ${GREEN_LOGISTICS_RC.mainPhone}`, left + 280, y + 12, {
         width: 160,
         align: "right",
     });
@@ -375,35 +625,48 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.font("Helvetica-Bold").fontSize(9).fillColor("#111111");
     doc.text(`BILL OF LADING: ${bolNo}`, left, y);
     doc.text(`PICKUP DATE: ${txt(c.pickupDate) || txt(c.confirmationDate) || new Date().toLocaleDateString()}`, left + 200, y);
-    doc.font("Helvetica").fontSize(8).text(`Load ${txt(c.loadNumber) || ""}  ·  ${txt(c.shipmentNumber) || ""}  ·  v${version}`, left + 400, y, {
+    doc.font("Helvetica").fontSize(8).text(`Load ${txt(c.loadNumber) || ""}  ·  v${version}`, left + 400, y, {
         width: usable - 400,
         align: "right",
     });
     y += 16;
 
-    // Email strip (GreenOS extension kept on company BOL)
+    // Email strip — broker + carrier only (no customer info on BOL).
     drawBox(doc, left, y, usable, 28);
-    doc.font("Helvetica-Bold").fontSize(7).text("BROKER GMAIL", left + 4, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 175 });
-    doc.font("Helvetica-Bold").fontSize(7).text("CUSTOMER EMAIL", left + 190, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.customerEmail) || "—", left + 190, y + 13, { width: 175 });
-    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER EMAIL", left + 380, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 380, y + 13, { width: 170 });
+    doc.font("Helvetica-Bold").fontSize(7).text("BROKER EMAIL", left + 4, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 270 });
+    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER EMAIL", left + 286, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 286, y + 13, { width: 262 });
     y += 34;
 
-    // SHIPS FROM | Freight terms
-    const rowH = 78;
-    drawBox(doc, left, y, 300, rowH);
-    doc.font("Helvetica-Bold").fontSize(8).text("SHIPS FROM", left + 4, y + 3);
-    doc.font("Helvetica").fontSize(9).text(txt(c.pickupAddress) || "—", left + 4, y + 14, { width: 200, height: 36 });
-    doc.font("Helvetica-Bold").fontSize(7).text("SHIPPER ID NO.", left + 4, y + 52);
-    doc.font("Helvetica").fontSize(8).text(txt(c.shipperIdNo) || "—", left + 4, y + 62);
-    doc.font("Helvetica-Bold").fontSize(7).text("SEAL NO.", left + 150, y + 52);
-    doc.font("Helvetica").fontSize(8).text(txt(c.sealNo) || "—", left + 150, y + 62);
-    doc.font("Helvetica-Bold").fontSize(7).text("FOB", left + 250, y + 52);
-    doc.font("Helvetica").fontSize(8).text(txt(c.fob) || "", left + 250, y + 62);
+    // SHIPS FROM | Freight terms (supports multiple origins)
+    const bolOrigins = stopList(c.pickupAddress, c.additionalOrigins, {
+        date: c.pickupDate || c.pickupWindow,
+        time: c.pickupTime,
+    });
+    const bolDestinations = stopList(c.deliveryAddress, c.additionalDestinations, {
+        date: c.deliveryDate || c.deliveryWindow,
+        time: c.deliveryTime,
+    });
+    const fromH = Math.max(78, 42 + Math.max(bolOrigins.length, 1) * 14);
+    drawBox(doc, left, y, 300, fromH);
+    doc.font("Helvetica-Bold").fontSize(8).text(
+        bolOrigins.length > 1 ? "SHIPS FROM (multi)" : "SHIPS FROM",
+        left + 4,
+        y + 3
+    );
+    doc.font("Helvetica").fontSize(8).text(formatStops(bolOrigins), left + 4, y + 14, {
+        width: 290,
+        height: fromH - 42,
+    });
+    doc.font("Helvetica-Bold").fontSize(7).text("SHIPPER ID NO.", left + 4, y + fromH - 26);
+    doc.font("Helvetica").fontSize(8).text(txt(c.shipperIdNo) || "—", left + 4, y + fromH - 16);
+    doc.font("Helvetica-Bold").fontSize(7).text("SEAL NO.", left + 150, y + fromH - 26);
+    doc.font("Helvetica").fontSize(8).text(txt(c.sealNo) || "—", left + 150, y + fromH - 16);
+    doc.font("Helvetica-Bold").fontSize(7).text("FOB", left + 250, y + fromH - 26);
+    doc.font("Helvetica").fontSize(8).text(txt(c.fob) || "", left + 250, y + fromH - 16);
 
-    drawBox(doc, left + 300, y, usable - 300, rowH);
+    drawBox(doc, left + 300, y, usable - 300, fromH);
     doc.font("Helvetica-Bold").fontSize(8).text("FREIGHT CHARGE TERMS", left + 306, y + 3);
     const prepaid = terms.includes("PREPAID") ? "X" : "";
     const collect = terms.includes("COLLECT") && !terms.includes("3RD") ? "X" : "";
@@ -414,18 +677,30 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.text(`[${third || " "}] 3RD PARTY`, left + 310, y + 52);
     doc.font("Helvetica").fontSize(7).text("MASTER BILL OF LADING", left + 420, y + 20, { width: 150 });
     doc.text("(UNDERLYING BOL ATTACHED)", left + 420, y + 32, { width: 150 });
-    y += rowH;
+    y += fromH;
 
-    // SHIPS TO | Carrier
-    drawBox(doc, left, y, 300, 88);
-    doc.font("Helvetica-Bold").fontSize(8).text("SHIPS TO", left + 4, y + 3);
-    doc.font("Helvetica").fontSize(9).text(txt(c.deliveryAddress) || "—", left + 4, y + 14, { width: 200, height: 36 });
-    doc.font("Helvetica-Bold").fontSize(7).text("CONSIGNEE ID NO.", left + 4, y + 52);
-    doc.font("Helvetica").fontSize(8).text(txt(c.consigneeIdNo) || "—", left + 4, y + 62);
-    doc.font("Helvetica-Bold").fontSize(7).text("CONTACT", left + 150, y + 52);
-    doc.font("Helvetica").fontSize(8).text(txt(c.deliveryContact) || txt(c.pickupContact) || "—", left + 150, y + 62);
+    // SHIPS TO | Carrier (supports multiple destinations)
+    const toH = Math.max(88, 48 + Math.max(bolDestinations.length, 1) * 14);
+    drawBox(doc, left, y, 300, toH);
+    doc.font("Helvetica-Bold").fontSize(8).text(
+        bolDestinations.length > 1 ? "SHIPS TO (multi)" : "SHIPS TO",
+        left + 4,
+        y + 3
+    );
+    doc.font("Helvetica").fontSize(8).text(formatStops(bolDestinations), left + 4, y + 14, {
+        width: 290,
+        height: toH - 42,
+    });
+    doc.font("Helvetica-Bold").fontSize(7).text("CONSIGNEE ID NO.", left + 4, y + toH - 26);
+    doc.font("Helvetica").fontSize(8).text(txt(c.consigneeIdNo) || "—", left + 4, y + toH - 16);
+    doc.font("Helvetica-Bold").fontSize(7).text("CONTACT", left + 150, y + toH - 26);
+    doc.font("Helvetica").fontSize(8).text(
+        txt(c.deliveryContact) || txt(c.pickupContact) || "—",
+        left + 150,
+        y + toH - 16
+    );
 
-    drawBox(doc, left + 300, y, usable - 300, 88);
+    drawBox(doc, left + 300, y, usable - 300, toH);
     doc.font("Helvetica-Bold").fontSize(8).text("CARRIER", left + 306, y + 3);
     doc.font("Helvetica").fontSize(9).text(txt(c.carrierName) || "—", left + 306, y + 14, { width: 240 });
     doc.font("Helvetica").fontSize(8);
@@ -436,15 +711,21 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.text(`CONTACT: ${txt(c.carrierPhone) || txt(c.driverPhone) || txt(c.driverName) || "—"}`, left + 306, y + 64, {
         width: 240,
     });
-    y += 88;
+    y += toH;
 
-    // Third party
-    drawBox(doc, left, y, usable, 32);
+    // Third party freight bills → always Green Logistics (broker), not the customer.
+    const thirdPartyLines = [
+        GREEN_LOGISTICS_RC.legalName,
+        `${GREEN_LOGISTICS_RC.addressLine1}, ${GREEN_LOGISTICS_RC.addressLine2}`,
+        `Phone: ${GREEN_LOGISTICS_RC.mainPhone}`,
+    ].join("\n");
+    drawBox(doc, left, y, usable, 48);
     doc.font("Helvetica-Bold").fontSize(7).text("THIRD PARTY FREIGHT BILLS TO", left + 4, y + 3);
-    doc.font("Helvetica").fontSize(9).text(txt(c.thirdPartyBillTo) || txt(c.customerName) || "—", left + 4, y + 14, {
+    doc.font("Helvetica").fontSize(8).text(thirdPartyLines, left + 4, y + 14, {
         width: usable - 8,
+        height: 32,
     });
-    y += 36;
+    y += 52;
 
     // Customer order info
     drawBox(doc, left, y, usable, 52);
@@ -570,12 +851,15 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     drawBox(doc, left, y, usable, 36);
     doc.font("Helvetica-Bold").fontSize(7).text("RECEIVING STAMP SPACE", left + 4, y + 4);
     doc.font("Helvetica").fontSize(8).fillColor("#888888").text("(stamp here)", left + 4, y + 16);
+    y += 42;
 
+    // Keep company line directly under content so standard BOL stays on one page
+    // (do not pin to the physical bottom — that left a large empty gap).
     doc.font("Helvetica").fontSize(6.5).fillColor("#666666");
     doc.text(
         `${GREEN_LOGISTICS_RC.legalName}  ·  MC# ${GREEN_LOGISTICS_RC.mc}  ·  ${GREEN_LOGISTICS_RC.addressLine1}, ${GREEN_LOGISTICS_RC.addressLine2}  ·  GreenOS Load Document`,
         left,
-        772,
+        y,
         { width: usable, align: "center" }
     );
 }
@@ -595,7 +879,7 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
         width: 160,
         align: "right",
     });
-    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(`Phone: ${GREEN_LOGISTICS_RC.dispatchPhone}`, left + 280, y + 12, {
+    doc.font("Helvetica").fontSize(8).fillColor("#222222").text(`Phone: ${GREEN_LOGISTICS_RC.mainPhone}`, left + 280, y + 12, {
         width: 160,
         align: "right",
     });
@@ -607,12 +891,10 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     y += 16;
 
     drawBox(doc, left, y, usable, 28);
-    doc.font("Helvetica-Bold").fontSize(7).text("BROKER GMAIL", left + 4, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 175 });
-    doc.font("Helvetica-Bold").fontSize(7).text("CUSTOMER EMAIL", left + 190, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.customerEmail) || "—", left + 190, y + 13, { width: 175 });
-    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER EMAIL", left + 380, y + 3);
-    doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 380, y + 13, { width: 170 });
+    doc.font("Helvetica-Bold").fontSize(7).text("BROKER EMAIL", left + 4, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.brokerEmail) || "—", left + 4, y + 13, { width: 270 });
+    doc.font("Helvetica-Bold").fontSize(7).text("CARRIER EMAIL", left + 286, y + 3);
+    doc.font("Helvetica").fontSize(8).text(txt(c.carrierEmail) || "—", left + 286, y + 13, { width: 262 });
     y += 34;
 
     drawBox(doc, left, y, usable / 2 - 2, 90);
@@ -640,13 +922,12 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.text(`Driver: ${txt(c.driverName) || "—"}   Phone: ${txt(c.driverPhone) || txt(c.carrierPhone) || "—"}`, left + 4, y + 48);
     y += 78;
 
-    drawBox(doc, left, y, usable, 70);
+    drawBox(doc, left, y, usable, 58);
     doc.font("Helvetica-Bold").fontSize(8).text("COMMODITY / PIECES / WEIGHT", left + 4, y + 4);
     doc.font("Helvetica").fontSize(9);
     doc.text(`Commodity: ${txt(c.commodity) || "—"}`, left + 4, y + 18, { width: usable - 8 });
-    doc.text(`# Pkgs: ${String(c.pieces ?? "—")}    Weight: ${txt(c.weight) || "—"}    Shipment: ${txt(c.shipmentNumber) || "—"}`, left + 4, y + 36);
-    doc.text(`Customer: ${txt(c.customerName) || "—"}`, left + 4, y + 52);
-    y += 78;
+    doc.text(`# Pkgs: ${String(c.pieces ?? "—")}    Weight: ${txt(c.weight) || "—"}`, left + 4, y + 36);
+    y += 58;
 
     drawBox(doc, left, y, usable, 56);
     doc.font("Helvetica-Bold").fontSize(8).text("DELIVERY CONDITION / EXCEPTIONS", left + 4, y + 4);
@@ -683,12 +964,13 @@ function renderPodPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     drawBox(doc, left, y, usable, 50);
     doc.font("Helvetica-Bold").fontSize(7).text("RECEIVING STAMP SPACE", left + 4, y + 4);
     doc.font("Helvetica").fontSize(8).fillColor("#888888").text("(stamp / photo POD reference)", left + 4, y + 18);
+    y += 56;
 
     doc.font("Helvetica").fontSize(6.5).fillColor("#666666");
     doc.text(
         `${GREEN_LOGISTICS_RC.legalName}  ·  Clear POD photo required within 24 hours  ·  GreenOS Load Document`,
         left,
-        772,
+        y,
         { width: usable, align: "center" }
     );
 }
@@ -852,12 +1134,22 @@ export async function generateLoadDocumentPdf(input: {
     const c = input.content || {};
 
     await new Promise<void>((resolve, reject) => {
-        const doc = new PDFDocument({ margin: 28, size: "LETTER" });
+        const isRateCon = input.docType === "RATE_CONFIRMATION";
+        const doc = new PDFDocument({
+            margin: isRateCon ? 18 : 28,
+            size: "LETTER",
+            bufferPages: isRateCon,
+        });
         const stream = fs.createWriteStream(dest);
         doc.pipe(stream);
 
-        if (input.docType === "RATE_CONFIRMATION") {
+        if (isRateCon) {
             renderRateConfirmationPdf(doc, c, input.version);
+            // Keep only page 1 if margin overflow created a blank trailing page.
+            const range = doc.bufferedPageRange();
+            if (range.count > 1) {
+                doc.switchToPage(range.start);
+            }
         } else if (input.docType === "BOL") {
             renderBolPdf(doc, c, input.version);
         } else if (input.docType === "POD") {
@@ -879,7 +1171,7 @@ export async function generateLoadDocumentPdf(input: {
             line(doc, "Customer", c.customerName);
             line(doc, "Customer Email", c.customerEmail);
             line(doc, "Broker", c.brokerName);
-            line(doc, "Broker Gmail", c.brokerEmail);
+            line(doc, "Broker Email", c.brokerEmail);
             line(doc, "Carrier", c.carrierName);
             line(doc, "Carrier Email", c.carrierEmail);
             if (c.carrierMc) line(doc, "MC", c.carrierMc);
@@ -933,6 +1225,25 @@ export async function generateLoadDocumentPdf(input: {
         stream.on("finish", () => resolve());
         stream.on("error", reject);
     });
+
+    // Rate Con must be a single page — strip any blank trailing page from margin overflow.
+    if (input.docType === "RATE_CONFIRMATION") {
+        try {
+            const bytes = fs.readFileSync(dest);
+            const src = await PdfLibDocument.load(bytes, { ignoreEncryption: true });
+            if (src.getPageCount() > 1) {
+                const one = await PdfLibDocument.create();
+                const [page] = await one.copyPages(src, [0]);
+                one.addPage(page);
+                fs.writeFileSync(dest, await one.save());
+            }
+        } catch (err) {
+            console.warn(
+                "[rc-pdf] could not enforce one page:",
+                err instanceof Error ? err.message : err
+            );
+        }
+    }
 
     const stat = fs.statSync(dest);
     return {

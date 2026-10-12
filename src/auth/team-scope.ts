@@ -146,6 +146,27 @@ export async function transferTeamLeadership(
     };
 }
 
+/**
+ * Clear Team Lead assignment for all brokers under this TL (leave vacancy).
+ * Owner/Admin can demote a TL without naming a replacement; brokers stay
+ * unassigned until a new Team Lead is set later.
+ */
+export async function clearTeamLeadership(
+    fromTeamLeadId: string
+): Promise<{ brokersUnassigned: number }> {
+    if (!fromTeamLeadId) {
+        throw new Error("fromTeamLeadId is required");
+    }
+    const brokers = await prisma.user.updateMany({
+        where: {
+            teamLeadId: fromTeamLeadId,
+            role: { roleName: Roles.Broker },
+        },
+        data: { teamLeadId: null },
+    });
+    return { brokersUnassigned: brokers.count };
+}
+
 /** Broker userIds that report to this Team Lead — hard team boundary. */
 export async function listTeamBrokerIds(teamLeadUserId: string): Promise<string[]> {
     if (!teamLeadUserId) return [];

@@ -195,6 +195,33 @@ export async function deleteEmployeeController(req: AuthRequest, res: Response) 
 
     try {
         await prisma.$transaction(async (tx) => {
+            // Unlink / deactivate platform users so Email Accounts and similar
+            // lists never keep showing deleted contact records.
+            const linkedUsers = await tx.user.findMany({
+                where: { employeeId },
+                select: { userId: true },
+            });
+            const linkedUserIds = linkedUsers.map((u) => u.userId);
+            if (linkedUserIds.length) {
+                await tx.brokerMailboxMessage.deleteMany({
+                    where: { userId: { in: linkedUserIds } },
+                });
+                await tx.brokerGmailAccount.deleteMany({
+                    where: {
+                        OR: [
+                            { brokerId: employeeId },
+                            { userId: { in: linkedUserIds } },
+                        ],
+                    },
+                });
+                await tx.user.updateMany({
+                    where: { userId: { in: linkedUserIds } },
+                    data: { employeeId: null, isActive: false },
+                });
+            } else {
+                await tx.brokerGmailAccount.deleteMany({ where: { brokerId: employeeId } });
+            }
+
             const sessions = await tx.attendanceSession.findMany({
                 where: { employeeId },
                 select: { sessionId: true },
@@ -227,6 +254,12 @@ export async function deactivateEmployeeController(req: AuthRequest, res: Respon
     const { syncToDevice } = req.body;
 
     const employee = await employeeRepository.update(employeeId, { status: "INACTIVE" });
+
+    // Hide from Email Accounts / assignment while inactive.
+    await prisma.user.updateMany({
+        where: { employeeId },
+        data: { isActive: false },
+    });
 
     let syncReport = null;
     if (syncToDevice !== false) {

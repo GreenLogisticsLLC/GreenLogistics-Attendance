@@ -27,8 +27,9 @@ window.GreenOSModules = window.GreenOSModules || {};
         (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
         "";
       if (nav && typeof nav.navigate === "function") {
-        if (role === "Broker") nav.navigate("broker", "loads");
-        else nav.navigate("loads", "active-loads");
+        var detail = { type: "load", id: shipmentLeadId, tab: tab || "general" };
+        if (role === "Broker") nav.navigate("broker", "loads", { detail: detail });
+        else nav.navigate("loads", "active-loads", { detail: detail });
       }
     },
 

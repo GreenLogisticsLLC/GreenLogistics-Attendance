@@ -11,6 +11,7 @@ import {
 import {
     DEFAULT_RATE_CON_TERMS,
     generateLoadDocumentPdf,
+    GREEN_LOGISTICS_RC,
     LOAD_DOCS_ROOT,
     type LoadDocumentContent,
 } from "./load-pdf.service.js";
@@ -18,6 +19,7 @@ import {
     assertQuickActionAllowed,
     quickActionIdForDocType,
 } from "../load-quick-actions.js";
+import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
 import { isLoadCarrierApproved } from "../load-carrier-review.js";
 import { buildCarrierOperationalSummary } from "../../ai/operational/carrier-context.js";
 import { documentAiJobService } from "../../ai/documents/job.service.js";
@@ -25,8 +27,13 @@ import type { CarrierOperationalSummary } from "../../ai/operational/types.js";
 
 export function assertRateConfirmationCompliance(
     summary: Pick<CarrierOperationalSummary, "readiness" | "compliance">,
-    acknowledged: boolean
+    acknowledged: boolean,
+    options?: { brokerApprovedForLoad?: boolean }
 ) {
+    // Broker "Approved Carrier" on this load is the intentional human override of bot RED/REVIEW.
+    if (options?.brokerApprovedForLoad === true) {
+        return;
+    }
     if (summary.readiness === "NOT_READY" || summary.compliance.light === "RED") {
         throw Object.assign(
             new Error(
@@ -86,9 +93,33 @@ function place(city?: string | null, state?: string | null, zip?: string | null)
 }
 
 function fmtWindow(from?: Date | null, to?: Date | null) {
+    if (!from && !to) return null;
+    const fmtTime = (d: Date) =>
+        new Date(d).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const fmtDate = (d: Date) => new Date(d).toLocaleDateString();
+    if (!from && to) {
+        return `${fmtDate(to)}, Before ${fmtTime(to)}`;
+    }
+    if (from && to) {
+        const fromD = new Date(from);
+        const toD = new Date(to);
+        const sameDay = fromD.toDateString() === toD.toDateString();
+        const fromMidnight =
+            fromD.getHours() === 0 && fromD.getMinutes() === 0 && fromD.getSeconds() === 0;
+        if (fromMidnight && toD.getTime() > fromD.getTime()) {
+            return `${fmtDate(toD)}, Till ${fmtTime(toD)}`;
+        }
+        if (fromD.getTime() !== toD.getTime()) {
+            return sameDay
+                ? `${fmtDate(fromD)}, ${fmtTime(fromD)} – ${fmtTime(toD)}`
+                : `${fromD.toLocaleString()} → ${toD.toLocaleString()}`;
+        }
+    }
     const parts: string[] = [];
     if (from) parts.push(new Date(from).toLocaleString());
-    if (to) parts.push(new Date(to).toLocaleString());
+    if (to && (!from || new Date(to).getTime() !== new Date(from).getTime())) {
+        parts.push(new Date(to).toLocaleString());
+    }
     return parts.length ? parts.join(" → ") : null;
 }
 
@@ -118,8 +149,39 @@ export class LoadDocumentsService {
                 (gmail?.isActive !== false && gmail?.gmailAddress) || u?.email || null;
         }
 
-        const pickupAt = s.opsPickupAt || s.pickupFrom;
-        const deliveryAt = s.opsDeliveryAt || s.deliveryFrom;
+        const profile = s.carrierProfileId
+            ? await prisma.carrier.findUnique({
+                  where: { carrierId: s.carrierProfileId },
+                  select: {
+                      dotNumber: true,
+                      mcNumber: true,
+                      phone: true,
+                      email: true,
+                      paymentOption: true,
+                  },
+              })
+            : null;
+
+        const pickupAt = s.opsPickupAt || s.pickupFrom || s.pickupTo;
+        const deliveryAt = s.opsDeliveryAt || s.deliveryFrom || s.deliveryTo;
+        const paymentFromPacket = carrierPaymentOptionLabel(profile?.paymentOption) || null;
+
+        const pickupTimeLabel = (() => {
+            const win = fmtWindow(s.pickupFrom, s.pickupTo);
+            if (win && /Before|Till|–/.test(win)) {
+                const idx = win.indexOf(", ");
+                return idx >= 0 ? win.slice(idx + 2) : win;
+            }
+            return fmtTime(pickupAt);
+        })();
+        const deliveryTimeLabel = (() => {
+            const win = fmtWindow(s.deliveryFrom, s.deliveryTo);
+            if (win && /Before|Till|–/.test(win)) {
+                const idx = win.indexOf(", ");
+                return idx >= 0 ? win.slice(idx + 2) : win;
+            }
+            return fmtTime(deliveryAt);
+        })();
 
         return {
             loadNumber: s.loadNumber,
@@ -130,10 +192,10 @@ export class LoadDocumentsService {
             brokerName,
             brokerEmail,
             carrierName: s.carrierName,
-            carrierEmail: s.carrierEmail,
-            carrierMc: s.carrierMc,
-            carrierDot: s.carrierDot,
-            carrierPhone: s.carrierPhone,
+            carrierEmail: s.carrierEmail || profile?.email || null,
+            carrierMc: s.carrierMc || profile?.mcNumber || null,
+            carrierDot: s.carrierDot || profile?.dotNumber || null,
+            carrierPhone: s.carrierPhone || profile?.phone || null,
             driverName: s.driverName,
             driverPhone: s.driverPhone,
             truckNumber: s.truckNumber,
@@ -143,10 +205,10 @@ export class LoadDocumentsService {
             pickupWindow: fmtWindow(s.pickupFrom, s.pickupTo),
             deliveryWindow: fmtWindow(s.deliveryFrom, s.deliveryTo),
             pickupDate: fmtDate(pickupAt),
-            pickupTime: fmtTime(pickupAt),
+            pickupTime: pickupTimeLabel,
             pickupContact: null,
             deliveryDate: fmtDate(deliveryAt),
-            deliveryTime: fmtTime(deliveryAt),
+            deliveryTime: deliveryTimeLabel,
             deliveryContact: null,
             equipment: s.equipment,
             commodity: s.commodity || s.vehicle || s.category,
@@ -156,7 +218,7 @@ export class LoadDocumentsService {
             customerRate: s.customerRate ?? s.price,
             carrierRate: s.carrierRate,
             flatRate: s.carrierRate,
-            paymentOption: s.paymentStatus || null,
+            paymentOption: paymentFromPacket,
             deliveryNote: s.carrierNotes || null,
             specialNotes: s.specialInstructions || s.notes,
             confirmationDate: new Date().toLocaleDateString(),
@@ -164,6 +226,11 @@ export class LoadDocumentsService {
             specialInstructions: s.specialInstructions || s.notes,
             bolNumber: s.loadNumber,
             freightTerms: "PREPAID",
+            thirdPartyBillTo: [
+                GREEN_LOGISTICS_RC.legalName,
+                `${GREEN_LOGISTICS_RC.addressLine1}, ${GREEN_LOGISTICS_RC.addressLine2}`,
+                `Phone: ${GREEN_LOGISTICS_RC.mainPhone}`,
+            ].join("\n"),
             customerOrderNo: s.externalShipmentId,
             packageQty: s.pieces,
             handlingQty: s.pieces,
@@ -202,9 +269,163 @@ export class LoadDocumentsService {
     }
 
     async listCurrent(shipmentLeadId: string) {
+        // If carrier already signed via portal but PDF was never stamped, fix on open.
+        await this.ensureCarrierSignatureOnRateCon(shipmentLeadId).catch((err) => {
+            console.warn(
+                `[rc-sign] ensure stamp failed for load ${shipmentLeadId}:`,
+                err instanceof Error ? err.message : err
+            );
+        });
         return prisma.loadDocument.findMany({
             where: { shipmentLeadId, isCurrent: true, status: { not: "ARCHIVED" } },
             orderBy: [{ docType: "asc" }, { version: "desc" }],
+        });
+    }
+
+    /**
+     * Stamp the latest portal carrier RC signature onto the current load Rate Confirmation PDF.
+     * Creates a new version (never overwrites). No-op when already stamped or nothing to stamp.
+     */
+    async stampCarrierSignatureOnRateCon(input: {
+        shipmentLeadId: string;
+        signerName: string;
+        signatureData: string;
+        signedAt?: Date | null;
+        actorUserId?: string | null;
+    }) {
+        const shipmentLeadId = input.shipmentLeadId;
+        const signatureData = String(input.signatureData || "").trim();
+        const signerName = String(input.signerName || "").trim();
+        if (!shipmentLeadId || !signatureData || !signerName) return null;
+        if (!signatureData.startsWith("data:image")) {
+            throw Object.assign(new Error("Invalid carrier signature image"), { status: 400 });
+        }
+
+        const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!lead?.loadNumber) return null;
+
+        const current = await prisma.loadDocument.findFirst({
+            where: {
+                shipmentLeadId,
+                docType: "RATE_CONFIRMATION",
+                isCurrent: true,
+                status: { not: "ARCHIVED" },
+            },
+            orderBy: { version: "desc" },
+        });
+        if (!current) return null;
+
+        let content: LoadDocumentContent = {};
+        try {
+            content = JSON.parse(current.contentJson || "{}") as LoadDocumentContent;
+        } catch {
+            content = {};
+        }
+
+        const signedAt = input.signedAt || new Date();
+        const signedDate = signedAt.toISOString().slice(0, 10);
+        const already =
+            content.carrierSignatureDataUrl === signatureData &&
+            content.carrierSignerName === signerName;
+        if (already) return current;
+
+        content = {
+            ...content,
+            carrierSignatureDataUrl: signatureData,
+            carrierSignerName: signerName,
+            carrierSignedAt: signedDate,
+        };
+
+        const version = (current.version || 0) + 1;
+        if (current.isCurrent) {
+            await prisma.loadDocument.update({
+                where: { documentId: current.documentId },
+                data: { isCurrent: false },
+            });
+        }
+
+        const pdf = await generateLoadDocumentPdf({
+            shipmentLeadId,
+            docType: "RATE_CONFIRMATION",
+            version,
+            content,
+        });
+
+        const title = `${LOAD_DOC_TYPE_LABELS.RATE_CONFIRMATION || "Rate Confirmation"} v${version}`;
+        const row = await prisma.loadDocument.create({
+            data: {
+                shipmentLeadId,
+                docType: "RATE_CONFIRMATION",
+                version,
+                changeReason: "FINAL_SIGNED",
+                title,
+                status: "READY",
+                isCurrent: true,
+                contentJson: JSON.stringify(content),
+                fileName: pdf.fileName,
+                mimeType: pdf.mimeType,
+                storedName: pdf.storedName,
+                fileUrl: pdf.fileUrl,
+                fileSize: pdf.fileSize,
+                createdById: input.actorUserId || null,
+            },
+        });
+
+        await domainEventEngine.emit({
+            shipmentLeadId,
+            eventType: "RATE_CONFIRMATION_EDITED",
+            title: `${title} (Final Signed)`,
+            message: `Carrier signature stamped on Rate Confirmation for Load ${lead.loadNumber}`,
+            actorUserId: input.actorUserId || undefined,
+            payload: {
+                documentId: row.documentId,
+                docType: "RATE_CONFIRMATION",
+                version,
+                changeReason: "FINAL_SIGNED",
+                fileUrl: row.fileUrl,
+                carrierSignerName: signerName,
+            },
+            timelineStage: "RATE_CONFIRMATION_GENERATED",
+        });
+
+        return row;
+    }
+
+    /**
+     * If a portal RC signature exists for this load but the current PDF has none, stamp it.
+     */
+    async ensureCarrierSignatureOnRateCon(shipmentLeadId: string) {
+        const current = await prisma.loadDocument.findFirst({
+            where: {
+                shipmentLeadId,
+                docType: "RATE_CONFIRMATION",
+                isCurrent: true,
+                status: { not: "ARCHIVED" },
+            },
+            orderBy: { version: "desc" },
+            select: { documentId: true, contentJson: true },
+        });
+        if (!current) return null;
+
+        let content: LoadDocumentContent = {};
+        try {
+            content = JSON.parse(current.contentJson || "{}") as LoadDocumentContent;
+        } catch {
+            content = {};
+        }
+        if (content.carrierSignatureDataUrl) return null;
+
+        const sig = await prisma.carrierRcSignature.findFirst({
+            where: { shipmentLeadId },
+            orderBy: { signedAt: "desc" },
+        });
+        if (!sig?.signatureData || !sig.signerName) return null;
+
+        return this.stampCarrierSignatureOnRateCon({
+            shipmentLeadId,
+            signerName: sig.signerName,
+            signatureData: sig.signatureData,
+            signedAt: sig.signedAt,
         });
     }
 
@@ -219,6 +440,14 @@ export class LoadDocumentsService {
     async getById(documentId: string) {
         const row = await prisma.loadDocument.findUnique({ where: { documentId } });
         if (!row) throw Object.assign(new Error("Document not found"), { status: 404 });
+        if (row.docType === "RATE_CONFIRMATION" && row.isCurrent) {
+            const stamped = await this.ensureCarrierSignatureOnRateCon(row.shipmentLeadId).catch(
+                () => null
+            );
+            if (stamped && stamped.documentId !== documentId) {
+                return stamped;
+            }
+        }
         return row;
     }
 
@@ -273,7 +502,8 @@ export class LoadDocumentsService {
             );
             assertRateConfirmationCompliance(
                 summary,
-                input.acknowledgeComplianceReview === true
+                input.acknowledgeComplianceReview === true,
+                { brokerApprovedForLoad: isLoadCarrierApproved(lead) }
             );
         }
 
@@ -299,6 +529,21 @@ export class LoadDocumentsService {
         const content: LoadDocumentContent = { ...base, ...(input.contentOverrides || {}) };
 
         if (docType === "RATE_CONFIRMATION") {
+            // Keep portal carrier signature on regenerated / broker-edited Rate Cons.
+            if (!content.carrierSignatureDataUrl) {
+                const latestSig = await prisma.carrierRcSignature.findFirst({
+                    where: { shipmentLeadId: input.shipmentLeadId },
+                    orderBy: { signedAt: "desc" },
+                });
+                if (latestSig?.signatureData && latestSig.signerName) {
+                    content.carrierSignatureDataUrl = latestSig.signatureData;
+                    content.carrierSignerName =
+                        content.carrierSignerName || latestSig.signerName;
+                    content.carrierSignedAt =
+                        content.carrierSignedAt ||
+                        latestSig.signedAt.toISOString().slice(0, 10);
+                }
+            }
             const required: Array<[string, unknown]> = [
                 ["Customer email", content.customerEmail],
                 ["Carrier", content.carrierName],
@@ -496,6 +741,7 @@ export class LoadDocumentsService {
         }
 
         return row;
+
     }
 
     /** Edit content → new version + regenerate PDF (never overwrite). */

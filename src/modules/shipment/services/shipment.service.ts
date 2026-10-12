@@ -24,6 +24,8 @@ export class ShipmentService {
         loadNumber: string;
         actorUserId?: string;
         forceStatus?: boolean;
+        /** What the broker took the load for from the customer. */
+        customerRate?: number | null;
     }) {
         const loadNumber = String(input.loadNumber || "").trim();
         if (!loadNumber) {
@@ -58,12 +60,21 @@ export class ShipmentService {
             }
         }
 
+        const rateRaw = input.customerRate;
+        const customerRate =
+            rateRaw === undefined || rateRaw === null ? undefined : Number(rateRaw);
+        const ratePatch =
+            customerRate !== undefined && Number.isFinite(customerRate) && customerRate >= 0
+                ? { customerRate, price: customerRate }
+                : {};
+
         // Same row update only — NO prisma.create for a Load
         const updated = await prisma.shipmentLead.update({
             where: { shipmentLeadId: shipment.shipmentLeadId },
             data: {
                 loadNumber,
                 status: nextStatus,
+                ...ratePatch,
                 ...(nextStatus === "LOAD_CREATED" && !shipment.acceptedAt
                     ? { acceptedAt: shipment.acceptedAt || new Date() }
                     : {}),
