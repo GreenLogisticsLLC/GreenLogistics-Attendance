@@ -3238,3 +3238,65 @@ button.load-review-choice:hover {
   color: #fb923c;
 }
 
+.acc-pending-section {
+  margin-top: 1.35rem;
+}
+
+.acc-pending-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.65rem;
+}
+
+.acc-pending-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--gos-text);
+}
+
+.acc-pending-count {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--gos-warn);
+  background: color-mix(in srgb, var(--gos-warn) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gos-warn) 45%, var(--gos-border));
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+}
+
+button.acc-load-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 800;
+  color: var(--gos-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+button.acc-load-link:hover {
+  color: color-mix(in srgb, var(--gos-accent) 75%, #fff);
+}
+
+tr.acc-row-pending button.acc-load-link,
+tr.acc-row-billing button.acc-load-link {
+  color: var(--gos-warn);
+}
+
+tr.acc-row-correction button.acc-load-link {
+  color: var(--gos-danger);
+}
+
+tr.acc-row-carrier-pay button.acc-load-link {
+  color: var(--gos-info);
+}
+
