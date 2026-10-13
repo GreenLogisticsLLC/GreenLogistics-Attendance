@@ -3065,8 +3065,16 @@ window.GreenOSModules["dispatch"] = {
         var qa = (data.quickActions || []).find(function (a) {
           return a.docType === slot.type;
         });
-        var locked = qa && qa.state === "locked";
-        var blocked = (qa && qa.blockedReason) || "Complete the previous step first";
+        // POD Upload must stay clickable whenever BOL exists — never use HTML
+        // disabled (it swallows clicks with no feedback).
+        var locked =
+          slot.type === "POD"
+            ? !findDoc("BOL")
+            : Boolean(qa && qa.state === "locked");
+        var blocked =
+          slot.type === "POD"
+            ? "Generate BOL first — POD must be the signed copy of that BOL"
+            : (qa && qa.blockedReason) || "Complete the previous step first";
         if (d) {
           var dl = d.fileUrl || "";
           return (
@@ -3149,7 +3157,9 @@ window.GreenOSModules["dispatch"] = {
           '" data-type="' +
           self.esc(slot.type) +
           '"' +
-          (locked ? ' disabled title="' + self.esc(blocked) + '"' : "") +
+          (locked
+            ? ' aria-disabled="true" title="' + self.esc(blocked) + '"'
+            : ' title="' + self.esc(slot.hint || slot.createLabel) + '"') +
           ">" +
           self.esc(slot.createLabel) +
           "</button>" +
@@ -3178,22 +3188,35 @@ window.GreenOSModules["dispatch"] = {
     self.bindCarrierOnboardingActions(main, c, { loadId: id, tab: "documents" });
 
     main.querySelectorAll(".load-gen-doc").forEach(function (btn) {
-      btn.addEventListener("click", async function () {
-        if (btn.disabled || btn.classList.contains("is-locked")) {
+      btn.addEventListener("click", function (ev) {
+        if (ev && ev.preventDefault) ev.preventDefault();
+        var docType = btn.getAttribute("data-type");
+        var isLocked =
+          btn.classList.contains("is-locked") ||
+          btn.getAttribute("aria-disabled") === "true";
+        // POD: only block when BOL is missing (button stays clickable for feedback).
+        if (docType === "POD") {
+          if (!findDoc("BOL")) {
+            alert(
+              btn.getAttribute("title") ||
+                "Generate BOL first — POD must be the signed copy of that BOL"
+            );
+            return;
+          }
+          self.showPodWizard(main, id, data, "GENERATED");
+          self.focusPodUploadSection(main);
+          return;
+        }
+        if (isLocked) {
           alert(btn.getAttribute("title") || "Complete the previous step first");
           return;
         }
-        var docType = btn.getAttribute("data-type");
         if (docType === "RATE_CONFIRMATION") {
           self.showRateConWizard(main, id, data, "GENERATED");
           return;
         }
         if (docType === "BOL") {
           self.showBolWizard(main, id, data, "GENERATED");
-          return;
-        }
-        if (docType === "POD") {
-          self.showPodWizard(main, id, data, "GENERATED");
           return;
         }
       });
