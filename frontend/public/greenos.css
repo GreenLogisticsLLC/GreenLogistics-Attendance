@@ -2209,11 +2209,22 @@ button.load-review-choice:hover {
 .load-table tbody tr.load-row:hover { background: var(--gos-accent-soft); }
 .load-table tbody tr:last-child td { border-bottom: 0; }
 .load-doc-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-.load-doc-actions .btn-secondary, .load-doc-actions a.btn-secondary {
+.load-doc-actions .btn-secondary, .load-doc-actions a.btn-secondary,
+.load-doc-actions .btn-primary {
   width: auto;
   font-size: 0.72rem;
-  padding: 0.3rem 0.45rem;
+  padding: 0.35rem 0.65rem;
   text-decoration: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.load-doc-actions .btn-primary.load-pod-upload-btn {
+  font-weight: 700;
+  min-width: 5.5rem;
+}
+.load-doc-actions .load-gen-doc.is-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .ld-carrier-suggest {
   position: relative;

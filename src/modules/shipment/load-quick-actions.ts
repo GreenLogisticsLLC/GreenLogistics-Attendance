@@ -177,7 +177,9 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
             label: "Upload POD",
             docType: "POD",
             done: podDone,
-            need: "Mark Delivered first",
+            // Unlock once BOL exists — do not block behind Mark Delivered
+            // (brokers often upload the signed BOL/POD around delivery time).
+            need: "Generate BOL first",
         },
         {
             id: "mark_customer_paid",
@@ -239,6 +241,14 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
         } else if (d.id === "generate_rate_con" && !carrierApproved) {
             state = "locked";
             blockedReason = rateConNeed;
+        } else if (d.id === "upload_pod") {
+            // Available as soon as BOL exists (parallel with Mark Delivered).
+            if (!bolDone) {
+                state = "locked";
+                blockedReason = d.need;
+            } else {
+                state = "current";
+            }
         } else if (i === firstOpenAction) {
             state = "current";
         } else {
