@@ -270,6 +270,22 @@ export class AccountingService {
             list = list.filter(
                 (r) => Boolean(r.accountingClosedAt) || Boolean(r.carrierPaidAt)
             );
+        } else if (f === "pending" || f === "awaiting" || f === "confirmation") {
+            // Dashboard: all loads still waiting for accounting confirmation / action
+            list = list.filter((r) => {
+                if (r.accountingClosedAt) return false;
+                const docPending =
+                    !r.accountingDocStatus ||
+                    r.accountingDocStatus === AccountingDocStatus.Pending ||
+                    r.accountingDocStatus === AccountingDocStatus.NeedsCorrection;
+                const billingReady =
+                    Boolean(r.accountingReadyForBilling) && !r.customerPaidAt;
+                const carrierReady =
+                    Boolean(r.accountingReadyForCarrierPayment) && !r.carrierPaidAt;
+                const invoiceOutstanding =
+                    Boolean(r.invoiceNumber) && !r.customerPaidAt;
+                return docPending || billingReady || carrierReady || invoiceOutstanding;
+            });
         }
 
         return list;

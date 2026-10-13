@@ -182,7 +182,131 @@ window.GreenOSModules.accounting = {
     if (!r.accountingDocStatus || doc === "PENDING") return "acc-row-pending";
     if (r.accountingReadyForBilling && !r.customerPaidAt) return "acc-row-billing";
     if (r.accountingReadyForCarrierPayment && !r.carrierPaidAt) return "acc-row-carrier-pay";
+    if (r.invoiceNumber && !r.customerPaidAt) return "acc-row-billing";
     return "";
+  },
+
+  /** Why this load still needs accounting attention (Dashboard queue labels). */
+  pendingReasons(r) {
+    var bits = [];
+    var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
+    if (doc === "NEEDS_CORRECTION" || doc.indexOf("CORRECTION") >= 0) {
+      bits.push('<span class="acc-status-pill is-correction">Needs Correction</span>');
+    } else if (!r.accountingDocStatus || doc === "PENDING") {
+      bits.push('<span class="acc-status-pill is-pending">Documents To Review</span>');
+    }
+    if (r.accountingReadyForBilling && !r.customerPaidAt && !r.invoiceNumber) {
+      bits.push('<span class="acc-status-pill is-ready">Ready For Billing</span>');
+    }
+    if (r.invoiceNumber && !r.customerPaidAt) {
+      bits.push('<span class="acc-status-pill is-ready">Invoice Outstanding</span>');
+    }
+    if (r.accountingReadyForCarrierPayment && !r.carrierPaidAt) {
+      bits.push('<span class="acc-status-pill is-ready">Ready For Carrier Payment</span>');
+    }
+    return bits.length ? bits.join(" ") : '<span class="acc-status-pill is-pending">Awaiting</span>';
+  },
+
+  loadNumberCell(r) {
+    var label = r.loadNumber || r.greenOsShipmentId || "—";
+    var id = r.shipmentLeadId;
+    if (!id) return this.esc(label);
+    return (
+      '<button type="button" class="acc-load-link acc-open" data-id="' +
+      this.esc(id) +
+      '" title="Open load ' +
+      this.esc(label) +
+      '">' +
+      this.esc(label) +
+      "</button>"
+    );
+  },
+
+  bindOpenHandlers(body) {
+    var self = this;
+    if (!body) return;
+    body.querySelectorAll(".acc-open").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var detail = body.querySelector("#acc-detail");
+        if (!detail) {
+          detail = document.createElement("div");
+          detail.id = "acc-detail";
+          detail.style.marginTop = "1.25rem";
+          body.appendChild(detail);
+        }
+        self.openShipment(detail, btn.getAttribute("data-id"));
+        if (detail.scrollIntoView) {
+          detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      });
+    });
+  },
+
+  shipmentsTableHtml(rows, opts) {
+    var self = this;
+    var options = opts || {};
+    var showQueue = !!options.showQueue;
+    var head =
+      "<th>Load</th><th>Customer</th><th>Carrier</th>" +
+      (showQueue ? "<th>Waiting for</th>" : "<th>Doc status</th><th>Ready</th>") +
+      "<th>Payments</th><th></th>";
+    var body = rows
+      .map(function (r) {
+        var urgency = self.rowUrgencyClass(r);
+        var mid;
+        if (showQueue) {
+          mid = "<td>" + self.pendingReasons(r) + "</td>";
+        } else {
+          var readyBits = [];
+          if (r.accountingReadyForBilling) {
+            readyBits.push('<span class="acc-status-pill is-ready">Billing</span>');
+          }
+          if (r.accountingReadyForCarrierPayment) {
+            readyBits.push('<span class="acc-status-pill is-ready">Carrier$</span>');
+          }
+          mid =
+            "<td>" +
+            self.docStatusPill(r.accountingDocStatus || "PENDING") +
+            "</td>" +
+            "<td>" +
+            (readyBits.length ? readyBits.join(" ") : "—") +
+            "</td>";
+        }
+        return (
+          '<tr class="' +
+          urgency +
+          '">' +
+          "<td>" +
+          self.loadNumberCell(r) +
+          "</td>" +
+          "<td>" +
+          self.esc(r.customerName || "—") +
+          "</td>" +
+          "<td>" +
+          self.esc(r.carrierName || "—") +
+          "</td>" +
+          mid +
+          "<td>" +
+          (r.customerPaidAt ? "Cust✓ " : "") +
+          (r.carrierPaidAt ? "Carr✓" : "") +
+          (!r.customerPaidAt && !r.carrierPaidAt ? "—" : "") +
+          "</td>" +
+          '<td><button type="button" class="btn-primary acc-open" data-id="' +
+          self.esc(r.shipmentLeadId) +
+          '" style="width:auto;padding:0.35rem 0.65rem">Open</button></td>' +
+          "</tr>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="emp-users-wrap"><table class="emp-users-table"><thead><tr>' +
+      head +
+      "</tr></thead><tbody>" +
+      body +
+      "</tbody></table></div>"
+    );
   },
 
   render(root, subPageId) {
@@ -252,7 +376,12 @@ window.GreenOSModules.accounting = {
     var self = this;
     body.innerHTML = '<p class="gos-muted">Loading dashboard…</p>';
     try {
-      var res = await this.api("/dashboard");
+      var results = await Promise.all([
+        this.api("/dashboard"),
+        this.api("/shipments?filter=pending"),
+      ]);
+      var res = results[0];
+      var listRes = results[1];
       if (!res.success) {
         body.innerHTML =
           '<p style="color:#ef4444">' + self.esc(res.message || "Access denied") + "</p>";
@@ -276,14 +405,44 @@ window.GreenOSModules.accounting = {
       Object.keys(kpis).forEach(function (k) {
         if (keys.indexOf(k) < 0) keys.push(k);
       });
-      var cards = keys.map(function (key) {
-        return self.kpiCard(key, kpis[key]);
-      }).join("");
+      var cards = keys
+        .map(function (key) {
+          return self.kpiCard(key, kpis[key]);
+        })
+        .join("");
+
+      var pendingRows = listRes && listRes.success ? listRes.data || [] : [];
+      var pendingSection;
+      if (!listRes || !listRes.success) {
+        pendingSection =
+          '<p style="color:#ef4444;margin-top:1.25rem">' +
+          self.esc((listRes && listRes.message) || "Could not load pending loads") +
+          "</p>";
+      } else if (!pendingRows.length) {
+        pendingSection =
+          '<p class="gos-muted" style="margin-top:1.25rem">No loads waiting for accounting confirmation.</p>';
+      } else {
+        pendingSection =
+          '<div class="acc-pending-section">' +
+          '<div class="acc-pending-head">' +
+          "<h3>Loads waiting for accounting confirmation</h3>" +
+          '<span class="acc-pending-count">' +
+          pendingRows.length +
+          " load" +
+          (pendingRows.length === 1 ? "" : "s") +
+          "</span>" +
+          "</div>" +
+          self.shipmentsTableHtml(pendingRows, { showQueue: true }) +
+          "</div>";
+      }
+
       body.innerHTML =
         '<div class="acc-kpi-grid">' +
         cards +
         "</div>" +
-        '<p class="gos-muted" style="margin-top:1rem">Bright cards need accounting action — click a card or open a queue tab.</p>';
+        pendingSection +
+        '<div id="acc-detail" style="margin-top:1.25rem"></div>';
+
       body.querySelectorAll("[data-acc-tab]").forEach(function (btn) {
         btn.addEventListener("click", function () {
           var tab = btn.getAttribute("data-acc-tab");
@@ -295,6 +454,10 @@ window.GreenOSModules.accounting = {
           }
         });
       });
+      self.bindOpenHandlers(body);
+      if (self._selectedId) {
+        self.openShipment(body.querySelector("#acc-detail"), self._selectedId);
+      }
     } catch (err) {
       body.innerHTML =
         '<p style="color:#ef4444">' + self.esc(err.message || "Failed to load") + "</p>";
@@ -318,59 +481,10 @@ window.GreenOSModules.accounting = {
         body.innerHTML = '<p class="gos-muted">No shipments in this queue.</p>';
         return;
       }
-      var table =
-        '<div class="emp-users-wrap"><table class="emp-users-table"><thead><tr>' +
-        "<th>Load</th><th>Customer</th><th>Carrier</th><th>Doc status</th><th>Ready</th><th>Payments</th><th></th>" +
-        "</tr></thead><tbody>" +
-        rows
-          .map(function (r) {
-            var urgency = self.rowUrgencyClass(r);
-            var readyBits = [];
-            if (r.accountingReadyForBilling) {
-              readyBits.push('<span class="acc-status-pill is-ready">Billing</span>');
-            }
-            if (r.accountingReadyForCarrierPayment) {
-              readyBits.push('<span class="acc-status-pill is-ready">Carrier$</span>');
-            }
-            return (
-              '<tr class="' +
-              urgency +
-              '">' +
-              "<td>" +
-              self.esc(r.loadNumber || r.greenOsShipmentId || "—") +
-              "</td>" +
-              "<td>" +
-              self.esc(r.customerName || "—") +
-              "</td>" +
-              "<td>" +
-              self.esc(r.carrierName || "—") +
-              "</td>" +
-              "<td>" +
-              self.docStatusPill(r.accountingDocStatus || "PENDING") +
-              "</td>" +
-              "<td>" +
-              (readyBits.length ? readyBits.join(" ") : "—") +
-              "</td>" +
-              "<td>" +
-              (r.customerPaidAt ? "Cust✓ " : "") +
-              (r.carrierPaidAt ? "Carr✓" : "") +
-              (!r.customerPaidAt && !r.carrierPaidAt ? "—" : "") +
-              "</td>" +
-              '<td><button type="button" class="btn-primary acc-open" data-id="' +
-              self.esc(r.shipmentLeadId) +
-              '" style="width:auto;padding:0.35rem 0.65rem">Open</button></td>' +
-              "</tr>"
-            );
-          })
-          .join("") +
-        "</tbody></table></div>" +
+      body.innerHTML =
+        self.shipmentsTableHtml(rows, { showQueue: false }) +
         '<div id="acc-detail" style="margin-top:1.25rem"></div>';
-      body.innerHTML = table;
-      body.querySelectorAll(".acc-open").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-          self.openShipment(body.querySelector("#acc-detail"), btn.getAttribute("data-id"));
-        });
-      });
+      self.bindOpenHandlers(body);
       if (self._selectedId) {
         self.openShipment(body.querySelector("#acc-detail"), self._selectedId);
       }
