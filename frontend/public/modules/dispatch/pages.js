@@ -1922,7 +1922,14 @@ window.GreenOSModules["dispatch"] = {
           self.renderDetails(body, data);
           setTimeout(function () {
             var mainEl = body.querySelector("#load-main");
-            if (mainEl) self.showPodWizard(mainEl, id, data, state === "done" ? "BROKER_EDITED" : "GENERATED");
+            if (!mainEl) return;
+            self.showPodWizard(
+              mainEl,
+              id,
+              data,
+              state === "done" ? "BROKER_EDITED" : "GENERATED"
+            );
+            self.focusPodUploadSection(mainEl);
           }, 40);
           return;
         }
@@ -3067,7 +3074,9 @@ window.GreenOSModules["dispatch"] = {
             self.esc(d.documentId) +
             '" data-type="' +
             self.esc(slot.type) +
-            '">' +
+            '"' +
+            (slot.type === "POD" ? ' id="load-pod-row"' : "") +
+            ">" +
             "<td><strong>" +
             self.esc(slot.label) +
             "</strong>" +
@@ -3121,7 +3130,9 @@ window.GreenOSModules["dispatch"] = {
         return (
           '<tr data-type="' +
           self.esc(slot.type) +
-          '" class="ld-doc-pending">' +
+          '" class="ld-doc-pending"' +
+          (slot.type === "POD" ? ' id="load-pod-row"' : "") +
+          ">" +
           "<td><strong>" +
           self.esc(slot.label) +
           "</strong>" +
@@ -3134,6 +3145,7 @@ window.GreenOSModules["dispatch"] = {
           '<td class="load-doc-actions">' +
           '<button type="button" class="btn-primary load-gen-doc' +
           (locked ? " is-locked" : "") +
+          (slot.type === "POD" ? " load-pod-upload-btn" : "") +
           '" data-type="' +
           self.esc(slot.type) +
           '"' +
@@ -3153,7 +3165,7 @@ window.GreenOSModules["dispatch"] = {
       (c.carrierProfileId || (c.onboardingDocuments && c.onboardingDocuments.length)
         ? self.carrierOnboardingPanelHtml(c)
         : "") +
-      '<h2 style="margin-top:1.5rem">Load documents</h2>' +
+      '<h2 id="load-documents-section" style="margin-top:1.5rem">Load documents</h2>' +
       '<p class="gos-muted">Rate Confirmation, BOL, and POD for this Load. Edits create a new version — never overwrite.</p>' +
       '<div class="load-table-wrap"><table class="load-table"><thead><tr>' +
       "<th>Document</th><th>Ver</th><th>Change</th><th>Status</th><th>Actions</th>" +
@@ -4203,6 +4215,83 @@ window.GreenOSModules["dispatch"] = {
       }
     });
   },
+  /** Scroll the Documents tab to the POD upload panel (and highlight the POD row). */
+  focusPodUploadSection(main) {
+    var root = main || document;
+    var box =
+      root.querySelector("#load-pod-upload") ||
+      root.querySelector("#load-doc-editor") ||
+      document.getElementById("load-pod-upload");
+    var row =
+      root.querySelector("#load-pod-row") ||
+      document.getElementById("load-pod-row");
+    var section =
+      root.querySelector("#load-documents-section") ||
+      document.getElementById("load-documents-section");
+
+    function scrollNested(el) {
+      if (!el) return;
+      try {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch (e) {
+        try {
+          el.scrollIntoView(true);
+        } catch (e2) {
+          /* ignore */
+        }
+      }
+      var p = el.parentElement;
+      while (p && p !== document.body) {
+        var st = window.getComputedStyle(p);
+        var oy = st.overflowY || st.overflow;
+        if (
+          (oy === "auto" || oy === "scroll") &&
+          p.scrollHeight > p.clientHeight + 8
+        ) {
+          var top =
+            el.getBoundingClientRect().top -
+            p.getBoundingClientRect().top +
+            p.scrollTop -
+            32;
+          try {
+            p.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+          } catch (e3) {
+            p.scrollTop = Math.max(0, top);
+          }
+          break;
+        }
+        p = p.parentElement;
+      }
+    }
+
+    if (row) {
+      row.classList.add("ld-pod-focus");
+      setTimeout(function () {
+        row.classList.remove("ld-pod-focus");
+      }, 2600);
+    }
+    // Prefer the upload panel; fall back to POD row / Load documents heading.
+    scrollNested(box || row || section);
+    setTimeout(function () {
+      scrollNested(box || row || section);
+      var file = box && box.querySelector("#pod-file");
+      if (file && file.focus) {
+        try {
+          file.focus({ preventScroll: true });
+        } catch (e4) {
+          try {
+            file.focus();
+          } catch (e5) {
+            /* ignore */
+          }
+        }
+      }
+    }, 120);
+    setTimeout(function () {
+      scrollNested(box || row || section);
+    }, 320);
+  },
+
   showPodWizard(main, id, data, changeReason) {
     var self = this;
     var g = data.general || {};
@@ -4216,10 +4305,14 @@ window.GreenOSModules["dispatch"] = {
     });
     var box = main.querySelector("#load-doc-editor");
     if (!box) {
-      main.insertAdjacentHTML("beforeend", '<div id="load-doc-editor" class="load-edit-panel"></div>');
+      main.insertAdjacentHTML(
+        "beforeend",
+        '<div id="load-doc-editor" class="load-edit-panel"></div>'
+      );
       box = main.querySelector("#load-doc-editor");
     }
     box.classList.remove("hidden");
+    box.setAttribute("data-pod-upload", "1");
 
     function place(obj) {
       if (!obj) return "—";
@@ -4227,6 +4320,7 @@ window.GreenOSModules["dispatch"] = {
     }
 
     box.innerHTML =
+      '<div id="load-pod-upload" class="load-pod-upload-anchor">' +
       "<h3>Upload Proof of Delivery (POD)</h3>" +
       '<p class="gos-muted">Upload the <strong>same BOL</strong> after the receiver signs the <strong>SIGNATURE</strong> box (cargo received). Any mark/scribble in SIGNATURE = POD complete → next step unlocks. Team Lead is alerted only if there are exception notes beyond the signature. Load <strong>' +
       self.esc(g.loadNumber || "") +
@@ -4270,9 +4364,10 @@ window.GreenOSModules["dispatch"] = {
       ">Upload &amp; Verify POD</button>" +
       '<button type="button" class="btn-secondary" id="pod-cancel">Cancel</button>' +
       "</div>" +
-      '<p id="pod-status" class="gos-muted" style="margin-top:0.5rem"></p>';
+      '<p id="pod-status" class="gos-muted" style="margin-top:0.5rem"></p>' +
+      "</div>";
 
-    box.scrollIntoView({ behavior: "smooth", block: "start" });
+    self.focusPodUploadSection(main);
     box.querySelector("#pod-cancel")?.addEventListener("click", function () {
       box.classList.add("hidden");
       box.innerHTML = "";
