@@ -3095,3 +3095,146 @@ button.load-review-choice:hover {
   }
 }
 
+/* Accounting Team — bright pending queue KPIs */
+.acc-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.acc-kpi {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  padding: 1rem 1.05rem;
+  border-radius: 12px;
+  border: 1px solid var(--gos-border);
+  background: var(--gos-surface);
+  min-height: 96px;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.acc-kpi.is-clickable {
+  cursor: pointer;
+}
+
+.acc-kpi.is-clickable:hover {
+  transform: translateY(-1px);
+}
+
+.acc-kpi .label {
+  color: var(--gos-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.acc-kpi .value {
+  margin-top: 0.35rem;
+  font-size: 1.85rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--gos-text);
+}
+
+.acc-kpi.is-empty {
+  opacity: 0.55;
+}
+
+.acc-kpi.is-empty .value {
+  color: var(--gos-muted);
+  font-weight: 700;
+}
+
+.acc-kpi.is-hot.tone-amber {
+  border-color: color-mix(in srgb, var(--gos-warn) 70%, var(--gos-border));
+  background: color-mix(in srgb, var(--gos-warn) 18%, var(--gos-surface));
+}
+.acc-kpi.is-hot.tone-amber .value { color: var(--gos-warn); }
+.acc-kpi.is-hot.tone-amber .label { color: color-mix(in srgb, var(--gos-warn) 75%, var(--gos-muted)); }
+
+.acc-kpi.is-hot.tone-orange {
+  border-color: #fb923c;
+  background: color-mix(in srgb, #f97316 20%, var(--gos-surface));
+}
+.acc-kpi.is-hot.tone-orange .value { color: #fb923c; }
+.acc-kpi.is-hot.tone-orange .label { color: color-mix(in srgb, #f97316 70%, var(--gos-muted)); }
+
+.acc-kpi.is-hot.tone-red {
+  border-color: color-mix(in srgb, var(--gos-danger) 75%, var(--gos-border));
+  background: color-mix(in srgb, var(--gos-danger) 18%, var(--gos-surface));
+}
+.acc-kpi.is-hot.tone-red .value { color: var(--gos-danger); }
+.acc-kpi.is-hot.tone-red .label { color: color-mix(in srgb, var(--gos-danger) 70%, var(--gos-muted)); }
+
+.acc-kpi.is-hot.tone-blue {
+  border-color: color-mix(in srgb, var(--gos-info) 70%, var(--gos-border));
+  background: color-mix(in srgb, var(--gos-info) 16%, var(--gos-surface));
+}
+.acc-kpi.is-hot.tone-blue .value { color: var(--gos-info); }
+.acc-kpi.is-hot.tone-blue .label { color: color-mix(in srgb, var(--gos-info) 70%, var(--gos-muted)); }
+
+.acc-kpi.is-hot.tone-green {
+  border-color: color-mix(in srgb, var(--gos-accent) 65%, var(--gos-border));
+  background: color-mix(in srgb, var(--gos-accent) 14%, var(--gos-surface));
+}
+.acc-kpi.is-hot.tone-green .value { color: var(--gos-accent); }
+.acc-kpi.is-hot.tone-green .label { color: color-mix(in srgb, var(--gos-accent) 65%, var(--gos-muted)); }
+
+.acc-kpi.is-hot::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: currentColor;
+}
+.acc-kpi.is-hot.tone-amber::after { background: var(--gos-warn); }
+.acc-kpi.is-hot.tone-orange::after { background: #f97316; }
+.acc-kpi.is-hot.tone-red::after { background: var(--gos-danger); }
+.acc-kpi.is-hot.tone-blue::after { background: var(--gos-info); }
+.acc-kpi.is-hot.tone-green::after { background: var(--gos-accent); }
+
+.emp-users-table tr.acc-row-pending td:first-child {
+  box-shadow: inset 4px 0 0 var(--gos-warn);
+}
+.emp-users-table tr.acc-row-correction td:first-child {
+  box-shadow: inset 4px 0 0 var(--gos-danger);
+}
+.emp-users-table tr.acc-row-billing td:first-child {
+  box-shadow: inset 4px 0 0 #f97316;
+}
+.emp-users-table tr.acc-row-carrier-pay td:first-child {
+  box-shadow: inset 4px 0 0 var(--gos-info);
+}
+
+.acc-status-pill {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.acc-status-pill.is-pending {
+  background: color-mix(in srgb, var(--gos-warn) 22%, transparent);
+  color: var(--gos-warn);
+}
+.acc-status-pill.is-correction {
+  background: color-mix(in srgb, var(--gos-danger) 22%, transparent);
+  color: var(--gos-danger);
+}
+.acc-status-pill.is-verified {
+  background: color-mix(in srgb, var(--gos-accent) 18%, transparent);
+  color: var(--gos-accent);
+}
+.acc-status-pill.is-ready {
+  background: color-mix(in srgb, #f97316 22%, transparent);
+  color: #fb923c;
+}
+

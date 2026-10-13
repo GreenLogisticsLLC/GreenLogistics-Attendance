@@ -71,6 +71,120 @@ window.GreenOSModules.accounting = {
     return "all";
   },
 
+  /** KPI meta: waiting-for-accounting queues use bright urgency tones when count > 0. */
+  kpiMeta(key) {
+    var map = {
+      documentsToReview: {
+        label: "Documents To Review",
+        tone: "amber",
+        pending: true,
+        tab: "document-review",
+      },
+      needsCorrection: {
+        label: "Needs Correction",
+        tone: "red",
+        pending: true,
+        tab: "document-review",
+      },
+      readyForBilling: {
+        label: "Ready For Billing",
+        tone: "orange",
+        pending: true,
+        tab: "customer-billing",
+      },
+      invoicesOutstanding: {
+        label: "Invoices Outstanding",
+        tone: "amber",
+        pending: true,
+        tab: "customer-payments",
+      },
+      readyForCarrierPayment: {
+        label: "Ready For Carrier Payment",
+        tone: "blue",
+        pending: true,
+        tab: "carrier-payments",
+      },
+      overdueCustomerPayments: {
+        label: "Overdue Customer Payments",
+        tone: "red",
+        pending: true,
+        tab: "customer-payments",
+      },
+      customerPaymentsReceived: {
+        label: "Customer Payments Received",
+        tone: "green",
+        pending: false,
+        tab: "customer-payments",
+      },
+      carrierPaymentsCompleted: {
+        label: "Carrier Payments Completed",
+        tone: "green",
+        pending: false,
+        tab: "carrier-payments",
+      },
+      accountingClosed: {
+        label: "Accounting Closed",
+        tone: "green",
+        pending: false,
+        tab: "history",
+      },
+    };
+    return (
+      map[key] || {
+        label: key,
+        tone: "amber",
+        pending: true,
+        tab: "shipments",
+      }
+    );
+  },
+
+  kpiCard(key, count) {
+    var meta = this.kpiMeta(key);
+    var n = Number(count) || 0;
+    var hot = meta.pending ? n > 0 : n > 0;
+    var classes =
+      "acc-kpi tone-" +
+      meta.tone +
+      (hot ? " is-hot" : " is-empty") +
+      (meta.tab ? " is-clickable" : "");
+    return (
+      '<button type="button" class="' +
+      classes +
+      '" data-acc-tab="' +
+      this.esc(meta.tab || "") +
+      '" aria-label="' +
+      this.esc(meta.label) +
+      ": " +
+      n +
+      '">' +
+      '<div class="label">' +
+      this.esc(meta.label) +
+      "</div>" +
+      '<div class="value">' +
+      this.esc(n) +
+      "</div>" +
+      "</button>"
+    );
+  },
+
+  docStatusPill(status) {
+    var s = String(status || "PENDING").toUpperCase();
+    var cls = "acc-status-pill is-pending";
+    if (s === "NEEDS_CORRECTION" || s.indexOf("CORRECTION") >= 0) cls = "acc-status-pill is-correction";
+    else if (s === "VERIFIED" || s === "APPROVED") cls = "acc-status-pill is-verified";
+    return '<span class="' + cls + '">' + this.esc(s) + "</span>";
+  },
+
+  rowUrgencyClass(r) {
+    var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
+    if (doc === "NEEDS_CORRECTION" || doc.indexOf("CORRECTION") >= 0) return "acc-row-correction";
+    if (!r.accountingDocStatus || doc === "PENDING") return "acc-row-pending";
+    if (r.accountingReadyForBilling && !r.customerPaidAt) return "acc-row-billing";
+    if (r.accountingReadyForCarrierPayment && !r.carrierPaidAt) return "acc-row-carrier-pay";
+    return "";
+  },
+
   render(root, subPageId) {
     if (!root) return;
     var self = this;
@@ -145,35 +259,42 @@ window.GreenOSModules.accounting = {
         return;
       }
       var kpis = (res.data && res.data.kpis) || {};
-      var labels = {
-        documentsToReview: "Documents To Review",
-        needsCorrection: "Needs Correction",
-        readyForBilling: "Ready For Billing",
-        invoicesOutstanding: "Invoices Outstanding",
-        customerPaymentsReceived: "Customer Payments Received",
-        readyForCarrierPayment: "Ready For Carrier Payment",
-        carrierPaymentsCompleted: "Carrier Payments Completed",
-        overdueCustomerPayments: "Overdue Customer Payments",
-        accountingClosed: "Accounting Closed",
-      };
-      var cards = Object.keys(kpis)
-        .map(function (key) {
-          return (
-            '<div style="padding:1rem;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(0,0,0,0.15)">' +
-            '<div class="gos-muted" style="font-size:0.8rem">' +
-            self.esc(labels[key] || key) +
-            "</div>" +
-            '<div style="font-size:1.75rem;font-weight:700;margin-top:0.25rem">' +
-            self.esc(kpis[key]) +
-            "</div></div>"
-          );
-        })
-        .join("");
+      var order = [
+        "documentsToReview",
+        "needsCorrection",
+        "readyForBilling",
+        "invoicesOutstanding",
+        "readyForCarrierPayment",
+        "overdueCustomerPayments",
+        "customerPaymentsReceived",
+        "carrierPaymentsCompleted",
+        "accountingClosed",
+      ];
+      var keys = order.filter(function (k) {
+        return Object.prototype.hasOwnProperty.call(kpis, k);
+      });
+      Object.keys(kpis).forEach(function (k) {
+        if (keys.indexOf(k) < 0) keys.push(k);
+      });
+      var cards = keys.map(function (key) {
+        return self.kpiCard(key, kpis[key]);
+      }).join("");
       body.innerHTML =
-        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0.75rem">' +
+        '<div class="acc-kpi-grid">' +
         cards +
         "</div>" +
-        '<p class="gos-muted" style="margin-top:1rem">Open a queue from the tabs above to review shipments.</p>';
+        '<p class="gos-muted" style="margin-top:1rem">Bright cards need accounting action — click a card or open a queue tab.</p>';
+      body.querySelectorAll("[data-acc-tab]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var tab = btn.getAttribute("data-acc-tab");
+          if (!tab) return;
+          if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
+            window.GreenOS.navigate("accounting", tab);
+          } else {
+            self.render(document.getElementById("gos-module-host") || body.parentElement, tab);
+          }
+        });
+      });
     } catch (err) {
       body.innerHTML =
         '<p style="color:#ef4444">' + self.esc(err.message || "Failed to load") + "</p>";
@@ -203,8 +324,18 @@ window.GreenOSModules.accounting = {
         "</tr></thead><tbody>" +
         rows
           .map(function (r) {
+            var urgency = self.rowUrgencyClass(r);
+            var readyBits = [];
+            if (r.accountingReadyForBilling) {
+              readyBits.push('<span class="acc-status-pill is-ready">Billing</span>');
+            }
+            if (r.accountingReadyForCarrierPayment) {
+              readyBits.push('<span class="acc-status-pill is-ready">Carrier$</span>');
+            }
             return (
-              '<tr>' +
+              '<tr class="' +
+              urgency +
+              '">' +
               "<td>" +
               self.esc(r.loadNumber || r.greenOsShipmentId || "—") +
               "</td>" +
@@ -215,12 +346,10 @@ window.GreenOSModules.accounting = {
               self.esc(r.carrierName || "—") +
               "</td>" +
               "<td>" +
-              self.esc(r.accountingDocStatus || "PENDING") +
+              self.docStatusPill(r.accountingDocStatus || "PENDING") +
               "</td>" +
               "<td>" +
-              (r.accountingReadyForBilling ? "Billing " : "") +
-              (r.accountingReadyForCarrierPayment ? "Carrier$ " : "") +
-              (!r.accountingReadyForBilling && !r.accountingReadyForCarrierPayment ? "—" : "") +
+              (readyBits.length ? readyBits.join(" ") : "—") +
               "</td>" +
               "<td>" +
               (r.customerPaidAt ? "Cust✓ " : "") +
