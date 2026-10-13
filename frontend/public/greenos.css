@@ -1977,6 +1977,23 @@ a.crm-open-uship {
   box-shadow: 0 8px 24px color-mix(in srgb, var(--gos-text) 4%, transparent);
 }
 .load-main h2 { margin: 0 0 0.75rem; }
+
+/* Upload POD sidebar → Documents focus */
+#load-pod-row.ld-pod-focus td {
+  background: var(--gos-accent-soft);
+  transition: background 0.35s ease;
+}
+.load-pod-upload-anchor {
+  scroll-margin-top: 1.25rem;
+}
+#load-pod-upload {
+  outline: 2px solid transparent;
+  animation: gos-pod-focus-pulse 1.4s ease 1;
+}
+@keyframes gos-pod-focus-pulse {
+  0% { outline-color: color-mix(in srgb, var(--gos-accent) 70%, transparent); }
+  100% { outline-color: transparent; }
+}
 .load-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
