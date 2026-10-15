@@ -657,15 +657,37 @@ window.GreenOSModules["dispatch"] = {
     var panel = wrap.querySelector("#ld-carrier-suggest-panel");
     var profileInput = wrap.querySelector("#ld-carrier-profile-id");
     var timer = null;
+    var emptyHideTimer = null;
     var reqSeq = 0;
     var items = [];
     var active = -1;
 
+    function clearEmptyHide() {
+      if (emptyHideTimer) {
+        clearTimeout(emptyHideTimer);
+        emptyHideTimer = null;
+      }
+    }
+
     function hide() {
+      clearEmptyHide();
       panel.classList.add("hidden");
+      panel.classList.remove("is-empty-toast");
       panel.innerHTML = "";
       items = [];
       active = -1;
+    }
+
+    /** Empty/error tip: show above the form and auto-dismiss after a few seconds. */
+    function showEmptyToast(html) {
+      clearEmptyHide();
+      panel.innerHTML = html;
+      panel.classList.add("is-empty-toast");
+      panel.classList.remove("hidden");
+      emptyHideTimer = setTimeout(function () {
+        emptyHideTimer = null;
+        if (panel.classList.contains("is-empty-toast")) hide();
+      }, 3500);
     }
 
     function setActive(idx) {
@@ -723,13 +745,15 @@ window.GreenOSModules["dispatch"] = {
     function render(list, query) {
       items = list || [];
       if (!items.length) {
-        panel.innerHTML =
+        showEmptyToast(
           '<div class="ld-carrier-suggest-empty">No carriers in GreenOS match “' +
-          self.esc(query) +
-          '”.</div>';
-        panel.classList.remove("hidden");
+            self.esc(query) +
+            '”.</div>'
+        );
         return;
       }
+      clearEmptyHide();
+      panel.classList.remove("is-empty-toast");
       panel.innerHTML = items
         .map(function (row, idx) {
           return (
@@ -765,6 +789,8 @@ window.GreenOSModules["dispatch"] = {
         return;
       }
       var seq = ++reqSeq;
+      clearEmptyHide();
+      panel.classList.remove("is-empty-toast");
       panel.innerHTML = '<div class="ld-carrier-suggest-empty">Searching GreenOS carriers…</div>';
       panel.classList.remove("hidden");
       try {
@@ -784,19 +810,21 @@ window.GreenOSModules["dispatch"] = {
         });
         if (seq !== reqSeq) return;
         if (!res.ok || json.success === false) {
-          panel.innerHTML =
+          showEmptyToast(
             '<div class="ld-carrier-suggest-empty">' +
-            self.esc(json.message || "Lookup failed") +
-            "</div>";
+              self.esc(json.message || "Lookup failed") +
+              "</div>"
+          );
           return;
         }
         render(json.data || [], q);
       } catch (err) {
         if (seq !== reqSeq) return;
-        panel.innerHTML =
+        showEmptyToast(
           '<div class="ld-carrier-suggest-empty">' +
-          self.esc((err && err.message) || "Lookup failed") +
-          "</div>";
+            self.esc((err && err.message) || "Lookup failed") +
+            "</div>"
+        );
       }
     }
 
