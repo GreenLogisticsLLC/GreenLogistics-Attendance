@@ -956,6 +956,8 @@
       if (modal && !modal.classList.contains("hidden")) return;
       // Main Command Center — manual only (no poll / realtime soft-reload).
       if (this.currentModule === "dashboard") return;
+      // Accounting Team — own idle refresh (every 3 min without clicks), not SSE/10s poll.
+      if (this.currentModule === "accounting") return;
       this.navigate(this.currentModule, this.currentSub || undefined, { skipHistory: true });
     },
 

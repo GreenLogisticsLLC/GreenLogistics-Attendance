@@ -14,6 +14,90 @@ window.GreenOSModules.accounting = {
   ],
 
   _selectedId: null,
+  _subPageId: null,
+  /** Refresh only after 3 minutes with no clicks/typing on Accounting. */
+  _IDLE_MS: 3 * 60 * 1000,
+  _lastActivityAt: 0,
+  _idleTimer: null,
+  _activityRoot: null,
+  _onActivity: null,
+
+  stopIdleRefresh() {
+    if (this._idleTimer) {
+      clearInterval(this._idleTimer);
+      this._idleTimer = null;
+    }
+    if (this._activityRoot && this._onActivity) {
+      try {
+        this._activityRoot.removeEventListener("click", this._onActivity, true);
+        this._activityRoot.removeEventListener("keydown", this._onActivity, true);
+        this._activityRoot.removeEventListener("input", this._onActivity, true);
+        this._activityRoot.removeEventListener("change", this._onActivity, true);
+        this._activityRoot.removeEventListener("pointerdown", this._onActivity, true);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    this._activityRoot = null;
+    this._onActivity = null;
+  },
+
+  markActivity() {
+    this._lastActivityAt = Date.now();
+  },
+
+  startIdleRefresh(root) {
+    var self = this;
+    this.stopIdleRefresh();
+    if (!root) return;
+    this._lastActivityAt = Date.now();
+    this._activityRoot = root;
+    this._onActivity = function () {
+      self.markActivity();
+    };
+    root.addEventListener("click", this._onActivity, true);
+    root.addEventListener("keydown", this._onActivity, true);
+    root.addEventListener("input", this._onActivity, true);
+    root.addEventListener("change", this._onActivity, true);
+    root.addEventListener("pointerdown", this._onActivity, true);
+
+    // Check often; refresh only when idle for a full 3 minutes.
+    this._idleTimer = setInterval(function () {
+      if (document.hidden) return;
+      if (window.GreenOS && window.GreenOS.currentModule !== "accounting") {
+        self.stopIdleRefresh();
+        return;
+      }
+      if (!document.querySelector('[data-module="accounting"]')) {
+        self.stopIdleRefresh();
+        return;
+      }
+      var idleFor = Date.now() - (self._lastActivityAt || 0);
+      if (idleFor < self._IDLE_MS) return;
+      self.softRefresh();
+    }, 15000);
+  },
+
+  softRefresh() {
+    var body = document.getElementById("acc-body");
+    if (!body) return;
+    var ae = document.activeElement;
+    if (
+      ae &&
+      body.contains(ae) &&
+      /^(INPUT|TEXTAREA|SELECT)$/i.test(ae.tagName || "")
+    ) {
+      return;
+    }
+    // Next auto-refresh only after another full 3 minutes of idle.
+    this.markActivity();
+    var sub = this._subPageId || "dashboard";
+    if (!sub || sub === "dashboard") {
+      this.renderDashboard(body);
+    } else {
+      this.renderList(body, sub);
+    }
+  },
 
   async api(path, options) {
     var token = localStorage.getItem("gl_token");
@@ -317,6 +401,8 @@ window.GreenOSModules.accounting = {
       children.find(function (c) {
         return c.id === subPageId;
       }) || children[0];
+    this._subPageId = (active && active.id) || "dashboard";
+    this.startIdleRefresh(root);
     var meta = this.userMeta();
 
     var navHtml = children
