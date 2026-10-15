@@ -206,11 +206,12 @@ jobs:
             echo "=== ONE-SHOT clean slate shipments (marker present) ==="
             pm2 stop greenos || true
             node scripts/ops-clean-slate-shipments.mjs --confirm=CLEAN_SLATE_SHIPMENTS
+            rm -f ops/RUN_CLEAN_SLATE_SHIPMENTS
             pm2 restart greenos --update-env || pm2 start dist/index.js --name greenos --update-env --cwd "$(pwd)"
             pm2 save
             sleep 3
             curl --fail http://localhost:3847/api/health
-            echo "=== clean slate shipments done ==="
+            echo "=== clean slate shipments done (marker removed on server) ==="
           fi
 
           # One-shot: print Day Shift / late-after-17:15 diagnostics (read-only).
