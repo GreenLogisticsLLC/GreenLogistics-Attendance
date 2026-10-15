@@ -426,8 +426,8 @@ export class CarrierEmailService {
 
         const html = `
           <div style="font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:0 auto;color:#152033;line-height:1.5">
-            <h2 style="color:#059669;margin:0 0 8px">Carrier package completed</h2>
-            <p style="margin:0 0 12px;color:#5b6b84">${esc(input.purposeLabel)}</p>
+            ${emailBrandHeader("Carrier package completed")}
+            <p style="margin:0 0 12px;color:#5b6b84;text-align:center">${esc(input.purposeLabel)}</p>
             <p><strong>${esc(input.carrierLegalName)}</strong><br/>
             MC: ${esc(input.mcNumber || "—")} · DOT: ${esc(input.dotNumber || "—")}</p>
             ${
@@ -531,7 +531,7 @@ export class CarrierEmailService {
         ].join("\n");
         const html = `
           <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
-            <h2 style="color:#059669">Additional documents needed</h2>
+            ${emailBrandHeader("Additional documents needed")}
             <p>Hello ${esc(input.contactName || "Carrier Partner")},</p>
             <p><strong>Reason:</strong> ${esc(input.reason)}</p>
             <p style="margin:24px 0">
