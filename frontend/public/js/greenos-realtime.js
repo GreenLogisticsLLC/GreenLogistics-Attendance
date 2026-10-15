@@ -413,7 +413,8 @@
       window.GreenOS.currentModule !== "carriers" &&
       window.GreenOS.currentModule !== "ai" &&
       window.GreenOS.currentModule !== "email" &&
-      window.GreenOS.currentModule !== "shipments"
+      window.GreenOS.currentModule !== "shipments" &&
+      window.GreenOS.currentModule !== "accounting"
     ) {
       window.GreenOS.refreshModule();
     }
