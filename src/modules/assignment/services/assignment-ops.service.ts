@@ -121,6 +121,35 @@ export class AssignmentOpsService {
             },
         });
 
+        // Fresh Load Number + GOS Shipment ID sequences.
+        await prisma.setting.upsert({
+            where: {
+                category_settingKey: { category: "shipment", settingKey: "next_load_number" },
+            },
+            create: {
+                category: "shipment",
+                settingKey: "next_load_number",
+                settingValue: "GL100001",
+                description: "Next Green OS Load Number (GL100001… series)",
+            },
+            update: { settingValue: "GL100001" },
+        });
+        await prisma.setting.upsert({
+            where: {
+                category_settingKey: {
+                    category: "shipment",
+                    settingKey: "next_green_os_shipment_id",
+                },
+            },
+            create: {
+                category: "shipment",
+                settingKey: "next_green_os_shipment_id",
+                settingValue: "GOS1000001",
+                description: "Next Green OS Shipment ID (GOS1000001… series)",
+            },
+            update: { settingValue: "GOS1000001" },
+        });
+
         const refresh = await this.refreshMailingDistribution({
             actorUserId: options?.actorUserId,
             drainLimit: 0,
@@ -131,6 +160,8 @@ export class AssignmentOpsService {
         return {
             deletedShipments: before,
             remainingShipments: after,
+            nextLoadNumber: "GL100001",
+            nextGreenOsShipmentId: "GOS1000001",
             ...refresh,
         };
     }
