@@ -3893,8 +3893,6 @@ window.GreenOSModules["dispatch"] = {
       '<label>Package type <input id="bol-ptype" value="PCS"></label>' +
       '<label>Hazmat <select id="bol-hm"><option value="">No</option><option value="X">Yes (X)</option></select></label>' +
       '<label class="full">Commodity description <input id="bol-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
-      '<label>COD amount $ <input id="bol-cod" value="' + self.esc(pick("codAmount", "")) + '"></label>' +
-      '<label>Remit COD to <input id="bol-cod-to" value="' + self.esc(pick("remittanceCodTo", "")) + '"></label>' +
       '<label>Trailer loaded by <select id="bol-loaded"><option value="">—</option><option value="SHIPPER">BY SHIPPER</option><option value="DRIVER">BY DRIVER</option></select></label>' +
       '<label>Freight counted by <select id="bol-counted"><option value="">—</option><option value="SHIPPER">BY SHIPPER</option><option value="DRIVER_PALLETS">BY DRIVER/PALLETS</option><option value="DRIVER_PIECES">BY DRIVER/PIECES</option></select></label>' +
       '<label class="full">Special instructions <textarea id="bol-notes" rows="3">' +
@@ -4019,8 +4017,6 @@ window.GreenOSModules["dispatch"] = {
           packageType: box.querySelector("#bol-ptype").value,
           hazmat: box.querySelector("#bol-hm").value === "X",
           commodity: box.querySelector("#bol-commodity").value,
-          codAmount: box.querySelector("#bol-cod").value,
-          remittanceCodTo: box.querySelector("#bol-cod-to").value,
           trailerLoadedBy: box.querySelector("#bol-loaded").value,
           freightCountedBy: box.querySelector("#bol-counted").value,
           specialInstructions: box.querySelector("#bol-notes").value,

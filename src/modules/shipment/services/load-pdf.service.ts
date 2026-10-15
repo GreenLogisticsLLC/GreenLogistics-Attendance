@@ -774,19 +774,12 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     );
     y += 84;
 
-    // Special instructions + COD
-    drawBox(doc, left, y, usable * 0.65, 48);
+    // Special instructions (COD fields removed from BOL)
+    drawBox(doc, left, y, usable, 48);
     doc.font("Helvetica-Bold").fontSize(7).text("ADDITIONAL SERVICES / SPECIAL INSTRUCTIONS", left + 4, y + 3);
     doc.font("Helvetica").fontSize(8).text(txt(c.specialInstructions) || txt(c.specialNotes) || "—", left + 4, y + 14, {
-        width: usable * 0.65 - 8,
+        width: usable - 8,
         height: 30,
-    });
-    drawBox(doc, left + usable * 0.65, y, usable * 0.35, 48);
-    doc.font("Helvetica-Bold").fontSize(7).text("COD AMOUNT $", left + usable * 0.65 + 4, y + 3);
-    doc.font("Helvetica").fontSize(10).text(money(c.codAmount) || txt(c.codAmount as string) || "", left + usable * 0.65 + 4, y + 16);
-    doc.font("Helvetica-Bold").fontSize(7).text("REMIT COD TO", left + usable * 0.65 + 4, y + 30);
-    doc.font("Helvetica").fontSize(7).text(txt(c.remittanceCodTo) || "", left + usable * 0.65 + 4, y + 38, {
-        width: usable * 0.35 - 8,
     });
     y += 54;
 
