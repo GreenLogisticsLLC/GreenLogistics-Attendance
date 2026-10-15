@@ -325,7 +325,6 @@ window.GreenOSModules["dispatch"] = {
       field("Onboarding", status || "—") +
       field("Agreement", signMeta) +
       field("Approved for this load", loadApproved ? "Yes" : "No — broker must click Approve Carrier") +
-      field("Carrier status", c.carrierStatus || "—") +
       "</div>" +
       approveActionsHtml("top") +
       slotsHtml +
@@ -712,18 +711,12 @@ window.GreenOSModules["dispatch"] = {
       var mcEl = form.querySelector("#ld-mc");
       var dotEl = form.querySelector("#ld-dot");
       var insEl = form.querySelector("#ld-ins");
-      var statusEl = form.querySelector("#ld-cstatus");
       if (emailEl) emailEl.value = row.email || "";
       if (phoneEl) phoneEl.value = self.formatUsPhone(row.phone || "") || row.phone || "";
       if (mcEl) mcEl.value = row.mcNumber || "";
       if (dotEl) dotEl.value = row.dotNumber || "";
       if (insEl && row.insuranceHint && !(insEl.value || "").trim()) {
         insEl.value = row.insuranceHint;
-      }
-      if (statusEl && row.onboardingStatus === "APPROVED") {
-        statusEl.value = "Approved";
-      } else if (statusEl && !(statusEl.value || "").trim()) {
-        statusEl.value = "Assigned";
       }
       if (profileInput) profileInput.value = row.carrierId || "";
       hide();
@@ -2295,7 +2288,6 @@ window.GreenOSModules["dispatch"] = {
         field("MC", c.mc) +
         field("DOT", c.dot) +
         field("Insurance", c.insurance) +
-        field("Carrier Status", c.carrierStatus) +
         field("Driver", c.driverName) +
         field("Driver phone", self.formatUsPhone(c.driverPhone) || c.driverPhone) +
         field("Truck", c.truckNumber) +
@@ -2334,7 +2326,6 @@ window.GreenOSModules["dispatch"] = {
         '" placeholder="(XXX) XXX-XXXX"></label>' +
         '<label>Truck <input id="ld-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
         '<label>Trailer <input id="ld-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
-        '<label>Carrier Status <input id="ld-cstatus" value="' + self.esc(c.carrierStatus || "Assigned") + '"></label>' +
         '<div class="full load-appt-row">' +
         self.apptFieldHtml(
           "ld-c-pickup",
@@ -2387,7 +2378,7 @@ window.GreenOSModules["dispatch"] = {
             driverPhone: self.formatUsPhone(main.querySelector("#ld-driver-phone").value) || null,
             truckNumber: main.querySelector("#ld-truck").value || null,
             trailerNumber: main.querySelector("#ld-trailer").value || null,
-            carrierStatus: main.querySelector("#ld-cstatus").value || "Assigned",
+            carrierStatus: c.carrierStatus || "Assigned",
             carrierProfileId:
               profileIdEl && profileIdEl.value ? String(profileIdEl.value).trim() : null,
             pickupFrom: pickupAppt.from,
@@ -2423,8 +2414,6 @@ window.GreenOSModules["dispatch"] = {
             self.normCarrierPhone(carrierPayload.driverPhone) !== self.normCarrierPhone(c.driverPhone),
             self.normCarrierText(carrierPayload.truckNumber) !== self.normCarrierText(c.truckNumber),
             self.normCarrierText(carrierPayload.trailerNumber) !== self.normCarrierText(c.trailerNumber),
-            self.normCarrierText(carrierPayload.carrierStatus) !==
-              self.normCarrierText(c.carrierStatus || "Assigned"),
             self.normCarrierIso(nextPickup) !== self.normCarrierIso(prevPickup) ||
               self.normCarrierIso(pickupAppt.from) !== self.normCarrierIso(g.pickup && g.pickup.from) ||
               self.normCarrierIso(pickupAppt.to) !== self.normCarrierIso(g.pickup && g.pickup.to),
