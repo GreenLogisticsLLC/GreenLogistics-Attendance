@@ -2246,6 +2246,17 @@ button.load-review-choice:hover {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
 }
 
+/* Empty / error toast sits above the hint so it does not cover form fields. */
+.ld-carrier-suggest-panel.is-empty-toast {
+  top: auto;
+  bottom: calc(100% - 0.15rem);
+  margin-top: 0;
+  margin-bottom: 0.35rem;
+  max-height: none;
+  overflow: visible;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.32);
+}
+
 .ld-carrier-suggest-panel.hidden {
   display: none;
 }
