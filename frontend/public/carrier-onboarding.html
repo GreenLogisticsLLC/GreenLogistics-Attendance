@@ -5,16 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
   <title>Green Logistics — Carrier Onboarding</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32.png?v=20261013logo1">
-  <link rel="icon" type="image/png" sizes="192x192" href="images/logo.png?v=20261013logo1">
-  <link rel="shortcut icon" href="favicon.ico?v=20261013logo1">
-  <link rel="apple-touch-icon" sizes="180x180" href="images/apple-touch-icon.png?v=20261013logo1">
+  <!-- Root-absolute paths: page lives at /carrier/onboarding/:token -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32.png?v=20261015carrierlogo1">
+  <link rel="icon" type="image/png" sizes="192x192" href="/images/logo.png?v=20261015carrierlogo1">
+  <link rel="shortcut icon" href="/favicon.ico?v=20261015carrierlogo1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png?v=20261015carrierlogo1">
   <style>
     :root { --bg:#f3f6fb; --card:#fff; --text:#152033; --muted:#5b6b84; --accent:#059669; --border:#d5dde9; --danger:#dc2626; }
     * { box-sizing: border-box; }
     body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:linear-gradient(160deg,#e8f5ef 0%,#f3f6fb 40%,#eef2f8 100%); color:var(--text); min-height:100vh; }
     .wrap { max-width:720px; margin:0 auto; padding:1.25rem 1rem 3rem; }
     header { text-align:center; margin-bottom:1.25rem; }
+    header .brand-logo { display:block; width:96px; height:96px; margin:0 auto 0.65rem; object-fit:contain; }
     header h1 { margin:0; font-size:1.35rem; letter-spacing:0.04em; color:var(--accent); }
     header p { margin:0.35rem 0 0; color:var(--muted); }
     .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:1.1rem 1.15rem; box-shadow:0 10px 30px rgba(21,32,51,0.06); margin-bottom:1rem; }
@@ -135,6 +137,7 @@
 <body>
   <div class="wrap">
     <header>
+      <img class="brand-logo" src="/images/logo.png?v=20261015carrierlogo1" width="96" height="96" alt="Green Logistics">
       <h1>GREEN LOGISTICS</h1>
       <p id="hdr-sub">Carrier Onboarding</p>
     </header>

@@ -10,6 +10,21 @@ function esc(s: string): string {
         .replace(/"/g, "&quot;");
 }
 
+/** Absolute logo URL so Gmail and other clients can load it. */
+function brandLogoUrl(): string {
+    const base = String(config.publicAppUrl || "https://os.greengrouplogistics.com").replace(/\/$/, "");
+    return `${base}/images/logo.png`;
+}
+
+function emailBrandHeader(title = "Green Logistics"): string {
+    const logo = esc(brandLogoUrl());
+    return `
+            <div style="text-align:center;margin:0 0 16px">
+              <img src="${logo}" width="72" height="72" alt="Green Logistics" style="display:block;margin:0 auto 8px;border:0;outline:none;text-decoration:none">
+              <h2 style="color:#059669;margin:0;font-size:20px;line-height:1.3">${esc(title)}</h2>
+            </div>`;
+}
+
 export class CarrierEmailService {
     /**
      * Prefer sending FROM the assigned broker's connected Gmail TO the carrier.
@@ -97,7 +112,7 @@ export class CarrierEmailService {
 
         const html = `
           <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
-            <h2 style="color:#059669;margin:0 0 12px">Green Logistics</h2>
+            ${emailBrandHeader("Green Logistics")}
             <p>Hello ${esc(name)},</p>
             <p>Please complete your <strong>Carrier-Broker Agreement</strong> package for <strong>${esc(input.carrierLegalName)}</strong>${
                 input.loadNumber ? ` (Load <strong>${esc(input.loadNumber)}</strong>)` : ""
@@ -157,7 +172,7 @@ export class CarrierEmailService {
 
         const html = `
           <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
-            <h2 style="color:#059669;margin:0 0 12px">Green Logistics</h2>
+            ${emailBrandHeader("Green Logistics")}
             <p>Hello ${esc(name)},</p>
             <p>Your <strong>Rate Confirmation</strong> for <strong>${esc(
                 input.carrierLegalName
@@ -215,7 +230,7 @@ export class CarrierEmailService {
 
         const html = `
           <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
-            <h2 style="color:#059669;margin:0 0 12px">Green Logistics</h2>
+            ${emailBrandHeader("Green Logistics")}
             <p>Hello ${esc(name)},</p>
             <p>Your <strong>Rate Confirmation</strong> and <strong>BOL</strong> for <strong>${esc(
                 input.carrierLegalName
@@ -272,7 +287,7 @@ export class CarrierEmailService {
 
         const html = `
           <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
-            <h2 style="color:#059669;margin:0 0 12px">Green Logistics</h2>
+            ${emailBrandHeader("Green Logistics")}
             <p>Hello ${esc(name)},</p>
             <p>Your <strong>Rate Confirmation</strong> for <strong>${esc(
                 input.carrierLegalName
@@ -330,7 +345,7 @@ export class CarrierEmailService {
 
         const html = `
           <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
-            <h2 style="color:#059669;margin:0 0 12px">Green Logistics</h2>
+            ${emailBrandHeader("Green Logistics")}
             <p>Hello ${esc(name)},</p>
             <p>Your <strong>Bill of Lading</strong> for <strong>${esc(
                 input.carrierLegalName
@@ -411,8 +426,8 @@ export class CarrierEmailService {
 
         const html = `
           <div style="font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:0 auto;color:#152033;line-height:1.5">
-            <h2 style="color:#059669;margin:0 0 8px">Carrier package completed</h2>
-            <p style="margin:0 0 12px;color:#5b6b84">${esc(input.purposeLabel)}</p>
+            ${emailBrandHeader("Carrier package completed")}
+            <p style="margin:0 0 12px;color:#5b6b84;text-align:center">${esc(input.purposeLabel)}</p>
             <p><strong>${esc(input.carrierLegalName)}</strong><br/>
             MC: ${esc(input.mcNumber || "—")} · DOT: ${esc(input.dotNumber || "—")}</p>
             ${
@@ -516,7 +531,7 @@ export class CarrierEmailService {
         ].join("\n");
         const html = `
           <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#152033;line-height:1.5">
-            <h2 style="color:#059669">Additional documents needed</h2>
+            ${emailBrandHeader("Additional documents needed")}
             <p>Hello ${esc(input.contactName || "Carrier Partner")},</p>
             <p><strong>Reason:</strong> ${esc(input.reason)}</p>
             <p style="margin:24px 0">
