@@ -13,17 +13,19 @@ function parseDateRange(req: Request): { from: string; to: string } | null {
     return { from, to };
 }
 
-function parseReportFilters(req: Request): { employeeId?: string; name?: string } {
+function parseReportFilters(req: Request): { employeeId?: string; name?: string; status?: string } {
     const employeeId = String(req.query.employeeId || "").trim();
     const name = String(req.query.name || req.query.q || "").trim();
+    const status = String(req.query.status || "").trim();
     return {
         ...(employeeId ? { employeeId } : {}),
         ...(name ? { name } : {}),
+        ...(status ? { status } : {}),
     };
 }
 
 function reportFilterLabel(report: {
-    filters?: { employeeId?: string | null; name?: string | null };
+    filters?: { employeeId?: string | null; name?: string | null; status?: string | null };
     rows: Array<{ employeeName: string }>;
 }): string | null {
     const bits: string[] = [];
@@ -33,6 +35,7 @@ function reportFilterLabel(report: {
         const unique = [...new Set(report.rows.map((r) => r.employeeName).filter(Boolean))];
         bits.push(unique.length === 1 ? `Employee: ${unique[0]}` : "Selected employee");
     }
+    if (report.filters?.status === "not_arrived") bits.push("Status: Not Arrived");
     return bits.length ? bits.join(" · ") : null;
 }
 
@@ -80,12 +83,32 @@ export async function periodReportPdfController(req: Request, res: Response) {
 
     doc.fontSize(11).text("Summary", { underline: true });
     doc.fontSize(10);
-    doc.text(`Records: ${report.summary.totalSessions}`);
-    doc.text(`Days with entry: ${report.summary.daysWithEntry}`);
-    doc.text(`Total in office: ${formatMinutes(report.summary.totalInOfficeMinutes)}`);
-    doc.text(`Total outside: ${formatMinutes(report.summary.totalOutsideMinutes)}`);
-    doc.text(`OutTime in office: ${formatMinutes(report.summary.totalOvertimeMinutes)}`);
+    if (report.filters?.status === "not_arrived") {
+        doc.text(`Employees who did not arrive: ${report.summary.employeesNotArrived}`);
+        doc.text(`Days not arrived: ${report.summary.daysNotArrived}`);
+    } else {
+        doc.text(`Records: ${report.summary.totalSessions}`);
+        doc.text(`Days with entry: ${report.summary.daysWithEntry}`);
+        doc.text(`Days not arrived: ${report.summary.daysNotArrived}`);
+        doc.text(`Total in office: ${formatMinutes(report.summary.totalInOfficeMinutes)}`);
+        doc.text(`Total outside: ${formatMinutes(report.summary.totalOutsideMinutes)}`);
+        doc.text(`OutTime in office: ${formatMinutes(report.summary.totalOvertimeMinutes)}`);
+    }
     doc.moveDown(1);
+
+    const absenceSummary = report.notArrivedByEmployee || [];
+    if (report.filters?.status === "not_arrived" && absenceSummary.length) {
+        doc.fontSize(11).fillColor("#000").text("Days not arrived by employee", { underline: true });
+        doc.fontSize(9);
+        doc.moveDown(0.3);
+        for (const item of absenceSummary) {
+            if (doc.y > 520) doc.addPage();
+            doc.text(
+                `${item.employeeName} (${item.employeeNumber}) — ${item.daysNotArrived} day(s): ${item.dates.join(", ")}`
+            );
+        }
+        doc.moveDown(1);
+    }
 
     const colX = [40, 95, 180, 245, 305, 365, 430, 495, 570];
     const headers = [

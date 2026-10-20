@@ -19,7 +19,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="styles.css?v=20261020empfilter1">
+    <link rel="stylesheet" href="styles.css?v=20261020notarrived1">
     <link rel="stylesheet" href="greenos.css?v=20261015carriertoast1">
     <link rel="stylesheet" href="greenos-modern.css?v=20261012search2">
 </head>
@@ -242,6 +242,13 @@
                             <input type="search" id="report-name" list="report-name-suggestions" placeholder="Начните вводить имя…" autocomplete="off">
                             <datalist id="report-name-suggestions"></datalist>
                         </div>
+                        <div class="report-status-field">
+                            <label for="report-status-filter">Статус / Status</label>
+                            <select id="report-status-filter">
+                                <option value="">Все статусы / All statuses</option>
+                                <option value="not_arrived">Not Arrived — не приходил</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="report-actions">
                         <button type="submit" class="btn-primary btn-sm">Показать онлайн</button>
@@ -256,6 +263,24 @@
             </section>
 
             <section class="stats-panel" id="report-stats-panel"></section>
+
+            <section id="report-absence-panel" class="admin-panel reports-panel hidden">
+                <h3>Не приходили на работу / Days not arrived</h3>
+                <p class="panel-hint" id="report-absence-hint">По каждому сотруднику — сколько дней за выбранный период не было входа.</p>
+                <div class="table-wrap">
+                    <table id="report-absence-table">
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Department</th>
+                                <th>Days missed</th>
+                                <th>Dates</th>
+                            </tr>
+                        </thead>
+                        <tbody id="report-absence-body"></tbody>
+                    </table>
+                </div>
+            </section>
 
             <div class="table-wrap">
                 <table id="report-table">
@@ -539,6 +564,6 @@
     <script src="modules/administration/pages.js?v=20261012track2"></script>
     <script src="js/greenos-shell.js?v=20261015accidle1"></script>
     <script src="js/greenos-realtime.js?v=20261015accidle1"></script>
-    <script src="app.js?v=20261020empfilter1"></script>
+    <script src="app.js?v=20261020notarrived1"></script>
 </body>
 </html>

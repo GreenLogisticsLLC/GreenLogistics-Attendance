@@ -182,6 +182,7 @@ async function updateWebhookUrlDisplays() {
 
 let reportRefreshTimer = null;
 let reportRowsCache = [];
+let reportNotArrivedCache = [];
 let reportRangeCache = { from: "", to: "" };
 let reportEmployeeOptionsLoaded = false;
 
@@ -646,21 +647,31 @@ function getReportFilters() {
     return {
         employeeId: ($("#report-employee")?.value || "").trim(),
         name: ($("#report-name")?.value || "").trim(),
+        status: ($("#report-status-filter")?.value || "").trim(),
     };
 }
 
 function buildReportQuery(from, to, includePersonFilters = true) {
     const params = new URLSearchParams({ from, to });
     if (includePersonFilters) {
-        const { employeeId, name } = getReportFilters();
+        const { employeeId, name, status } = getReportFilters();
         if (employeeId) params.set("employeeId", employeeId);
         if (name) params.set("name", name);
+        if (status) params.set("status", status);
     }
     return params.toString();
 }
 
+function isNotArrivedReportRow(row) {
+    if (!row) return false;
+    if (!row.firstEntry) return true;
+    const st = String(row.status || "").toLowerCase().replace(/[\s-]+/g, "_");
+    return st === "not_arrived" || st === "scheduled";
+}
+
 function rowMatchesReportFilters(row, filters) {
     if (filters.employeeId && row.employeeId !== filters.employeeId) return false;
+    if (filters.status === "not_arrived" && !isNotArrivedReportRow(row)) return false;
     const q = (filters.name || "").trim().toLowerCase();
     if (!q) return true;
     const hay = `${row.employeeName || ""} ${row.employeeNumber || ""} ${row.department || ""} ${row.position || ""}`.toLowerCase();
@@ -669,22 +680,57 @@ function rowMatchesReportFilters(row, filters) {
 
 function filterCachedReportRows() {
     const filters = getReportFilters();
-    if (!filters.employeeId && !filters.name) return reportRowsCache;
-    return reportRowsCache.filter((row) => rowMatchesReportFilters(row, filters));
+    const source = filters.status === "not_arrived" ? reportNotArrivedCache : reportRowsCache;
+    if (!filters.employeeId && !filters.name && filters.status !== "not_arrived") return source;
+    return source.filter((row) => rowMatchesReportFilters(row, filters));
 }
 
-function summarizeCachedReportRows(rows) {
+function filterCachedNotArrivedRows() {
+    const filters = getReportFilters();
+    return reportNotArrivedCache.filter((row) =>
+        rowMatchesReportFilters(row, { ...filters, status: "not_arrived" })
+    );
+}
+
+function summarizeCachedReportRows(rows, notArrivedRows) {
+    const absent = notArrivedRows || [];
     return {
         totalSessions: rows.length,
         daysWithEntry: rows.filter((r) => r.firstEntry).length,
         totalOutsideMinutes: rows.reduce((s, r) => s + (r.totalOutsideMinutes || 0), 0),
         totalInOfficeMinutes: rows.reduce((s, r) => s + (r.timeInOfficeMinutes || 0), 0),
         totalOvertimeMinutes: rows.reduce((s, r) => s + (r.overtimeInOfficeMinutes || 0), 0),
+        daysNotArrived: absent.length,
+        employeesNotArrived: new Set(absent.map((r) => r.employeeId)).size,
     };
 }
 
+function groupCachedNotArrived(rows) {
+    const map = new Map();
+    rows.forEach((row) => {
+        const existing = map.get(row.employeeId);
+        const date = row.workDate || "";
+        if (existing) {
+            if (date && !existing.dates.includes(date)) existing.dates.push(date);
+            existing.daysNotArrived = existing.dates.length;
+            return;
+        }
+        map.set(row.employeeId, {
+            employeeId: row.employeeId,
+            employeeName: row.employeeName,
+            employeeNumber: row.employeeNumber,
+            department: row.department,
+            daysNotArrived: date ? 1 : 0,
+            dates: date ? [date] : [],
+        });
+    });
+    return [...map.values()]
+        .map((item) => ({ ...item, dates: item.dates.slice().sort() }))
+        .sort((a, b) => b.daysNotArrived - a.daysNotArrived || String(a.employeeName).localeCompare(b.employeeName));
+}
+
 function reportFilterStatusSuffix() {
-    const { employeeId, name } = getReportFilters();
+    const { employeeId, name, status } = getReportFilters();
     const bits = [];
     if (employeeId) {
         const sel = $("#report-employee");
@@ -692,6 +738,7 @@ function reportFilterStatusSuffix() {
         bits.push(label);
     }
     if (name) bits.push(`имя: ${name}`);
+    if (status === "not_arrived") bits.push("Not Arrived");
     return bits.length ? ` · ${bits.join(" · ")}` : "";
 }
 
@@ -699,8 +746,10 @@ function applyReportView() {
     const from = reportRangeCache.from;
     const to = reportRangeCache.to;
     const statusEl = $("#report-status");
+    const notArrivedRows = filterCachedNotArrivedRows();
     const rows = filterCachedReportRows();
-    renderReportStats(summarizeCachedReportRows(rows), from, to);
+    renderReportStats(summarizeCachedReportRows(rows, notArrivedRows), from, to, getReportFilters().status === "not_arrived");
+    renderReportAbsenceSummary(notArrivedRows, from, to);
     renderReportTable(rows);
     setSyncStatus(
         statusEl,
@@ -783,6 +832,7 @@ async function loadPeriodReport(silent = false) {
             return;
         }
         reportRowsCache = Array.isArray(data.data.rows) ? data.data.rows : [];
+        reportNotArrivedCache = Array.isArray(data.data.notArrivedRows) ? data.data.notArrivedRows : [];
         reportRangeCache = { from, to };
         if (!reportEmployeeOptionsLoaded) {
             await loadReportEmployeeOptions();
@@ -793,17 +843,24 @@ async function loadPeriodReport(silent = false) {
     }
 }
 
-function renderReportStats(summary, from, to) {
+function renderReportStats(summary, from, to, notArrivedOnly = false) {
     const panel = $("#report-stats-panel");
     if (!panel) return;
-    const items = [
-        ["Period", `${from} → ${to}`, ""],
-        ["Records", summary.totalSessions, ""],
-        ["With Entry", summary.daysWithEntry, "var(--green)"],
-        ["Total In Office", formatDuration(summary.totalInOfficeMinutes), "var(--green)"],
-        ["Total Outside", formatDuration(summary.totalOutsideMinutes), "var(--yellow)"],
-        ["OutTime In Office", formatDuration(summary.totalOvertimeMinutes), "var(--blue)"],
-    ];
+    const items = notArrivedOnly
+        ? [
+            ["Period", `${from} → ${to}`, ""],
+            ["Employees", summary.employeesNotArrived || 0, ""],
+            ["Days not arrived", summary.daysNotArrived || 0, "var(--red)"],
+        ]
+        : [
+            ["Period", `${from} → ${to}`, ""],
+            ["Records", summary.totalSessions, ""],
+            ["With Entry", summary.daysWithEntry, "var(--green)"],
+            ["Not Arrived", summary.daysNotArrived || 0, "var(--red)"],
+            ["Total In Office", formatDuration(summary.totalInOfficeMinutes), "var(--green)"],
+            ["Total Outside", formatDuration(summary.totalOutsideMinutes), "var(--yellow)"],
+            ["OutTime In Office", formatDuration(summary.totalOvertimeMinutes), "var(--blue)"],
+        ];
     panel.innerHTML = items.map(([label, value, color]) => `
         <div class="stat-card">
             <div class="label">${label}</div>
@@ -812,11 +869,56 @@ function renderReportStats(summary, from, to) {
     `).join("");
 }
 
+function renderReportAbsenceSummary(notArrivedRows, from, to) {
+    const panel = $("#report-absence-panel");
+    const tbody = $("#report-absence-body");
+    const hint = $("#report-absence-hint");
+    if (!panel || !tbody) return;
+    const filters = getReportFilters();
+    const show = filters.status === "not_arrived";
+    panel.classList.toggle("hidden", !show);
+    if (!show) {
+        tbody.innerHTML = "";
+        return;
+    }
+    if (hint) {
+        hint.textContent = `Период ${from} — ${to}: кто не приходил и сколько дней не было входа.`;
+    }
+    const grouped = groupCachedNotArrived(notArrivedRows);
+    if (!grouped.length) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted)">За этот период все выбранные сотрудники приходили на работу</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = grouped.map((item) => `
+        <tr>
+            <td>
+                <button type="button" class="report-absence-pick" data-employee-id="${escapeReportText(item.employeeId)}">
+                    ${escapeReportText(item.employeeName)}
+                </button>
+                <br><small style="color:var(--muted)">${escapeReportText(item.employeeNumber || "")}</small>
+            </td>
+            <td>${escapeReportText(item.department || "—")}</td>
+            <td class="report-absence-days">${item.daysNotArrived}</td>
+            <td>${escapeReportText(item.dates.join(", "))}</td>
+        </tr>
+    `).join("");
+    tbody.querySelectorAll(".report-absence-pick").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const select = $("#report-employee");
+            if (!select) return;
+            select.value = btn.getAttribute("data-employee-id") || "";
+            applyReportView();
+        });
+    });
+}
+
 function renderReportTable(rows) {
     const tbody = $("#report-body");
     if (!rows.length) {
         const filters = getReportFilters();
-        const emptyMsg = filters.employeeId || filters.name
+        const emptyMsg = filters.status === "not_arrived"
+            ? "Нет дней Not Arrived по выбранному фильтру"
+            : filters.employeeId || filters.name
             ? "Нет записей по выбранному сотруднику / фильтру"
             : "Нет данных за выбранный период";
         tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted)">${emptyMsg}</td></tr>`;
@@ -879,6 +981,10 @@ $("#report-employee")?.addEventListener("change", () => {
 });
 
 $("#report-name")?.addEventListener("input", () => {
+    if (reportRangeCache.from) applyReportView();
+});
+
+$("#report-status-filter")?.addEventListener("change", () => {
     if (reportRangeCache.from) applyReportView();
 });
 

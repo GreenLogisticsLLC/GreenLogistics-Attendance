@@ -3,10 +3,17 @@ import {
     diffMinutes,
     formatTime,
     formatMinutes,
+    getAttendanceDayBounds,
+    getAttendanceWorkDate,
 } from "../utils/helpers.js";
 import { config } from "../config/env.js";
+import { employeeRepository } from "../repositories/employee.repository.js";
 import {
     filterPeriodReportRows,
+    groupNotArrivedByEmployee,
+    isNotArrivedStatus,
+    lastCountableWorkDate,
+    listDateStrings,
     normalizeReportNameQuery,
     summarizePeriodReportRows,
     type PeriodReportFilters,
@@ -126,8 +133,35 @@ export class ReportService {
             };
         });
 
-        const filtered = filterPeriodReportRows(rows, { ...filters, employeeId });
-        const summary = summarizePeriodReportRows(filtered);
+        const filteredSessions = filterPeriodReportRows(rows, {
+            employeeId,
+            name: filters.name,
+        });
+
+        const employees = employeeId
+            ? await prisma.employee.findMany({
+                  where: { employeeId, status: "ACTIVE" },
+              })
+            : await employeeRepository.findAllActive();
+
+        const notArrivedAll = buildNotArrivedRows({
+            from,
+            to,
+            employees,
+            sessionRows: rows,
+            now,
+        });
+        const notArrivedRows = filterPeriodReportRows(notArrivedAll, {
+            employeeId,
+            name: filters.name,
+        });
+        const notArrivedByEmployee = groupNotArrivedByEmployee(notArrivedRows);
+        const showNotArrived = isNotArrivedStatus(filters.status);
+        const visibleRows = showNotArrived ? notArrivedRows : filteredSessions;
+        const summary = summarizePeriodReportRows(
+            showNotArrived ? notArrivedRows : filteredSessions,
+            notArrivedRows
+        );
 
         return {
             from,
@@ -137,15 +171,75 @@ export class ReportService {
             filters: {
                 employeeId: employeeId || null,
                 name: normalizeReportNameQuery(filters.name) ? filters.name?.trim() : null,
+                status: showNotArrived ? "not_arrived" : null,
             },
             summary,
-            rows: filtered,
+            rows: visibleRows,
+            notArrivedRows,
+            notArrivedByEmployee,
         };
     }
 
     formatMinutesForReport(minutes: number): string {
         return formatMinutes(minutes);
     }
+}
+
+function buildNotArrivedRows(input: {
+    from: string;
+    to: string;
+    now: Date;
+    employees: Array<{
+        employeeId: string;
+        employeeNumber: string;
+        firstName: string;
+        lastName: string;
+        department: string | null;
+        position: string | null;
+    }>;
+    sessionRows: PeriodReportRow[];
+}): PeriodReportRow[] {
+    const todayWorkDate = getAttendanceWorkDate(input.now, config.timezone);
+    const shiftStart = getAttendanceDayBounds(todayWorkDate, config.timezone).scheduledStart;
+    const last = lastCountableWorkDate(
+        input.to,
+        todayWorkDate,
+        input.now >= shiftStart
+    );
+    if (!last || input.from > last) return [];
+
+    const arrived = new Set(
+        input.sessionRows
+            .filter((row) => row.firstEntry)
+            .map((row) => `${row.employeeId}|${row.workDate}`)
+    );
+    const rows: PeriodReportRow[] = [];
+    for (const emp of input.employees) {
+        for (const workDate of listDateStrings(input.from, last)) {
+            if (arrived.has(`${emp.employeeId}|${workDate}`)) continue;
+            rows.push({
+                workDate,
+                employeeId: emp.employeeId,
+                employeeNumber: emp.employeeNumber,
+                employeeName: `${emp.firstName} ${emp.lastName}`,
+                department: emp.department,
+                position: emp.position,
+                firstEntry: null,
+                lastExit: null,
+                status: "Not Arrived",
+                totalOutsideMinutes: 0,
+                timeInOfficeMinutes: 0,
+                overtimeInOfficeMinutes: 0,
+                exitCount: 0,
+            });
+        }
+    }
+    rows.sort((a, b) => {
+        const byDate = b.workDate.localeCompare(a.workDate);
+        if (byDate !== 0) return byDate;
+        return a.employeeName.localeCompare(b.employeeName, undefined, { sensitivity: "base" });
+    });
+    return rows;
 }
 
 export const reportService = new ReportService();
