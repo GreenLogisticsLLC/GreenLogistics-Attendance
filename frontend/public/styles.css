@@ -360,7 +360,18 @@ tr.late-row td:first-child strong.late-yes {
 .report-range-form { margin-bottom: 1rem; }
 .report-range-row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; margin-bottom: 1rem; }
 .report-range-row label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
-.report-range-row input[type="date"] { padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); }
+.report-range-row input[type="date"],
+.report-range-row input[type="search"],
+.report-range-row select {
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+}
+.report-filter-row { margin-bottom: 0.85rem; }
+.report-employee-field select { min-width: 240px; max-width: 360px; }
+.report-name-field input[type="search"] { min-width: 220px; width: 280px; }
 .preset-btns { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 .report-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
 .report-live-label { margin: 0; font-size: 0.85rem; }

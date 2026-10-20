@@ -13,13 +13,36 @@ function parseDateRange(req: Request): { from: string; to: string } | null {
     return { from, to };
 }
 
+function parseReportFilters(req: Request): { employeeId?: string; name?: string } {
+    const employeeId = String(req.query.employeeId || "").trim();
+    const name = String(req.query.name || req.query.q || "").trim();
+    return {
+        ...(employeeId ? { employeeId } : {}),
+        ...(name ? { name } : {}),
+    };
+}
+
+function reportFilterLabel(report: {
+    filters?: { employeeId?: string | null; name?: string | null };
+    rows: Array<{ employeeName: string }>;
+}): string | null {
+    const bits: string[] = [];
+    const name = report.filters?.name?.trim();
+    if (name) bits.push(`Name: ${name}`);
+    if (report.filters?.employeeId) {
+        const unique = [...new Set(report.rows.map((r) => r.employeeName).filter(Boolean))];
+        bits.push(unique.length === 1 ? `Employee: ${unique[0]}` : "Selected employee");
+    }
+    return bits.length ? bits.join(" · ") : null;
+}
+
 export async function periodReportController(req: Request, res: Response) {
     const range = parseDateRange(req);
     if (!range) {
         return res.status(422).json(apiResponse(false, "Invalid date range — use from=YYYY-MM-DD&to=YYYY-MM-DD"));
     }
 
-    const report = await reportService.getPeriodReport(range.from, range.to);
+    const report = await reportService.getPeriodReport(range.from, range.to, parseReportFilters(req));
     return res.json(apiResponse(true, "Period report generated", report));
 }
 
@@ -29,7 +52,8 @@ export async function periodReportPdfController(req: Request, res: Response) {
         return res.status(422).json(apiResponse(false, "Invalid date range"));
     }
 
-    const report = await reportService.getPeriodReport(range.from, range.to);
+    const filters = parseReportFilters(req);
+    const report = await reportService.getPeriodReport(range.from, range.to, filters);
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -46,6 +70,10 @@ export async function periodReportPdfController(req: Request, res: Response) {
         .fontSize(10)
         .fillColor("#666")
         .text(`Period: ${range.from} — ${range.to}`, { align: "center" });
+    const filterLine = reportFilterLabel(report);
+    if (filterLine) {
+        doc.text(filterLine, { align: "center" });
+    }
     doc.text(`Generated: ${new Date().toLocaleString()}`, { align: "center" });
     doc.moveDown(1.5);
     doc.fillColor("#000");

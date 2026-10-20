@@ -19,7 +19,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="styles.css?v=20260925late1">
+    <link rel="stylesheet" href="styles.css?v=20261020empfilter1">
     <link rel="stylesheet" href="greenos.css?v=20261015carriertoast1">
     <link rel="stylesheet" href="greenos-modern.css?v=20261012search2">
 </head>
@@ -228,6 +228,19 @@
                                 <button type="button" class="btn-secondary btn-sm" data-preset="week">7 дней</button>
                                 <button type="button" class="btn-secondary btn-sm" data-preset="month">Месяц</button>
                             </div>
+                        </div>
+                    </div>
+                    <div class="report-range-row report-filter-row">
+                        <div class="report-employee-field">
+                            <label for="report-employee">Сотрудник / Employee</label>
+                            <select id="report-employee">
+                                <option value="">Все сотрудники / All employees</option>
+                            </select>
+                        </div>
+                        <div class="report-name-field">
+                            <label for="report-name">Имя брокера / Search by name</label>
+                            <input type="search" id="report-name" list="report-name-suggestions" placeholder="Начните вводить имя…" autocomplete="off">
+                            <datalist id="report-name-suggestions"></datalist>
                         </div>
                     </div>
                     <div class="report-actions">
@@ -526,6 +539,6 @@
     <script src="modules/administration/pages.js?v=20261012track2"></script>
     <script src="js/greenos-shell.js?v=20261015accidle1"></script>
     <script src="js/greenos-realtime.js?v=20261015accidle1"></script>
-    <script src="app.js?v=20260925outside1"></script>
+    <script src="app.js?v=20261020empfilter1"></script>
 </body>
 </html>

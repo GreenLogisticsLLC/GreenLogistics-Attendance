@@ -5,6 +5,14 @@ import {
     formatMinutes,
 } from "../utils/helpers.js";
 import { config } from "../config/env.js";
+import {
+    filterPeriodReportRows,
+    normalizeReportNameQuery,
+    summarizePeriodReportRows,
+    type PeriodReportFilters,
+} from "./report-filter.js";
+
+export type { PeriodReportFilters, PeriodReportSummary } from "./report-filter.js";
 
 export interface PeriodReportRow {
     workDate: string;
@@ -12,6 +20,7 @@ export interface PeriodReportRow {
     employeeNumber: string;
     employeeName: string;
     department: string | null;
+    position: string | null;
     firstEntry: string | null;
     lastExit: string | null;
     status: string;
@@ -19,14 +28,6 @@ export interface PeriodReportRow {
     timeInOfficeMinutes: number;
     overtimeInOfficeMinutes: number;
     exitCount: number;
-}
-
-export interface PeriodReportSummary {
-    totalSessions: number;
-    daysWithEntry: number;
-    totalOutsideMinutes: number;
-    totalInOfficeMinutes: number;
-    totalOvertimeMinutes: number;
 }
 
 function calcTimeInOffice(
@@ -51,10 +52,12 @@ function statusLabel(status: string): string {
 }
 
 export class ReportService {
-    async getPeriodReport(from: string, to: string) {
+    async getPeriodReport(from: string, to: string, filters: PeriodReportFilters = {}) {
+        const employeeId = filters.employeeId?.trim() || undefined;
         const sessions = await prisma.attendanceSession.findMany({
             where: {
                 workDate: { gte: from, lte: to },
+                ...(employeeId ? { employeeId } : {}),
             },
             include: {
                 employee: true,
@@ -112,6 +115,7 @@ export class ReportService {
                 employeeNumber: s.employee.employeeNumber,
                 employeeName: `${s.employee.firstName} ${s.employee.lastName}`,
                 department: s.employee.department,
+                position: s.employee.position,
                 firstEntry: formatTime(s.firstEntry),
                 lastExit: formatTime(s.lastExit),
                 status: statusLabel(s.currentStatus),
@@ -122,24 +126,20 @@ export class ReportService {
             };
         });
 
-        const summary: PeriodReportSummary = {
-            totalSessions: rows.length,
-            daysWithEntry: rows.filter((r) => r.firstEntry).length,
-            totalOutsideMinutes: rows.reduce((s, r) => s + r.totalOutsideMinutes, 0),
-            totalInOfficeMinutes: rows.reduce((s, r) => s + r.timeInOfficeMinutes, 0),
-            totalOvertimeMinutes: rows.reduce(
-                (s, r) => s + r.overtimeInOfficeMinutes,
-                0
-            ),
-        };
+        const filtered = filterPeriodReportRows(rows, { ...filters, employeeId });
+        const summary = summarizePeriodReportRows(filtered);
 
         return {
             from,
             to,
             company: config.companyName,
             generatedAt: new Date().toISOString(),
+            filters: {
+                employeeId: employeeId || null,
+                name: normalizeReportNameQuery(filters.name) ? filters.name?.trim() : null,
+            },
             summary,
-            rows,
+            rows: filtered,
         };
     }
 

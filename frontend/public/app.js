@@ -181,6 +181,9 @@ async function updateWebhookUrlDisplays() {
 }
 
 let reportRefreshTimer = null;
+let reportRowsCache = [];
+let reportRangeCache = { from: "", to: "" };
+let reportEmployeeOptionsLoaded = false;
 
 function toDateInput(d) {
     return d.toLocaleDateString("en-CA");
@@ -240,6 +243,7 @@ function switchView(view) {
         refreshTimer = setInterval(loadDashboard, 2000);
     } else if (view === "reports") {
         initReportDates();
+        loadReportEmployeeOptions();
         loadPeriodReport();
         reportRefreshTimer = setInterval(() => {
             if ($("#report-live")?.checked) loadPeriodReport(true);
@@ -630,6 +634,140 @@ $("#manual-uid-form")?.addEventListener("submit", async (e) => {
 
 /* ========== REPORTS ========== */
 
+function escapeReportText(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+function getReportFilters() {
+    return {
+        employeeId: ($("#report-employee")?.value || "").trim(),
+        name: ($("#report-name")?.value || "").trim(),
+    };
+}
+
+function buildReportQuery(from, to, includePersonFilters = true) {
+    const params = new URLSearchParams({ from, to });
+    if (includePersonFilters) {
+        const { employeeId, name } = getReportFilters();
+        if (employeeId) params.set("employeeId", employeeId);
+        if (name) params.set("name", name);
+    }
+    return params.toString();
+}
+
+function rowMatchesReportFilters(row, filters) {
+    if (filters.employeeId && row.employeeId !== filters.employeeId) return false;
+    const q = (filters.name || "").trim().toLowerCase();
+    if (!q) return true;
+    const hay = `${row.employeeName || ""} ${row.employeeNumber || ""} ${row.department || ""} ${row.position || ""}`.toLowerCase();
+    return hay.includes(q);
+}
+
+function filterCachedReportRows() {
+    const filters = getReportFilters();
+    if (!filters.employeeId && !filters.name) return reportRowsCache;
+    return reportRowsCache.filter((row) => rowMatchesReportFilters(row, filters));
+}
+
+function summarizeCachedReportRows(rows) {
+    return {
+        totalSessions: rows.length,
+        daysWithEntry: rows.filter((r) => r.firstEntry).length,
+        totalOutsideMinutes: rows.reduce((s, r) => s + (r.totalOutsideMinutes || 0), 0),
+        totalInOfficeMinutes: rows.reduce((s, r) => s + (r.timeInOfficeMinutes || 0), 0),
+        totalOvertimeMinutes: rows.reduce((s, r) => s + (r.overtimeInOfficeMinutes || 0), 0),
+    };
+}
+
+function reportFilterStatusSuffix() {
+    const { employeeId, name } = getReportFilters();
+    const bits = [];
+    if (employeeId) {
+        const sel = $("#report-employee");
+        const label = sel?.selectedOptions?.[0]?.textContent?.trim() || employeeId;
+        bits.push(label);
+    }
+    if (name) bits.push(`имя: ${name}`);
+    return bits.length ? ` · ${bits.join(" · ")}` : "";
+}
+
+function applyReportView() {
+    const from = reportRangeCache.from;
+    const to = reportRangeCache.to;
+    const statusEl = $("#report-status");
+    const rows = filterCachedReportRows();
+    renderReportStats(summarizeCachedReportRows(rows), from, to);
+    renderReportTable(rows);
+    setSyncStatus(
+        statusEl,
+        `Период: ${from} — ${to} · записей: ${rows.length}${reportFilterStatusSuffix()}`,
+        true
+    );
+}
+
+function employeeOptionLabel(emp) {
+    const name = `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || emp.employeeName || emp.employeeNumber || "Employee";
+    const extra = emp.department || emp.position;
+    return extra ? `${name} — ${extra}` : name;
+}
+
+function fillReportEmployeeSelect(employees) {
+    const select = $("#report-employee");
+    const datalist = $("#report-name-suggestions");
+    if (!select) return;
+    const current = select.value;
+    const seen = new Set();
+    const opts = ['<option value="">Все сотрудники / All employees</option>'];
+    const names = [];
+    employees.forEach((emp) => {
+        const id = emp.employeeId;
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        const label = employeeOptionLabel(emp);
+        opts.push(`<option value="${escapeReportText(id)}">${escapeReportText(label)}</option>`);
+        const name = `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || emp.employeeName;
+        if (name) names.push(name);
+    });
+    select.innerHTML = opts.join("");
+    if (current && seen.has(current)) select.value = current;
+    if (datalist) {
+        datalist.innerHTML = names
+            .filter((n, i, arr) => arr.indexOf(n) === i)
+            .map((n) => `<option value="${escapeReportText(n)}"></option>`)
+            .join("");
+    }
+}
+
+async function loadReportEmployeeOptions() {
+    const select = $("#report-employee");
+    if (!select) return;
+    try {
+        const data = await apiFetch("/employees");
+        if (data.success && Array.isArray(data.data) && data.data.length) {
+            fillReportEmployeeSelect(data.data);
+            reportEmployeeOptionsLoaded = true;
+            return;
+        }
+    } catch {
+        // Fall back to names from the loaded report rows.
+    }
+    if (!reportEmployeeOptionsLoaded && reportRowsCache.length) {
+        fillReportEmployeeSelect(
+            reportRowsCache.map((r) => ({
+                employeeId: r.employeeId,
+                employeeName: r.employeeName,
+                employeeNumber: r.employeeNumber,
+                department: r.department,
+                position: r.position,
+            }))
+        );
+    }
+}
+
 async function loadPeriodReport(silent = false) {
     const from = $("#report-from")?.value;
     const to = $("#report-to")?.value;
@@ -639,18 +777,17 @@ async function loadPeriodReport(silent = false) {
     if (!silent) setSyncStatus(statusEl, "Loading...", true);
 
     try {
-        const data = await apiFetch(`/reports/period?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+        const data = await apiFetch(`/reports/period?${buildReportQuery(from, to, false)}`);
         if (!data.success) {
             setSyncStatus(statusEl, data.message || "Failed", false);
             return;
         }
-        renderReportStats(data.data.summary, from, to);
-        renderReportTable(data.data.rows);
-        setSyncStatus(
-            statusEl,
-            `Период: ${from} — ${to} · записей: ${data.data.rows.length}`,
-            true
-        );
+        reportRowsCache = Array.isArray(data.data.rows) ? data.data.rows : [];
+        reportRangeCache = { from, to };
+        if (!reportEmployeeOptionsLoaded) {
+            await loadReportEmployeeOptions();
+        }
+        applyReportView();
     } catch (err) {
         if (!silent) setSyncStatus(statusEl, err.message || "Load failed", false);
     }
@@ -678,7 +815,11 @@ function renderReportStats(summary, from, to) {
 function renderReportTable(rows) {
     const tbody = $("#report-body");
     if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted)">Нет данных за выбранный период</td></tr>`;
+        const filters = getReportFilters();
+        const emptyMsg = filters.employeeId || filters.name
+            ? "Нет записей по выбранному сотруднику / фильтру"
+            : "Нет данных за выбранный период";
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted)">${emptyMsg}</td></tr>`;
         return;
     }
     tbody.innerHTML = rows.map((r) => `
@@ -706,7 +847,7 @@ async function downloadReportPdf() {
     setSyncStatus(statusEl, "Generating PDF...", true);
     try {
         const res = await fetch(
-            `${API}/reports/period/pdf?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+            `${API}/reports/period/pdf?${buildReportQuery(from, to, true)}`,
             { headers: { Authorization: `Bearer ${token}` } }
         );
         if (!res.ok) {
@@ -732,6 +873,14 @@ $("#report-range-form")?.addEventListener("submit", (e) => {
 });
 
 $("#report-pdf-btn")?.addEventListener("click", downloadReportPdf);
+
+$("#report-employee")?.addEventListener("change", () => {
+    if (reportRangeCache.from) applyReportView();
+});
+
+$("#report-name")?.addEventListener("input", () => {
+    if (reportRangeCache.from) applyReportView();
+});
 
 document.querySelectorAll("[data-preset]").forEach((btn) => {
     btn.addEventListener("click", () => setReportPreset(btn.dataset.preset));
