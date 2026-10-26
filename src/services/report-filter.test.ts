@@ -71,6 +71,7 @@ test("filters attendance rows by broker name, number, department, or position", 
         }),
     ];
     assert.equal(filterPeriodReportRows(rows, { name: "alen" }).length, 1);
+    assert.equal(filterPeriodReportRows(rows, { name: "young alen" }).length, 1);
     assert.equal(filterPeriodReportRows(rows, { name: "GL-022" })[0].employeeId, "f");
     assert.equal(filterPeriodReportRows(rows, { name: "finn" }).length, 1);
     assert.equal(filterPeriodReportRows(rows, { name: "broker" }).length, 3);

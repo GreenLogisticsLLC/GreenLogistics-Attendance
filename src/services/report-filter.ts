@@ -101,7 +101,7 @@ export function rowMatchesReportFilters(
     ]
         .join(" ")
         .toLowerCase();
-    return hay.includes(q);
+    return q.split(/\s+/).filter(Boolean).every((token) => hay.includes(token));
 }
 
 export function filterPeriodReportRows<T extends ReportFilterableRow>(

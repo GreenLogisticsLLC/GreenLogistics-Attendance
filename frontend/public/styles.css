@@ -371,7 +371,70 @@ tr.late-row td:first-child strong.late-yes {
 }
 .report-filter-row { margin-bottom: 0.85rem; }
 .report-employee-field select { min-width: 240px; max-width: 360px; }
-.report-name-field input[type="search"] { min-width: 220px; width: 280px; }
+.report-employee-combo-field { min-width: 260px; flex: 1 1 280px; max-width: 420px; }
+.report-employee-combo { position: relative; display: flex; align-items: center; }
+.report-employee-combo input[type="search"] {
+    width: 100%;
+    min-width: 220px;
+    padding-right: 2.1rem;
+}
+.report-employee-clear {
+    position: absolute;
+    right: 0.4rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.6rem;
+    height: 1.6rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.report-employee-clear:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+.report-employee-menu {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 280px;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0.3rem 0;
+    list-style: none;
+    background: var(--surface, #151b2b);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.35);
+}
+.report-employee-menu li {
+    padding: 0.5rem 0.85rem;
+    cursor: pointer;
+    color: var(--text);
+}
+.report-employee-menu li:hover,
+.report-employee-menu li.is-active {
+    background: rgba(18, 212, 138, 0.14);
+}
+.report-employee-menu small { color: var(--muted); }
+.report-employee-menu li.report-employee-empty { cursor: default; color: var(--muted); }
+.report-employee-pick {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    text-align: left;
+}
+.report-employee-pick:hover {
+    text-decoration: underline;
+    color: var(--gos-accent, #34d399);
+}
 .report-status-field select { min-width: 220px; max-width: 320px; }
 #report-absence-panel { margin-top: 0; }
 #report-absence-panel h3 { margin-bottom: 0.35rem; }
@@ -382,7 +445,7 @@ tr.late-row td:first-child strong.late-yes {
 .preset-btns { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 .report-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
 .report-live-label { margin: 0; font-size: 0.85rem; }
-.reports-panel { margin: 1rem; }
+.reports-panel { margin: 1rem; overflow: visible; }
 
 .offline-register-box {
     background: var(--surface2);

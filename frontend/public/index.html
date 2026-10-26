@@ -221,6 +221,14 @@
                             <label>По дату / To</label>
                             <input type="date" id="report-to" required>
                         </div>
+                        <div class="report-employee-combo-field">
+                            <label for="report-name">Сотрудник / брокер</label>
+                            <div class="report-employee-combo" id="report-employee-combo">
+                                <input type="search" id="report-name" placeholder="Начните вводить имя брокера…" autocomplete="off" aria-autocomplete="list" aria-controls="report-employee-menu" aria-expanded="false">
+                                <button type="button" id="report-employee-clear" class="report-employee-clear hidden" title="Сбросить фильтр по сотруднику" aria-label="Сбросить фильтр по сотруднику">×</button>
+                                <ul id="report-employee-menu" class="report-employee-menu hidden" role="listbox"></ul>
+                            </div>
+                        </div>
                         <div class="report-presets">
                             <label>Быстрый выбор</label>
                             <div class="preset-btns">
@@ -232,15 +240,10 @@
                     </div>
                     <div class="report-range-row report-filter-row">
                         <div class="report-employee-field">
-                            <label for="report-employee">Сотрудник / Employee</label>
+                            <label for="report-employee">Выбрать из списка / Pick employee</label>
                             <select id="report-employee">
                                 <option value="">Все сотрудники / All employees</option>
                             </select>
-                        </div>
-                        <div class="report-name-field">
-                            <label for="report-name">Имя брокера / Search by name</label>
-                            <input type="search" id="report-name" list="report-name-suggestions" placeholder="Начните вводить имя…" autocomplete="off">
-                            <datalist id="report-name-suggestions"></datalist>
                         </div>
                         <div class="report-status-field">
                             <label for="report-status-filter">Статус / Status</label>
@@ -253,6 +256,7 @@
                     <div class="report-actions">
                         <button type="submit" class="btn-primary btn-sm">Показать онлайн</button>
                         <button type="button" id="report-pdf-btn" class="btn-secondary btn-sm">Скачать PDF</button>
+                        <button type="button" id="report-filter-reset" class="btn-secondary btn-sm">Сбросить фильтр</button>
                         <label class="checkbox-label report-live-label">
                             <input type="checkbox" id="report-live" checked>
                             Автообновление (онлайн)

@@ -185,6 +185,9 @@ let reportRowsCache = [];
 let reportNotArrivedCache = [];
 let reportRangeCache = { from: "", to: "" };
 let reportEmployeeOptionsLoaded = false;
+let reportEmployeeCache = [];
+let reportSelectedEmployeeId = "";
+let reportEmployeeMenuIndex = -1;
 
 function toDateInput(d) {
     return d.toLocaleDateString("en-CA");
@@ -643,10 +646,23 @@ function escapeReportText(value) {
         .replace(/"/g, "&quot;");
 }
 
+function reportEmployeeDisplayName(emp) {
+    if (!emp) return "";
+    return `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || emp.employeeName || emp.employeeNumber || "";
+}
+
 function getReportFilters() {
+    const selectId = ($("#report-employee")?.value || "").trim();
+    const employeeId = reportSelectedEmployeeId || selectId;
+    const typedName = ($("#report-name")?.value || "").trim();
+    const selected = reportEmployeeCache.find((emp) => emp.employeeId === employeeId);
+    const selectedName = reportEmployeeDisplayName(selected);
+    const nameIsSelectedLabel =
+        Boolean(employeeId && typedName && selectedName) &&
+        typedName.toLowerCase() === selectedName.toLowerCase();
     return {
-        employeeId: ($("#report-employee")?.value || "").trim(),
-        name: ($("#report-name")?.value || "").trim(),
+        employeeId,
+        name: nameIsSelectedLabel ? "" : typedName,
         status: ($("#report-status-filter")?.value || "").trim(),
     };
 }
@@ -675,7 +691,7 @@ function rowMatchesReportFilters(row, filters) {
     const q = (filters.name || "").trim().toLowerCase();
     if (!q) return true;
     const hay = `${row.employeeName || ""} ${row.employeeNumber || ""} ${row.department || ""} ${row.position || ""}`.toLowerCase();
-    return hay.includes(q);
+    return q.split(/\s+/).filter(Boolean).every((token) => hay.includes(token));
 }
 
 function filterCachedReportRows() {
@@ -733,13 +749,23 @@ function reportFilterStatusSuffix() {
     const { employeeId, name, status } = getReportFilters();
     const bits = [];
     if (employeeId) {
+        const emp = reportEmployeeCache.find((e) => e.employeeId === employeeId);
         const sel = $("#report-employee");
-        const label = sel?.selectedOptions?.[0]?.textContent?.trim() || employeeId;
+        const label =
+            reportEmployeeDisplayName(emp) ||
+            sel?.selectedOptions?.[0]?.textContent?.trim() ||
+            employeeId;
         bits.push(label);
     }
     if (name) bits.push(`имя: ${name}`);
     if (status === "not_arrived") bits.push("Not Arrived");
     return bits.length ? ` · ${bits.join(" · ")}` : "";
+}
+
+function syncReportFilterClearButton() {
+    const { employeeId, name } = getReportFilters();
+    const typed = ($("#report-name")?.value || "").trim();
+    $("#report-employee-clear")?.classList.toggle("hidden", !employeeId && !typed && !name);
 }
 
 function applyReportView() {
@@ -751,6 +777,7 @@ function applyReportView() {
     renderReportStats(summarizeCachedReportRows(rows, notArrivedRows), from, to, getReportFilters().status === "not_arrived");
     renderReportAbsenceSummary(notArrivedRows, from, to);
     renderReportTable(rows);
+    syncReportFilterClearButton();
     setSyncStatus(
         statusEl,
         `Период: ${from} — ${to} · записей: ${rows.length}${reportFilterStatusSuffix()}`,
@@ -759,35 +786,160 @@ function applyReportView() {
 }
 
 function employeeOptionLabel(emp) {
-    const name = `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || emp.employeeName || emp.employeeNumber || "Employee";
+    const name = reportEmployeeDisplayName(emp) || emp.employeeNumber || "Employee";
     const extra = emp.department || emp.position;
     return extra ? `${name} — ${extra}` : name;
 }
 
+function employeeSortKey(emp) {
+    const last = (emp.lastName || "").trim();
+    const first = (emp.firstName || "").trim();
+    return `${last} ${first}`.trim() || reportEmployeeDisplayName(emp);
+}
+
+function employeeSearchHay(emp) {
+    return [
+        emp.firstName,
+        emp.lastName,
+        emp.employeeName,
+        emp.employeeNumber,
+        emp.department,
+        emp.position,
+    ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+}
+
+function closeReportEmployeeMenu() {
+    const menu = $("#report-employee-menu");
+    menu?.classList.add("hidden");
+    $("#report-name")?.setAttribute("aria-expanded", "false");
+    reportEmployeeMenuIndex = -1;
+}
+
+function filteredReportEmployees(query) {
+    const q = (query || "").trim().toLowerCase();
+    const tokens = q.split(/\s+/).filter(Boolean);
+    if (!tokens.length) return reportEmployeeCache;
+    return reportEmployeeCache.filter((emp) => {
+        const hay = employeeSearchHay(emp);
+        return tokens.every((token) => hay.includes(token));
+    });
+}
+
+function renderReportEmployeeMenu(query, force = false) {
+    const menu = $("#report-employee-menu");
+    const input = $("#report-name");
+    if (!menu || !input) return;
+    const q = (query ?? input.value ?? "").trim();
+    if (!force && !q && document.activeElement !== input) {
+        closeReportEmployeeMenu();
+        return;
+    }
+    const list = filteredReportEmployees(q).slice(0, 60);
+    if (!list.length) {
+        menu.innerHTML = `<li class="report-employee-empty">Нет совпадений</li>`;
+        menu.classList.remove("hidden");
+        input.setAttribute("aria-expanded", "true");
+        reportEmployeeMenuIndex = -1;
+        return;
+    }
+    menu.innerHTML = list
+        .map(
+            (emp, idx) => `
+        <li role="option" data-employee-id="${escapeReportText(emp.employeeId)}" data-index="${idx}">
+            ${escapeReportText(reportEmployeeDisplayName(emp) || emp.employeeNumber || "Employee")}
+            <br><small>${escapeReportText([emp.employeeNumber, emp.department || emp.position].filter(Boolean).join(" · "))}</small>
+        </li>`
+        )
+        .join("");
+    menu.classList.remove("hidden");
+    input.setAttribute("aria-expanded", "true");
+    reportEmployeeMenuIndex = -1;
+}
+
+function highlightReportEmployeeMenu() {
+    const menu = $("#report-employee-menu");
+    if (!menu) return;
+    menu.querySelectorAll("li[data-employee-id]").forEach((li, idx) => {
+        li.classList.toggle("is-active", idx === reportEmployeeMenuIndex);
+    });
+    const active = menu.querySelector("li.is-active");
+    if (active && typeof active.scrollIntoView === "function") {
+        active.scrollIntoView({ block: "nearest" });
+    }
+}
+
+function selectReportEmployee(employeeId, options = {}) {
+    const { fillName = true, apply = true } = options;
+    reportSelectedEmployeeId = employeeId || "";
+    const select = $("#report-employee");
+    if (select) {
+        if (employeeId && ![...select.options].some((opt) => opt.value === employeeId)) {
+            const emp = reportEmployeeCache.find((e) => e.employeeId === employeeId);
+            if (emp) {
+                const opt = document.createElement("option");
+                opt.value = employeeId;
+                opt.textContent = employeeOptionLabel(emp);
+                select.appendChild(opt);
+            }
+        }
+        select.value = employeeId || "";
+    }
+    const nameInput = $("#report-name");
+    if (fillName && nameInput) {
+        const emp = reportEmployeeCache.find((e) => e.employeeId === employeeId);
+        nameInput.value = employeeId ? reportEmployeeDisplayName(emp) : "";
+    }
+    closeReportEmployeeMenu();
+    syncReportFilterClearButton();
+    if (apply && reportRangeCache.from) applyReportView();
+}
+
+function clearReportPersonFilters(apply = true) {
+    reportSelectedEmployeeId = "";
+    const select = $("#report-employee");
+    if (select) select.value = "";
+    const nameInput = $("#report-name");
+    if (nameInput) nameInput.value = "";
+    closeReportEmployeeMenu();
+    syncReportFilterClearButton();
+    if (apply && reportRangeCache.from) applyReportView();
+}
+
 function fillReportEmployeeSelect(employees) {
     const select = $("#report-employee");
-    const datalist = $("#report-name-suggestions");
     if (!select) return;
-    const current = select.value;
     const seen = new Set();
-    const opts = ['<option value="">Все сотрудники / All employees</option>'];
-    const names = [];
-    employees.forEach((emp) => {
+    const normalized = [];
+    (employees || []).forEach((emp) => {
         const id = emp.employeeId;
         if (!id || seen.has(id)) return;
         seen.add(id);
-        const label = employeeOptionLabel(emp);
-        opts.push(`<option value="${escapeReportText(id)}">${escapeReportText(label)}</option>`);
-        const name = `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || emp.employeeName;
-        if (name) names.push(name);
+        normalized.push({
+            employeeId: id,
+            firstName: emp.firstName || "",
+            lastName: emp.lastName || "",
+            employeeName: emp.employeeName || reportEmployeeDisplayName(emp),
+            employeeNumber: emp.employeeNumber || "",
+            department: emp.department || "",
+            position: emp.position || "",
+        });
+    });
+    normalized.sort((a, b) =>
+        employeeSortKey(a).localeCompare(employeeSortKey(b), undefined, { sensitivity: "base" })
+    );
+    reportEmployeeCache = normalized;
+    const opts = ['<option value="">Все сотрудники / All employees</option>'];
+    normalized.forEach((emp) => {
+        opts.push(
+            `<option value="${escapeReportText(emp.employeeId)}">${escapeReportText(employeeOptionLabel(emp))}</option>`
+        );
     });
     select.innerHTML = opts.join("");
-    if (current && seen.has(current)) select.value = current;
-    if (datalist) {
-        datalist.innerHTML = names
-            .filter((n, i, arr) => arr.indexOf(n) === i)
-            .map((n) => `<option value="${escapeReportText(n)}"></option>`)
-            .join("");
+    if (reportSelectedEmployeeId && seen.has(reportSelectedEmployeeId)) {
+        select.value = reportSelectedEmployeeId;
     }
 }
 
@@ -836,6 +988,13 @@ async function loadPeriodReport(silent = false) {
         reportRangeCache = { from, to };
         if (!reportEmployeeOptionsLoaded) {
             await loadReportEmployeeOptions();
+        }
+        const known = new Set(reportEmployeeCache.map((e) => e.employeeId));
+        const extra = [...reportRowsCache, ...reportNotArrivedCache].filter(
+            (row) => row.employeeId && !known.has(row.employeeId)
+        );
+        if (extra.length) {
+            fillReportEmployeeSelect([...reportEmployeeCache, ...extra]);
         }
         applyReportView();
     } catch (err) {
@@ -904,10 +1063,7 @@ function renderReportAbsenceSummary(notArrivedRows, from, to) {
     `).join("");
     tbody.querySelectorAll(".report-absence-pick").forEach((btn) => {
         btn.addEventListener("click", () => {
-            const select = $("#report-employee");
-            if (!select) return;
-            select.value = btn.getAttribute("data-employee-id") || "";
-            applyReportView();
+            selectReportEmployee(btn.getAttribute("data-employee-id") || "");
         });
     });
 }
@@ -927,17 +1083,27 @@ function renderReportTable(rows) {
     tbody.innerHTML = rows.map((r) => `
         <tr>
             <td>${r.workDate}</td>
-            <td><strong>${r.employeeName}</strong><br><small style="color:var(--muted)">${r.employeeNumber}</small></td>
-            <td>${r.department || "—"}</td>
+            <td>
+                <button type="button" class="report-employee-pick" data-employee-id="${escapeReportText(r.employeeId)}" title="Показать только этого сотрудника">
+                    ${escapeReportText(r.employeeName)}
+                </button>
+                <br><small style="color:var(--muted)">${escapeReportText(r.employeeNumber || "")}</small>
+            </td>
+            <td>${escapeReportText(r.department || "—")}</td>
             <td>${r.firstEntry || "—"}</td>
             <td>${r.lastExit || "—"}</td>
             <td>${formatDuration(r.timeInOfficeMinutes)}</td>
             <td>${formatDuration(r.totalOutsideMinutes)}</td>
             <td>${r.overtimeInOfficeMinutes ? formatDuration(r.overtimeInOfficeMinutes) : "—"}</td>
-            <td>${r.status}</td>
+            <td>${escapeReportText(r.status)}</td>
             <td>${r.exitCount}</td>
         </tr>
     `).join("");
+    tbody.querySelectorAll(".report-employee-pick").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            selectReportEmployee(btn.getAttribute("data-employee-id") || "");
+        });
+    });
 }
 
 async function downloadReportPdf() {
@@ -977,11 +1143,73 @@ $("#report-range-form")?.addEventListener("submit", (e) => {
 $("#report-pdf-btn")?.addEventListener("click", downloadReportPdf);
 
 $("#report-employee")?.addEventListener("change", () => {
-    if (reportRangeCache.from) applyReportView();
+    selectReportEmployee(($("#report-employee")?.value || "").trim());
 });
 
 $("#report-name")?.addEventListener("input", () => {
+    reportSelectedEmployeeId = "";
+    const select = $("#report-employee");
+    if (select) select.value = "";
+    renderReportEmployeeMenu();
+    syncReportFilterClearButton();
     if (reportRangeCache.from) applyReportView();
+});
+
+$("#report-name")?.addEventListener("focus", () => {
+    renderReportEmployeeMenu($("#report-name")?.value, true);
+});
+
+$("#report-name")?.addEventListener("keydown", (e) => {
+    const menu = $("#report-employee-menu");
+    if (e.key === "Escape") {
+        closeReportEmployeeMenu();
+        return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (menu?.classList.contains("hidden")) renderReportEmployeeMenu($("#report-name")?.value, true);
+        const items = menu ? [...menu.querySelectorAll("li[data-employee-id]")] : [];
+        if (!items.length) return;
+        if (e.key === "ArrowDown") {
+            reportEmployeeMenuIndex = Math.min(items.length - 1, reportEmployeeMenuIndex + 1);
+        } else {
+            reportEmployeeMenuIndex = Math.max(0, reportEmployeeMenuIndex <= 0 ? 0 : reportEmployeeMenuIndex - 1);
+        }
+        highlightReportEmployeeMenu();
+        return;
+    }
+    if (e.key === "Enter") {
+        const items = menu ? [...menu.querySelectorAll("li[data-employee-id]")] : [];
+        const open = menu && !menu.classList.contains("hidden");
+        if (open && items.length) {
+            e.preventDefault();
+            const pick = items[reportEmployeeMenuIndex] || items[0];
+            selectReportEmployee(pick.getAttribute("data-employee-id") || "");
+        }
+    }
+});
+
+$("#report-employee-menu")?.addEventListener("mousedown", (e) => {
+    const li = e.target.closest("li[data-employee-id]");
+    if (!li) return;
+    e.preventDefault();
+    selectReportEmployee(li.getAttribute("data-employee-id") || "");
+});
+
+document.addEventListener("click", (e) => {
+    const combo = $("#report-employee-combo");
+    if (combo && !combo.contains(e.target)) closeReportEmployeeMenu();
+});
+
+$("#report-employee-clear")?.addEventListener("click", () => {
+    clearReportPersonFilters(true);
+    $("#report-name")?.focus();
+});
+
+$("#report-filter-reset")?.addEventListener("click", () => {
+    const status = $("#report-status-filter");
+    if (status) status.value = "";
+    clearReportPersonFilters(true);
 });
 
 $("#report-status-filter")?.addEventListener("change", () => {
