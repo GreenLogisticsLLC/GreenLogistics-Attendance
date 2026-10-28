@@ -292,6 +292,18 @@ html[data-theme="light"] .gos-sidebar {
   font-weight: 650;
 }
 
+@media (max-width: 960px) {
+  .gos-status-bar { left: 0; }
+  .gos-presence-pill { display: none; }
+  .gos-topbar {
+    height: auto;
+    min-height: var(--gos-topbar-h);
+  }
+  .gos-sidebar {
+    z-index: 80;
+  }
+}
+
 @media (max-width: 900px) {
   .gos-status-bar { left: 0; }
   .gos-presence-pill { display: none; }

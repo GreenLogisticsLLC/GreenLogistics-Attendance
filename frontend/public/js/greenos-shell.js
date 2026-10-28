@@ -417,11 +417,10 @@
       });
       this.bindThemeToggle();
       document.getElementById("gos-ai-top-btn")?.addEventListener("click", () => {
+        this.closeMobileNav();
         this.navigate("ai");
       });
-      document.getElementById("gos-sidebar-toggle")?.addEventListener("click", () => {
-        document.getElementById("gos-sidebar")?.classList.toggle("is-open");
-      });
+      this.bindMobileNav();
       this.bindGlobalSearch();
       document.getElementById("gos-notifications-btn")?.addEventListener("click", () => {
         if (window.GreenOSRealtime) window.GreenOSRealtime.clearUnread();
@@ -481,6 +480,53 @@
     setActiveNav(moduleId) {
       document.querySelectorAll(".gos-nav-item").forEach((el) => {
         el.classList.toggle("is-active", el.dataset.module === moduleId);
+      });
+    },
+
+    isMobileNav() {
+      return window.matchMedia("(max-width: 960px)").matches;
+    },
+
+    setMobileNavOpen(open) {
+      const side = document.getElementById("gos-sidebar");
+      const backdrop = document.getElementById("gos-sidebar-backdrop");
+      const toggle = document.getElementById("gos-sidebar-toggle");
+      if (!side) return;
+      side.classList.toggle("is-open", Boolean(open));
+      document.body.classList.toggle("gos-nav-open", Boolean(open));
+      if (backdrop) {
+        backdrop.hidden = !open;
+        backdrop.classList.toggle("is-visible", Boolean(open));
+      }
+      if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    },
+
+    closeMobileNav() {
+      this.setMobileNavOpen(false);
+    },
+
+    bindMobileNav() {
+      if (this._mobileNavBound) return;
+      this._mobileNavBound = true;
+      const self = this;
+      document.getElementById("gos-sidebar-toggle")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const side = document.getElementById("gos-sidebar");
+        self.setMobileNavOpen(!side?.classList.contains("is-open"));
+      });
+      document.getElementById("gos-sidebar-close")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        self.closeMobileNav();
+      });
+      document.getElementById("gos-sidebar-backdrop")?.addEventListener("click", () => {
+        self.closeMobileNav();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") self.closeMobileNav();
+      });
+      window.addEventListener("resize", () => {
+        if (!self.isMobileNav()) self.closeMobileNav();
       });
     },
 
@@ -800,6 +846,7 @@
 
     navigate(moduleId, subPageId, opts) {
       opts = opts || {};
+      this.closeMobileNav();
       if (!this.canAccessModule(moduleId)) {
         const fallback =
           this.role() === "Broker"

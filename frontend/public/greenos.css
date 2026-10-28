@@ -1055,21 +1055,131 @@ html[data-theme="light"] {
   display: none;
 }
 
+.gos-sidebar-close {
+  display: none;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.gos-sidebar-backdrop {
+  display: none;
+}
+
 @media (max-width: 960px) {
   .gos-sidebar {
     position: fixed;
     left: 0;
-    transform: translateX(-100%);
-    transition: transform 0.2s ease;
+    top: 0;
+    bottom: 0;
+    height: 100%;
+    height: 100dvh;
+    width: min(var(--gos-sidebar-w), 86vw);
+    transform: translateX(-110%);
+    transition: transform 0.22s ease;
+    z-index: 80;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35);
   }
   .gos-sidebar.is-open {
     transform: translateX(0);
   }
+  .gos-sidebar-close {
+    display: inline-flex;
+  }
   .gos-mobile-toggle {
     display: inline-flex;
   }
+  .gos-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    background: rgba(4, 8, 16, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .gos-sidebar-backdrop.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  body.gos-nav-open {
+    overflow: hidden;
+    touch-action: none;
+  }
+  .gos-topbar {
+    height: auto;
+    min-height: var(--gos-topbar-h);
+    flex-wrap: wrap;
+    gap: 0.5rem 0.65rem;
+    padding: 0.55rem 0.75rem;
+    padding-top: max(0.55rem, env(safe-area-inset-top));
+    z-index: 60;
+  }
+  .gos-topbar-title {
+    font-size: 0.95rem;
+  }
+  #current-date {
+    display: none !important;
+  }
   .gos-search {
+    display: block;
+    order: 20;
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .gos-user-meta {
     display: none;
+  }
+  .gos-topbar-actions .btn-secondary {
+    padding: 0.4rem 0.65rem;
+    font-size: 0.8rem;
+  }
+  .gos-content {
+    padding: 0.75rem;
+    -webkit-overflow-scrolling: touch;
+  }
+  .gos-module-host,
+  #gos-module-host,
+  #gos-attendance-host {
+    overflow-x: auto;
+  }
+  #gos-module-host table,
+  #gos-attendance-host table,
+  .gos-table,
+  .crm-table,
+  .load-table-wrap,
+  .crm-table-wrap,
+  .table-wrap {
+    max-width: 100%;
+  }
+  .gos-status-bar {
+    left: 0;
+    font-size: 0.68rem;
+    padding: 0 0.6rem;
+  }
+  .gos-kate-widget {
+    right: 0.75rem;
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+  .gos-kate-panel {
+    width: min(100vw - 1.25rem, 400px);
+    max-height: min(70dvh, 520px);
+  }
+  .load-table-wrap,
+  .crm-table-wrap,
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .gos-subnav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .gos-nav-item {
+    min-height: 44px;
   }
 }
 
