@@ -5,6 +5,8 @@ import {
     formatMinutes,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
+    getAttendanceWorkHoursBounds,
+    sumWorkHoursOutsideMinutes,
 } from "../utils/helpers.js";
 import { config } from "../config/env.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
@@ -87,16 +89,26 @@ export class ReportService {
             ) {
                 effectiveEnd = s.lastActivity;
             }
-            const rawOutsideMinutes = s.absenceIntervals.reduce((sum, interval) => {
+            const unclippedOutsideMinutes = s.absenceIntervals.reduce((sum, interval) => {
                 if (interval.durationMinutes != null) {
                     return sum + interval.durationMinutes;
                 }
                 return sum + diffMinutes(interval.startTime, effectiveEnd);
             }, 0);
+            const { workStart, workEnd } = getAttendanceWorkHoursBounds(
+                s.workDate,
+                config.timezone
+            );
+            const rawOutsideMinutes = sumWorkHoursOutsideMinutes(
+                s.absenceIntervals,
+                now,
+                workStart,
+                workEnd
+            );
             const timeInOfficeMinutes = calcTimeInOffice(
                 s.firstEntry,
                 effectiveEnd,
-                rawOutsideMinutes
+                unclippedOutsideMinutes
             );
             const overtimeStart =
                 s.firstEntry && s.firstEntry > s.scheduledEnd

@@ -6,6 +6,7 @@ import {
     diffMinutes,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
+    getAttendanceWorkHoursBounds,
     toAttendanceClock,
 } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
@@ -186,13 +187,17 @@ export class AttendanceService {
                 updates.totalAbsenceMinutes = totalAbsence;
             }
         } else {
-            const finishesOvertime = input.eventTime >= activeSession.scheduledEnd;
-            // An EXIT after 02:00 finishes overtime; earlier exits remain breaks.
-            updates.currentStatus = finishesOvertime ? "COMPLETED" : "OUTSIDE_OFFICE";
+            const { workEnd } = getAttendanceWorkHoursBounds(
+                activeSession.workDate,
+                config.timezone
+            );
+            const goingHome = input.eventTime >= workEnd;
+            // Work hours end at 01:00. An EXIT after that is going home, not a break.
+            updates.currentStatus = goingHome ? "COMPLETED" : "OUTSIDE_OFFICE";
             updates.lastExit = input.eventTime;
             updates.exitCount = activeSession.exitCount + 1;
 
-            if (!finishesOvertime) {
+            if (!goingHome) {
                 await prisma.absenceInterval.create({
                     data: {
                         sessionId: activeSession.sessionId,
@@ -248,13 +253,16 @@ export class AttendanceService {
         return { updated: true, message: "Employee marked as left", session: result.session };
     }
 
-    /** Close the 17:00–02:00 attendance day and freeze it for Reports. */
+    /** Close the attendance day: outside breaks freeze at 01:00, in-office wrap-up until ~02:00. */
     async closeExpiredSessions() {
         const now = new Date();
         const expired = await prisma.attendanceSession.findMany({
             where: {
-                scheduledEnd: { lte: now },
                 currentStatus: { not: "COMPLETED" },
+                OR: [
+                    { scheduledEnd: { lte: now } },
+                    { currentStatus: "OUTSIDE_OFFICE" },
+                ],
             },
             include: {
                 absenceIntervals: {
@@ -265,16 +273,23 @@ export class AttendanceService {
         });
 
         for (const session of expired) {
+            const { workEnd } = getAttendanceWorkHoursBounds(
+                session.workDate,
+                config.timezone
+            );
             // Allow ~2h after 02:00 for true overnight wrap-up, then force COMPLETED.
             // (Previously +15h kept forgotten EXIT brokers "In Office" until next 17:00.)
             const overtimeCutoff = new Date(
                 session.scheduledEnd.getTime() + 2 * 60 * 60 * 1000
             );
-            if (session.currentStatus === "INSIDE_OFFICE" && now < overtimeCutoff) {
+            const wasInside = session.currentStatus === "INSIDE_OFFICE";
+            if (wasInside && now < overtimeCutoff) {
                 continue;
             }
-            const wasInside = session.currentStatus === "INSIDE_OFFICE";
-            const closeAt = wasInside ? overtimeCutoff : session.scheduledEnd;
+            if (!wasInside && now < workEnd) {
+                continue;
+            }
+            const closeAt = wasInside ? overtimeCutoff : workEnd;
             await prisma.$transaction(async (tx) => {
                 for (const interval of session.absenceIntervals) {
                     await tx.absenceInterval.update({

@@ -9,6 +9,8 @@ import {
     formatTime,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
+    getAttendanceWorkHoursBounds,
+    sumWorkHoursOutsideMinutes,
     toAttendanceClock,
 } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
@@ -139,30 +141,39 @@ export class DashboardService {
 
             const openInterval = session?.absenceIntervals?.find((i) => !i.endTime) ?? null;
             const effectiveNow = now;
+            const hoursDate = session?.workDate || workDate;
+            const { workStart, workEnd } = getAttendanceWorkHoursBounds(
+                hoursDate,
+                config.timezone
+            );
 
             let currentAbsenceMinutes = 0;
             let currentOfficeMinutes = 0;
             if (session?.currentStatus === "OUTSIDE_OFFICE" && openInterval) {
-                currentAbsenceMinutes = diffMinutes(openInterval.startTime, effectiveNow);
+                // Outside Now only runs during 17:00–01:00; after 01:00 the workday ended.
+                currentAbsenceMinutes =
+                    effectiveNow >= workEnd
+                        ? 0
+                        : sumWorkHoursOutsideMinutes(
+                              [{ startTime: openInterval.startTime, endTime: null }],
+                              effectiveNow,
+                              workStart,
+                              workEnd
+                          );
             } else if (session?.currentStatus === "INSIDE_OFFICE") {
                 const since = session.lastActivity ?? session.firstEntry;
                 if (since) {
                     currentOfficeMinutes = diffMinutes(since, effectiveNow);
                 }
             }
-            // TOTAL OUTSIDE = sum of every completed exit + current open exit (if any).
-            // Do not subtract the old 60m break allowance — show the real total.
-            const closedOutsideMinutes = (session?.absenceIntervals ?? []).reduce(
-                (sum, interval) => {
-                    if (interval.endTime == null) return sum;
-                    if (interval.durationMinutes != null) {
-                        return sum + interval.durationMinutes;
-                    }
-                    return sum + diffMinutes(interval.startTime, interval.endTime);
-                },
-                0
+            // TOTAL OUTSIDE = exits that overlap work hours 17:00–01:00.
+            // Leaving after 01:00 is going home and is not counted.
+            const rawOutsideMinutes = sumWorkHoursOutsideMinutes(
+                session?.absenceIntervals ?? [],
+                effectiveNow,
+                workStart,
+                workEnd
             );
-            const rawOutsideMinutes = closedOutsideMinutes + currentAbsenceMinutes;
             const overtimeEnd =
                 session?.currentStatus === "INSIDE_OFFICE"
                     ? now

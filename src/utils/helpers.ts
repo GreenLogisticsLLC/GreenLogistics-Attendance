@@ -148,6 +148,8 @@ export function getWorkDateString(date: Date, timezone: string): string {
 
 export const ATTENDANCE_DAY_START = "17:00";
 export const ATTENDANCE_DAY_END = "02:00";
+/** Countable work hours end — Total Outside stops here; leaving after this is going home. */
+export const ATTENDANCE_WORK_END = "01:00";
 /** Arrive by scheduledStart + this many minutes; after that = late. */
 export const ATTENDANCE_GRACE_MINUTES = 15;
 export const ATTENDANCE_BREAK_ALLOWANCE_MINUTES = 60;
@@ -227,6 +229,51 @@ export function getAttendanceDayBounds(workDate: string, timezone: string) {
             timezone
         ),
     };
+}
+
+/** Paid/countable work window: 17:00 → 01:00 next day. */
+export function getAttendanceWorkHoursBounds(workDate: string, timezone: string) {
+    return {
+        workStart: zonedDateTime(workDate, ATTENDANCE_DAY_START, timezone),
+        workEnd: zonedDateTime(
+            addDaysToDateString(workDate, 1),
+            ATTENDANCE_WORK_END,
+            timezone
+        ),
+    };
+}
+
+export function overlapMinutes(
+    start: Date,
+    end: Date,
+    windowStart: Date,
+    windowEnd: Date
+): number {
+    const from = start > windowStart ? start : windowStart;
+    const to = end < windowEnd ? end : windowEnd;
+    return to > from ? diffMinutes(from, to) : 0;
+}
+
+export type OutsideInterval = {
+    startTime: Date;
+    endTime?: Date | null;
+};
+
+/**
+ * Total Outside = minutes spent out of office that overlap 17:00–01:00.
+ * Time after 01:00 (going home) is not counted.
+ */
+export function sumWorkHoursOutsideMinutes(
+    intervals: OutsideInterval[],
+    now: Date,
+    workStart: Date,
+    workEnd: Date
+): number {
+    return intervals.reduce((sum, interval) => {
+        const rawEnd = interval.endTime ?? now;
+        const end = rawEnd < workEnd ? rawEnd : workEnd;
+        return sum + overlapMinutes(interval.startTime, end, workStart, workEnd);
+    }, 0);
 }
 
 export function excessOutsideMinutes(totalOutsideMinutes: number): number {
