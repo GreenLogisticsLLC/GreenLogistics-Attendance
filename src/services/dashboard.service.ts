@@ -171,8 +171,7 @@ export class DashboardService {
                     );
                 }
             }
-            // TOTAL OUTSIDE = exits that overlap work hours 17:00–01:00 office clock.
-            // Leaving after 01:00 is going home and is not counted.
+            // TOTAL OUTSIDE = every break until 01:00 office clock (going home after 01:00 is excluded).
             const outsideIntervals: OutsideInterval[] = [
                 ...(session?.absenceIntervals ?? []),
             ];

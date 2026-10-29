@@ -1339,12 +1339,8 @@ async function openEmployeeDrawer(employeeId) {
     const rawOutsideMinutes = (intervals || []).reduce((sum, interval) => {
         const start = toOfficeClock(interval.startTime);
         const rawEnd = interval.endTime ? toOfficeClock(interval.endTime) : toOfficeClock(new Date());
-        if (!workStart || !workEnd) {
-            return sum + Math.max(0, Math.floor((rawEnd - start) / 60000));
-        }
-        const from = start > workStart ? start : workStart;
-        const to = rawEnd < workEnd ? rawEnd : workEnd;
-        return sum + Math.max(0, Math.floor((to - from) / 60000));
+        const end = workEnd && rawEnd > workEnd ? workEnd : rawEnd;
+        return sum + Math.max(0, Math.floor((end - start) / 60000));
     }, 0);
     $("#drawer-title").textContent = `${employee.firstName} ${employee.lastName}`;
     $("#drawer-content").innerHTML = `

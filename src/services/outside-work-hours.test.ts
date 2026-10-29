@@ -116,7 +116,30 @@ test("Outside Now is last-activity clock vs now clock, not +1h vs wall time", ()
             workStart,
             workEnd
         ),
-        0
+        19
+    );
+});
+
+test("morning closed breaks count toward Total Outside before 17:00", () => {
+    const { workStart, workEnd } = getAttendanceWorkHoursBounds(WORK_DATE, TZ);
+    const now = zonedDateTime(WORK_DATE, "10:30", TZ);
+    assert.equal(
+        sumAttendanceOutsideMinutes(
+            [
+                {
+                    startTime: stamped(WORK_DATE, "08:12"),
+                    endTime: stamped(WORK_DATE, "08:33"),
+                },
+                {
+                    startTime: stamped(WORK_DATE, "09:00"),
+                    endTime: stamped(WORK_DATE, "09:13"),
+                },
+            ],
+            now,
+            workStart,
+            workEnd
+        ),
+        34
     );
 });
 
@@ -132,11 +155,11 @@ test("Outside Now ticks immediately after an exit, even before 17:00", () => {
             workStart,
             workEnd
         ),
-        0
+        10
     );
 });
 
-test("open morning break that continues past 17:00 counts Total Outside from 17:00", () => {
+test("open morning break that continues past 17:00 counts the full gap until now", () => {
     const { workStart, workEnd } = getAttendanceWorkHoursBounds(WORK_DATE, TZ);
     const now = zonedDateTime(WORK_DATE, "18:20", TZ);
     const storedStart = stamped(WORK_DATE, "16:50");
@@ -147,7 +170,7 @@ test("open morning break that continues past 17:00 counts Total Outside from 17:
             workStart,
             workEnd
         ),
-        20
+        30
     );
     assert.equal(currentOutsideNowMinutes(storedStart, now, workEnd), 30);
 });

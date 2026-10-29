@@ -260,20 +260,21 @@ export type OutsideInterval = {
 };
 
 /**
- * Total Outside = minutes spent out of office that overlap 17:00–01:00.
- * Time after 01:00 (going home) is not counted.
+ * Total Outside = every out-of-office interval until 01:00 (going home).
+ * Morning/day breaks count; time after 01:00 does not.
+ * `workStart` is kept for callers; clipping is only at `workEnd`.
  * `intervals` and `now` must already be on the office wall clock.
  */
 export function sumWorkHoursOutsideMinutes(
     intervals: OutsideInterval[],
     now: Date,
-    workStart: Date,
+    _workStart: Date,
     workEnd: Date
 ): number {
     return intervals.reduce((sum, interval) => {
         const rawEnd = interval.endTime ?? now;
         const end = rawEnd < workEnd ? rawEnd : workEnd;
-        return sum + overlapMinutes(interval.startTime, end, workStart, workEnd);
+        return end > interval.startTime ? sum + diffMinutes(interval.startTime, end) : sum;
     }, 0);
 }
 
