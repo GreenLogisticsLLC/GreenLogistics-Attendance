@@ -167,7 +167,7 @@ export class DashboardService {
                 if (since) {
                     currentOfficeMinutes = diffMinutes(
                         toAttendanceClock(since),
-                        effectiveNow
+                        toAttendanceClock(effectiveNow)
                     );
                 }
             }

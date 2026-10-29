@@ -271,7 +271,8 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
 function updateClock() {
     const el = $("#current-date");
     if (!el) return;
-    const now = new Date();
+    // Same −1h office clock as First Entry / Last Activity / Outside Now.
+    const now = new Date(Date.now() - 60 * 60 * 1000);
     el.textContent =
         now.toLocaleString("en-GB", {
             timeZone: "America/Los_Angeles",
@@ -1337,7 +1338,7 @@ async function openEmployeeDrawer(employeeId) {
     const workEnd = workStart ? new Date(workStart.getTime() + 8 * 60 * 60 * 1000) : null;
     const rawOutsideMinutes = (intervals || []).reduce((sum, interval) => {
         const start = toOfficeClock(interval.startTime);
-        const rawEnd = interval.endTime ? toOfficeClock(interval.endTime) : new Date();
+        const rawEnd = interval.endTime ? toOfficeClock(interval.endTime) : toOfficeClock(new Date());
         if (!workStart || !workEnd) {
             return sum + Math.max(0, Math.floor((rawEnd - start) / 60000));
         }

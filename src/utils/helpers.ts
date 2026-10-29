@@ -287,8 +287,9 @@ export function toAttendanceInterval(interval: OutsideInterval): OutsideInterval
 
 /**
  * Total Outside from stored access-control stamps.
- * Stamps are shifted onto the office clock; `now` / work bounds stay as wall clock
- * so an EXIT at 17:20 office (stamp ~18:20) still counts from 17:20.
+ * Event stamps AND `now` are mapped onto the office clock (the same clock as
+ * First Entry / Last Activity) so a break from 08:12 to 08:33 is 21 minutes,
+ * not 1h 21m against unshifted wall time.
  */
 export function sumAttendanceOutsideMinutes(
     intervals: OutsideInterval[],
@@ -298,16 +299,15 @@ export function sumAttendanceOutsideMinutes(
 ): number {
     return sumWorkHoursOutsideMinutes(
         intervals.map(toAttendanceInterval),
-        now,
+        toAttendanceClock(now),
         workStart,
         workEnd
     );
 }
 
 /**
- * Live "Outside Now" for an open break: elapsed office-clock time until now,
- * frozen at 01:00. Not clipped to 17:00 — the current break must keep ticking
- * as soon as the employee walks out.
+ * Live "Outside Now": office-clock elapsed time since the exit, frozen at 01:00.
+ * Both ends use the attendance clock so the column matches Last Activity vs the header.
  */
 export function currentOutsideNowMinutes(
     startTime: Date,
@@ -315,7 +315,8 @@ export function currentOutsideNowMinutes(
     workEnd: Date
 ): number {
     const start = toAttendanceClock(startTime);
-    const end = now < workEnd ? now : workEnd;
+    const nowClock = toAttendanceClock(now);
+    const end = nowClock < workEnd ? nowClock : workEnd;
     return end > start ? diffMinutes(start, end) : 0;
 }
 

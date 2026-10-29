@@ -89,18 +89,9 @@ test("closed interval spanning 01:00 only counts until 01:00", () => {
 
 test("access-control +1h stamp still counts Total Outside on the office clock", () => {
     const { workStart, workEnd } = getAttendanceWorkHoursBounds(WORK_DATE, TZ);
-    const now = zonedDateTime(WORK_DATE, "17:45", TZ);
+    // Wall 18:45 → office clock 17:45; exit displayed 17:20 (stamp 18:20).
+    const now = zonedDateTime(WORK_DATE, "18:45", TZ);
     const storedStart = stamped(WORK_DATE, "17:20");
-    // Raw stamp is 18:20 — without the office-clock shift this would be 0 vs now 17:45.
-    assert.equal(
-        sumWorkHoursOutsideMinutes(
-            [{ startTime: storedStart, endTime: null }],
-            now,
-            workStart,
-            workEnd
-        ),
-        0
-    );
     assert.equal(
         sumAttendanceOutsideMinutes(
             [{ startTime: storedStart, endTime: null }],
@@ -112,11 +103,28 @@ test("access-control +1h stamp still counts Total Outside on the office clock", 
     );
 });
 
+test("Outside Now is last-activity clock vs now clock, not +1h vs wall time", () => {
+    const { workStart, workEnd } = getAttendanceWorkHoursBounds(WORK_DATE, TZ);
+    // Screenshot: Last Activity 08:12, wall 09:31 PT → office now 08:31 → 19 min, not 1h 19m.
+    const now = zonedDateTime(WORK_DATE, "09:31", TZ);
+    const storedStart = stamped(WORK_DATE, "08:12");
+    assert.equal(currentOutsideNowMinutes(storedStart, now, workEnd), 19);
+    assert.equal(
+        sumAttendanceOutsideMinutes(
+            [{ startTime: storedStart, endTime: null }],
+            now,
+            workStart,
+            workEnd
+        ),
+        0
+    );
+});
+
 test("Outside Now ticks immediately after an exit, even before 17:00", () => {
     const { workStart, workEnd } = getAttendanceWorkHoursBounds(WORK_DATE, TZ);
     const now = zonedDateTime(WORK_DATE, "06:45", TZ);
     const storedStart = stamped(WORK_DATE, "05:35");
-    assert.equal(currentOutsideNowMinutes(storedStart, now, workEnd), 70);
+    assert.equal(currentOutsideNowMinutes(storedStart, now, workEnd), 10);
     assert.equal(
         sumAttendanceOutsideMinutes(
             [{ startTime: storedStart, endTime: null }],
@@ -130,7 +138,7 @@ test("Outside Now ticks immediately after an exit, even before 17:00", () => {
 
 test("open morning break that continues past 17:00 counts Total Outside from 17:00", () => {
     const { workStart, workEnd } = getAttendanceWorkHoursBounds(WORK_DATE, TZ);
-    const now = zonedDateTime(WORK_DATE, "17:20", TZ);
+    const now = zonedDateTime(WORK_DATE, "18:20", TZ);
     const storedStart = stamped(WORK_DATE, "16:50");
     assert.equal(
         sumAttendanceOutsideMinutes(
@@ -154,6 +162,7 @@ test("EXIT after 01:00 office clock is going home", () => {
 test("Outside Now freezes at 01:00", () => {
     const { workEnd } = getAttendanceWorkHoursBounds(WORK_DATE, TZ);
     const storedStart = stamped("2026-10-28", "00:50");
-    const afterClose = zonedDateTime("2026-10-28", "01:30", TZ);
+    // Wall 02:30 → office clock 01:30, freeze at 01:00 → 10 min from 00:50.
+    const afterClose = zonedDateTime("2026-10-28", "02:30", TZ);
     assert.equal(currentOutsideNowMinutes(storedStart, afterClose, workEnd), 10);
 });
