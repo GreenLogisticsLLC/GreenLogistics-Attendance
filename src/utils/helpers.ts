@@ -262,6 +262,7 @@ export type OutsideInterval = {
 /**
  * Total Outside = minutes spent out of office that overlap 17:00–01:00.
  * Time after 01:00 (going home) is not counted.
+ * `intervals` and `now` must already be on the office wall clock.
  */
 export function sumWorkHoursOutsideMinutes(
     intervals: OutsideInterval[],
@@ -274,6 +275,53 @@ export function sumWorkHoursOutsideMinutes(
         const end = rawEnd < workEnd ? rawEnd : workEnd;
         return sum + overlapMinutes(interval.startTime, end, workStart, workEnd);
     }, 0);
+}
+
+/** Map a stored access-control interval onto the office wall clock. */
+export function toAttendanceInterval(interval: OutsideInterval): OutsideInterval {
+    return {
+        startTime: toAttendanceClock(interval.startTime),
+        endTime: interval.endTime ? toAttendanceClock(interval.endTime) : null,
+    };
+}
+
+/**
+ * Total Outside from stored access-control stamps.
+ * Stamps are shifted onto the office clock; `now` / work bounds stay as wall clock
+ * so an EXIT at 17:20 office (stamp ~18:20) still counts from 17:20.
+ */
+export function sumAttendanceOutsideMinutes(
+    intervals: OutsideInterval[],
+    now: Date,
+    workStart: Date,
+    workEnd: Date
+): number {
+    return sumWorkHoursOutsideMinutes(
+        intervals.map(toAttendanceInterval),
+        now,
+        workStart,
+        workEnd
+    );
+}
+
+/**
+ * Live "Outside Now" for an open break: elapsed office-clock time until now,
+ * frozen at 01:00. Not clipped to 17:00 — the current break must keep ticking
+ * as soon as the employee walks out.
+ */
+export function currentOutsideNowMinutes(
+    startTime: Date,
+    now: Date,
+    workEnd: Date
+): number {
+    const start = toAttendanceClock(startTime);
+    const end = now < workEnd ? now : workEnd;
+    return end > start ? diffMinutes(start, end) : 0;
+}
+
+/** Access-control EXIT at/after 01:00 office clock = going home, not a break. */
+export function isGoingHomeExit(eventTime: Date, workEnd: Date): boolean {
+    return toAttendanceClock(eventTime) >= workEnd;
 }
 
 export function excessOutsideMinutes(totalOutsideMinutes: number): number {

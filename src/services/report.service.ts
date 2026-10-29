@@ -6,7 +6,7 @@ import {
     getAttendanceDayBounds,
     getAttendanceWorkDate,
     getAttendanceWorkHoursBounds,
-    sumWorkHoursOutsideMinutes,
+    sumAttendanceOutsideMinutes,
 } from "../utils/helpers.js";
 import { config } from "../config/env.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
@@ -99,7 +99,7 @@ export class ReportService {
                 s.workDate,
                 config.timezone
             );
-            const rawOutsideMinutes = sumWorkHoursOutsideMinutes(
+            const rawOutsideMinutes = sumAttendanceOutsideMinutes(
                 s.absenceIntervals,
                 now,
                 workStart,

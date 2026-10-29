@@ -272,10 +272,18 @@ function updateClock() {
     const el = $("#current-date");
     if (!el) return;
     const now = new Date();
-    el.textContent = now.toLocaleString("en-GB", {
-        weekday: "long", year: "numeric", month: "long", day: "numeric",
-        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-    });
+    el.textContent =
+        now.toLocaleString("en-GB", {
+            timeZone: "America/Los_Angeles",
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+        }) + " PT";
     setTimeout(updateClock, 1000);
 }
 
@@ -1323,16 +1331,18 @@ async function openEmployeeDrawer(employeeId) {
         sessionEnd && scheduledEnd
             ? Math.max(0, Math.floor((sessionEnd - scheduledEnd) / 60000))
             : 0;
+    const ATTENDANCE_CLOCK_OFFSET_MS = 60 * 60 * 1000;
+    const toOfficeClock = (value) => new Date(new Date(value).getTime() - ATTENDANCE_CLOCK_OFFSET_MS);
     const workStart = session?.scheduledStart ? new Date(session.scheduledStart) : null;
     const workEnd = workStart ? new Date(workStart.getTime() + 8 * 60 * 60 * 1000) : null;
     const rawOutsideMinutes = (intervals || []).reduce((sum, interval) => {
-        const start = new Date(interval.startTime);
-        const rawEnd = interval.endTime ? new Date(interval.endTime) : new Date();
+        const start = toOfficeClock(interval.startTime);
+        const rawEnd = interval.endTime ? toOfficeClock(interval.endTime) : new Date();
         if (!workStart || !workEnd) {
             return sum + Math.max(0, Math.floor((rawEnd - start) / 60000));
         }
         const from = start > workStart ? start : workStart;
-        const to = (rawEnd < workEnd ? rawEnd : workEnd);
+        const to = rawEnd < workEnd ? rawEnd : workEnd;
         return sum + Math.max(0, Math.floor((to - from) / 60000));
     }, 0);
     $("#drawer-title").textContent = `${employee.firstName} ${employee.lastName}`;

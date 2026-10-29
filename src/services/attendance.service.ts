@@ -7,6 +7,7 @@ import {
     getAttendanceDayBounds,
     getAttendanceWorkDate,
     getAttendanceWorkHoursBounds,
+    isGoingHomeExit,
     toAttendanceClock,
 } from "../utils/helpers.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
@@ -191,8 +192,8 @@ export class AttendanceService {
                 activeSession.workDate,
                 config.timezone
             );
-            const goingHome = input.eventTime >= workEnd;
-            // Work hours end at 01:00. An EXIT after that is going home, not a break.
+            const goingHome = isGoingHomeExit(input.eventTime, workEnd);
+            // Work hours end at 01:00 office clock. An EXIT after that is going home, not a break.
             updates.currentStatus = goingHome ? "COMPLETED" : "OUTSIDE_OFFICE";
             updates.lastExit = input.eventTime;
             updates.exitCount = activeSession.exitCount + 1;
