@@ -72,6 +72,24 @@ function money(n: number | null | undefined) {
     return n == null || Number.isNaN(Number(n)) ? null : Number(n);
 }
 
+function firstIssue(json: string | null | undefined): string | null {
+    if (!json) return null;
+    try {
+        const parsed = JSON.parse(json) as unknown;
+        const list = Array.isArray(parsed) ? parsed : [];
+        const first = list[0];
+        if (typeof first === "string") return first;
+        if (first && typeof first === "object") {
+            const rec = first as Record<string, unknown>;
+            const text = rec.message || rec.text || rec.code || rec.label;
+            return text ? String(text) : null;
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
 export class AccountingService {
     private sub(actor: Actor): AccountingSubRole | null {
         if (isAccountingAdmin(actor.role)) return null;
@@ -328,6 +346,45 @@ export class AccountingService {
             (money(s.customerRate) || 0) + (money(s.accessorialCharges) || 0);
         const carrierTotal = money(s.carrierRate) || 0;
 
+        const docIds = s.loadDocuments.map((d) => d.documentId);
+        const aiJobs = docIds.length
+            ? await prisma.aiDocumentJob.findMany({
+                  where: { documentId: { in: docIds } },
+                  orderBy: { createdAt: "desc" },
+                  select: {
+                      documentId: true,
+                      status: true,
+                      validation: {
+                          select: {
+                              overallStatus: true,
+                              trafficLight: true,
+                              requiresReview: true,
+                              warningsJson: true,
+                              errorsJson: true,
+                          },
+                      },
+                  },
+              })
+            : [];
+        const latestAi = new Map<string, (typeof aiJobs)[number]>();
+        for (const job of aiJobs) {
+            if (!latestAi.has(job.documentId)) latestAi.set(job.documentId, job);
+        }
+
+        const carrierDocs = s.carrierProfileId
+            ? await prisma.carrierDocument.findMany({
+                  where: { carrierId: s.carrierProfileId, status: "CURRENT" },
+                  orderBy: { uploadedAt: "desc" },
+                  select: {
+                      documentId: true,
+                      documentType: true,
+                      originalFilename: true,
+                      status: true,
+                      version: true,
+                  },
+              })
+            : [];
+
         return {
             identity: {
                 shipmentLeadId: s.shipmentLeadId,
@@ -365,7 +422,51 @@ export class AccountingService {
                 paymentStatus: s.carrierPaidAt ? "PAID" : "UNPAID",
                 paidAt: s.carrierPaidAt,
             },
-            documents: s.loadDocuments,
+            documents: s.loadDocuments.map((doc) => {
+                const ai = latestAi.get(doc.documentId);
+                const validation = ai?.validation;
+                return {
+                    documentId: doc.documentId,
+                    docType: doc.docType,
+                    status: doc.status,
+                    fileName: doc.fileName,
+                    version: doc.version,
+                    createdAt: doc.createdAt,
+                    source: "load",
+                    downloadUrl: doc.fileUrl
+                        ? `/api/loads/${s.shipmentLeadId}/documents/${doc.documentId}/download`
+                        : null,
+                    ai: validation
+                        ? {
+                              overallStatus: validation.overallStatus,
+                              trafficLight: validation.trafficLight,
+                              requiresReview: validation.requiresReview,
+                              summary:
+                                  firstIssue(validation.errorsJson) ||
+                                  firstIssue(validation.warningsJson),
+                          }
+                        : ai
+                          ? {
+                                overallStatus: ai.status,
+                                trafficLight: null,
+                                requiresReview: false,
+                                summary: null,
+                            }
+                          : null,
+                };
+            }),
+            carrierDocuments: carrierDocs.map((doc) => ({
+                documentId: doc.documentId,
+                docType: doc.documentType,
+                status: doc.status,
+                fileName: doc.originalFilename,
+                version: doc.version,
+                source: "carrier",
+                downloadUrl: s.carrierProfileId
+                    ? `/api/carriers/${s.carrierProfileId}/documents/${doc.documentId}/download`
+                    : null,
+                ai: null,
+            })),
             accounting: {
                 docStatus: s.accountingDocStatus || AccountingDocStatus.Pending,
                 docVerifiedAt: s.accountingDocVerifiedAt,

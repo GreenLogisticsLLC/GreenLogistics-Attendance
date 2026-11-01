@@ -49,7 +49,7 @@ carriersRouter.post(
 );
 carriersRouter.get(
     "/:id/documents/:documentId/download",
-    requireRole(...staff),
+    requireRole(...staff, "Accounting"),
     carriersController.downloadDocument
 );
 carriersRouter.delete(

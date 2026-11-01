@@ -137,6 +137,16 @@ window.GreenOSModules.accounting = {
     return "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
 
+  isoDate(raw) {
+    if (!raw) return "";
+    var d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return "";
+    var pad = function (n) {
+      return String(n).padStart(2, "0");
+    };
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  },
+
   userMeta() {
     var u = window.GreenOSUser || (window.GreenOS && window.GreenOS.user) || {};
     return {
@@ -379,7 +389,7 @@ window.GreenOSModules.accounting = {
           "</td>" +
           '<td><button type="button" class="btn-primary acc-open" data-id="' +
           self.esc(r.shipmentLeadId) +
-          '" style="width:auto;padding:0.35rem 0.65rem">Open</button></td>' +
+          '" style="width:auto;padding:0.35rem 0.65rem">Review</button></td>' +
           "</tr>"
         );
       })
@@ -527,6 +537,7 @@ window.GreenOSModules.accounting = {
         cards +
         "</div>" +
         pendingSection +
+        self.controlsHelp() +
         '<div id="acc-detail" style="margin-top:1.25rem"></div>';
 
       body.querySelectorAll("[data-acc-tab]").forEach(function (btn) {
@@ -564,7 +575,9 @@ window.GreenOSModules.accounting = {
       }
       var rows = res.data || [];
       if (!rows.length) {
-        body.innerHTML = '<p class="gos-muted">No shipments in this queue.</p>';
+        body.innerHTML =
+          self.controlsHelp() +
+          '<p class="gos-muted">No shipments in this queue. When a load arrives, use Review to open its documents and accounting steps.</p>';
         return;
       }
       body.innerHTML =
@@ -578,6 +591,195 @@ window.GreenOSModules.accounting = {
       body.innerHTML =
         '<p style="color:#ef4444">' + self.esc(err.message || "Failed to load") + "</p>";
     }
+  },
+
+  controlsHelp() {
+    return (
+      '<section class="acc-help">' +
+      "<h3>Accounting controls</h3>" +
+      "<p>Use Review on a load. The desk lists every document and keeps every accounting step on screen. A step you cannot run yet stays visible and explains why.</p>" +
+      "<ol>" +
+      "<li>Review Rate Confirmation, BOL, POD, and the carrier packet (MC authority, W-9, insurance, agreement).</li>" +
+      "<li>Verify the packet, or request a correction with a written reason.</li>" +
+      "<li>Confirm the amounts, then mark Ready for Billing and Ready for Carrier Payment.</li>" +
+      "<li>Create the customer invoice and mark it sent.</li>" +
+      "<li>Record the customer payment and execute the carrier payment.</li>" +
+      "</ol></section>"
+    );
+  },
+
+  loadDocSlots: [
+    { type: "RATE_CONFIRMATION", label: "Rate Confirmation", required: true },
+    { type: "BOL", label: "BOL", required: true },
+    { type: "POD", label: "Proof of Delivery (POD)", required: true },
+    { type: "CUSTOMER_INVOICE", label: "Customer invoice file", required: false },
+    { type: "CUSTOMER_PAID_PROOF", label: "Customer payment proof", required: false },
+    { type: "CARRIER_INVOICE", label: "Carrier invoice", required: false },
+    { type: "CARRIER_PAID_PROOF", label: "Carrier payment proof", required: false },
+  ],
+
+  carrierDocSlots: [
+    { type: "MC_AUTHORITY", label: "MC Authority" },
+    { type: "W9", label: "W-9" },
+    { type: "INSURANCE", label: "Insurance" },
+    { type: "COI", label: "Certificate of Insurance" },
+    { type: "NOA", label: "Notice of Assignment" },
+    { type: "BROKER_CARRIER_AGREEMENT", label: "Broker-Carrier Agreement" },
+  ],
+
+  findDoc(docs, type) {
+    var want = String(type || "").toUpperCase();
+    for (var i = 0; i < (docs || []).length; i++) {
+      if (String(docs[i].docType || "").toUpperCase() === want) return docs[i];
+    }
+    return null;
+  },
+
+  actionButton(act, label, enabled, reason, primary) {
+    return (
+      '<button type="button" class="' +
+      (primary ? "btn-primary" : "btn-secondary") +
+      ' acc-act" data-act="' +
+      this.esc(act) +
+      '"' +
+      (enabled ? "" : " disabled") +
+      (reason ? ' title="' + this.esc(reason) + '"' : "") +
+      ">" +
+      this.esc(label) +
+      "</button>"
+    );
+  },
+
+  aiCell(doc) {
+    if (!doc || !doc.ai) return "—";
+    var light = String(doc.ai.trafficLight || "").toUpperCase();
+    var cls = light ? " acc-ai-" + light : "";
+    var text = doc.ai.overallStatus || light || "Checked";
+    return (
+      '<span class="acc-ai' +
+      cls +
+      '">' +
+      this.esc(text) +
+      (doc.ai.summary
+        ? '<small>' + this.esc(doc.ai.summary) + "</small>"
+        : "") +
+      "</span>"
+    );
+  },
+
+  docActions(doc) {
+    if (!doc || !doc.downloadUrl) return '<span class="gos-muted">No file</span>';
+    var url = this.esc(doc.downloadUrl);
+    var name = this.esc(doc.fileName || "document.pdf");
+    return (
+      '<button type="button" class="btn-secondary acc-file" data-url="' +
+      url +
+      '" data-mode="view" data-name="' +
+      name +
+      '">Preview</button>' +
+      '<button type="button" class="btn-secondary acc-file" data-url="' +
+      url +
+      '" data-mode="download" data-name="' +
+      name +
+      '">Download</button>'
+    );
+  },
+
+  docRows(slots, docs, opts) {
+    var self = this;
+    var options = opts || {};
+    var used = {};
+    var rows = (slots || [])
+      .map(function (slot) {
+        var doc = self.findDoc(docs, slot.type);
+        if (doc) used[String(doc.documentId)] = true;
+        if (!doc && options.skipMissing) return "";
+        var missing = !doc;
+        return (
+          "<tr" +
+          (missing && slot.required ? ' class="acc-row-missing"' : "") +
+          ">" +
+          "<td><strong>" +
+          self.esc(slot.label) +
+          "</strong>" +
+          (missing && slot.required
+            ? '<div class="acc-missing">Missing — required</div>'
+            : missing
+              ? '<div class="gos-muted">Not on file</div>'
+              : "") +
+          "</td>" +
+          "<td>" +
+          (doc ? "v" + self.esc(doc.version || 1) : "—") +
+          "</td>" +
+          "<td>" +
+          (doc ? self.esc(doc.status || "ON FILE") : "—") +
+          "</td>" +
+          "<td>" +
+          self.aiCell(doc) +
+          "</td>" +
+          "<td>" +
+          self.esc((doc && doc.fileName) || "—") +
+          "</td>" +
+          '<td class="acc-doc-actions">' +
+          self.docActions(doc) +
+          "</td>" +
+          "</tr>"
+        );
+      })
+      .join("");
+    (docs || []).forEach(function (doc) {
+      if (!doc || used[String(doc.documentId)]) return;
+      rows +=
+        "<tr><td><strong>" +
+        self.esc(doc.docType || "Document") +
+        "</strong></td><td>v" +
+        self.esc(doc.version || 1) +
+        "</td><td>" +
+        self.esc(doc.status || "") +
+        "</td><td>" +
+        self.aiCell(doc) +
+        "</td><td>" +
+        self.esc(doc.fileName || "—") +
+        "</td><td class=\"acc-doc-actions\">" +
+        self.docActions(doc) +
+        "</td></tr>";
+    });
+    return rows;
+  },
+
+  docTable(title, rowsHtml) {
+    return (
+      "<h4>" +
+      this.esc(title) +
+      "</h4>" +
+      '<div class="acc-table-wrap"><table class="acc-doc-table"><thead><tr>' +
+      "<th>Document</th><th>Ver</th><th>Status</th><th>Check</th><th>File</th><th>Actions</th>" +
+      "</tr></thead><tbody>" +
+      (rowsHtml || '<tr><td colspan="6" class="gos-muted">None</td></tr>') +
+      "</tbody></table></div>"
+    );
+  },
+
+  async openFile(url, mode, fileName) {
+    var token = localStorage.getItem("gl_token") || "";
+    var inline = mode !== "download";
+    var res = await fetch(
+      url + (inline ? (url.indexOf("?") >= 0 ? "&" : "?") + "inline=1" : ""),
+      { headers: { Authorization: token ? "Bearer " + token : "" } }
+    );
+    if (!res.ok) throw new Error("Could not open the file");
+    var blob = await res.blob();
+    var obj = URL.createObjectURL(blob);
+    if (inline) {
+      window.open(obj, "_blank", "noopener");
+      return;
+    }
+    var a = document.createElement("a");
+    a.href = obj;
+    a.download = fileName || "document.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   },
 
   async openShipment(host, id) {
@@ -597,141 +799,230 @@ window.GreenOSModules.accounting = {
       var acc = d.accounting || {};
       var cust = d.customer || {};
       var carr = d.carrier || {};
-      var docs = (d.documents || [])
-        .map(function (doc) {
-          return (
-            "<li>" +
-            self.esc(doc.docType) +
-            " — " +
-            self.esc(doc.status || "") +
-            (doc.fileUrl
-              ? ' <a href="' +
-                self.esc(doc.fileUrl) +
-                '" target="_blank" rel="noopener">file</a>'
-              : "") +
-            "</li>"
-          );
-        })
-        .join("");
+      var lane = d.lane || {};
+      var identity = d.identity || {};
+      var docVerified = String(acc.docStatus || "").toUpperCase() === "VERIFIED";
+      var finOk = Boolean(acc.financialVerified);
+      var docsRole = "Accounting Documents runs this step";
+      var payRole = "Accounting Payments runs this step";
 
-      var actions = "";
-      if (perms.canVerifyDocuments) {
-        actions +=
-          '<button type="button" class="btn-primary" data-act="verify-docs" style="width:auto">Verify documents</button> ';
-        actions +=
-          '<button type="button" data-act="reject-docs" style="width:auto">Reject / request correction</button> ';
-      }
-      if (perms.canVerifyFinancials) {
-        actions +=
-          '<button type="button" class="btn-primary" data-act="verify-fin" style="width:auto">Confirm amounts</button> ';
-        actions +=
-          '<button type="button" data-act="ready-bill" style="width:auto">Ready for Billing</button> ';
-        actions +=
-          '<button type="button" data-act="ready-pay" style="width:auto">Ready for Carrier Payment</button> ';
-      }
-      if (perms.canCreateInvoice) {
-        actions +=
-          '<button type="button" class="btn-primary" data-act="invoice" style="width:auto">Create invoice</button> ';
-        actions +=
-          '<button type="button" data-act="send-invoice" style="width:auto">Mark invoice sent</button> ';
-      }
-      if (perms.canRecordCustomerPayment) {
-        actions +=
-          '<button type="button" class="btn-primary" data-act="cust-pay" style="width:auto">Record customer payment</button> ';
-      }
-      if (perms.canExecuteCarrierPayment) {
-        actions +=
-          '<button type="button" class="btn-primary" data-act="carr-pay" style="width:auto"' +
-          (acc.canPayCarrier ? "" : " disabled title=\"Blocked until Documents verification\"") +
-          ">Execute carrier payment</button> ";
-      }
-      actions +=
-        '<button type="button" data-act="note" style="width:auto">Add accounting note</button>';
+      var loadRows = self.docRows(self.loadDocSlots, d.documents || [], {});
+      var carrierRows = self.docRows(self.carrierDocSlots, d.carrierDocuments || [], {
+        skipMissing: false,
+      });
+
+      var actions =
+        '<div class="acc-action-group"><h4>Documents</h4><div class="acc-actions">' +
+        self.actionButton(
+          "verify-docs",
+          "Verify documents",
+          Boolean(perms.canVerifyDocuments),
+          perms.canVerifyDocuments ? "Mark RC, BOL, and POD reviewed" : docsRole,
+          true
+        ) +
+        self.actionButton(
+          "reject-docs",
+          "Request correction",
+          Boolean(perms.canVerifyDocuments),
+          perms.canVerifyDocuments ? "Uses the correction reason below" : docsRole,
+          false
+        ) +
+        "</div></div>" +
+        '<div class="acc-action-group"><h4>Amounts</h4><div class="acc-actions">' +
+        self.actionButton(
+          "verify-fin",
+          "Confirm amounts",
+          Boolean(perms.canVerifyFinancials) && docVerified,
+          !perms.canVerifyFinancials
+            ? docsRole
+            : docVerified
+              ? "Confirm customer and carrier amounts"
+              : "Verify documents first",
+          true
+        ) +
+        self.actionButton(
+          "ready-bill",
+          "Ready for Billing",
+          Boolean(perms.canVerifyFinancials) && docVerified && finOk,
+          !perms.canVerifyFinancials
+            ? docsRole
+            : !docVerified
+              ? "Verify documents first"
+              : !finOk
+                ? "Confirm amounts first"
+                : "Release this load to billing",
+          false
+        ) +
+        self.actionButton(
+          "ready-pay",
+          "Ready for Carrier Payment",
+          Boolean(perms.canVerifyFinancials) && docVerified && finOk,
+          !perms.canVerifyFinancials
+            ? docsRole
+            : !docVerified
+              ? "Verify documents first"
+              : !finOk
+                ? "Confirm amounts first"
+                : "Release carrier payment",
+          false
+        ) +
+        "</div></div>" +
+        '<div class="acc-action-group"><h4>Billing and payments</h4><div class="acc-actions">' +
+        self.actionButton(
+          "invoice",
+          "Create invoice",
+          Boolean(perms.canCreateInvoice) && Boolean(acc.readyForBilling),
+          !perms.canCreateInvoice
+            ? payRole
+            : acc.readyForBilling
+              ? "Uses the invoice number and dates below"
+              : "Waiting for Ready for Billing",
+          true
+        ) +
+        self.actionButton(
+          "send-invoice",
+          "Mark invoice sent",
+          Boolean(perms.canCreateInvoice) && Boolean(cust.invoiceNumber),
+          !perms.canCreateInvoice
+            ? payRole
+            : cust.invoiceNumber
+              ? "Record that the invoice was sent"
+              : "Create the invoice first",
+          false
+        ) +
+        self.actionButton(
+          "cust-pay",
+          "Record customer payment",
+          Boolean(perms.canRecordCustomerPayment) &&
+            (Boolean(acc.readyForBilling) || Boolean(cust.invoiceNumber)),
+          !perms.canRecordCustomerPayment
+            ? payRole
+            : "Ready for Billing or an invoice is required",
+          true
+        ) +
+        self.actionButton(
+          "carr-pay",
+          "Execute carrier payment",
+          Boolean(perms.canExecuteCarrierPayment) && Boolean(acc.canPayCarrier),
+          !perms.canExecuteCarrierPayment
+            ? payRole
+            : acc.canPayCarrier
+              ? "Pay the carrier after documents, amounts, and the ready flag"
+              : "Blocked until documents, amounts, and Ready for Carrier Payment",
+          true
+        ) +
+        "</div></div>";
 
       host.innerHTML =
-        '<div style="padding:1rem;border:1px solid rgba(255,255,255,0.1);border-radius:12px;background:rgba(0,0,0,0.2)">' +
-        "<h3 style=\"margin-top:0\">" +
-        self.esc((d.identity && d.identity.loadNumber) || id) +
+        '<div class="acc-desk">' +
+        "<h3>" +
+        self.esc(identity.loadNumber || identity.greenOsShipmentId || id) +
         " — " +
-        self.esc((d.identity && d.identity.status) || "") +
+        self.esc(identity.status || "") +
         "</h3>" +
-        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem">' +
+        '<p class="gos-muted">' +
+        self.esc(identity.brokerName ? "Broker: " + identity.brokerName : "") +
+        (lane.pickup || lane.delivery
+          ? " · " + self.esc(lane.pickup || "—") + " → " + self.esc(lane.delivery || "—")
+          : "") +
+        "</p>" +
+        '<div class="acc-summary">' +
         "<div><h4>Customer</h4>" +
         "<div>" +
         self.esc(cust.name || "—") +
-        "</div>" +
-        "<div>Rate: " +
+        "</div><div>Rate " +
         self.money(cust.rate) +
-        "</div>" +
-        "<div>Accessorials: " +
+        " · Accessorials " +
         self.money(cust.accessorials) +
-        "</div>" +
-        "<div>Total: " +
+        " · Total " +
         self.money(cust.total) +
-        "</div>" +
-        "<div>Invoice: " +
+        "</div><div>Invoice " +
         self.esc(cust.invoiceNumber || "—") +
-        "</div>" +
-        "<div>Received: " +
-        self.money(cust.amountReceived) +
-        "</div>" +
-        "<div>Outstanding: " +
+        " · Outstanding " +
         self.money(cust.outstanding) +
-        "</div>" +
-        "<div>Status: " +
+        " · " +
         self.esc(cust.paymentStatus || "—") +
         "</div></div>" +
         "<div><h4>Carrier</h4>" +
         "<div>" +
         self.esc(carr.name || "—") +
-        "</div>" +
-        "<div>Rate: " +
+        "</div><div>Rate " +
         self.money(carr.rate) +
-        "</div>" +
-        "<div>Total: " +
+        " · Total " +
         self.money(carr.total) +
-        "</div>" +
-        "<div>Paid: " +
-        self.money(carr.amountPaid) +
-        "</div>" +
-        "<div>Outstanding: " +
+        " · Outstanding " +
         self.money(carr.outstanding) +
-        "</div>" +
-        "<div>Status: " +
+        "</div><div>" +
         self.esc(carr.paymentStatus || "—") +
         "</div></div>" +
-        "<div><h4>Documents</h4><ul style=\"padding-left:1.1rem;margin:0\">" +
-        (docs || "<li class=\"gos-muted\">None</li>") +
-        "</ul></div>" +
-        "<div><h4>Accounting</h4>" +
-        "<div>Doc status: " +
-        self.esc(acc.docStatus || "—") +
-        "</div>" +
-        "<div>Financial verified: " +
+        "<div><h4>Workflow</h4>" +
+        "<div>Documents: " +
+        self.esc(acc.docStatus || "PENDING") +
+        "</div><div>Amounts confirmed: " +
         (acc.financialVerified ? "Yes" : "No") +
-        "</div>" +
-        "<div>Ready billing: " +
+        "</div><div>Ready for billing: " +
         (acc.readyForBilling ? "Yes" : "No") +
-        "</div>" +
-        "<div>Ready carrier pay: " +
+        "</div><div>Ready for carrier payment: " +
         (acc.readyForCarrierPayment ? "Yes" : "No") +
-        "</div>" +
-        "<div>Can pay carrier: " +
-        (acc.canPayCarrier ? "Yes" : "Blocked") +
-        "</div>" +
-        '<pre class="gos-muted" style="white-space:pre-wrap;font-size:0.8rem">' +
-        self.esc(acc.notes || "No notes") +
-        "</pre></div>" +
-        "</div>" +
-        '<div style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:0.5rem">' +
+        "</div><div>Carrier payment: " +
+        (acc.canPayCarrier ? "Allowed" : "Blocked") +
+        "</div></div></div>" +
+        self.docTable("Load documents", loadRows) +
+        self.docTable("Carrier packet", carrierRows) +
         actions +
+        '<div class="acc-fields">' +
+        "<label>Correction reason" +
+        '<input id="acc-correction" type="text" placeholder="What must be fixed on the documents">' +
+        "</label>" +
+        "<label>Invoice number" +
+        '<input id="acc-invoice-no" type="text" value="' +
+        self.esc(cust.invoiceNumber || "") +
+        '">' +
+        "</label>" +
+        "<label>Invoice date" +
+        '<input id="acc-invoice-date" type="date" value="' +
+        self.esc(self.isoDate(cust.invoiceDate)) +
+        '">' +
+        "</label>" +
+        "<label>Due date" +
+        '<input id="acc-due-date" type="date" value="' +
+        self.esc(self.isoDate(cust.dueDate)) +
+        '">' +
+        "</label>" +
+        '<label class="acc-note-field">Accounting note' +
+        '<textarea id="acc-note" rows="2" placeholder="Internal accounting note"></textarea>' +
+        "</label>" +
         "</div>" +
-        '<p id="acc-msg" class="gos-muted" style="margin-top:0.75rem"></p>' +
+        '<div class="acc-actions">' +
+        self.actionButton("note", "Add accounting note", true, "Saved on this load", false) +
+        "</div>" +
+        '<pre class="acc-notes">' +
+        self.esc(acc.notes || "No notes yet") +
+        "</pre>" +
+        '<p id="acc-msg" class="gos-muted"></p>' +
         "</div>";
 
       host.querySelectorAll("[data-act]").forEach(function (btn) {
         btn.addEventListener("click", function () {
+          if (btn.disabled) return;
           self.runAction(host, id, btn.getAttribute("data-act"));
+        });
+      });
+      host.querySelectorAll(".acc-file").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var msg = host.querySelector("#acc-msg");
+          self
+            .openFile(
+              btn.getAttribute("data-url"),
+              btn.getAttribute("data-mode"),
+              btn.getAttribute("data-name")
+            )
+            .catch(function (err) {
+              if (msg) {
+                msg.textContent = err.message || "Could not open the file";
+                msg.style.color = "#ef4444";
+              }
+            });
         });
       });
     } catch (err) {
@@ -747,31 +1038,40 @@ window.GreenOSModules.accounting = {
     var body = {};
     if (act === "verify-docs") path = "/shipments/" + id + "/documents/verify";
     else if (act === "reject-docs") {
-      var reason = window.prompt("Rejection / correction reason:");
-      if (!reason) return;
+      var reason = ((host.querySelector("#acc-correction") || {}).value || "").trim();
+      if (!reason) {
+        if (msg) {
+          msg.textContent = "Enter a correction reason first.";
+          msg.style.color = "#ef4444";
+        }
+        return;
+      }
       path = "/shipments/" + id + "/documents/reject";
       body = { reason: reason, needsCorrection: true };
     } else if (act === "verify-fin") path = "/shipments/" + id + "/financials/verify";
     else if (act === "ready-bill") path = "/shipments/" + id + "/ready-for-billing";
     else if (act === "ready-pay") path = "/shipments/" + id + "/ready-for-carrier-payment";
     else if (act === "invoice") {
-      var inv = window.prompt("Invoice number (optional):", "");
       path = "/shipments/" + id + "/invoice";
-      body = { invoiceNumber: inv || null };
+      body = {
+        invoiceNumber: ((host.querySelector("#acc-invoice-no") || {}).value || "").trim() || null,
+        invoiceDate: (host.querySelector("#acc-invoice-date") || {}).value || null,
+        dueDate: (host.querySelector("#acc-due-date") || {}).value || null,
+      };
     } else if (act === "send-invoice") path = "/shipments/" + id + "/invoice/send";
     else if (act === "cust-pay") path = "/shipments/" + id + "/customer-payment";
     else if (act === "carr-pay") {
-      if (
-        !window.confirm(
-          "Execute carrier payment? Backend will block if Documents verification is incomplete."
-        )
-      ) {
+      path = "/shipments/" + id + "/carrier-payment";
+      body = { note: ((host.querySelector("#acc-note") || {}).value || "").trim() || null };
+    } else if (act === "note") {
+      var note = ((host.querySelector("#acc-note") || {}).value || "").trim();
+      if (!note) {
+        if (msg) {
+          msg.textContent = "Enter an accounting note first.";
+          msg.style.color = "#ef4444";
+        }
         return;
       }
-      path = "/shipments/" + id + "/carrier-payment";
-    } else if (act === "note") {
-      var note = window.prompt("Accounting note:");
-      if (!note) return;
       path = "/shipments/" + id + "/notes";
       body = { note: note };
     }
