@@ -293,16 +293,22 @@ window.GreenOSModules.broker = {
       "</nav>" +
       '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0 0 0.75rem">' +
       '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +
-      '<div style="display:flex;gap:0.5rem">' +
+      '<div style="display:flex;gap:0.5rem;align-items:center">' +
+      '<label class="crm-page-size">Per page <select class="crm-page-size-select broker-page-size" aria-label="Shipments per page">' +
+      "<option value=\"25\">25</option><option value=\"50\">50</option><option value=\"100\">100</option><option value=\"200\">200</option>" +
+      "</select></label>" +
       '<button type="button" class="btn-secondary broker-ship-prev" style="width:auto" disabled>Previous</button>' +
       '<button type="button" class="btn-secondary broker-ship-next" style="width:auto" disabled>Next</button>' +
       "</div></div>" +
-      '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+      '<div class="table-wrap crm-ship-scroll"><table class="crm-table"><thead><tr>' +
       "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Bid</th><th>Updates</th><th>Bid Submitted</th>" +
       '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="9">Loading…</td></tr></tbody></table></div>' +
       '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0.75rem 0 0">' +
       '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +
-      '<div style="display:flex;gap:0.5rem">' +
+      '<div style="display:flex;gap:0.5rem;align-items:center">' +
+      '<label class="crm-page-size">Per page <select class="crm-page-size-select broker-page-size" aria-label="Shipments per page">' +
+      "<option value=\"25\">25</option><option value=\"50\">50</option><option value=\"100\">100</option><option value=\"200\">200</option>" +
+      "</select></label>" +
       '<button type="button" class="btn-secondary broker-ship-prev" style="width:auto" disabled>Previous</button>' +
       '<button type="button" class="btn-secondary broker-ship-next" style="width:auto" disabled>Next</button>' +
       "</div></div>";
@@ -312,6 +318,29 @@ window.GreenOSModules.broker = {
         self._shipmentsTab = btn.getAttribute("data-ship-tab") || "new";
         self._shipmentsPage = 1;
         self.renderShipments(body, root);
+      });
+    });
+    function syncPageSizeSelects() {
+      var current = 50;
+      try {
+        var storedSize = Number(sessionStorage.getItem("gos_ship_page_size") || "");
+        if ([25, 50, 100, 200].indexOf(storedSize) >= 0) current = storedSize;
+      } catch (e) {}
+      body.querySelectorAll(".broker-page-size").forEach(function (sel) {
+        sel.value = String(current);
+      });
+    }
+    syncPageSizeSelects();
+    body.querySelectorAll(".broker-page-size").forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        var nextSize = Number(sel.value);
+        if ([25, 50, 100, 200].indexOf(nextSize) < 0) nextSize = 50;
+        try {
+          sessionStorage.setItem("gos_ship_page_size", String(nextSize));
+        } catch (e) {}
+        self._shipmentsPage = 1;
+        syncPageSizeSelects();
+        paint(true);
       });
     });
     body.querySelectorAll(".broker-ship-prev").forEach(function (btn) {
@@ -613,6 +642,10 @@ window.GreenOSModules.broker = {
         var tab = self._shipmentsTab || "new";
         var page = self._shipmentsPage || 1;
         var pageSize = 50;
+        try {
+          var storedSize = Number(sessionStorage.getItem("gos_ship_page_size") || "");
+          if ([25, 50, 100, 200].indexOf(storedSize) >= 0) pageSize = storedSize;
+        } catch (e) {}
         var params = ["page=" + page, "pageSize=" + pageSize];
         if (tab === "accepted-another") {
           params.push("status=ACCEPTED_ANOTHER_COMPANY");

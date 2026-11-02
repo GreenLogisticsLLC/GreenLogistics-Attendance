@@ -524,10 +524,46 @@ window.GreenOSModules.crm = {
     );
   },
 
+  shipPageSizes: [25, 50, 100, 200],
+
+  shipPageSize(explicit) {
+    var sizes = this.shipPageSizes;
+    var n = Number(explicit);
+    if (sizes.indexOf(n) >= 0) return n;
+    try {
+      n = Number(sessionStorage.getItem("gos_ship_page_size") || "");
+    } catch (e) {
+      n = 50;
+    }
+    return sizes.indexOf(n) >= 0 ? n : 50;
+  },
+
+  pageSizeSelectHtml(current) {
+    var self = this;
+    return (
+      '<label class="crm-page-size">Per page ' +
+      '<select class="crm-page-size-select" aria-label="Shipments per page">' +
+      this.shipPageSizes
+        .map(function (n) {
+          return (
+            '<option value="' +
+            n +
+            '"' +
+            (n === current ? " selected" : "") +
+            ">" +
+            n +
+            "</option>"
+          );
+        })
+        .join("") +
+      "</select></label>"
+    );
+  },
+
   async renderShipments(body, root, brokerId, options) {
     options = options || {};
     var page = Math.max(1, Number(options.page) || 1);
-    var pageSize = Math.max(1, Number(options.pageSize) || 50);
+    var pageSize = this.shipPageSize(options.pageSize);
     // Keep the current table on background reloads so the page does not blink.
     if (!body.querySelector("#crm-ship-body")) {
       body.innerHTML = "<p>Loading shipments…</p>";
@@ -591,7 +627,9 @@ window.GreenOSModules.crm = {
       }
       var fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
       var toIdx = Math.min(total, (page - 1) * pageSize + rows.length);
+      var crmUi = this;
       body.innerHTML =
+        '<div class="crm-ship-board">' +
         '<section class="gos-dash-hero">' +
         "<h1>" +
         tabLabel +
@@ -606,8 +644,10 @@ window.GreenOSModules.crm = {
               ? "Showing " + fromIdx + "–" + toIdx + " of " + total
               : "No shipments") +
             (totalPages > 1 ? " · Page " + page + " / " + totalPages : "");
+          var sizeSelect = crmUi.pageSizeSelectHtml(pageSize);
           var btns =
-            '<div style="display:flex;gap:0.5rem">' +
+            '<div style="display:flex;gap:0.5rem;align-items:center">' +
+            sizeSelect +
             '<button type="button" class="btn-secondary crm-ship-prev" style="width:auto"' +
             (page <= 1 ? " disabled" : "") +
             ">Previous</button>" +
@@ -622,7 +662,7 @@ window.GreenOSModules.crm = {
             "</span>" +
             btns +
             "</div>" +
-            '<div class="table-wrap crm-table-wrap"><table class="crm-table">' +
+            '<div class="table-wrap crm-table-wrap crm-ship-scroll"><table class="crm-table">' +
             "<thead><tr>" +
             "<th>#</th><th>Shipment</th><th>Customer</th><th>Broker</th><th>Pickup</th><th>Delivery</th>" +
             "<th>Miles</th><th>Equipment</th><th>Price</th><th>Status</th><th>Priority</th>" +
@@ -633,7 +673,7 @@ window.GreenOSModules.crm = {
             meta +
             "</span>" +
             btns +
-            "</div>"
+            "</div></div>"
           );
         })();
 
@@ -642,13 +682,22 @@ window.GreenOSModules.crm = {
       body.querySelectorAll(".crm-ship-prev").forEach(function (btn) {
         btn.addEventListener("click", function () {
           if (page <= 1) return;
-          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page - 1 }));
+          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page - 1, pageSize: pageSize }));
         });
       });
       body.querySelectorAll(".crm-ship-next").forEach(function (btn) {
         btn.addEventListener("click", function () {
           if (page >= totalPages) return;
-          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page + 1 }));
+          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page + 1, pageSize: pageSize }));
+        });
+      });
+      body.querySelectorAll(".crm-page-size-select").forEach(function (sel) {
+        sel.addEventListener("change", function () {
+          var nextSize = self.shipPageSize(sel.value);
+          try {
+            sessionStorage.setItem("gos_ship_page_size", String(nextSize));
+          } catch (e) {}
+          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: 1, pageSize: nextSize }));
         });
       });
       if (!rows.length) {

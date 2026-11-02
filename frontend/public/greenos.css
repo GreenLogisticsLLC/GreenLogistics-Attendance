@@ -1272,6 +1272,53 @@ html[data-theme="light"] {
 .crm-table-wrap {
   overflow-x: auto;
 }
+.crm-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--gos-muted);
+  font-size: 0.85rem;
+}
+.crm-page-size-select {
+  background: var(--gos-surface2, #12201a);
+  color: var(--gos-text, #e8f0ea);
+  border: 1px solid var(--gos-border);
+  border-radius: 8px;
+  padding: 0.28rem 0.4rem;
+}
+.gos-module-layout:has(.crm-ship-board) {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--gos-topbar-h) - 2.5rem);
+  min-height: 0;
+}
+.gos-module-body:has(.crm-ship-board) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.crm-ship-board {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.crm-ship-scroll {
+  overflow: auto;
+  max-height: calc(100dvh - var(--gos-topbar-h) - 16rem);
+}
+.crm-ship-board .crm-ship-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+.crm-ship-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--gos-surface, #0e1c16);
+}
 .crm-table {
   width: 100%;
   border-collapse: collapse;
