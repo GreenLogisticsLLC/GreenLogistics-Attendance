@@ -195,7 +195,13 @@ export class CrmService {
                 where: { status: "WORKING", ...teamAssigned },
             }),
             prisma.shipmentLead.count({
-                where: { status: "QUOTE_SENT", ...teamAssigned },
+                where: {
+                    ...teamAssigned,
+                    OR: [
+                        { quoteSentAt: { not: null } },
+                        { status: { in: ["BID_SUBMITTED", "QUOTE_SENT"] } },
+                    ],
+                },
             }),
             prisma.shipmentLead.count({
                 where: { status: "WON", ...teamAssigned },
@@ -964,7 +970,7 @@ export class CrmService {
                 currentShipments,
                 awaitingAcceptance: countFor("AWAITING_ACCEPTANCE"),
                 followUp: countFor("FOLLOW_UP") + countFor("BROKER_REPLY"),
-                quotesSent: countFor("QUOTE_SENT"),
+                quotesSent: countFor("QUOTE_SENT") + countFor("BID_SUBMITTED"),
                 won: countFor("WON"),
                 lost: countFor("LOST") + countFor("ACCEPTED_ANOTHER_COMPANY"),
                 averageResponseTimeMinutes: avgMs == null ? null : Math.round(avgMs / 60000),

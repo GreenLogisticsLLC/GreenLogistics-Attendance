@@ -316,7 +316,7 @@ window.GreenOSModules.crm = {
         this.kpiCard("New Today", k.newShipmentsToday, "accent-green") +
         this.kpiCard("Awaiting Agent", k.awaitingAcceptance, "accent-warn") +
         this.kpiCard("Agent Working", k.working || 0, "accent-green") +
-        this.kpiCard("Quotes Sent", k.quotesSent, "accent-blue") +
+        this.kpiCard("Bids", k.quotesSent || 0, "accent-blue") +
         this.kpiCard("Won", k.won, "accent-green") +
         this.kpiCard("Lost", k.lost, "accent-warn") +
         this.kpiCard("Active Shipments", k.activeShipments, "accent-purple") +
