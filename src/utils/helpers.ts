@@ -243,6 +243,29 @@ export function isAfterHoursAssignment(date: Date, timezone: string): boolean {
     return minutes >= workEnd && minutes < workStart;
 }
 
+/** Night shipment stays put until this instant, then check-in starts the Accept clock. */
+export const NIGHT_HOLD_UNTIL_OFFICE = new Date("2099-01-01T00:00:00.000Z");
+
+/**
+ * Daytime arrivals: 15 minutes to Accept.
+ * Night arrivals while the broker is out: hold until they check in.
+ * Night arrivals when they are already In Office: 30 minutes to Accept.
+ */
+export function nightAcceptanceDeadline(input: {
+    arrivedAt: Date;
+    now: Date;
+    assigneeInOffice: boolean;
+    timezone: string;
+}): Date {
+    if (!isAfterHoursAssignment(input.arrivedAt, input.timezone)) {
+        return new Date(input.now.getTime() + 15 * 60_000);
+    }
+    if (input.assigneeInOffice) {
+        return new Date(input.now.getTime() + 30 * 60_000);
+    }
+    return NIGHT_HOLD_UNTIL_OFFICE;
+}
+
 /** Paid/countable work window: 17:00 → 01:00 next day. */
 export function getAttendanceWorkHoursBounds(workDate: string, timezone: string) {
     return {

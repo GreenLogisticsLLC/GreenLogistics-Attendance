@@ -12,7 +12,7 @@ import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
 import { arrivedAfterShipmentCutoff } from "../../services/shipment-cutoff.js";
 import { config } from "../../config/env.js";
-import { isAfterHoursAssignment } from "../../utils/helpers.js";
+import { isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE } from "../../utils/helpers.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
@@ -36,6 +36,16 @@ const WAITING_TO_ASSIGN = [
     "AGENT_OPEN",
 ] as const;
 
+function shipmentArrivedAtNight(lead: { receivedAt?: Date | null; createdAt?: Date | null }): boolean {
+    const at = lead.receivedAt || lead.createdAt;
+    if (!at) return false;
+    return isAfterHoursAssignment(at, config.timezone);
+}
+
+function isHeldUntilOffice(deadline: Date | null | undefined): boolean {
+    return Boolean(deadline && deadline.getTime() >= NIGHT_HOLD_UNTIL_OFFICE.getTime() - 86_400_000);
+}
+
 function isKeptByCurrentBroker(lead: { status: string; acceptedAt?: Date | null }) {
     if (lead.acceptedAt) return true;
     const status = normalizeStatus(lead.status);
@@ -48,6 +58,8 @@ const QUEUE_NEW = "brokers";
 const QUEUE_OTHER = "other";
 /** Minutes to accept / react before load is passed to the next In Office broker. */
 const ACCEPTANCE_MINUTES = 15;
+/** Night shipments wait until the broker is In Office, then this many minutes to Accept. */
+const NIGHT_ACCEPT_MINUTES = 30;
 let lastPassedFlagRepairAt = 0;
 
 export type EligibleBroker = {
@@ -173,7 +185,23 @@ export class AssignmentEngine {
             return lead;
         }
 
-        const acceptanceDeadline = new Date(Date.now() + ACCEPTANCE_MINUTES * 60_000);
+        const arrivedAtNight = shipmentArrivedAtNight(lead);
+        let assigneeInOffice = false;
+        if (arrivedAtNight && broker.employeeId) {
+            const inOfficeIds = await getInOfficeEmployeeIds([broker.employeeId]);
+            assigneeInOffice = inOfficeIds.has(broker.employeeId);
+        }
+        const acceptanceDeadline = nightAcceptanceDeadline({
+            arrivedAt: lead.receivedAt || lead.createdAt,
+            now: new Date(),
+            assigneeInOffice,
+            timezone: config.timezone,
+        });
+        const windowLabel = !arrivedAtNight
+            ? `${ACCEPTANCE_MINUTES}m`
+            : assigneeInOffice
+              ? `${NIGHT_ACCEPT_MINUTES}m after check-in`
+              : "until this broker checks in, then 30m to Accept";
         const isReassignment = Boolean(
             options?.reassignFrom ||
                 lead.wasEverReassigned ||
@@ -203,8 +231,8 @@ export class AssignmentEngine {
         if (!assigned) return lead;
 
         const reason = options?.reassignFrom
-            ? `Reassigned from ${options.reassignFrom} → ${broker.displayName} (no reaction in ${ACCEPTANCE_MINUTES}m)`
-            : `Round-robin assigned to ${broker.displayName} (${broker.userId})`;
+            ? `Reassigned from ${options.reassignFrom} → ${broker.displayName} (${windowLabel})`
+            : `Round-robin assigned to ${broker.displayName} (${broker.userId}) — ${windowLabel}`;
 
         await this.pipelineLog(shipmentLeadId, reason);
         await domainEventEngine.emit({
@@ -383,6 +411,9 @@ export class AssignmentEngine {
             take: 100,
         });
         for (const lead of awaiting) {
+            if (shipmentArrivedAtNight(lead) || isHeldUntilOffice(lead.acceptanceDeadline)) {
+                continue;
+            }
             const brokerId = lead.assignedBrokerId!;
             const stillEligible = (await this.listEligibleBrokers()).some(
                 (b) => b.userId === brokerId
@@ -455,8 +486,11 @@ export class AssignmentEngine {
 
         let reassigned = 0;
         for (const lead of expired) {
+            if (isHeldUntilOffice(lead.acceptanceDeadline)) continue;
             const latest = await shipmentLeadRepository.findById(lead.shipmentLeadId);
             if (!latest || isKeptByCurrentBroker(latest)) continue;
+            const nightShipment = shipmentArrivedAtNight(latest);
+            const timeoutMinutes = nightShipment ? NIGHT_ACCEPT_MINUTES : ACCEPTANCE_MINUTES;
             const previousBrokerId = lead.assignedBrokerId!;
             const previousUser = await prisma.user.findUnique({
                 where: { userId: previousBrokerId },
@@ -470,13 +504,13 @@ export class AssignmentEngine {
 
             await this.pipelineLog(
                 lead.shipmentLeadId,
-                `No reaction from ${previousLabel} within ${ACCEPTANCE_MINUTES}m — reassigning`
+                `No reaction from ${previousLabel} within ${timeoutMinutes}m — reassigning`
             );
             await domainEventEngine.emit({
                 shipmentLeadId: lead.shipmentLeadId,
                 eventType: "STATUS_CHANGED",
                 title: "Acceptance missed — reassigning",
-                message: `${previousLabel} did not accept within ${ACCEPTANCE_MINUTES} minutes`,
+                message: `${previousLabel} did not accept within ${timeoutMinutes} minutes`,
                 timelineStage: "STATUS_CHANGED",
                 payload: {
                     previousBrokerId,
@@ -500,7 +534,7 @@ export class AssignmentEngine {
                     userId: previousBrokerId,
                     notificationType: "ACCEPTANCE_MISSED",
                     title: "Shipment reassigned",
-                    message: `You did not accept shipment # ${gosId} within ${ACCEPTANCE_MINUTES} minutes — it was passed to the next broker`,
+                    message: `You did not accept shipment # ${gosId} within ${timeoutMinutes} minutes — it was passed to the next broker`,
                     // No shipmentLeadId — card now belongs to another broker; avoid Forbidden on open.
                     meta: { greenOsShipmentId: lead.greenOsShipmentId },
                 })
@@ -693,6 +727,13 @@ export class AssignmentEngine {
             );
         }
 
+        const armed = await this.armNightAcceptanceWindows(user.userId);
+        if (armed > 0) {
+            console.log(
+                `[assignment] ${displayName(user)} In Office — ${armed} night shipment(s) now have ${NIGHT_ACCEPT_MINUTES}m to Accept`
+            );
+        }
+
         // New queue first. Other uses its own pointer and does not consume a New turn.
         const drained = await this.assignPendingNewLeads(3);
         await this.assignPendingOtherLeads(3);
@@ -703,6 +744,26 @@ export class AssignmentEngine {
         }
 
         return { orderedUserIds: joinedNew.orderedUserIds, nextIndex: joinedNew.nextIndex };
+    }
+
+    /**
+     * Night shipments stay with the assignee until they check in.
+     * Check-in starts a 30-minute Accept window.
+     */
+    async armNightAcceptanceWindows(userId: string): Promise<number> {
+        const now = new Date();
+        const updated = await prisma.shipmentLead.updateMany({
+            where: {
+                assignedBrokerId: userId,
+                acceptedAt: null,
+                status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
+                acceptanceDeadline: { gte: NIGHT_HOLD_UNTIL_OFFICE },
+            },
+            data: {
+                acceptanceDeadline: new Date(now.getTime() + NIGHT_ACCEPT_MINUTES * 60_000),
+            },
+        });
+        return updated.count;
     }
 
     /**
