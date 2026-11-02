@@ -1,16 +1,13 @@
 import { prisma } from "../config/database.js";
-import { config } from "../config/env.js";
 import { setCompanyImportAfter } from "../modules/email/services/gmail-import-cutoff.service.js";
 import { formatGreenOsShipmentId, GOS_SHIPMENT_START } from "../modules/shipment/shipment.id.js";
-import { zonedDateTime } from "../utils/helpers.js";
 
-/** One-shot board reset: shipments count from the start of this calendar day. */
-const SHIPMENTS_EPOCH = "2026-11-02";
+/** One-shot: wipe every shipment and import only mail received after this reset runs. */
+const SHIPMENTS_EPOCH = "2026-11-02T13:30:00Z";
 
 /**
- * Delete every shipment so Green OS starts empty, and ignore Gmail received
- * before the start of SHIPMENTS_EPOCH in the company timezone.
- * Runs once. People, attendance, and carrier profiles stay.
+ * Delete every shipment on every account and ignore Gmail received before
+ * the moment this reset runs. Runs once. People, attendance, and carriers stay.
  */
 export async function resetShipmentsForEpoch(): Promise<void> {
     const existing = await prisma.setting.findUnique({
@@ -21,11 +18,13 @@ export async function resetShipmentsForEpoch(): Promise<void> {
     if (existing?.settingValue === SHIPMENTS_EPOCH) return;
 
     const count = await prisma.shipmentLead.count();
+    const now = new Date();
     await prisma.shipmentImportLog.updateMany({ data: { shipmentLeadId: null } });
+    await prisma.brokerMailboxMessage.updateMany({ data: { shipmentLeadId: null } });
+    await prisma.platformNotification.deleteMany();
     await prisma.shipmentLead.deleteMany();
 
-    const start = zonedDateTime(SHIPMENTS_EPOCH, "00:00", config.timezone);
-    await setCompanyImportAfter(start, "shipments-epoch-reset");
+    await setCompanyImportAfter(now, "shipments-epoch-reset");
 
     const nextGos = formatGreenOsShipmentId(
         Number.isFinite(GOS_SHIPMENT_START) && GOS_SHIPMENT_START > 0 ? GOS_SHIPMENT_START : 1000001
@@ -62,12 +61,12 @@ export async function resetShipmentsForEpoch(): Promise<void> {
             category: "ops",
             settingKey: "shipments_epoch",
             settingValue: SHIPMENTS_EPOCH,
-            description: "Shipments were cleared and now count from this day",
+            description: "Shipments were cleared and now count from this instant",
         },
         update: { settingValue: SHIPMENTS_EPOCH },
     });
 
     console.log(
-        `[reset] Cleared ${count} shipment(s). New shipments count from ${SHIPMENTS_EPOCH} (${config.timezone}).`
+        `[reset] Cleared ${count} shipment(s) on all accounts. New shipments count from ${now.toISOString()}.`
     );
 }
