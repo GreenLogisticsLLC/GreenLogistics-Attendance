@@ -143,6 +143,9 @@ window.GreenOSModules.carriers = {
           '<p class="gos-muted">No carriers yet. Click <strong>Add Carrier</strong> to create one and send a secure onboarding link.</p>';
         return;
       }
+      var role =
+        (window.GreenOSUser && (window.GreenOSUser.role || window.GreenOSUser.roleName)) || "";
+      var canDelete = role === "Owner" || role === "Administrator";
       main.innerHTML =
         '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
         "<th>Carrier</th><th>MC</th><th>DOT</th><th>Email</th><th>Status</th><th>Broker</th><th></th>" +
@@ -178,7 +181,15 @@ window.GreenOSModules.carriers = {
             "<td>" + broker + "</td>" +
             '<td><button type="button" class="btn-secondary" data-open="' +
             self.esc(r.carrierId) +
-            '">Open</button></td>' +
+            '">Open</button>' +
+            (canDelete
+              ? '<button type="button" class="btn-secondary" data-delete="' +
+                self.esc(r.carrierId) +
+                '" data-name="' +
+                self.esc(r.legalName) +
+                '" style="margin-left:0.35rem;color:#f07178;border-color:#f07178">Delete</button>'
+              : "") +
+            "</td>" +
             "</tr>"
           );
         }).join("") +
@@ -194,6 +205,23 @@ window.GreenOSModules.carriers = {
           self._carrierId = btn.getAttribute("data-open");
           self._tab = "overview";
           self.showDetail(main, self._carrierId);
+        });
+      });
+      main.querySelectorAll("[data-delete]").forEach(function (btn) {
+        btn.addEventListener("click", async function (ev) {
+          ev.stopPropagation();
+          var id = btn.getAttribute("data-delete");
+          var name = btn.getAttribute("data-name") || "this carrier";
+          if (!id || !confirm("Delete " + name + "? The registration, documents, and onboarding link are removed.")) return;
+          btn.disabled = true;
+          try {
+            await self.api("/" + encodeURIComponent(id), { method: "DELETE" });
+            self._carrierId = null;
+            await self.showList(main);
+          } catch (err) {
+            alert(err.message || err);
+            btn.disabled = false;
+          }
         });
       });
     } catch (e) {

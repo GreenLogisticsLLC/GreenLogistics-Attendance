@@ -59,6 +59,18 @@ export const customerController = {
         }
     },
 
+    async remove(req: AuthRequest, res: Response) {
+        try {
+            const data = await customerService.remove(String(req.params.id), actorFrom(req));
+            res.json({ success: true, data, message: "Customer deleted" });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to delete customer",
+            });
+        }
+    },
+
     async createLoad(req: AuthRequest, res: Response) {
         try {
             const data = await customerService.createLoad(

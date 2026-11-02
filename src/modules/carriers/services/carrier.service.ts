@@ -21,7 +21,7 @@ import {
     normName,
 } from "../carrier-superseded.js";
 import { carrierEmailService } from "./carrier-email.service.js";
-import { carrierStorageService } from "./carrier-storage.service.js";
+import { carrierStorageService, CARRIER_UPLOADS_ROOT } from "./carrier-storage.service.js";
 import { storeCarrierAgreementPdf } from "./carrier-agreement-pdf.service.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { loadDocumentsService } from "../../shipment/services/load-documents.service.js";
@@ -2462,6 +2462,41 @@ export class CarrierService {
             fileName: row.fileName || `${row.docType}.pdf`,
             mimeType: row.mimeType || "application/pdf",
         };
+    }
+
+    /** Main account only. Removes the carrier profile, packet, and uploaded files. */
+    async deleteCarrier(carrierId: string, actor: Actor) {
+        if (!canDeleteCarrierDocuments(String(actor.role || ""))) {
+            throw Object.assign(new Error("Only the main account can delete a carrier"), { status: 403 });
+        }
+        const carrier = await prisma.carrier.findUnique({
+            where: { carrierId },
+            select: { carrierId: true, legalName: true },
+        });
+        if (!carrier) throw Object.assign(new Error("Carrier not found"), { status: 404 });
+
+        await prisma.shipmentLead.updateMany({
+            where: { carrierProfileId: carrierId },
+            data: { carrierProfileId: null },
+        });
+        const docs = await prisma.carrierDocument.findMany({
+            where: { carrierId },
+            select: { documentId: true },
+        });
+        const docIds = docs.map((doc) => doc.documentId);
+        await prisma.aiDocumentJob.deleteMany({
+            where: {
+                OR: [
+                    { carrierId },
+                    ...(docIds.length
+                        ? [{ documentId: { in: docIds }, documentSource: "CARRIER" }]
+                        : []),
+                ],
+            },
+        });
+        await prisma.carrier.delete({ where: { carrierId } });
+        fs.rmSync(path.join(CARRIER_UPLOADS_ROOT, carrierId), { recursive: true, force: true });
+        return { carrierId, legalName: carrier.legalName };
     }
 }
 

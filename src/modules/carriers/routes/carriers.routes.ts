@@ -26,6 +26,7 @@ carriersRouter.post(
     carriersController.inviteRcBolFromLoad
 );
 carriersRouter.get("/:id", requireRole(...staff), carriersController.get);
+carriersRouter.delete("/:id", requireRole("Administrator", "Owner"), carriersController.remove);
 carriersRouter.patch("/:id", requireRole(...staff), carriersController.patch);
 carriersRouter.post("/:id/onboarding/invite", requireRole(...staff), carriersController.invite);
 carriersRouter.post("/:id/onboarding/resend", requireRole(...staff), carriersController.resend);

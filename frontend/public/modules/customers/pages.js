@@ -96,6 +96,9 @@ window.GreenOSModules.customers = {
         '<div class="load-table-wrap"><table class="load-table"><thead><tr>' +
         "<th>Company</th><th>Contact</th><th>Email</th><th>Phone</th><th>Loads</th><th></th>" +
         "</tr></thead><tbody>";
+      var role =
+        (window.GreenOSUser && (window.GreenOSUser.role || window.GreenOSUser.roleName)) || "";
+      var canDelete = role === "Owner" || role === "Administrator";
       rows.forEach(function (r) {
         var hay = [r.companyName, r.contactName, r.email, r.phone, r.city, r.state]
           .filter(Boolean)
@@ -118,7 +121,15 @@ window.GreenOSModules.customers = {
           (r.loadCount || 0) +
           '</td><td><button type="button" class="btn-secondary cust-open" data-id="' +
           self.esc(r.customerId) +
-          '">Open</button></td></tr>';
+          '">Open</button>' +
+          (canDelete
+            ? '<button type="button" class="btn-secondary cust-delete" data-id="' +
+              self.esc(r.customerId) +
+              '" data-name="' +
+              self.esc(r.companyName) +
+              '" style="margin-left:0.35rem;color:#f07178;border-color:#f07178">Delete</button>'
+            : "") +
+          "</td></tr>";
       });
       html += "</tbody></table></div>";
       body.innerHTML = html;
@@ -130,6 +141,22 @@ window.GreenOSModules.customers = {
         btn.addEventListener("click", function (ev) {
           ev.stopPropagation();
           openId(btn.getAttribute("data-id"));
+        });
+      });
+      body.querySelectorAll(".cust-delete").forEach(function (btn) {
+        btn.addEventListener("click", async function (ev) {
+          ev.stopPropagation();
+          var id = btn.getAttribute("data-id");
+          var name = btn.getAttribute("data-name") || "this customer";
+          if (!id || !confirm("Delete " + name + "? The customer is removed. Existing loads stay.")) return;
+          btn.disabled = true;
+          try {
+            await self.api("/" + encodeURIComponent(id), { method: "DELETE" });
+            self.renderList(body, root);
+          } catch (err) {
+            alert(err.message || err);
+            btn.disabled = false;
+          }
         });
       });
       body.querySelectorAll("tr.load-row").forEach(function (tr) {

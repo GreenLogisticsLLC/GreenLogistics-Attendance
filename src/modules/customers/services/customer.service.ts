@@ -141,6 +141,21 @@ export class CustomerService {
         return prisma.directCustomer.update({ where: { customerId }, data });
     }
 
+    /** Main account only. Unlinks loads, then removes the direct customer. */
+    async remove(customerId: string, actor: Actor) {
+        if (actor.role !== Roles.Owner && actor.role !== Roles.Administrator) {
+            throw Object.assign(new Error("Only the main account can delete a customer"), { status: 403 });
+        }
+        const row = await prisma.directCustomer.findUnique({ where: { customerId } });
+        if (!row) throw Object.assign(new Error("Customer not found"), { status: 404 });
+        await prisma.shipmentLead.updateMany({
+            where: { directCustomerId: customerId },
+            data: { directCustomerId: null },
+        });
+        await prisma.directCustomer.delete({ where: { customerId } });
+        return { customerId, companyName: row.companyName };
+    }
+
     /**
      * Create a new lot + Load Number from a Direct Customer (skips uShip).
      * Broker is assigned immediately; GL# is allocated after Accepted.

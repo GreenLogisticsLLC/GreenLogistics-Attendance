@@ -267,6 +267,18 @@ export const carriersController = {
         }
     },
 
+    async remove(req: AuthRequest, res: Response) {
+        try {
+            const data = await carrierService.deleteCarrier(String(req.params.id), actorFrom(req));
+            res.json({ success: true, data, message: "Carrier deleted" });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to delete carrier",
+            });
+        }
+    },
+
     async deleteDocument(req: AuthRequest, res: Response) {
         try {
             const data = await carrierService.deleteDocument(

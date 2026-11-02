@@ -10,4 +10,5 @@ customerRouter.get("/", requireRole(...staff), customerController.list);
 customerRouter.post("/", requireRole(...staff), customerController.create);
 customerRouter.get("/:id", requireRole(...staff), customerController.get);
 customerRouter.patch("/:id", requireRole(...staff), customerController.update);
+customerRouter.delete("/:id", requireRole("Administrator", "Owner"), customerController.remove);
 customerRouter.post("/:id/loads", requireRole(...staff), customerController.createLoad);
