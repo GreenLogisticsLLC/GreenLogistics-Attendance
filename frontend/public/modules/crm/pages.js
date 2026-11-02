@@ -775,7 +775,7 @@ window.GreenOSModules.crm = {
         '<div class="table-wrap"><table class="crm-table">' +
         "<thead><tr>" +
         "<th>Broker</th><th>Status</th><th>In Office</th><th>Current Shipments</th>" +
-        "<th>Awaiting Acceptance</th><th>Follow Up</th><th>Quotes Sent</th>" +
+        "<th>Awaiting Acceptance</th><th>Follow Up</th><th>Bids</th>" +
         "<th>Won</th><th>Lost</th><th>Avg Response</th>" +
         "</tr></thead><tbody id=\"crm-broker-body\"></tbody></table></div>";
 
