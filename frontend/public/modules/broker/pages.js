@@ -156,7 +156,7 @@ window.GreenOSModules.broker = {
         this.card("Active", s.currentShipments || 0, "accent-green") +
         this.card("Awaiting Acceptance", s.awaitingAcceptance || 0, "accent-warn") +
         this.card("Follow Up", s.followUp || 0, "accent-warn") +
-        this.card("Quotes Sent", s.quotesSent || 0, "accent-blue") +
+        this.card("Bids", s.quotesSent || 0, "accent-blue") +
         this.card("Won", s.won || 0, "accent-green") +
         this.card("Lost", s.lost || 0, "accent-warn") +
         "</div>" +

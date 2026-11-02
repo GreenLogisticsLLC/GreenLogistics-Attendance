@@ -946,6 +946,50 @@ export class CrmService {
         };
     }
 
+    /**
+     * Shipments where this broker already placed a bid.
+     * Status often moves on to Broker Reply, so the current status alone is not enough.
+     */
+    private async countShipmentsWithBid(brokerIds: string[]): Promise<Map<string, number>> {
+        const byBroker = new Map<string, Set<string>>();
+        const add = (brokerId: string | null | undefined, shipmentId: string | null | undefined) => {
+            if (!brokerId || !shipmentId) return;
+            const set = byBroker.get(brokerId) || new Set<string>();
+            set.add(shipmentId);
+            byBroker.set(brokerId, set);
+        };
+        if (!brokerIds.length) return new Map();
+
+        const [leads, events] = await Promise.all([
+            prisma.shipmentLead.findMany({
+                where: {
+                    assignedBrokerId: { in: brokerIds },
+                    OR: [
+                        { quoteSentAt: { not: null } },
+                        { status: { in: ["BID_SUBMITTED", "QUOTE_SENT"] } },
+                    ],
+                },
+                select: { shipmentLeadId: true, assignedBrokerId: true },
+            }),
+            prisma.domainEvent.findMany({
+                where: {
+                    eventType: "BID_SUBMITTED",
+                    shipmentLead: { assignedBrokerId: { in: brokerIds } },
+                },
+                select: {
+                    shipmentLeadId: true,
+                    shipmentLead: { select: { assignedBrokerId: true } },
+                },
+            }),
+        ]);
+        for (const lead of leads) add(lead.assignedBrokerId, lead.shipmentLeadId);
+        for (const event of events) add(event.shipmentLead?.assignedBrokerId, event.shipmentLeadId);
+
+        const counts = new Map<string, number>();
+        for (const [brokerId, ids] of byBroker) counts.set(brokerId, ids.size);
+        return counts;
+    }
+
     async getBrokerWorkload(options?: { teamLeadId?: string }) {
         const teamUserIds = options?.teamLeadId
             ? await listTeamBrokerIds(options.teamLeadId)
@@ -976,7 +1020,7 @@ export class CrmService {
             .map((b) => b.employeeId)
             .filter((id): id is string => Boolean(id));
 
-        const [statusCounts, acceptedRows, inOfficeIds] = await Promise.all([
+        const [statusCounts, acceptedRows, inOfficeIds, bidCounts] = await Promise.all([
             prisma.shipmentLead.groupBy({
                 by: ["assignedBrokerId", "status"],
                 where: { assignedBrokerId: { in: poolIds } },
@@ -993,6 +1037,7 @@ export class CrmService {
                 take: Math.max(poolIds.length * 100, 500),
             }),
             getInOfficeEmployeeIds(employeeIds),
+            this.countShipmentsWithBid(poolIds),
         ]);
 
         const countsByBroker = new Map<string, Map<string, number>>();
@@ -1068,7 +1113,7 @@ export class CrmService {
                 currentShipments,
                 awaitingAcceptance: countFor("AWAITING_ACCEPTANCE"),
                 followUp: countFor("FOLLOW_UP") + countFor("BROKER_REPLY"),
-                quotesSent: countFor("QUOTE_SENT") + countFor("BID_SUBMITTED"),
+                quotesSent: bidCounts.get(b.userId) || 0,
                 won: countFor("WON"),
                 lost: countFor("LOST") + countFor("ACCEPTED_ANOTHER_COMPANY"),
                 averageResponseTimeMinutes: avgMs == null ? null : Math.round(avgMs / 60000),
