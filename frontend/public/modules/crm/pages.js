@@ -1306,20 +1306,42 @@ window.GreenOSModules.crm = {
           var comps = (s.domainEvents || []).filter(function (e) {
             return e && e.eventType === "COMPETITOR_QUOTE";
           });
-          if (!comps.length) return "";
-          var latest = comps[comps.length - 1];
-          var when = latest && latest.createdAt ? window.GreenOSModules.crm.fmtDate(latest.createdAt) : "";
-          return (
-            '<div class="crm-competition">' +
-            "<strong>Another provider quoted</strong>" +
-            "<p>uShip: another provider has quoted on this shipment.</p>" +
-            "<small>" +
-            comps.length +
-            " notice" +
-            (comps.length === 1 ? "" : "s") +
-            (when ? " · last " + esc(when) : "") +
-            "</small></div>"
-          );
+          var declined = (s.domainEvents || []).filter(function (e) {
+            return (
+              e &&
+              (e.eventType === "QUOTE_DECLINED" ||
+                e.eventType === "SHIPMENT_ACCEPTED_ANOTHER_COMPANY")
+            );
+          });
+          var html = "";
+          if (comps.length) {
+            var latest = comps[comps.length - 1];
+            var when = latest && latest.createdAt ? window.GreenOSModules.crm.fmtDate(latest.createdAt) : "";
+            html +=
+              '<div class="crm-competition">' +
+              "<strong>Another provider quoted</strong>" +
+              "<p>uShip: another provider has quoted on this shipment.</p>" +
+              "<small>" +
+              comps.length +
+              " notice" +
+              (comps.length === 1 ? "" : "s") +
+              (when ? " · last " + esc(when) : "") +
+              "</small></div>";
+          }
+          if (declined.length) {
+            var lastDecline = declined[declined.length - 1];
+            var declineWhen =
+              lastDecline && lastDecline.createdAt
+                ? window.GreenOSModules.crm.fmtDate(lastDecline.createdAt)
+                : "";
+            html +=
+              '<div class="crm-competition crm-declined">' +
+              "<strong>Customer declined</strong>" +
+              "<p>uShip: the customer declined this quote.</p>" +
+              (declineWhen ? "<small>last " + esc(declineWhen) + "</small>" : "") +
+              "</div>";
+          }
+          return html;
         })() +
         '<div class="crm-card-grid">' +
         "<div><span>Status</span>" +

@@ -25,6 +25,7 @@ export type UshipLifecycleKind =
     | "SHIPMENT_DELETED_BY_CUSTOMER"
     | "NEW_MESSAGE"
     | "COMPETITOR_QUOTE"
+    | "QUOTE_DECLINED"
     | "UNKNOWN";
 
 export type DetectedLifecycleEvent = {
@@ -220,6 +221,19 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
+    // Customer turned down this quote. Shown on the shipment; does not invent an accept.
+    if (
+        /this\s+quote\s+was\s+declined|your\s+quote\s+was\s+declined|your\s+bid\s+was\s+declined|customer\s+declined\s+(?:your\s+)?(?:quote|bid|shipment)|declined\s+your\s+(?:quote|bid)/.test(
+            h
+        )
+    ) {
+        return {
+            kind: "QUOTE_DECLINED",
+            title: "Customer declined",
+            domainEventType: "QUOTE_DECLINED",
+        };
+    }
+
     if (
         /shipment\s+lost|listing\s+closed|bid\s+not\s+selected|unfortunately.{0,40}lost|canceled|cancelled/.test(
             h
@@ -378,6 +392,7 @@ const NOTIFY_KINDS = new Set<UshipLifecycleKind>([
     "BID_UPDATED",
     "QUOTE_SUBMITTED",
     "COMPETITOR_QUOTE",
+    "QUOTE_DECLINED",
 ]);
 
 /**
@@ -397,11 +412,14 @@ export async function applyUshipLifecycleEvent(input: {
     });
     if (!shipment) return { applied: false as const, detected };
 
-    if (detected.kind === "COMPETITOR_QUOTE" && input.gmailMessageId) {
+    if (
+        (detected.kind === "COMPETITOR_QUOTE" || detected.kind === "QUOTE_DECLINED") &&
+        input.gmailMessageId
+    ) {
         const already = await prisma.domainEvent.findFirst({
             where: {
                 shipmentLeadId: input.shipmentLeadId,
-                eventType: "COMPETITOR_QUOTE",
+                eventType: detected.domainEventType,
                 payloadJson: { contains: input.gmailMessageId },
             },
             select: { eventId: true },
@@ -782,7 +800,9 @@ export async function applyUshipLifecycleEvent(input: {
                 kind: detected.kind,
             },
                 timelineStage:
-                    detected.kind === "COMPETITOR_QUOTE" ? "COMPETITOR_QUOTE" : "USHIP_EMAIL",
+                    detected.kind === "COMPETITOR_QUOTE" || detected.kind === "QUOTE_DECLINED"
+                        ? detected.kind
+                        : "USHIP_EMAIL",
         });
     }
 
@@ -845,6 +865,7 @@ export async function applyUshipLifecycleEvent(input: {
             BID_UPDATED: "BID_SUBMITTED",
             QUOTE_SUBMITTED: "BID_SUBMITTED",
             COMPETITOR_QUOTE: "COMPETITOR_QUOTE",
+            QUOTE_DECLINED: "QUOTE_DECLINED",
         };
         const nType = typeMap[detected.kind] || "TIMELINE_EVENT";
         const msg = `Shipment # ${shipment.greenOsShipmentId || input.shipmentLeadId.slice(0, 8)} — ${input.subject}`;

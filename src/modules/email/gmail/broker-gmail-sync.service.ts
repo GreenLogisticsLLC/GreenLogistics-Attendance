@@ -26,7 +26,7 @@ const USHIP_QUERY =
 // Rematch only clear lifecycle mail — bare "quote" matched Instant Alerts
 // ("Submit Quote Now") and re-applied Bid Submitted onto brand-new cards.
 const CUSTOMER_REPLY_REMATCH =
-    /quote\s+confirmation|bid\s+confirmation|bid\s+submitted|quote\s+submitted|submitted\s+a\s+(?:quote|bid)|your\s+(?:quote|bid)\s+has\s+been|we\s+received\s+your\s+(?:quote|bid)|customer\s+respond|respond\s+to\s+question|customer\s+replied|new\s+message|question\s+answered|answered\s+your\s+question|a\s+customer\s+has\s+answered|you'?ve\s+got\s+competition|another\s+provider\s+has\s+quoted|other\s+provider\s+has\s+quoted/i;
+    /quote\s+confirmation|bid\s+confirmation|bid\s+submitted|quote\s+submitted|submitted\s+a\s+(?:quote|bid)|your\s+(?:quote|bid)\s+has\s+been|we\s+received\s+your\s+(?:quote|bid)|customer\s+respond|respond\s+to\s+question|customer\s+replied|new\s+message|question\s+answered|answered\s+your\s+question|a\s+customer\s+has\s+answered|you'?ve\s+got\s+competition|another\s+provider\s+has\s+quoted|other\s+provider\s+has\s+quoted|this\s+quote\s+was\s+declined|your\s+quote\s+was\s+declined|customer\s+declined/i;
 
 function decodeBase64Url(data?: string | null): string {
     if (!data) return "";

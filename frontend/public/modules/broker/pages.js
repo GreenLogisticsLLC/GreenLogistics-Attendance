@@ -298,8 +298,8 @@ window.GreenOSModules.broker = {
       '<button type="button" class="btn-secondary broker-ship-next" style="width:auto" disabled>Next</button>' +
       "</div></div>" +
       '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-      "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Updated</th>" +
-      '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="7">Loading…</td></tr></tbody></table></div>' +
+      "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Bid</th><th>Updates</th><th>Updated</th>" +
+      '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="9">Loading…</td></tr></tbody></table></div>' +
       '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0.75rem 0 0">' +
       '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +
       '<div style="display:flex;gap:0.5rem">' +
@@ -447,7 +447,7 @@ window.GreenOSModules.broker = {
       var tabLabel = tabLabelFor(tab);
       if (!visibleRows.length) {
         tbody.innerHTML =
-          '<tr><td colspan="7">' +
+          '<tr><td colspan="9">' +
           (query
             ? "No shipments found for ZIP " + esc(query)
             : "No " + tabLabel.toLowerCase() + " loads yet") +
@@ -468,11 +468,6 @@ window.GreenOSModules.broker = {
             (s.greenOsShipmentId
               ? '<div class="gos-ship-id">' + esc(s.greenOsShipmentId) + "</div>"
               : "") +
-            (Number(s.competitorQuotes) > 0
-              ? '<div class="gos-competition-badge">Another provider quoted' +
-                (Number(s.competitorQuotes) > 1 ? " · " + Number(s.competitorQuotes) : "") +
-                "</div>"
-              : "") +
             (isOtherShipment(s) && tab !== "accepted-another"
               ? '<br><small class="gos-muted">Passed from another broker</small>'
               : "") +
@@ -484,6 +479,39 @@ window.GreenOSModules.broker = {
             esc(s.delivery) +
             "</td><td>" +
             statusCell(s.status, { customerReplied: Boolean(s.customerReplied) }) +
+            "</td><td>" +
+            (s.bidSubmitted
+              ? '<div class="gos-bid-flag">Bid Submitted</div>' +
+                (s.bidSubmittedAt
+                  ? '<small class="gos-muted">' + esc(fmt(s.bidSubmittedAt)) + "</small>"
+                  : "")
+              : '<span class="gos-muted">—</span>') +
+            "</td><td>" +
+            (function () {
+              var bits = [];
+              if (Number(s.competitorQuotes) > 0) {
+                bits.push(
+                  '<div class="gos-competition-badge">Another provider quoted' +
+                    (Number(s.competitorQuotes) > 1
+                      ? " · " + Number(s.competitorQuotes)
+                      : "") +
+                    (s.competitorQuoteAt
+                      ? '<small>' + esc(fmt(s.competitorQuoteAt)) + "</small>"
+                      : "") +
+                    "</div>"
+                );
+              }
+              if (s.quoteDeclined) {
+                bits.push(
+                  '<div class="gos-declined-badge">Customer declined' +
+                    (s.quoteDeclinedAt
+                      ? '<small>' + esc(fmt(s.quoteDeclinedAt)) + "</small>"
+                      : "") +
+                    "</div>"
+                );
+              }
+              return bits.length ? bits.join("") : '<span class="gos-muted">—</span>';
+            })() +
             "</td><td>" +
             fmt(s.updatedAt) +
             "</td></tr>"

@@ -132,6 +132,7 @@ const SHIPMENT_LIST_SELECT = {
     isReassignment: true,
     wasEverReassigned: true,
     brokerReplyDeadline: true,
+    quoteSentAt: true,
     createdAt: true,
     updatedAt: true,
     receivedAt: true,
@@ -153,6 +154,11 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         brokerReplyDeadline: lead.brokerReplyDeadline as Date | string | null,
         customerReplied: Boolean(e.customerReplied),
         competitorQuotes: Number(lead.competitorQuotes || 0),
+        competitorQuoteAt: (lead.competitorQuoteAt as Date | string | null) || null,
+        bidSubmitted: Boolean(lead.bidSubmitted),
+        bidSubmittedAt: (lead.bidSubmittedAt as Date | string | null) || null,
+        quoteDeclined: Boolean(lead.quoteDeclined),
+        quoteDeclinedAt: (lead.quoteDeclinedAt as Date | string | null) || null,
         updatedAt: lead.updatedAt as Date | string | null,
     };
 }
@@ -498,27 +504,72 @@ export class CrmService {
         }
         const brokers = await userMap(rows.map((r) => (r.assignedBrokerId as string) || ""));
         const ids = rows.map((r) => String(r.shipmentLeadId || "")).filter(Boolean);
-        const competition = ids.length
-            ? await prisma.domainEvent.groupBy({
-                  by: ["shipmentLeadId"],
+        const flagEvents = ids.length
+            ? await prisma.domainEvent.findMany({
                   where: {
                       shipmentLeadId: { in: ids },
-                      eventType: "COMPETITOR_QUOTE",
+                      eventType: {
+                          in: [
+                              "BID_SUBMITTED",
+                              "COMPETITOR_QUOTE",
+                              "QUOTE_DECLINED",
+                              "SHIPMENT_ACCEPTED_ANOTHER_COMPANY",
+                          ],
+                      },
                   },
-                  _count: { _all: true },
+                  select: { shipmentLeadId: true, eventType: true, createdAt: true },
               })
             : [];
-        const competitionCount = new Map(
-            competition.map((row) => [row.shipmentLeadId, row._count._all])
-        );
+        const flags = new Map<
+            string,
+            {
+                competitorQuotes: number;
+                competitorQuoteAt: Date | null;
+                bidAt: Date | null;
+                declinedAt: Date | null;
+            }
+        >();
+        for (const event of flagEvents) {
+            const id = event.shipmentLeadId;
+            if (!id) continue;
+            const row = flags.get(id) || {
+                competitorQuotes: 0,
+                competitorQuoteAt: null,
+                bidAt: null,
+                declinedAt: null,
+            };
+            if (event.eventType === "COMPETITOR_QUOTE") {
+                row.competitorQuotes += 1;
+                if (!row.competitorQuoteAt || event.createdAt > row.competitorQuoteAt) {
+                    row.competitorQuoteAt = event.createdAt;
+                }
+            } else if (event.eventType === "BID_SUBMITTED") {
+                if (!row.bidAt || event.createdAt > row.bidAt) row.bidAt = event.createdAt;
+            } else if (!row.declinedAt || event.createdAt > row.declinedAt) {
+                row.declinedAt = event.createdAt;
+            }
+            flags.set(id, row);
+        }
+        const bidStatuses = new Set(["BID_SUBMITTED", "QUOTE_SENT"]);
         const items = rows.map((r) => {
-            const withCompetition = {
+            const id = String(r.shipmentLeadId || "");
+            const flag = flags.get(id);
+            const quoteSentAt = (r.quoteSentAt as Date | null) || null;
+            const status = String(r.status || "");
+            const withFlags = {
                 ...r,
-                competitorQuotes: competitionCount.get(String(r.shipmentLeadId || "")) || 0,
+                competitorQuotes: flag?.competitorQuotes || 0,
+                competitorQuoteAt: flag?.competitorQuoteAt || null,
+                bidSubmitted: Boolean(quoteSentAt || flag?.bidAt || bidStatuses.has(status)),
+                bidSubmittedAt: flag?.bidAt || quoteSentAt,
+                quoteDeclined: Boolean(
+                    flag?.declinedAt || status === "ACCEPTED_ANOTHER_COMPANY"
+                ),
+                quoteDeclinedAt: flag?.declinedAt || null,
             };
             return lite
-                ? toBrokerListRow(withCompetition, brokers)
-                : enrichLead(withCompetition, brokers);
+                ? toBrokerListRow(withFlags, brokers)
+                : enrichLead(withFlags, brokers);
         });
         return {
             items,

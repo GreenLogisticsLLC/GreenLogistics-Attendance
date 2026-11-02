@@ -1284,12 +1284,34 @@ html[data-theme="light"] {
   letter-spacing: 0.01em;
   line-height: 1.2;
 }
-.gos-competition-badge {
-  display: inline-block;
-  margin-top: 0.2rem;
-  color: #f6c453;
+.gos-competition-badge,
+.gos-bid-flag,
+.gos-declined-badge {
+  display: block;
   font-size: 0.75rem;
   font-weight: 800;
+  line-height: 1.25;
+}
+
+.gos-competition-badge {
+  color: #f6c453;
+}
+
+.gos-bid-flag {
+  color: #5dffb0;
+}
+
+.gos-declined-badge {
+  color: #ff8b8b;
+  margin-top: 0.25rem;
+}
+
+.gos-competition-badge small,
+.gos-bid-flag + small,
+.gos-declined-badge small {
+  display: block;
+  font-weight: 600;
+  color: var(--gos-muted);
 }
 
 .crm-competition {
@@ -1299,6 +1321,16 @@ html[data-theme="light"] {
   border-radius: 10px;
   background: rgba(245, 185, 66, 0.14);
   color: #ffe7a3;
+}
+
+.crm-competition.crm-declined {
+  border-color: #f07178;
+  background: rgba(240, 113, 120, 0.12);
+  color: #ffd0d0;
+}
+
+.crm-competition.crm-declined strong {
+  color: #ff9aa0;
 }
 
 .crm-competition strong {

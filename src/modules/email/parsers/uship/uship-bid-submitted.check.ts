@@ -138,4 +138,17 @@ assert(
     "competition is not Accept Green"
 );
 
+const declined = detectUshipLifecycleEvent(
+    "Your quote was declined",
+    "THIS QUOTE WAS DECLINED\nDECLINE REASON\nPrice too high"
+);
+assert(declined.kind === "QUOTE_DECLINED", `declined kind=${declined.kind}`);
+assert(!declined.targetStatus, "plain decline must not change status");
+
+const aacStill = detectUshipLifecycleEvent(
+    "Your quote was declined",
+    "THIS QUOTE WAS DECLINED\nDECLINE REASON\nAccepted another quote"
+);
+assert(aacStill.kind === "ACCEPTED_ANOTHER_COMPANY", `aac still kind=${aacStill.kind}`);
+
 console.log("OK: Instant Alert / CTA does not false-trigger Bid Submitted");

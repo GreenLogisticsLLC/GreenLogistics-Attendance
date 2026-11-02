@@ -727,7 +727,8 @@
           // Same shipment + same event title = once only (ignore subject churn).
           // Each new "another provider quoted" email should alert again.
           dedupeKey: toastFingerprint(
-            String(d.kind || "") === "COMPETITOR_QUOTE"
+            String(d.kind || "") === "COMPETITOR_QUOTE" ||
+              String(d.kind || "") === "QUOTE_DECLINED"
               ? [d.shipmentLeadId, num, d.title, d.kind, d.at || d.subject]
               : [d.shipmentLeadId, num, d.title, d.kind]
           ),
@@ -756,6 +757,14 @@
             "Another provider quoted",
             (num ? "Shipment # " + num + " — " : "") +
               (d.subject || "Another provider has quoted on this shipment"),
+            d.shipmentLeadId
+          );
+        }
+        if (kind === "QUOTE_DECLINED") {
+          showDesktopPush(
+            "Customer declined",
+            (num ? "Shipment # " + num + " — " : "") +
+              (d.subject || "The customer declined this quote"),
             d.shipmentLeadId
           );
         }
