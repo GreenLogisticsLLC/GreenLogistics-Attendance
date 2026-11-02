@@ -16,6 +16,7 @@ import { backfillMissingGreenOsShipmentIds, remigrateAllGreenOsShipmentIds } fro
 import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
 import { resetShipmentsForEpoch } from "./services/shipment-epoch-reset.js";
 import { assignRioClarkToAlenYoung } from "./services/assign-rio-clark.js";
+import { revertFalseAcceptGos1000040 } from "./services/revert-false-accept-gos1000040.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -67,6 +68,11 @@ app.listen(config.port, config.host, async () => {
         await assignRioClarkToAlenYoung();
     } catch (err) {
         console.warn("[team] Rio Clark assignment skipped:", err);
+    }
+    try {
+        await revertFalseAcceptGos1000040();
+    } catch (err) {
+        console.warn("[shipment] GOS1000040 revert skipped:", err);
     }
     try {
         const remapped = await remigrateAllGreenOsShipmentIds();

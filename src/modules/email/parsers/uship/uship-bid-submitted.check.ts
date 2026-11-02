@@ -4,6 +4,7 @@
  */
 import {
     detectUshipLifecycleEvent,
+    isExplicitCustomerWin,
     isNewListingAlertSubject,
     isQuoteOrBidConfirmation,
 } from "./uship-lifecycle.detector.js";
@@ -81,5 +82,38 @@ assert(
     ),
     "instructional body rejected"
 );
+
+const quoteWithConditional = detectUshipLifecycleEvent(
+    "You placed a quote on 2 heavy equipment items for transport",
+    `You placed a quote of $5,425.00.
+If the customer accepted your quote, we will send a booking confirmation.
+Other listings: this shipment booked last week.
+Your listing has been booked only after the shipper accepts.`
+);
+assert(
+    quoteWithConditional.kind === "QUOTE_SUBMITTED" || quoteWithConditional.kind === "BID_SUBMITTED",
+    `quote with conditional accept kind=${quoteWithConditional.kind}`
+);
+assert(quoteWithConditional.targetStatus === "BID_SUBMITTED", "conditional quote stays a bid");
+assert(
+    !isExplicitCustomerWin(
+        "You placed a quote on 2 heavy equipment items for transport",
+        "If the customer accepted your quote, we will email you. shipment booked"
+    ),
+    "conditional language is not a win"
+);
+
+const realWin = detectUshipLifecycleEvent(
+    "Your quote has been accepted",
+    "The customer accepted your quote. Booking confirmed."
+);
+assert(realWin.kind === "CUSTOMER_ACCEPTED", `real win kind=${realWin.kind}`);
+assert(realWin.targetStatus === "ACCEPT_GREEN", "real win creates Accept Green");
+
+const question = detectUshipLifecycleEvent(
+    "Question Answered - 2 heavy equipment items for transport",
+    "The customer has responded. If the customer accepted your quote you would see Booking confirmed."
+);
+assert(question.kind === "CUSTOMER_RESPOND", `question kind=${question.kind}`);
 
 console.log("OK: Instant Alert / CTA does not false-trigger Bid Submitted");

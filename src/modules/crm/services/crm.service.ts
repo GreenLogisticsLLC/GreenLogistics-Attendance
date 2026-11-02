@@ -1230,8 +1230,8 @@ export class CrmService {
      * when ALLOW_TEST_CUSTOMER_ACCEPT is not "0"/"false".
      */
     async simulateCustomerAccepted(shipmentLeadId: string, actorUserId: string) {
-        const allowEnv = String(process.env.ALLOW_TEST_CUSTOMER_ACCEPT || "1").toLowerCase();
-        const testEnabled = !["0", "false", "no", "off"].includes(allowEnv);
+        const allowEnv = String(process.env.ALLOW_TEST_CUSTOMER_ACCEPT || "0").toLowerCase();
+        const testEnabled = ["1", "true", "yes", "on"].includes(allowEnv);
 
         const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!lead) {
@@ -1246,13 +1246,13 @@ export class CrmService {
         const isOps = ["Administrator", "Owner", "Manager", "Team Lead"].includes(role);
         const isAssignedBroker = lead.assignedBrokerId === actorUserId;
 
+        if (!testEnabled) {
+            throw Object.assign(
+                new Error("Test Customer Accept is disabled. Accept Green comes only from the customer's uShip booking email."),
+                { status: 403 }
+            );
+        }
         if (!isOps) {
-            if (!testEnabled) {
-                throw Object.assign(
-                    new Error("Test Customer Accept is disabled (ALLOW_TEST_CUSTOMER_ACCEPT=0)"),
-                    { status: 403 }
-                );
-            }
             if (!isAssignedBroker) {
                 throw Object.assign(
                     new Error("Only the assigned broker (or Owner) can run Test Customer Accept"),

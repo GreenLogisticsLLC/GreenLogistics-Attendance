@@ -96,6 +96,67 @@ export function isQuoteOrBidConfirmation(subjectH: string, hay: string): boolean
     return false;
 }
 
+/** Subject is a quote/bid receipt, not a customer win. */
+function isQuoteConfirmationSubject(subject: string): boolean {
+    const s = String(subject || "").toLowerCase();
+    return /quote\s+confirmation|bid\s+confirmation|bid\s+submitted|quote\s+submitted|you\s+placed\s+a\s+(?:quote|bid)|placed\s+a\s+quote\s+on|your\s+quote\s+of\b/.test(
+        s
+    );
+}
+
+/**
+ * Customer actually took OUR quote. A bid receipt, a question email, or
+ * "if the customer accepted your quote" must not create a load.
+ */
+export function isExplicitCustomerWin(subject: string, hay: string): boolean {
+    const subjectH = String(subject || "").toLowerCase();
+    const subjectWin =
+        /your\s+(?:quote|bid|offer)\s+(?:was|has\s+been)\s+accepted/.test(subjectH) ||
+        /(?:customer|shipper)\s+accepted\s+your\s+(?:quote|bid|offer)/.test(subjectH) ||
+        /accepted\s+your\s+(?:quote|bid|offer)/.test(subjectH) ||
+        /\bbooking\s+confirmed\b/.test(subjectH) ||
+        /you(?:'ve|\s+have)\s+been\s+booked/.test(subjectH) ||
+        /your\s+(?:listing|shipment)\s+(?:has\s+been\s+|was\s+)?booked/.test(subjectH) ||
+        /congratulations/.test(subjectH);
+    if (subjectWin) return true;
+    if (isQuoteConfirmationSubject(subjectH)) return false;
+    if (
+        /question\s+answered|new\s+question|customer\s+(?:respond|replied|question)|message\s+from\s+(?:the\s+)?(?:customer|shipper)/.test(
+            subjectH
+        )
+    ) {
+        return false;
+    }
+
+    const withoutConditionals = hay
+        .replace(
+            /(?:\bif\b|\bwhen\b|\bonce\b|\bunless\b|\buntil\b|\bbefore\b|\bshould\b)\s+(?:the\s+)?(?:customer|shipper)\s+(?:has\s+)?accepted\s+your\s+(?:quote|bid|offer)/g,
+            " "
+        )
+        .replace(
+            /(?:\bif\b|\bwhen\b|\bonce\b|\bunless\b|\buntil\b)\s+your\s+(?:quote|bid|listing|shipment|code)\s+(?:is\s+|was\s+|has\s+been\s+)?(?:accepted|booked)/g,
+            " "
+        )
+        .replace(
+            /(?:\bnot\b|n't|has\s+not|have\s+not)\s+(?:yet\s+)?(?:been\s+)?(?:accepted|booked)/g,
+            " "
+        );
+
+    return (
+        /(?:the\s+)?(?:customer|shipper)\s+(?:has\s+)?accepted\s+your\s+(?:quote|bid|offer)/.test(
+            withoutConditionals
+        ) ||
+        /your\s+(?:quote|bid|offer)\s+(?:was|has\s+been)\s+accepted/.test(withoutConditionals) ||
+        /your\s+(?:listing|shipment)\s+(?:has\s+been|was)\s+booked/.test(withoutConditionals) ||
+        /\bbooking\s+confirmed\b/.test(withoutConditionals) ||
+        /you(?:'ve|\s+have)\s+been\s+booked/.test(withoutConditionals) ||
+        /your\s+code\s+has\s+been\s+accepted\s+by\s+(?:the\s+)?(?:customer|shipper)/.test(
+            withoutConditionals
+        ) ||
+        /congratulations.{0,50}(?:accepted|booked)/.test(withoutConditionals)
+    );
+}
+
 function extractLoadNumber(text: string): string | undefined {
     const patterns = [
         /load\s*(?:number|#|no\.?)[:\s#-]*([A-Z0-9-]{3,})/i,
@@ -155,23 +216,22 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
-    // Our broker won — Accept Green. Must run before generic "booked".
-    if (
-        /customer\s+accepted|accepted\s+your\s+bid|your\s+bid\s+was\s+accepted|bid\s+accepted|booking\s+confirmed|your\s+code\s+has\s+been\s+accepted|code\s+has\s+been\s+accepted\s+by\s+(?:the\s+)?customer|quote\s+has\s+been\s+accepted|accepted\s+your\s+quote|your\s+quote\s+was\s+accepted|congratulations.{0,40}(?:booked|accepted)/.test(
-            h
-        )
-    ) {
+    // A quote receipt is only Bid Submitted — never Accept Green / Load Created,
+    // even when the footer says "if the customer accepted your quote".
+    const subjectHEarly = String(subject || "").toLowerCase();
+    if (isQuoteConfirmationSubject(subjectHEarly)) {
         return {
-            kind: "CUSTOMER_ACCEPTED",
-            title: "Accept Green",
-            domainEventType: "CUSTOMER_ACCEPTED",
-            targetStatus: "ACCEPT_GREEN",
+            kind: /bid/.test(subjectHEarly) && !/quote/.test(subjectHEarly) ? "BID_SUBMITTED" : "QUOTE_SUBMITTED",
+            title: /bid/.test(subjectHEarly) && !/quote/.test(subjectHEarly) ? "Bid Submitted" : "Quote Submitted",
+            domainEventType: "BID_SUBMITTED",
+            targetStatus: "BID_SUBMITTED",
         };
     }
 
-    if (/\byour\s+listing\s+(?:has\s+been\s+|was\s+)?booked\b|shipment\s+booked|listing\s+booked/.test(h)) {
+    // Our broker won — Accept Green. Must be an explicit win, not a bid receipt.
+    if (isExplicitCustomerWin(subject, h)) {
         return {
-            kind: "SHIPMENT_BOOKED",
+            kind: "CUSTOMER_ACCEPTED",
             title: "Accept Green",
             domainEventType: "CUSTOMER_ACCEPTED",
             targetStatus: "ACCEPT_GREEN",

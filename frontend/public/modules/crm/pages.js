@@ -1498,18 +1498,6 @@ window.GreenOSModules.crm = {
                 s.status === "DISPATCH"
               ? '<button type="button" class="btn-secondary" id="crm-save-load">Create Load (auto GL#)</button>'
               : "") +
-        (!s.loadNumber &&
-        s.status !== "CLOSED" &&
-        s.status !== "LOST" &&
-        s.status !== "ACCEPTED_ANOTHER_COMPANY" &&
-        s.status !== "DELETED_FROM_CUSTOMER" &&
-        s.status !== "ACCEPTED" &&
-        s.status !== "ACCEPT_GREEN" &&
-        s.status !== "BOOKED" &&
-        s.status !== "LOAD_CREATED"
-          ? '<button type="button" class="btn-secondary" id="crm-test-accept" style="border-color:#f59e0b;color:#f59e0b">TEST: Customer Accepted → Create Load</button>' +
-            '<small class="gos-muted" style="display:block;width:100%">Skips uShip email — for Load / Rate Con / BOL / POD testing only</small>'
-          : "") +
         "</div>" +
         "<h3>Timeline / Lifecycle</h3>" +
         '<ol class="crm-pipeline">' +
