@@ -444,15 +444,29 @@ export class CrmService {
         if (options?.assignmentKind === "new") {
             where.isReassignment = false;
             where.wasEverReassigned = false;
-            where.AND = [
-                ...(Array.isArray(where.AND) ? where.AND : []),
-                { status: { in: waitingStatuses } },
-            ];
+            if (options.brokerId) {
+                // Broker's own queue: only loads still waiting for their Accept.
+                where.AND = [
+                    ...(Array.isArray(where.AND) ? where.AND : []),
+                    { status: { in: waitingStatuses } },
+                ];
+            } else {
+                // Main account: every new shipment that arrived, including ones a broker already took.
+                where.AND = [
+                    ...(Array.isArray(where.AND) ? where.AND : []),
+                    {
+                        status: {
+                            notIn: ["DELETED_FROM_CUSTOMER", "LOST", "ACCEPTED_ANOTHER_COMPANY"],
+                        },
+                    },
+                ];
+            }
             delete where.status;
         } else if (options?.assignmentKind === "other") {
             const passed = {
                 OR: [{ isReassignment: true }, { wasEverReassigned: true }],
             };
+            // Passed on because a broker did not take it — still not accepted.
             where.AND = [
                 ...(Array.isArray(where.AND) ? where.AND : []),
                 passed,

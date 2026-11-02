@@ -581,9 +581,9 @@ window.GreenOSModules.crm = {
           : options.assignmentKind === "accepted"
             ? "Broker accepted the shipment (Shipment Accepted) and active work beyond waiting."
             : options.assignmentKind === "other"
-              ? "Loads passed from another broker who did not accept in time."
+              ? "Shipments brokers did not take. They were passed on and are still waiting for Accept."
               : options.assignmentKind === "new"
-                ? "Fresh imports and first-time assignments — prioritized in round-robin."
+                ? "All new shipments that arrived, including ones a broker already accepted."
                 : "All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).";
       if (options.onlyMine) {
         tabLabel = "New Shipment";
