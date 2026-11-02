@@ -17,6 +17,7 @@ import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
 import { resetShipmentsForEpoch } from "./services/shipment-epoch-reset.js";
 import { assignRioClarkToAlenYoung } from "./services/assign-rio-clark.js";
 import { revertFalseAcceptGos1000040 } from "./services/revert-false-accept-gos1000040.js";
+import { wipeRegisteredCarriers } from "./services/wipe-registered-carriers.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -73,6 +74,11 @@ app.listen(config.port, config.host, async () => {
         await revertFalseAcceptGos1000040();
     } catch (err) {
         console.warn("[shipment] GOS1000040 revert skipped:", err);
+    }
+    try {
+        await wipeRegisteredCarriers();
+    } catch (err) {
+        console.warn("[carriers] registered carrier wipe skipped:", err);
     }
     try {
         const remapped = await remigrateAllGreenOsShipmentIds();
