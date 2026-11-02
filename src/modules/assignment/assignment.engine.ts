@@ -10,6 +10,7 @@ import {
 } from "../email/services/repositories.js";
 import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
+import { arrivedAfterShipmentCutoff } from "../../services/shipment-cutoff.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
@@ -712,13 +713,14 @@ export class AssignmentEngine {
                 where: {
                     status: "NEW",
                     OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+                    AND: [arrivedAfterShipmentCutoff],
                 },
                 orderBy: { createdAt: "asc" },
                 take: limit,
                 select: { shipmentLeadId: true },
             }),
             prisma.shipmentLead.findMany({
-                where: { ...unassignedPool, ...freshFilter },
+                where: { ...unassignedPool, ...freshFilter, AND: [arrivedAfterShipmentCutoff] },
                 orderBy: { createdAt: "asc" },
                 take: limit,
                 select: { shipmentLeadId: true },
@@ -750,6 +752,7 @@ export class AssignmentEngine {
                     where: {
                         ...unassignedPool,
                         OR: [{ wasEverReassigned: true }, { isReassignment: true }],
+                        AND: [arrivedAfterShipmentCutoff],
                     },
                     orderBy: { createdAt: "asc" },
                     take: limit - pending.length,
