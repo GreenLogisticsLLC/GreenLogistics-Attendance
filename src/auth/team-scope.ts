@@ -1,4 +1,5 @@
 import { prisma } from "../config/database.js";
+import { departmentBelongsToLead, teamDepartmentLabel } from "../services/user-attendance-link.service.js";
 import { Roles } from "./roles.js";
 
 export type TeamLeadOption = {
@@ -174,15 +175,32 @@ export async function clearTeamLeadership(
  */
 export async function listTeamBrokerIds(teamLeadUserId: string): Promise<string[]> {
     if (!teamLeadUserId) return [];
+    const lead = await prisma.user.findUnique({
+        where: { userId: teamLeadUserId },
+        select: { firstName: true, lastName: true, username: true, email: true },
+    });
     const rows = await prisma.user.findMany({
         where: {
-            teamLeadId: teamLeadUserId,
             isActive: true,
             role: { roleName: Roles.Broker },
+            OR: [
+                { teamLeadId: teamLeadUserId },
+                { employee: { is: { status: "ACTIVE" } } },
+            ],
         },
-        select: { userId: true },
+        select: {
+            userId: true,
+            teamLeadId: true,
+            employee: { select: { department: true, status: true } },
+        },
     });
-    const ids = rows.map((r) => r.userId);
+    const ids = rows
+        .filter((row) => {
+            if (row.teamLeadId === teamLeadUserId) return true;
+            if (!lead || row.employee?.status !== "ACTIVE") return false;
+            return departmentBelongsToLead(row.employee.department, lead);
+        })
+        .map((row) => row.userId);
     if (!ids.includes(teamLeadUserId)) ids.push(teamLeadUserId);
     return ids;
 }
@@ -190,15 +208,8 @@ export async function listTeamBrokerIds(teamLeadUserId: string): Promise<string[
 export async function isBrokerOnTeam(teamLeadUserId: string, brokerUserId: string): Promise<boolean> {
     if (!teamLeadUserId || !brokerUserId) return false;
     if (teamLeadUserId === brokerUserId) return true;
-    const row = await prisma.user.findFirst({
-        where: {
-            userId: brokerUserId,
-            teamLeadId: teamLeadUserId,
-            role: { roleName: Roles.Broker },
-        },
-        select: { userId: true },
-    });
-    return Boolean(row);
+    const ids = await listTeamBrokerIds(teamLeadUserId);
+    return ids.includes(brokerUserId);
 }
 
 /** Team Lead userId for a broker (for notifications). */
@@ -211,18 +222,41 @@ export async function getBrokerTeamLeadId(brokerUserId: string): Promise<string 
     return row?.teamLeadId || null;
 }
 
-/** Active Attendance employeeIds for a Team Lead's team (brokers + the TL themselves). */
+/**
+ * Attendance employeeIds on this Team Lead's board.
+ * Includes people linked by teamLeadId and badges whose department is this team
+ * (the live board label), even when the Green OS user link was missing.
+ */
 export async function listTeamEmployeeIds(teamLeadUserId: string): Promise<string[]> {
     if (!teamLeadUserId) return [];
-    const users = await prisma.user.findMany({
-        where: {
-            isActive: true,
-            OR: [{ userId: teamLeadUserId }, { teamLeadId: teamLeadUserId }],
-            employeeId: { not: null },
-        },
-        select: { employeeId: true },
+    const lead = await prisma.user.findUnique({
+        where: { userId: teamLeadUserId },
+        select: { firstName: true, lastName: true, username: true, email: true },
     });
-    return users
-        .map((u) => u.employeeId)
-        .filter((id): id is string => Boolean(id));
+    const [users, employees] = await Promise.all([
+        prisma.user.findMany({
+            where: {
+                isActive: true,
+                OR: [{ userId: teamLeadUserId }, { teamLeadId: teamLeadUserId }],
+                employeeId: { not: null },
+            },
+            select: { employeeId: true },
+        }),
+        prisma.employee.findMany({
+            where: { status: "ACTIVE" },
+            select: { employeeId: true, department: true },
+        }),
+    ]);
+    const ids = new Set<string>();
+    for (const user of users) {
+        if (user.employeeId) ids.add(user.employeeId);
+    }
+    if (lead && teamDepartmentLabel(lead) !== "Unassigned Team") {
+        for (const employee of employees) {
+            if (departmentBelongsToLead(employee.department, lead)) {
+                ids.add(employee.employeeId);
+            }
+        }
+    }
+    return [...ids];
 }

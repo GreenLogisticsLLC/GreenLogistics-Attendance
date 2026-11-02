@@ -15,6 +15,7 @@ import { carrierService } from "./modules/carriers/services/carrier.service.js";
 import { backfillMissingGreenOsShipmentIds, remigrateAllGreenOsShipmentIds } from "./modules/shipment/shipment.id.js";
 import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
 import { resetShipmentsForEpoch } from "./services/shipment-epoch-reset.js";
+import { assignRioClarkToAlenYoung } from "./services/assign-rio-clark.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -61,6 +62,11 @@ app.listen(config.port, config.host, async () => {
         await resetShipmentsForEpoch();
     } catch (err) {
         console.warn("[reset] shipment wipe skipped:", err);
+    }
+    try {
+        await assignRioClarkToAlenYoung();
+    } catch (err) {
+        console.warn("[team] Rio Clark assignment skipped:", err);
     }
     try {
         const remapped = await remigrateAllGreenOsShipmentIds();

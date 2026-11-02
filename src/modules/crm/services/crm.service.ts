@@ -789,15 +789,21 @@ export class CrmService {
     }
 
     private async getBrokerPresenceSummary(options?: { teamLeadId?: string }) {
+        const teamUserIds = options?.teamLeadId
+            ? await listTeamBrokerIds(options.teamLeadId)
+            : null;
         const brokers = await prisma.user.findMany({
             where: {
                 isActive: true,
-                role: {
-                    roleName: {
-                        in: ["Broker", "Team Lead", "Manager", "Accounting", "Owner"],
-                    },
-                },
-                ...(options?.teamLeadId ? { teamLeadId: options.teamLeadId } : {}),
+                ...(teamUserIds
+                    ? { userId: { in: teamUserIds } }
+                    : {
+                          role: {
+                              roleName: {
+                                  in: ["Broker", "Team Lead", "Manager", "Accounting", "Owner"],
+                              },
+                          },
+                      }),
             },
             select: {
                 userId: true,
@@ -855,15 +861,21 @@ export class CrmService {
     }
 
     async getBrokerWorkload(options?: { teamLeadId?: string }) {
+        const teamUserIds = options?.teamLeadId
+            ? await listTeamBrokerIds(options.teamLeadId)
+            : null;
         const brokers = await prisma.user.findMany({
             where: {
                 isActive: true,
-                role: {
-                    roleName: {
-                        in: ["Broker", "Team Lead", "Manager", "Accounting", "Owner"],
-                    },
-                },
-                ...(options?.teamLeadId ? { teamLeadId: options.teamLeadId } : {}),
+                ...(teamUserIds
+                    ? { userId: { in: teamUserIds } }
+                    : {
+                          role: {
+                              roleName: {
+                                  in: ["Broker", "Team Lead", "Manager", "Accounting", "Owner"],
+                              },
+                          },
+                      }),
             },
             include: {
                 role: true,

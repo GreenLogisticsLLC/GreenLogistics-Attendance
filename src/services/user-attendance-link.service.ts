@@ -23,7 +23,7 @@ function namesMatch(
     );
 }
 
-function teamDepartmentLabel(lead: {
+export function teamDepartmentLabel(lead: {
     firstName: string;
     lastName: string;
     username: string;
@@ -34,6 +34,25 @@ function teamDepartmentLabel(lead: {
     if (blob.includes("alen") || blob.includes("allen")) return "Team Alen Young";
     if (blob.includes("gary")) return "Team Gary Michael";
     return `Team ${displayName(lead.firstName, lead.lastName, lead.username)}`;
+}
+
+/** Attendance department string belongs on this Team Lead's board. */
+export function departmentBelongsToLead(
+    department: string | null | undefined,
+    lead: { firstName: string; lastName: string; username: string; email: string | null }
+): boolean {
+    const d = (department || "").trim().toLowerCase();
+    if (!d || d === "unassigned team") return false;
+    const label = teamDepartmentLabel(lead).trim().toLowerCase();
+    if (d === label) return true;
+    const blob = `${lead.firstName} ${lead.lastName} ${lead.username} ${lead.email || ""}`.toLowerCase();
+    if (blob.includes("alen") || blob.includes("allen")) {
+        return d.includes("alen") || d.includes("allen");
+    }
+    if (blob.includes("gary")) return d.includes("gary");
+    const first = lead.firstName.trim().toLowerCase();
+    const last = lead.lastName.trim().toLowerCase();
+    return Boolean(first && last && d.includes(first) && d.includes(last));
 }
 
 async function nextEmployeeNumber(): Promise<string> {
