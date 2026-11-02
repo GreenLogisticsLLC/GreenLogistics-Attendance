@@ -10,6 +10,7 @@ import {
 } from "../email/services/repositories.js";
 import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
+import { isGreenOsSessionFresh } from "../../auth/greenos-session.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
@@ -859,9 +860,9 @@ export class AssignmentEngine {
 
     /**
      * Eligible staff for NEW-shipment round-robin:
-     * Broker / Team Lead / Manager / Accounting / Owner who are In Office.
-     * Other roles never enter the pool. If nobody eligible is In Office →
-     * empty pool; NEW shipments stay UNASSIGNED until check-in.
+     * Broker / Team Lead / Manager / Accounting / Owner who are In Office
+     * AND signed in to Green OS within the last 20 minutes.
+     * In Office without a live Green OS session does not receive new shipments.
      * Gmail is NOT required. `availableForAssignment` is ignored.
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
@@ -937,10 +938,31 @@ export class AssignmentEngine {
 
         const inOfficeIds = await getInOfficeEmployeeIds(employeeIdsToCheck);
         const inOffice = allLinked.filter((entry) => inOfficeIds.has(entry.employeeId));
+        const activityByUser = new Map(users.map((user) => [user.userId, user.lastActivityAt]));
+        const signedIn = inOffice.filter((entry) =>
+            isGreenOsSessionFresh(activityByUser.get(entry.userId))
+        );
 
-        if (inOffice.length > 0) {
+        if (inOffice.length > 0 && signedIn.length === 0) {
+            console.info(
+                `[assignment] ${inOffice.map((entry) => entry.displayName).join(", ")} In Office but not signed in to Green OS — new shipments stay unassigned until they sign in`
+            );
+            return { eligible: [], mode: "none" };
+        }
+
+        if (signedIn.length > 0) {
+            const waiting = inOffice.filter(
+                (entry) => !signedIn.some((active) => active.userId === entry.userId)
+            );
+            if (waiting.length) {
+                console.info(
+                    `[assignment] In Office but must sign in to Green OS before new shipments: ${waiting
+                        .map((entry) => entry.displayName)
+                        .join(", ")}`
+                );
+            }
             return {
-                eligible: sortBrokersForRoundRobin(inOffice),
+                eligible: sortBrokersForRoundRobin(signedIn),
                 mode: "in_office",
             };
         }

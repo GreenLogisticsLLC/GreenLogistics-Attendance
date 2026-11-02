@@ -50,6 +50,20 @@ export async function loginController(req: Request, res: Response) {
     return res.json(apiResponse(true, "Login successful", result.data));
 }
 
+export async function activityController(req: AuthRequest, res: Response) {
+    if (!req.user) {
+        return res.status(401).json(apiResponse(false, "Unauthorized"));
+    }
+    const result = await authService.touchActivity(req.user.userId);
+    if (!result.ok) {
+        return res.status(result.status).json({
+            ...apiResponse(false, result.message),
+            code: "code" in result ? result.code : undefined,
+        });
+    }
+    return res.json(apiResponse(true, "Activity recorded"));
+}
+
 export async function registerController(req: Request, res: Response) {
     const { username, password, firstName, lastName, email, role, teamLeadId } = req.body;
     const result = await authService.register({

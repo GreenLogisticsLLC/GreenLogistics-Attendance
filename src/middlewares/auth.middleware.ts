@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from "express";
+import { prisma } from "../config/database.js";
 import { authService } from "../services/auth.service.js";
+import { GREEN_OS_IDLE_MESSAGE, isGreenOsSessionFresh } from "../auth/greenos-session.js";
 import { apiResponse } from "../utils/helpers.js";
 import {
     type AccountingPermission,
@@ -17,7 +19,7 @@ export interface AuthRequest extends Request {
     };
 }
 
-export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+export async function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
     const header = req.headers.authorization;
     const qToken = typeof req.query.token === "string" ? req.query.token : "";
     const raw =
@@ -31,6 +33,25 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
     const payload = authService.verifyToken(raw);
     if (!payload) {
         return res.status(401).json(apiResponse(false, "Invalid or expired token"));
+    }
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { userId: payload.userId },
+            select: { isActive: true, lastActivityAt: true },
+        });
+        if (!user || !user.isActive) {
+            return res.status(401).json(apiResponse(false, "Unauthorized"));
+        }
+        if (!isGreenOsSessionFresh(user.lastActivityAt)) {
+            return res.status(401).json({
+                ...apiResponse(false, GREEN_OS_IDLE_MESSAGE),
+                code: "SESSION_IDLE",
+            });
+        }
+    } catch (err) {
+        console.warn("[auth] session check failed:", err);
+        return res.status(401).json(apiResponse(false, "Unauthorized"));
     }
 
     req.user = payload;

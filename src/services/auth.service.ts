@@ -645,12 +645,44 @@ export class AuthService {
             return { ok: false as const, status: 401, message: "Invalid credentials" };
         }
 
+        const now = new Date();
         await prisma.user.update({
             where: { userId: user.userId },
-            data: { lastLogin: new Date() },
+            data: { lastLogin: now, lastActivityAt: now },
         });
 
+        void import("../modules/assignment/assignment.engine.js")
+            .then(({ assignmentEngine }) => assignmentEngine.assignPendingNewLeads(20))
+            .catch((err) => console.warn("[assignment] post-login assign failed:", err));
+
         return { ok: true as const, data: await this.issueToken(user) };
+    }
+
+    /** Refresh the 20-minute Green OS activity window. Does not extend an expired session. */
+    async touchActivity(userId: string) {
+        const user = await prisma.user.findUnique({
+            where: { userId },
+            select: { isActive: true, lastActivityAt: true },
+        });
+        if (!user || !user.isActive) {
+            return { ok: false as const, status: 401, message: "Unauthorized" };
+        }
+        const { GREEN_OS_IDLE_MESSAGE, isGreenOsSessionFresh } = await import(
+            "../auth/greenos-session.js"
+        );
+        if (!isGreenOsSessionFresh(user.lastActivityAt)) {
+            return {
+                ok: false as const,
+                status: 401,
+                message: GREEN_OS_IDLE_MESSAGE,
+                code: "SESSION_IDLE" as const,
+            };
+        }
+        await prisma.user.update({
+            where: { userId },
+            data: { lastActivityAt: new Date() },
+        });
+        return { ok: true as const };
     }
 
     verifyToken(token: string) {

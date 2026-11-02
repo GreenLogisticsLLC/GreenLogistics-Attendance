@@ -36,6 +36,8 @@ model User {
    */
   accountingSubRole      String?                @map("accounting_sub_role")
   lastLogin              DateTime?              @map("last_login")
+  /** Last real Green OS activity (click / key). Idle 20 minutes ends the session. */
+  lastActivityAt         DateTime?              @map("last_activity_at")
   createdAt              DateTime               @default(now()) @map("created_at")
   updatedAt              DateTime               @updatedAt @map("updated_at")
   role                   Role                   @relation(fields: [roleId], references: [roleId])

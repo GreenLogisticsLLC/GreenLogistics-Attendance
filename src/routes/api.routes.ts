@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
     loginController,
+    activityController,
     registerController,
     approveRegistrationController,
     rejectRegistrationController,
@@ -91,6 +92,7 @@ apiRouter.use("/search", searchRouter);
 apiRouter.use("/carrier-onboarding", carrierOnboardingPublicRouter);
 
 apiRouter.post("/v1/auth/login", loginController);
+apiRouter.post("/v1/auth/activity", authMiddleware, activityController);
 apiRouter.post("/v1/auth/register", registerController);
 apiRouter.get("/v1/auth/team-leads", listTeamLeadsController);
 apiRouter.get("/v1/auth/registration/approve", approveRegistrationController);

@@ -85,6 +85,7 @@ function showLogin() {
     stopAttendanceTimers();
     syncGosThemeButtons();
 }
+window.showLogin = showLogin;
 
 function stopAttendanceTimers() {
     if (refreshTimer) clearInterval(refreshTimer);
