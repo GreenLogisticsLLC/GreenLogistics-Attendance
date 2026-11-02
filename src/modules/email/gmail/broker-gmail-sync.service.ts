@@ -6,7 +6,6 @@ import {
 import type { RawEmailMessage } from "../models/types.js";
 import {
     applyUshipLifecycleEvent,
-    detectUshipLifecycleEvent,
     isNewListingAlertSubject,
 } from "../parsers/uship/uship-lifecycle.detector.js";
 import {
@@ -461,27 +460,6 @@ export class BrokerGmailSyncService {
         // used to false-promote Bid Submitted from CTA / rematch noise.
         if (isNewListingAlertSubject(input.subject)) {
             return;
-        }
-
-        const detected = detectUshipLifecycleEvent(input.subject, input.body);
-        const bidKinds = new Set(["BID_SUBMITTED", "QUOTE_SUBMITTED", "BID_UPDATED"]);
-        if (bidKinds.has(detected.kind)) {
-            const method = String(input.matchMethod || "");
-            const listingStrong = ["viewUrl", "externalShipmentId", "greenOsShipmentId"].includes(
-                method
-            );
-            const subjectConfirms =
-                /quote\s+confirmation|bid\s+confirmation|bid\s+submitted|quote\s+submitted/i.test(
-                    input.subject
-                );
-            // Soft title/route matches are OK only for clear confirmation subjects.
-            // Body-only "you submitted a quote" text must share the listing id.
-            if (!listingStrong && !subjectConfirms) {
-                console.warn(
-                    `[BROKER GMAIL] skip Bid Submitted without listing id or confirmation subject (${method || "none"}): ${input.subject.slice(0, 120)}`
-                );
-                return;
-            }
         }
 
         await applyUshipLifecycleEvent({

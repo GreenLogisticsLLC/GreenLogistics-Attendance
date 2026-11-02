@@ -1175,18 +1175,29 @@ window.GreenOSModules.crm = {
       }
 
       function stepLiHtml(p, extraClass) {
+        var interactive = Boolean(p.interactive || p.stage === "BID_SUBMITTED");
         return (
           '<li class="' +
           (p.done ? "is-done" : "") +
           (p.stage === "AGENT_OPENED" ? " crm-pipe-uship" : "") +
+          (interactive ? " is-interactive" : "") +
           (extraClass ? " " + extraClass : "") +
           '" data-stage="' +
           esc(p.stage) +
           '">' +
-          '<span class="crm-pipe-dot"></span>' +
+          (interactive
+            ? '<button type="button" class="crm-pipe-dot crm-pipe-click" title="Click after you place the bid on uShip"></button>'
+            : '<span class="crm-pipe-dot"></span>') +
           "<div><strong>" +
           esc(p.title) +
           "</strong>" +
+          (interactive
+            ? '<small class="crm-pipe-hint">' +
+              (p.done
+                ? "Bid is on the card"
+                : "Click after uShip confirms your bid") +
+              "</small>"
+            : "") +
           (p.at ? "<small>" + window.GreenOSModules.crm.fmtDate(p.at) + "</small>" : "") +
           "</div></li>"
         );
@@ -1599,6 +1610,26 @@ window.GreenOSModules.crm = {
         btn.addEventListener("click", async function () {
           var host = btn.closest("[data-stage]");
           var stage = host && host.getAttribute("data-stage");
+          if (stage === "BID_SUBMITTED") {
+            btn.disabled = true;
+            try {
+              var bidRes = await window.GreenOSModules.crm.api(
+                "/shipments/" + encodeURIComponent(id) + "/bid-submitted",
+                { method: "POST", body: JSON.stringify({}) }
+              );
+              if (!bidRes || bidRes.success === false) {
+                throw new Error((bidRes && bidRes.message) || "Could not mark Bid Submitted");
+              }
+              window.GreenOSModules.crm.openShipmentCard(document, id, bidRes.data || null);
+              if (typeof window.GreenOSBrokerReloadShipments === "function") {
+                window.GreenOSBrokerReloadShipments();
+              }
+            } catch (e) {
+              btn.disabled = false;
+              alert((e && e.message) || "Could not mark Bid Submitted");
+            }
+            return;
+          }
           if (stage !== "BROKER_QUESTION") return;
           var node = btn.closest(".crm-qa-node");
           if (node) {

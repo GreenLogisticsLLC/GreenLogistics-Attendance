@@ -159,6 +159,31 @@ export class DomainEventEngine {
             }),
             this.trustedBrokerGmailMessageIds(shipmentLeadId),
         ]);
+        const leadStatus = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+            select: { status: true, quoteSentAt: true },
+        });
+        const statusNow = String(leadStatus?.status || "");
+        const bidAlreadyOnCard =
+            Boolean(leadStatus?.quoteSentAt) ||
+            [
+                "BID_SUBMITTED",
+                "QUOTE_SENT",
+                "CUSTOMER_REPLIED",
+                "BROKER_REPLY",
+                "ACCEPT_GREEN",
+                "ACCEPTED",
+                "LOAD_CREATED",
+                "CARRIER_ASSIGNED",
+                "RATE_CON_GENERATED",
+                "CARRIER_ACCEPTED",
+                "PICKUP",
+                "IN_TRANSIT",
+                "DELIVERED",
+                "POD_UPLOADED",
+                "CLOSED",
+                "COMPLETED",
+            ].includes(statusNow);
         const events = rawEvents.filter((event) =>
             this.artifactBelongsToShipment(event.payloadJson, trustedMessageIds)
         );
@@ -234,7 +259,10 @@ export class DomainEventEngine {
                             (t.stage === "CUSTOMER_REPLIED" || t.stage === "CUSTOMER_RESPOND"))
                 );
             const done = Boolean(
-                match || legacy || keys.some((k) => occurred.has(k))
+                match ||
+                    legacy ||
+                    keys.some((k) => occurred.has(k)) ||
+                    (step.stage === "BID_SUBMITTED" && bidAlreadyOnCard)
             );
             if (step.stage === "CUSTOMER_RESPOND") {
                 return {

@@ -63,6 +63,13 @@ const realBody = detectUshipLifecycleEvent(
 );
 assert(realBody.kind === "QUOTE_SUBMITTED", `real body kind=${realBody.kind}`);
 
+const placed = detectUshipLifecycleEvent(
+    "You placed a quote on Steel structure",
+    "This email confirms that you have placed a quote."
+);
+assert(placed.kind === "QUOTE_SUBMITTED", `placed quote kind=${placed.kind}`);
+assert(placed.targetStatus === "BID_SUBMITTED", "placed quote target");
+
 assert(
     isQuoteOrBidConfirmation("quote confirmation - 4 pallets", "generic"),
     "subject confirmation"

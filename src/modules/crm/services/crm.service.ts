@@ -1101,6 +1101,54 @@ export class CrmService {
         return this.getShipmentCard(shipmentLeadId);
     }
 
+    /** uShip quote/bid confirmation, or the broker clicked Bid Submitted. */
+    async markBidSubmitted(shipmentLeadId: string, actorUserId: string) {
+        const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!lead) {
+            throw Object.assign(new Error("Shipment not found"), { status: 404 });
+        }
+        if (lead.assignedBrokerId && lead.assignedBrokerId !== actorUserId) {
+            const user = await prisma.user.findUnique({
+                where: { userId: actorUserId },
+                select: { role: { select: { roleName: true } } },
+            });
+            const role = user?.role?.roleName || "";
+            if (!["Administrator", "Owner", "Manager", "Team Lead"].includes(role)) {
+                throw Object.assign(new Error("Only the assigned broker can mark Bid Submitted"), {
+                    status: 403,
+                });
+            }
+        }
+        const current = normalizeStatus(lead.status);
+        const alreadyBid = new Set([
+            "BID_SUBMITTED",
+            "QUOTE_SENT",
+            "CUSTOMER_REPLIED",
+            "BROKER_REPLY",
+            "ACCEPT_GREEN",
+            "ACCEPTED",
+            "LOAD_CREATED",
+        ]);
+        if (!alreadyBid.has(current) && !isLoadPhase(current)) {
+            await shipmentService.transitionStatus({
+                shipmentLeadId,
+                status: "BID_SUBMITTED",
+                actorUserId,
+                skipLifecycleCheck: true,
+            });
+        }
+        await domainEventEngine.emit({
+            shipmentLeadId,
+            eventType: "BID_SUBMITTED",
+            title: "Bid Submitted",
+            message: "Bid placed on uShip",
+            actorUserId,
+            payload: { source: "manual_bid" },
+            timelineStage: "BID_SUBMITTED",
+        });
+        return this.getShipmentCard(shipmentLeadId);
+    }
+
     /**
      * Broker marks Answer/Question to the customer (green traffic-light click).
      * Replaces any previous Broker Answer on this card — only the latest is kept.

@@ -4,6 +4,7 @@ import { Roles } from "../../../auth/roles.js";
 import {
     crmAcceptShipmentController,
     crmBrokerQuestionController,
+    crmMarkBidSubmittedController,
     crmBrokerWorkspaceController,
     crmCustomerDetailController,
     crmDashboardController,
@@ -69,6 +70,7 @@ crmRouter.patch("/shipments/:id", crmRoles, crmUpdateShipmentController);
 crmRouter.post("/shipments/:id/accept", crmRoles, crmAcceptShipmentController);
 crmRouter.post("/shipments/:id/test-customer-accept", crmRoles, crmTestCustomerAcceptController);
 crmRouter.post("/shipments/:id/broker-question", crmRoles, crmBrokerQuestionController);
+crmRouter.post("/shipments/:id/bid-submitted", crmRoles, crmMarkBidSubmittedController);
 crmRouter.post("/shipments/:id/ops-comments", problemsRoles, crmAddOpsCommentController);
 crmRouter.post(
     "/shipments/:id/ops-comments/:commentId/send-to-manager",

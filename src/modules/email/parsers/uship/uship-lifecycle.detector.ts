@@ -83,7 +83,14 @@ export function isQuoteOrBidConfirmation(subjectH: string, hay: string): boolean
     ) {
         return true;
     }
-    if (/you\s+(?:have\s+)?(?:submitted|placed|posted)\s+a\s+(?:quote|bid)/.test(hay)) {
+    if (/you\s+(?:have\s+)?(?:submitted|placed|posted)\s+(?:a\s+|your\s+)?(?:quote|bid)/.test(hay)) {
+        return true;
+    }
+    if (
+        /(?:quote|bid)\s+(?:was\s+)?(?:placed|received)|placed\s+(?:a\s+|your\s+)?(?:quote|bid)|your\s+(?:quote|bid)\s+of\b|thanks?\s+you\s+for\s+(?:your\s+)?(?:quote|bid|quoting)|this\s+(?:email\s+)?confirms\s+(?:that\s+)?you\s+(?:have\s+)?placed/.test(
+            hay
+        )
+    ) {
         return true;
     }
     return false;
