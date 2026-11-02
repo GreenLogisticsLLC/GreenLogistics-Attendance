@@ -1013,6 +1013,35 @@
         clearInterval(this._dashPollTimer);
         this._dashPollTimer = null;
       }
+      if (this._dashActivityRoot && this._dashActivityHandler) {
+        this._dashActivityRoot.removeEventListener("pointerdown", this._dashActivityHandler, true);
+        this._dashActivityRoot.removeEventListener("keydown", this._dashActivityHandler, true);
+      }
+      this._dashActivityRoot = null;
+      this._dashActivityHandler = null;
+    },
+
+    startDashboardIdleRefresh(root) {
+      const self = this;
+      this.stopDashboardPoll();
+      if (!root) return;
+      this._dashLastActivity = Date.now();
+      this._dashActivityRoot = root;
+      this._dashActivityHandler = function () {
+        self._dashLastActivity = Date.now();
+      };
+      root.addEventListener("pointerdown", this._dashActivityHandler, true);
+      root.addEventListener("keydown", this._dashActivityHandler, true);
+      this._dashPollTimer = setInterval(function () {
+        if (self.currentModule !== "dashboard" || !document.querySelector(".gos-cc")) {
+          self.stopDashboardPoll();
+          return;
+        }
+        if (document.hidden) return;
+        if (Date.now() - (self._dashLastActivity || 0) < 60000) return;
+        self._dashLastActivity = Date.now();
+        self.loadDashboardMetrics(root);
+      }, 15000);
     },
 
     renderDashboard(root) {
@@ -1066,8 +1095,8 @@
         `</section>` +
         `</div>`;
 
-      // Load once on open — do not auto-refresh the main dashboard.
       this.loadDashboardMetrics(root);
+      this.startDashboardIdleRefresh(root);
     },
 
     loadDashboardMetrics(root) {
