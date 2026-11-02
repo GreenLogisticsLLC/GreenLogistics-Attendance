@@ -636,10 +636,18 @@ window.GreenOSModules.broker = {
     }
 
     window.GreenOSBrokerReloadShipments = function () {
-      /* Shipments list is manual — do not push-refresh the table. */
+      paint(true);
     };
 
     self.stopShipmentsAutoRefresh();
+    self._shipmentsTimer = setInterval(function () {
+      if (!document.getElementById("broker-ship-body")) {
+        self.stopShipmentsAutoRefresh();
+        return;
+      }
+      if (document.hidden) return;
+      paint(true);
+    }, 50000);
 
     await paint(true);
   },
