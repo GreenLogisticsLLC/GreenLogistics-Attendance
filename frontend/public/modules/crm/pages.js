@@ -585,6 +585,10 @@ window.GreenOSModules.crm = {
               : options.assignmentKind === "new"
                 ? "Fresh imports and first-time assignments — prioritized in round-robin."
                 : "All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).";
+      if (options.onlyMine) {
+        tabLabel = "New Shipment";
+        tabHelp = "Only loads assigned to you. Your brokers' loads stay on the other tabs.";
+      }
       var fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
       var toIdx = Math.min(total, (page - 1) * pageSize + rows.length);
       body.innerHTML =
@@ -650,9 +654,11 @@ window.GreenOSModules.crm = {
       if (!rows.length) {
         tbody.innerHTML =
           '<tr><td colspan="13">' +
-          (options.status === "ACCEPTED_ANOTHER_COMPANY"
-            ? "No shipments accepted by another company"
-            : "No shipments yet — import from Email Imports") +
+          (options.onlyMine
+            ? "No new shipments assigned to you yet"
+            : options.status === "ACCEPTED_ANOTHER_COMPANY"
+              ? "No shipments accepted by another company"
+              : "No shipments yet — import from Email Imports") +
           "</td></tr>";
         return;
       }

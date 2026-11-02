@@ -13,6 +13,8 @@ window.GreenOSModules.shipments = {
       return;
     }
 
+    var me = window.GreenOSUser || {};
+    var isTeamLead = me.role === "Team Lead";
     var tab =
       subPageId === "other"
         ? "other"
@@ -20,14 +22,25 @@ window.GreenOSModules.shipments = {
           ? "accepted"
           : subPageId === "accepted-another"
             ? "accepted-another"
-            : "new";
+            : subPageId === "new"
+              ? "new"
+              : isTeamLead
+                ? "mine"
+                : "new";
 
     root.innerHTML =
       '<div class="gos-module-layout">' +
       '<nav class="gos-subnav">' +
+      (isTeamLead
+        ? '<button type="button" class="gos-subnav-item' +
+          (tab === "mine" ? " is-active" : "") +
+          '" data-subpage="mine">New Shipment</button>'
+        : "") +
       '<button type="button" class="gos-subnav-item' +
       (tab === "new" ? " is-active" : "") +
-      '" data-subpage="new">New Shipment</button>' +
+      '" data-subpage="new">' +
+      (isTeamLead ? "Team New" : "New Shipment") +
+      "</button>" +
       '<button type="button" class="gos-subnav-item' +
       (tab === "other" ? " is-active" : "") +
       '" data-subpage="other">Other Shipment</button>' +
@@ -47,7 +60,10 @@ window.GreenOSModules.shipments = {
     var opts =
       tab === "accepted-another"
         ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
-        : { assignmentKind: tab, page: 1 };
-    crm.renderShipments(body, root, null, opts);
+        : tab === "mine"
+          ? { assignmentKind: "new", page: 1, onlyMine: true }
+          : { assignmentKind: tab, page: 1 };
+    var brokerId = tab === "mine" ? me.userId || null : null;
+    crm.renderShipments(body, root, brokerId, opts);
   },
 };
