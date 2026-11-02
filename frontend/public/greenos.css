@@ -1301,6 +1301,14 @@ html[data-theme="light"] {
   color: #5dffb0;
 }
 
+.gos-bid-btn {
+  width: auto;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .gos-declined-badge {
   color: #ff8b8b;
   margin-top: 0.25rem;

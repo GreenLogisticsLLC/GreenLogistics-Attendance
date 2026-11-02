@@ -298,7 +298,7 @@ window.GreenOSModules.broker = {
       '<button type="button" class="btn-secondary broker-ship-next" style="width:auto" disabled>Next</button>' +
       "</div></div>" +
       '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-      "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Bid</th><th>Updates</th><th>Updated</th>" +
+      "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Bid</th><th>Updates</th><th>Bid Submitted</th>" +
       '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="9">Loading…</td></tr></tbody></table></div>' +
       '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0.75rem 0 0">' +
       '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +
@@ -510,14 +510,53 @@ window.GreenOSModules.broker = {
                     "</div>"
                 );
               }
+              var alertMs = 0;
+              [s.competitorQuoteAt, s.quoteDeclinedAt].forEach(function (v) {
+                if (!v) return;
+                var ms = new Date(v).getTime();
+                if (ms > alertMs) alertMs = ms;
+              });
+              var bidMs = s.bidSubmittedAt ? new Date(s.bidSubmittedAt).getTime() : 0;
+              if (bidMs && alertMs && bidMs >= alertMs) {
+                bits.push(
+                  '<div class="gos-bid-flag">Bid submitted<small>' +
+                    esc(fmt(s.bidSubmittedAt)) +
+                    "</small></div>"
+                );
+              }
               return bits.length ? bits.join("") : '<span class="gos-muted">—</span>';
             })() +
             "</td><td>" +
-            fmt(s.updatedAt) +
+            '<button type="button" class="btn-secondary gos-bid-btn" data-bid="' +
+            esc(s.shipmentLeadId) +
+            '">Bid Submitted</button>' +
             "</td></tr>"
           );
         })
         .join("");
+      tbody.querySelectorAll(".gos-bid-btn").forEach(function (btn) {
+        btn.addEventListener("click", async function (ev) {
+          ev.stopPropagation();
+          var id = btn.getAttribute("data-bid");
+          if (!id) return;
+          btn.disabled = true;
+          btn.textContent = "Saving…";
+          try {
+            var json = await self.api(
+              "/shipments/" + encodeURIComponent(id) + "/bid-submitted",
+              { method: "POST", body: "{}" }
+            );
+            if (!json || json.success === false) {
+              throw new Error((json && json.message) || "Could not save Bid Submitted");
+            }
+            paint(true);
+          } catch (err) {
+            alert(err.message || err);
+            btn.disabled = false;
+            btn.textContent = "Bid Submitted";
+          }
+        });
+      });
       tbody.querySelectorAll("[data-id]").forEach(function (tr) {
         tr.addEventListener("click", function () {
           if (window.GreenOSModules.crm && window.GreenOSModules.crm.openShipmentCard) {
