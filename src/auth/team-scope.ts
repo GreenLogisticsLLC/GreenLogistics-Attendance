@@ -167,7 +167,11 @@ export async function clearTeamLeadership(
     return { brokersUnassigned: brokers.count };
 }
 
-/** Broker userIds that report to this Team Lead — hard team boundary. */
+/**
+ * Broker userIds on this team, plus the Team Lead.
+ * Round-robin can assign a new shipment to the Team Lead. Those cards must
+ * show on their board and stay openable — not only the brokers under them.
+ */
 export async function listTeamBrokerIds(teamLeadUserId: string): Promise<string[]> {
     if (!teamLeadUserId) return [];
     const rows = await prisma.user.findMany({
@@ -178,11 +182,14 @@ export async function listTeamBrokerIds(teamLeadUserId: string): Promise<string[
         },
         select: { userId: true },
     });
-    return rows.map((r) => r.userId);
+    const ids = rows.map((r) => r.userId);
+    if (!ids.includes(teamLeadUserId)) ids.push(teamLeadUserId);
+    return ids;
 }
 
 export async function isBrokerOnTeam(teamLeadUserId: string, brokerUserId: string): Promise<boolean> {
     if (!teamLeadUserId || !brokerUserId) return false;
+    if (teamLeadUserId === brokerUserId) return true;
     const row = await prisma.user.findFirst({
         where: {
             userId: brokerUserId,
