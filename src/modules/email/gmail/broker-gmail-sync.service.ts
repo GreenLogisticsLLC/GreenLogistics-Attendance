@@ -224,7 +224,10 @@ async function matchByUniqueTitle(
     if (hinted.length) {
         const exact = leads.filter((lead) => {
             const title = normalizeUshipTitle(String(lead.shipmentTitle || ""));
-            return title.length >= 4 && hinted.includes(title);
+            if (title.length < 4) return false;
+            return hinted.some(
+                (hint) => hint === title || hint.startsWith(title + " ")
+            );
         });
         if (exact.length === 1) return exact[0];
     }

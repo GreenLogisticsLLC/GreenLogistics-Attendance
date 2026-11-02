@@ -159,6 +159,22 @@ export function isExplicitCustomerWin(subject: string, hay: string): boolean {
     );
 }
 
+/** Short question + answer line from a uShip Question Answered email. */
+export function customerAnswerExcerpt(subject: string, body: string): string {
+    const text = `${subject}\n${body}`.replace(/\s+/g, " ").trim();
+    const question = text.match(
+        /\byour\s+question\b\s*[:\-]?\s*(.{2,220}?)(?=\s+\banswer\b|\s+shipment\s+name\b|$)/i
+    );
+    const answer = text.match(
+        /\banswer\b\s*[:\-]?\s*(.{2,360}?)(?=\s+shipment\s+name\b|\s+pickup\b|\s+delivery\b|\s+submit\s+quote\b|\s+view\s+shipment\b|$)/i
+    );
+    const parts: string[] = [];
+    if (question?.[1]) parts.push(`Question: ${question[1].trim()}`);
+    if (answer?.[1]) parts.push(`Answer: ${answer[1].trim()}`);
+    if (parts.length) return parts.join(" — ").slice(0, 500);
+    return String(subject || "").trim().slice(0, 240);
+}
+
 function extractLoadNumber(text: string): string | undefined {
     const patterns = [
         /load\s*(?:number|#|no\.?)[:\s#-]*([A-Z0-9-]{3,})/i,
@@ -536,33 +552,9 @@ export async function applyUshipLifecycleEvent(input: {
                     reason: "Customer reply Gmail already applied (idempotent)",
                 };
             }
-
-            // If broker already clicked green AFTER this email was received, do not
-            // resurrect the red lamp from an older Question Answered rematch.
-            const latestBroker = await prisma.domainEvent.findFirst({
-                where: {
-                    shipmentLeadId: input.shipmentLeadId,
-                    eventType: { in: ["BROKER_QUESTION", "BROKER_ANSWER"] },
-                },
-                orderBy: { createdAt: "desc" },
-                select: { createdAt: true },
-            });
-            if (latestBroker) {
-                const mail = await prisma.brokerMailboxMessage.findFirst({
-                    where: { gmailMessageId: input.gmailMessageId },
-                    select: { receivedAt: true },
-                });
-                if (
-                    mail?.receivedAt &&
-                    mail.receivedAt.getTime() < latestBroker.createdAt.getTime()
-                ) {
-                    return {
-                        applied: false as const,
-                        detected,
-                        reason: "Broker Answer is newer than this customer-reply email",
-                    };
-                }
-            }
+            // First delivery always lands on the card, even if the broker already
+            // clicked the green lamp. Rematch of the same Gmail id stops above,
+            // so a later green click is not overwritten by an old email.
         } else {
             // Without a Gmail id we cannot tell new vs rematch — never override a
             // newer green Broker Answer (red is Gmail-only).
@@ -723,7 +715,7 @@ export async function applyUshipLifecycleEvent(input: {
                     shipmentLeadId: input.shipmentLeadId,
                     eventType: "CUSTOMER_RESPOND",
                     title: detected.title,
-                    message: input.subject,
+                    message: customerAnswerExcerpt(input.subject, input.body),
                     actorUserId: input.actorUserId,
                     payload: {
                         source: input.source || "uship_email",

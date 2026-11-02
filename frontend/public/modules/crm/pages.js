@@ -1176,7 +1176,25 @@ window.GreenOSModules.crm = {
           pipeNodeHtml(cust, { side: "is-customer" }) +
           qaArrowHtml(cust.done, brok.done) +
           pipeNodeHtml(brok, { side: "is-broker", interactive: true }) +
-          "</div></li>"
+          "</div>" +
+          qaAnswerHtml() +
+          "</li>"
+        );
+      }
+
+      function qaAnswerHtml() {
+        var items = s.correspondence || [];
+        var cust = null;
+        for (var i = 0; i < items.length; i++) {
+          if (items[i] && items[i].kind === "CUSTOMER_RESPOND" && items[i].message) {
+            cust = items[i];
+          }
+        }
+        if (!cust) return "";
+        return (
+          '<div class="crm-qa-answer"><strong>Customer answer</strong><p>' +
+          esc(cust.message) +
+          "</p></div>"
         );
       }
 

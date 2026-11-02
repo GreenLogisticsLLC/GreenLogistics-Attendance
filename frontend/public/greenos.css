@@ -1314,6 +1314,26 @@ html[data-theme="light"] {
   color: var(--gos-muted);
 }
 
+.crm-qa-answer {
+  margin: 0.45rem 0 0.2rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  border-radius: 10px;
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.crm-qa-answer strong {
+  color: #fecaca;
+  font-size: 0.85rem;
+}
+
+.crm-qa-answer p {
+  margin: 0.25rem 0 0;
+  color: #ffe4e6;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
 .crm-competition {
   margin: 0.75rem 0 0.25rem;
   padding: 0.8rem 0.95rem;

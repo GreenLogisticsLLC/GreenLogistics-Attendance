@@ -2,7 +2,7 @@
  * Checks for Question Answered → Customer Respond detection + title hints.
  *   npx tsx src/modules/email/parsers/uship/uship-qa-match.check.ts
  */
-import { detectUshipLifecycleEvent } from "./uship-lifecycle.detector.js";
+import { customerAnswerExcerpt, detectUshipLifecycleEvent } from "./uship-lifecycle.detector.js";
 import { titlesFromQuestionAnsweredEmail } from "./uship-qa-match.js";
 
 function assert(cond: unknown, msg: string) {
@@ -30,6 +30,16 @@ assert(detected.targetStatus === "CUSTOMER_REPLIED", "targetStatus");
 
 const titles = titlesFromQuestionAnsweredEmail(subject, body);
 assert(titles.includes("3 pallets"), `titles=${JSON.stringify(titles)}`);
+
+const longSubject = titlesFromQuestionAnsweredEmail(
+    "Question Answered - 6 Pallets - A CUSTOMER HAS ANSWERED YOUR QUESTION",
+    "SHIPMENT NAME 6 Pallets"
+);
+assert(longSubject.includes("6 pallets"), `long titles=${JSON.stringify(longSubject)}`);
+
+const excerpt = customerAnswerExcerpt(subject, body);
+assert(excerpt.includes("Answer: now"), `excerpt=${excerpt}`);
+assert(excerpt.includes("Question: are you ready to book?"), `excerpt q=${excerpt}`);
 
 const banner = detectUshipLifecycleEvent(
     "uShip notification",
