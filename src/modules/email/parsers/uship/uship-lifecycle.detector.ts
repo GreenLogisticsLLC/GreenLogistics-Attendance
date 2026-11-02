@@ -24,6 +24,7 @@ export type UshipLifecycleKind =
     | "SHIPMENT_LOST"
     | "SHIPMENT_DELETED_BY_CUSTOMER"
     | "NEW_MESSAGE"
+    | "COMPETITOR_QUOTE"
     | "UNKNOWN";
 
 export type DetectedLifecycleEvent = {
@@ -170,9 +171,25 @@ function extractLoadNumber(text: string): string | undefined {
     return undefined;
 }
 
+/** uShip "You've Got Competition" — another provider quoted on this listing. */
+export function isCompetitorQuoteEmail(subject: string, hay: string): boolean {
+    const blob = `${subject}\n${hay}`.toLowerCase();
+    return /you'?ve\s+got\s+competition|another\s+provider\s+has\s+quoted|other\s+provider\s+has\s+quoted|another\s+(?:carrier|company|broker)\s+has\s+(?:quoted|placed\s+a\s+quote)|a\s+provider\s+has\s+quoted\s+on\s+this\s+shipment/.test(
+        blob
+    );
+}
+
 export function detectUshipLifecycleEvent(subject: string, body: string): DetectedLifecycleEvent {
     const h = haystack(subject, body);
     const loadNumber = extractLoadNumber(`${subject}\n${body}`);
+
+    if (isCompetitorQuoteEmail(subject, h)) {
+        return {
+            kind: "COMPETITOR_QUOTE",
+            title: "Another provider quoted",
+            domainEventType: "COMPETITOR_QUOTE",
+        };
+    }
 
     if (
         /listing\s+(?:was\s+)?deleted|shipment\s+(?:was\s+)?deleted|deleted\s+(?:this\s+)?(?:listing|shipment)|customer\s+deleted|removed\s+(?:the\s+)?(?:listing|shipment)|no\s+longer\s+available|listing\s+has\s+been\s+removed|shipment\s+has\s+been\s+removed/.test(
@@ -360,6 +377,7 @@ const NOTIFY_KINDS = new Set<UshipLifecycleKind>([
     "BID_SUBMITTED",
     "BID_UPDATED",
     "QUOTE_SUBMITTED",
+    "COMPETITOR_QUOTE",
 ]);
 
 /**
@@ -378,6 +396,24 @@ export async function applyUshipLifecycleEvent(input: {
         where: { shipmentLeadId: input.shipmentLeadId },
     });
     if (!shipment) return { applied: false as const, detected };
+
+    if (detected.kind === "COMPETITOR_QUOTE" && input.gmailMessageId) {
+        const already = await prisma.domainEvent.findFirst({
+            where: {
+                shipmentLeadId: input.shipmentLeadId,
+                eventType: "COMPETITOR_QUOTE",
+                payloadJson: { contains: input.gmailMessageId },
+            },
+            select: { eventId: true },
+        });
+        if (already) {
+            return {
+                applied: false as const,
+                detected,
+                reason: "Competition email already on this shipment",
+            };
+        }
+    }
 
     // AAC only from the assigned broker's Gmail Decline Reason email —
     // never from company Instant Alert / loose "another company" body text.
@@ -745,7 +781,8 @@ export async function applyUshipLifecycleEvent(input: {
                 gmailMessageId: input.gmailMessageId,
                 kind: detected.kind,
             },
-            timelineStage: "USHIP_EMAIL",
+                timelineStage:
+                    detected.kind === "COMPETITOR_QUOTE" ? "COMPETITOR_QUOTE" : "USHIP_EMAIL",
         });
     }
 
@@ -807,6 +844,7 @@ export async function applyUshipLifecycleEvent(input: {
             BID_SUBMITTED: "BID_SUBMITTED",
             BID_UPDATED: "BID_SUBMITTED",
             QUOTE_SUBMITTED: "BID_SUBMITTED",
+            COMPETITOR_QUOTE: "COMPETITOR_QUOTE",
         };
         const nType = typeMap[detected.kind] || "TIMELINE_EVENT";
         const msg = `Shipment # ${shipment.greenOsShipmentId || input.shipmentLeadId.slice(0, 8)} — ${input.subject}`;

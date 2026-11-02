@@ -4,6 +4,7 @@
  */
 import {
     detectUshipLifecycleEvent,
+    isCompetitorQuoteEmail,
     isExplicitCustomerWin,
     isNewListingAlertSubject,
     isQuoteOrBidConfirmation,
@@ -115,5 +116,26 @@ const question = detectUshipLifecycleEvent(
     "The customer has responded. If the customer accepted your quote you would see Booking confirmed."
 );
 assert(question.kind === "CUSTOMER_RESPOND", `question kind=${question.kind}`);
+
+const competition = detectUshipLifecycleEvent(
+    "You've Got Competition - 30 Crates - A OTHER PROVIDER HAS QUOTED ON THIS SHIPMENT",
+    "Another provider has quoted on this shipment. Your quote is still active."
+);
+assert(competition.kind === "COMPETITOR_QUOTE", `competition kind=${competition.kind}`);
+assert(!competition.targetStatus, "competition must not change shipment status");
+assert(
+    isCompetitorQuoteEmail(
+        "You've Got Competition - 30 Crates",
+        "A OTHER PROVIDER HAS QUOTED ON THIS SHIPMENT"
+    ),
+    "competition subject"
+);
+assert(
+    !isExplicitCustomerWin(
+        "You've Got Competition - 30 Crates",
+        "Another provider has quoted on this shipment"
+    ),
+    "competition is not Accept Green"
+);
 
 console.log("OK: Instant Alert / CTA does not false-trigger Bid Submitted");

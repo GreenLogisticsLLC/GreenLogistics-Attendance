@@ -1284,6 +1284,40 @@ html[data-theme="light"] {
   letter-spacing: 0.01em;
   line-height: 1.2;
 }
+.gos-competition-badge {
+  display: inline-block;
+  margin-top: 0.2rem;
+  color: #f6c453;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.crm-competition {
+  margin: 0.75rem 0 0.25rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid #f5b942;
+  border-radius: 10px;
+  background: rgba(245, 185, 66, 0.14);
+  color: #ffe7a3;
+}
+
+.crm-competition strong {
+  display: block;
+  font-size: 1rem;
+  color: #ffd56a;
+}
+
+.crm-competition p {
+  margin: 0.25rem 0 0;
+  color: #ffe7a3;
+}
+
+.crm-competition small {
+  display: block;
+  margin-top: 0.3rem;
+  color: #f0d48a;
+}
+
 .gos-ship-id {
   color: var(--gos-muted);
   font-size: 0.72rem;

@@ -152,6 +152,7 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         wasEverReassigned: Boolean(lead.wasEverReassigned || lead.isReassignment),
         brokerReplyDeadline: lead.brokerReplyDeadline as Date | string | null,
         customerReplied: Boolean(e.customerReplied),
+        competitorQuotes: Number(lead.competitorQuotes || 0),
         updatedAt: lead.updatedAt as Date | string | null,
     };
 }
@@ -496,9 +497,29 @@ export class CrmService {
             rows = pageRows as Array<Record<string, unknown>>;
         }
         const brokers = await userMap(rows.map((r) => (r.assignedBrokerId as string) || ""));
-        const items = lite
-            ? rows.map((r) => toBrokerListRow(r, brokers))
-            : rows.map((r) => enrichLead(r, brokers));
+        const ids = rows.map((r) => String(r.shipmentLeadId || "")).filter(Boolean);
+        const competition = ids.length
+            ? await prisma.domainEvent.groupBy({
+                  by: ["shipmentLeadId"],
+                  where: {
+                      shipmentLeadId: { in: ids },
+                      eventType: "COMPETITOR_QUOTE",
+                  },
+                  _count: { _all: true },
+              })
+            : [];
+        const competitionCount = new Map(
+            competition.map((row) => [row.shipmentLeadId, row._count._all])
+        );
+        const items = rows.map((r) => {
+            const withCompetition = {
+                ...r,
+                competitorQuotes: competitionCount.get(String(r.shipmentLeadId || "")) || 0,
+            };
+            return lite
+                ? toBrokerListRow(withCompetition, brokers)
+                : enrichLead(withCompetition, brokers);
+        });
         return {
             items,
             total,

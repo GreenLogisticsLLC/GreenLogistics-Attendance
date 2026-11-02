@@ -700,7 +700,13 @@ window.GreenOSModules.crm = {
             "</div>" +
             '<div class="gos-ship-id">' +
             esc(s.greenOsShipmentId || s.externalShipmentId || s.shipmentLeadId.slice(0, 8)) +
-            "</div></td>" +
+            "</div>" +
+            (Number(s.competitorQuotes) > 0
+              ? '<div class="gos-competition-badge">Another provider quoted' +
+                (Number(s.competitorQuotes) > 1 ? " · " + Number(s.competitorQuotes) : "") +
+                "</div>"
+              : "") +
+            "</td>" +
             "<td>" +
             esc(s.customer) +
             "</td>" +
@@ -1296,6 +1302,25 @@ window.GreenOSModules.crm = {
         "</p></div>" +
         '<button type="button" class="btn-secondary" id="crm-close">Close</button>' +
         "</header>" +
+        (function () {
+          var comps = (s.domainEvents || []).filter(function (e) {
+            return e && e.eventType === "COMPETITOR_QUOTE";
+          });
+          if (!comps.length) return "";
+          var latest = comps[comps.length - 1];
+          var when = latest && latest.createdAt ? window.GreenOSModules.crm.fmtDate(latest.createdAt) : "";
+          return (
+            '<div class="crm-competition">' +
+            "<strong>Another provider quoted</strong>" +
+            "<p>uShip: another provider has quoted on this shipment.</p>" +
+            "<small>" +
+            comps.length +
+            " notice" +
+            (comps.length === 1 ? "" : "s") +
+            (when ? " · last " + esc(when) : "") +
+            "</small></div>"
+          );
+        })() +
         '<div class="crm-card-grid">' +
         "<div><span>Status</span>" +
         this.statusCellHtml(s.status, { customerReplied: customerRepliedNotice }) +

@@ -468,6 +468,11 @@ window.GreenOSModules.broker = {
             (s.greenOsShipmentId
               ? '<div class="gos-ship-id">' + esc(s.greenOsShipmentId) + "</div>"
               : "") +
+            (Number(s.competitorQuotes) > 0
+              ? '<div class="gos-competition-badge">Another provider quoted' +
+                (Number(s.competitorQuotes) > 1 ? " · " + Number(s.competitorQuotes) : "") +
+                "</div>"
+              : "") +
             (isOtherShipment(s) && tab !== "accepted-another"
               ? '<br><small class="gos-muted">Passed from another broker</small>'
               : "") +

@@ -725,12 +725,12 @@
           greenOsShipmentId: num,
           kind: d.kind || d.title || "LIFECYCLE",
           // Same shipment + same event title = once only (ignore subject churn).
-          dedupeKey: toastFingerprint([
-            d.shipmentLeadId,
-            num,
-            d.title,
-            d.kind,
-          ]),
+          // Each new "another provider quoted" email should alert again.
+          dedupeKey: toastFingerprint(
+            String(d.kind || "") === "COMPETITOR_QUOTE"
+              ? [d.shipmentLeadId, num, d.title, d.kind, d.at || d.subject]
+              : [d.shipmentLeadId, num, d.title, d.kind]
+          ),
         }
       );
       if (shown) {
@@ -748,6 +748,14 @@
             "Customer Respond",
             (num ? "Shipment # " + num + " — " : "") +
               (d.subject || "Customer replied to your question"),
+            d.shipmentLeadId
+          );
+        }
+        if (kind === "COMPETITOR_QUOTE") {
+          showDesktopPush(
+            "Another provider quoted",
+            (num ? "Shipment # " + num + " — " : "") +
+              (d.subject || "Another provider has quoted on this shipment"),
             d.shipmentLeadId
           );
         }
