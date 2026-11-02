@@ -4,11 +4,13 @@
  */
 import {
     detectUshipLifecycleEvent,
+    isBookingConfirmation,
     isCompetitorQuoteEmail,
     isExplicitCustomerWin,
     isNewListingAlertSubject,
     isQuoteOrBidConfirmation,
 } from "./uship-lifecycle.detector.js";
+import { titlesFromQuestionAnsweredEmail } from "./uship-qa-match.js";
 
 function assert(cond: unknown, msg: string) {
     if (!cond) {
@@ -150,5 +152,17 @@ const aacStill = detectUshipLifecycleEvent(
     "THIS QUOTE WAS DECLINED\nDECLINE REASON\nAccepted another quote"
 );
 assert(aacStill.kind === "ACCEPTED_ANOTHER_COMPANY", `aac still kind=${aacStill.kind}`);
+
+const bookingSubject =
+    "Booking Confirmation - 10 Pallets - CONGRATS! THIS CUSTOMER ACCEPTED YOUR QUOTE AND THIS SHIPMENT IS NOW BOOKED Please contact your shipping customer to confirm";
+const booking = detectUshipLifecycleEvent(
+    bookingSubject,
+    "CONGRATS! THIS CUSTOMER ACCEPTED YOUR QUOTE AND THIS SHIPMENT IS NOW BOOKED"
+);
+assert(isBookingConfirmation(bookingSubject, ""), "booking confirmation subject");
+assert(booking.kind === "CUSTOMER_ACCEPTED", `booking kind=${booking.kind}`);
+assert(booking.targetStatus === "ACCEPT_GREEN", "booking creates Accept Green and the load number");
+const bookingTitle = titlesFromQuestionAnsweredEmail(bookingSubject, "");
+assert(bookingTitle.includes("10 pallets"), `booking title=${JSON.stringify(bookingTitle)}`);
 
 console.log("OK: Instant Alert / CTA does not false-trigger Bid Submitted");

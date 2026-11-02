@@ -98,6 +98,21 @@ export function isQuoteOrBidConfirmation(subjectH: string, hay: string): boolean
     return false;
 }
 
+/**
+ * uShip "Booking Confirmation — CONGRATS! THIS CUSTOMER ACCEPTED YOUR QUOTE
+ * AND THIS SHIPMENT IS NOW BOOKED". That is Accept Green, and the load number
+ * is created from it.
+ */
+export function isBookingConfirmation(subject: string, hay: string): boolean {
+    const subjectH = String(subject || "").toLowerCase();
+    if (/\bbooking\s+confirmation\b/.test(subjectH)) return true;
+    const blob = `${subjectH}\n${hay}`.toLowerCase();
+    return (
+        /this\s+customer\s+accepted\s+your\s+quote/.test(blob) &&
+        /shipment\s+is\s+now\s+booked|booking\s+confirmation/.test(blob)
+    );
+}
+
 /** Subject is a quote/bid receipt, not a customer win. */
 function isQuoteConfirmationSubject(subject: string): boolean {
     const s = String(subject || "").toLowerCase();
@@ -116,7 +131,10 @@ export function isExplicitCustomerWin(subject: string, hay: string): boolean {
         /your\s+(?:quote|bid|offer)\s+(?:was|has\s+been)\s+accepted/.test(subjectH) ||
         /(?:customer|shipper)\s+accepted\s+your\s+(?:quote|bid|offer)/.test(subjectH) ||
         /accepted\s+your\s+(?:quote|bid|offer)/.test(subjectH) ||
-        /\bbooking\s+confirmed\b/.test(subjectH) ||
+        /\bbooking\s+confirm(?:ed|ation)\b/.test(subjectH) ||
+        /this\s+customer\s+accepted\s+your\s+quote/.test(subjectH) ||
+        /shipment\s+is\s+now\s+booked/.test(subjectH) ||
+        /\bcongrats\b/.test(subjectH) ||
         /you(?:'ve|\s+have)\s+been\s+booked/.test(subjectH) ||
         /your\s+(?:listing|shipment)\s+(?:has\s+been\s+|was\s+)?booked/.test(subjectH) ||
         /congratulations/.test(subjectH);
@@ -150,7 +168,9 @@ export function isExplicitCustomerWin(subject: string, hay: string): boolean {
         ) ||
         /your\s+(?:quote|bid|offer)\s+(?:was|has\s+been)\s+accepted/.test(withoutConditionals) ||
         /your\s+(?:listing|shipment)\s+(?:has\s+been|was)\s+booked/.test(withoutConditionals) ||
-        /\bbooking\s+confirmed\b/.test(withoutConditionals) ||
+        /\bbooking\s+confirm(?:ed|ation)\b/.test(withoutConditionals) ||
+        /this\s+customer\s+accepted\s+your\s+quote/.test(withoutConditionals) ||
+        /shipment\s+is\s+now\s+booked/.test(withoutConditionals) ||
         /you(?:'ve|\s+have)\s+been\s+booked/.test(withoutConditionals) ||
         /your\s+code\s+has\s+been\s+accepted\s+by\s+(?:the\s+)?(?:customer|shipper)/.test(
             withoutConditionals
@@ -163,7 +183,7 @@ export function isExplicitCustomerWin(subject: string, hay: string): boolean {
 export function customerAnswerExcerpt(subject: string, body: string): string {
     const text = `${subject}\n${body}`.replace(/\s+/g, " ").trim();
     const question = text.match(
-        /\byour\s+question\b\s*[:\-]?\s*(.{2,220}?)(?=\s+\banswer\b|\s+shipment\s+name\b|$)/i
+        /\byour\s+question\b\s*[:\-]?\s*(?!\s*your\s+question\b)(.{2,220}?)(?=\s+\banswer\b|\s+shipment\s+name\b|$)/i
     );
     const answer = text.match(
         /\banswer\b\s*[:\-]?\s*(.{2,360}?)(?=\s+shipment\s+name\b|\s+pickup\b|\s+delivery\b|\s+submit\s+quote\b|\s+view\s+shipment\b|$)/i
@@ -260,6 +280,15 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
             title: "Shipment Lost",
             domainEventType: "SHIPMENT_LOST",
             targetStatus: "LOST",
+        };
+    }
+
+    if (isBookingConfirmation(subject, h)) {
+        return {
+            kind: "CUSTOMER_ACCEPTED",
+            title: "Accept Green",
+            domainEventType: "CUSTOMER_ACCEPTED",
+            targetStatus: "ACCEPT_GREEN",
         };
     }
 

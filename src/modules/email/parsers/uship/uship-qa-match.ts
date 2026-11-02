@@ -17,12 +17,13 @@ export function titlesFromQuestionAnsweredEmail(subject: string, body: string): 
     };
     const sub = String(subject || "");
     const subMatch = sub.match(
-        /^(?:question\s+answered|customer\s+(?:respond(?:ed)?|replied|reply)|new\s+(?:message|reply)|code\s+answered)\s*[-:–—]\s*(.+)$/i
+        /^(?:question\s+answered|booking\s+confirmation|customer\s+(?:respond(?:ed)?|replied|reply)|new\s+(?:message|reply)|code\s+answered)\s*[-:–—]\s*(.+)$/i
     );
     if (subMatch?.[1]) {
         const core = subMatch[1]
             .replace(/\s*[-–—|]\s*a\s+customer\s+has\s+answered[\s\S]*$/i, "")
             .replace(/\s*[-–—|]\s*your\s+question[\s\S]*$/i, "")
+            .replace(/\s*[-–—|]\s*congrats\b[\s\S]*$/i, "")
             .trim();
         push(core || subMatch[1]);
     }
