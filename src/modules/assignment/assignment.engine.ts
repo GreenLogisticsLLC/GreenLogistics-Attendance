@@ -40,7 +40,10 @@ function isKeptByCurrentBroker(lead: { status: string; acceptedAt?: Date | null 
     return KEPT_BY_BROKER.has(status) || isLoadPhase(status);
 }
 
-const QUEUE_KEY = "brokers";
+/** Fresh imports only. Passing an Other shipment must not move this pointer. */
+const QUEUE_NEW = "brokers";
+/** Loads nobody accepted. Separate round-robin from New. */
+const QUEUE_OTHER = "other";
 /** Minutes to accept / react before load is passed to the next In Office broker. */
 const ACCEPTANCE_MINUTES = 15;
 let lastPassedFlagRepairAt = 0;
@@ -95,7 +98,10 @@ export class AssignmentEngine {
             await ensureGreenOsShipmentId(shipmentLeadId).catch(() => null);
         }
 
-        const pick = await this.pickNextBrokerRoundRobin();
+        const other = Boolean(lead.wasEverReassigned || lead.isReassignment);
+        const pick = await this.pickNextBrokerRoundRobin({
+            queueKey: other ? QUEUE_OTHER : QUEUE_NEW,
+        });
         if (!pick) {
             const parked =
                 lead.status === "UNASSIGNED"
@@ -514,6 +520,7 @@ export class AssignmentEngine {
             });
 
             const pick = await this.pickNextBrokerRoundRobin({
+                queueKey: QUEUE_OTHER,
                 excludeUserIds: [previousBrokerId],
             });
 
@@ -661,40 +668,39 @@ export class AssignmentEngine {
         const user = await this.findBrokerUserByEmployeeId(employeeId);
         if (!user) return null;
 
-        const state = await this.loadQueueState();
-        let orderedUserIds = state.orderedUserIds;
-        let nextIndex = state.nextIndex;
-
-        if (!orderedUserIds.includes(user.userId)) {
-            orderedUserIds = [...orderedUserIds, user.userId];
-            await this.saveQueueState(orderedUserIds, nextIndex);
+        const joinedNew = await this.joinQueue(QUEUE_NEW, user.userId);
+        await this.joinQueue(QUEUE_OTHER, user.userId);
+        if (joinedNew.joined) {
             await this.assignmentLog({
                 assignedUserId: user.userId,
                 assignedEmployeeId: employeeId,
                 eventType: "QUEUE_JOIN",
-                message: `${displayName(user)} In Office → added to assignment queue (position ${orderedUserIds.length})`,
-                queueSnapshot: JSON.stringify({ order: orderedUserIds, nextIndex }),
+                message: `${displayName(user)} In Office → added to New and Other queues (New position ${joinedNew.orderedUserIds.length})`,
+                queueSnapshot: JSON.stringify({
+                    order: joinedNew.orderedUserIds,
+                    nextIndex: joinedNew.nextIndex,
+                }),
             });
             console.log(
-                `[assignment] QUEUE_JOIN ${displayName(user)} — queue size ${orderedUserIds.length}`
+                `[assignment] QUEUE_JOIN ${displayName(user)} — New queue size ${joinedNew.orderedUserIds.length}`
             );
         }
 
-        // Spec: first broker back In Office → auto-assign pending Unassigned / NEW leads
+        // New queue first. Other uses its own pointer and does not consume a New turn.
         const drained = await this.assignPendingNewLeads(3);
+        await this.assignPendingOtherLeads(3);
         if (drained > 0) {
             console.log(
                 `[assignment] drained ${drained} pending shipment(s) after ${displayName(user)} In Office`
             );
         }
 
-        return { orderedUserIds, nextIndex };
+        return { orderedUserIds: joinedNew.orderedUserIds, nextIndex: joinedNew.nextIndex };
     }
 
     /**
      * Assign waiting NEW / first-time UNASSIGNED shipments via Round Robin.
-     * Automatic ticks never hand out old passed-along (Other) loads — those
-     * only fill in after every fresh import is gone, and only when asked.
+     * Other loads use assignPendingOtherLeads and a separate queue pointer.
      */
     async assignPendingNewLeads(
         limit = 50,
@@ -735,39 +741,47 @@ export class AssignmentEngine {
             if (pending.length >= limit) break;
         }
 
-        if (options?.includeOther && pending.length < limit) {
-            const stillFresh = await prisma.shipmentLead.count({
-                where: {
-                    OR: [
-                        {
-                            status: "NEW",
-                            OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
-                        },
-                        { ...unassignedPool, ...freshFilter },
-                    ],
-                },
-            });
-            if (stillFresh === 0) {
-                const unassignedOther = await prisma.shipmentLead.findMany({
-                    where: {
-                        ...unassignedPool,
-                        OR: [{ wasEverReassigned: true }, { isReassignment: true }],
-                        AND: [arrivedAfterShipmentCutoff],
-                    },
-                    orderBy: { createdAt: "asc" },
-                    take: limit - pending.length,
-                    select: { shipmentLeadId: true },
-                });
-                for (const row of unassignedOther) {
-                    if (seen.has(row.shipmentLeadId)) continue;
-                    seen.add(row.shipmentLeadId);
-                    pending.push(row);
-                }
-            }
-        }
-
         let assigned = 0;
         for (const row of pending) {
+            const eligible = await this.listEligibleBrokers();
+            if (!eligible.length) break;
+            const before = await shipmentLeadRepository.findById(row.shipmentLeadId);
+            await this.startPipeline(row.shipmentLeadId);
+            const after = await shipmentLeadRepository.findById(row.shipmentLeadId);
+            if (
+                after &&
+                after.assignedBrokerId &&
+                after.status !== "NEW" &&
+                after.status !== "UNASSIGNED"
+            ) {
+                assigned += 1;
+            } else if (before && after && after.status === "UNASSIGNED") {
+                break;
+            }
+        }
+        if (options?.includeOther) {
+            assigned += await this.assignPendingOtherLeads(limit);
+        }
+        return assigned;
+    }
+
+    /** Passed-along loads. Does not move the New shipment pointer. */
+    async assignPendingOtherLeads(limit = 50): Promise<number> {
+        const rows = await prisma.shipmentLead.findMany({
+            where: {
+                status: "UNASSIGNED",
+                OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+                AND: [
+                    arrivedAfterShipmentCutoff,
+                    { OR: [{ wasEverReassigned: true }, { isReassignment: true }] },
+                ],
+            },
+            orderBy: { createdAt: "asc" },
+            take: limit,
+            select: { shipmentLeadId: true },
+        });
+        let assigned = 0;
+        for (const row of rows) {
             const eligible = await this.listEligibleBrokers();
             if (!eligible.length) break;
             const before = await shipmentLeadRepository.findById(row.shipmentLeadId);
@@ -791,24 +805,10 @@ export class AssignmentEngine {
         const user = await this.findBrokerUserByEmployeeId(employeeId);
         if (!user) return null;
 
-        const state = await this.loadQueueState();
-        const idx = state.orderedUserIds.indexOf(user.userId);
-        if (idx < 0) return state;
-
-        const orderedUserIds = state.orderedUserIds.filter((id) => id !== user.userId);
-        let nextIndex = state.nextIndex;
-        if (orderedUserIds.length === 0) {
-            nextIndex = 0;
-        } else if (idx < state.nextIndex) {
-            nextIndex = Math.max(0, state.nextIndex - 1);
-        } else if (idx === state.nextIndex) {
-            // Was next — stay on same slot (now points to the following person)
-            nextIndex = state.nextIndex % orderedUserIds.length;
-        } else {
-            nextIndex = state.nextIndex % orderedUserIds.length;
-        }
-
-        await this.saveQueueState(orderedUserIds, nextIndex);
+        const left = await this.leaveQueue(QUEUE_NEW, user.userId);
+        await this.leaveQueue(QUEUE_OTHER, user.userId);
+        if (!left) return null;
+        const { orderedUserIds, nextIndex } = left;
         await this.assignmentLog({
             assignedUserId: user.userId,
             assignedEmployeeId: employeeId,
@@ -1062,25 +1062,27 @@ export class AssignmentEngine {
     }
 
     private async pickNextBrokerRoundRobin(options?: {
+        queueKey?: string;
         excludeUserIds?: string[];
     }): Promise<{
         broker: EligibleBroker;
         queueSnapshot: string;
     } | null> {
+        const queueKey = options?.queueKey || QUEUE_NEW;
         const exclude = new Set(options?.excludeUserIds || []);
         const eligible = await this.listEligibleBrokers();
         if (!eligible.length) {
-            await this.saveQueueState([], 0);
+            await this.saveQueueState(queueKey, [], 0);
             return null;
         }
 
         // Stable order by name so the rotating pointer is predictable; newcomers append via syncQueueOrder.
         const eligibleIds = eligible.map((e) => e.userId);
-        const state = await this.loadQueueState();
+        const state = await this.loadQueueState(queueKey);
         const synced = this.syncQueueOrder(state.orderedUserIds, eligibleIds, state.nextIndex);
 
         if (!synced.orderedUserIds.length) {
-            await this.saveQueueState([], 0);
+            await this.saveQueueState(queueKey, [], 0);
             return null;
         }
 
@@ -1095,7 +1097,7 @@ export class AssignmentEngine {
 
             // Advance pointer to the person AFTER the one we just assigned (strict sequential).
             const nextIndex = (idx + 1) % n;
-            await this.saveQueueState(synced.orderedUserIds, nextIndex);
+            await this.saveQueueState(queueKey, synced.orderedUserIds, nextIndex);
 
             const queueSnapshot = JSON.stringify({
                 order: synced.orderedUserIds,
@@ -1112,7 +1114,7 @@ export class AssignmentEngine {
             });
 
             console.log(
-                `[assignment] RR → ${broker.displayName} (idx ${idx}/${n}); next → ${
+                `[assignment] RR ${queueKey} → ${broker.displayName} (idx ${idx}/${n}); next → ${
                     synced.orderedUserIds[nextIndex]
                 }`
             );
@@ -1170,9 +1172,38 @@ export class AssignmentEngine {
         return { orderedUserIds, nextIndex };
     }
 
-    private async loadQueueState(): Promise<{ orderedUserIds: string[]; nextIndex: number }> {
+    private async joinQueue(queueKey: string, userId: string) {
+        const state = await this.loadQueueState(queueKey);
+        if (state.orderedUserIds.includes(userId)) {
+            return { ...state, joined: false };
+        }
+        const orderedUserIds = [...state.orderedUserIds, userId];
+        await this.saveQueueState(queueKey, orderedUserIds, state.nextIndex);
+        return { orderedUserIds, nextIndex: state.nextIndex, joined: true };
+    }
+
+    private async leaveQueue(queueKey: string, userId: string) {
+        const state = await this.loadQueueState(queueKey);
+        const idx = state.orderedUserIds.indexOf(userId);
+        if (idx < 0) return null;
+        const orderedUserIds = state.orderedUserIds.filter((id) => id !== userId);
+        let nextIndex = state.nextIndex;
+        if (orderedUserIds.length === 0) {
+            nextIndex = 0;
+        } else if (idx < state.nextIndex) {
+            nextIndex = Math.max(0, state.nextIndex - 1);
+        } else {
+            nextIndex = state.nextIndex % orderedUserIds.length;
+        }
+        await this.saveQueueState(queueKey, orderedUserIds, nextIndex);
+        return { orderedUserIds, nextIndex };
+    }
+
+    private async loadQueueState(
+        queueKey = QUEUE_NEW
+    ): Promise<{ orderedUserIds: string[]; nextIndex: number }> {
         const row = await prisma.assignmentQueueState.findUnique({
-            where: { queueKey: QUEUE_KEY },
+            where: { queueKey },
         });
         if (!row) return { orderedUserIds: [], nextIndex: 0 };
         let orderedUserIds: string[] = [];
@@ -1185,11 +1216,11 @@ export class AssignmentEngine {
         return { orderedUserIds, nextIndex: Math.max(0, row.nextIndex || 0) };
     }
 
-    private async saveQueueState(orderedUserIds: string[], nextIndex: number) {
+    private async saveQueueState(queueKey: string, orderedUserIds: string[], nextIndex: number) {
         await prisma.assignmentQueueState.upsert({
-            where: { queueKey: QUEUE_KEY },
+            where: { queueKey },
             create: {
-                queueKey: QUEUE_KEY,
+                queueKey,
                 orderedUserIdsJson: JSON.stringify(orderedUserIds),
                 nextIndex,
             },

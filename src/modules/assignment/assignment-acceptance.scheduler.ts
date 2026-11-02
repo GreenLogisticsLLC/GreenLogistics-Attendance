@@ -18,6 +18,7 @@ export function startAssignmentAcceptanceScheduler(intervalMs = 60_000) {
         try {
             await assignmentEngine.processDueAcceptances();
             await assignmentEngine.assignPendingNewLeads(5);
+            await assignmentEngine.assignPendingOtherLeads(5);
         } catch (err) {
             console.error(
                 "[assignment] acceptance tick failed",
