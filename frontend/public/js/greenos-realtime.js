@@ -175,27 +175,71 @@
     badge.textContent = unread > 99 ? "99+" : String(unread);
   }
 
+  var audioCtx = null;
+
+  /** Browsers stay silent until the broker has clicked or typed once. */
+  function unlockAudio() {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      if (!audioCtx) audioCtx = new Ctx();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      return audioCtx;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function bellStrike(ctx, when, freq, volume) {
+    var partials = [1, 2, 2.76, 3.9];
+    var weights = [1, 0.45, 0.22, 0.1];
+    for (var i = 0; i < partials.length; i++) {
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq * partials[i], when);
+      var peak = Math.max(0.0001, volume * weights[i]);
+      gain.gain.setValueAtTime(0.0001, when);
+      gain.gain.exponentialRampToValueAtTime(peak, when + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.85);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(when);
+      osc.stop(when + 0.9);
+    }
+  }
+
+  /** Loud two-tone doorbell. Used only when a shipment is assigned to this person. */
+  function playShipmentBell() {
+    if (!soundEnabled) return;
+    try {
+      var ctx = unlockAudio();
+      if (!ctx) return;
+      var start = ctx.currentTime + 0.02;
+      bellStrike(ctx, start, 988, 0.55);
+      bellStrike(ctx, start + 0.22, 1318, 0.62);
+      bellStrike(ctx, start + 0.46, 1568, 0.5);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
   function playNotifySound() {
     if (!soundEnabled) return;
     try {
-      var Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      var ctx = new Ctx();
-      var o = ctx.createOscillator();
-      var g = ctx.createGain();
-      o.type = "sine";
-      o.frequency.value = 880;
-      g.gain.value = 0.04;
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.start();
-      setTimeout(function () {
-        o.frequency.value = 1175;
-      }, 90);
-      setTimeout(function () {
-        o.stop();
-        ctx.close();
-      }, 220);
+      var ctx = unlockAudio();
+      if (!ctx) return;
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      var when = ctx.currentTime;
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, when);
+      gain.gain.setValueAtTime(0.08, when);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.18);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(when);
+      osc.stop(when + 0.2);
     } catch (e) {
       /* ignore */
     }
@@ -237,7 +281,7 @@
       data.greenOsShipmentId || data.shipmentNumber,
       "SHIPMENT_ASSIGNED",
     ]);
-    if (!claimToastOnce(key)) return;
+    if (!claimToastOnce(key)) return false;
 
     var host = ensureToastHost();
     var el = document.createElement("div");
@@ -246,8 +290,16 @@
     el.tabIndex = 0;
     var miles =
       data.miles != null && data.miles !== "" ? esc(data.miles) + " miles" : "";
+    var route = "";
+    if (data.pickup || data.delivery) {
+      route =
+        esc(data.pickup || "—") +
+        " → " +
+        esc(data.delivery || "—") +
+        (miles ? "<br/>" + miles : "");
+    }
     el.innerHTML =
-      '<div class="gos-toast-title">New Shipment Assigned</div>' +
+      '<div class="gos-toast-title">New Shipment</div>' +
       '<div class="gos-toast-body">' +
       (data.greenOsShipmentId || data.shipmentNumber
         ? "<strong>Shipment # " +
@@ -256,11 +308,8 @@
         : "") +
       "<strong>" +
       esc(data.vehicle || data.shipmentTitle || "Shipment") +
-      "</strong><br/>" +
-      esc(data.pickup || "—") +
-      " → " +
-      esc(data.delivery || "—") +
-      (miles ? "<br/>" + miles : "") +
+      "</strong>" +
+      (route ? "<br/>" + route : "") +
       "</div>" +
       '<div class="gos-toast-actions">' +
       '<button type="button" class="btn-primary gos-toast-open" style="width:auto;padding:0.3rem 0.6rem">Open</button>' +
@@ -289,6 +338,7 @@
     setTimeout(function () {
       dismissToast(el);
     }, 20000);
+    return true;
   }
 
   /**
@@ -432,21 +482,21 @@
   }
 
   function onAssignedFixed(data) {
-    var before = loadSeenMap();
-    var key = toastFingerprint([
-      "assign",
-      data && data.shipmentLeadId,
-      data && (data.greenOsShipmentId || data.shipmentNumber),
-      "SHIPMENT_ASSIGNED",
-    ]);
-    if (before[key]) {
+    var shown = showAssignedToast(data || {});
+    if (!shown) {
       refreshOpenViews();
       return;
     }
     unread += 1;
     updateBadge();
-    playNotifySound();
-    showAssignedToast(data || {});
+    playShipmentBell();
+    var num = (data && (data.greenOsShipmentId || data.shipmentNumber)) || "";
+    var titleText = (data && (data.vehicle || data.shipmentTitle)) || "New Shipment";
+    showDesktopPush(
+      "New Shipment",
+      (num ? "Shipment # " + num + " — " : "") + titleText,
+      data && data.shipmentLeadId
+    );
     refreshOpenViews();
   }
 
@@ -504,6 +554,52 @@
         if (document.hidden) return;
         refreshOpenViews();
       }, 10000);
+    }
+
+    // SSE can drop behind the proxy. Poll the broker's own assignment alerts
+    // so the corner toast and bell still fire within a few seconds.
+    if (!window.__gosAssignPoll) {
+      var assignSince = Date.now() - 25000;
+      window.__gosAssignPoll = setInterval(pollAssignedShipments, 8000);
+      setTimeout(pollAssignedShipments, 1200);
+    }
+
+    function pollAssignedShipments() {
+      var role = currentRole();
+      if (role !== "Broker" && role !== "Team Lead") return;
+      var token = localStorage.getItem("gl_token");
+      if (!token) return;
+      fetch("/api/crm/notifications", {
+        headers: { Authorization: "Bearer " + token },
+      })
+        .then(function (res) {
+          return res.ok ? res.json() : null;
+        })
+        .then(function (body) {
+          var items = body && body.data && body.data.items;
+          if (!items || !items.length) return;
+          var nextSince = assignSince;
+          items.forEach(function (item) {
+            if (!item || item.type !== "SHIPMENT_ASSIGNED") return;
+            if (item.title !== "New Shipment Assigned") return;
+            var created = new Date(item.createdAt).getTime();
+            if (!created || created < assignSince) return;
+            if (created > nextSince) nextSince = created;
+            var message = String(item.message || "");
+            var match = message.match(/Shipment #\s*([A-Za-z0-9-]+)/);
+            var num = match ? match[1] : "";
+            var name = message.split("—").slice(1).join("—").trim();
+            onAssignedFixed({
+              shipmentLeadId: item.shipmentLeadId,
+              greenOsShipmentId: num,
+              shipmentNumber: num,
+              shipmentTitle: name || message || "Shipment",
+              vehicle: name || message || "Shipment",
+            });
+          });
+          assignSince = Math.max(nextSince, Date.now() - 2000);
+        })
+        .catch(function () {});
     }
 
     if (!es) return;
@@ -705,6 +801,9 @@
       updateBadge();
     },
   };
+
+  document.addEventListener("pointerdown", unlockAudio, true);
+  document.addEventListener("keydown", unlockAudio, true);
 
   document.addEventListener("DOMContentLoaded", function () {
     if (localStorage.getItem("gl_token")) connect();
