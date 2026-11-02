@@ -14,6 +14,7 @@ import { startDocumentAiScheduler } from "./modules/ai/documents/scheduler.js";
 import { carrierService } from "./modules/carriers/services/carrier.service.js";
 import { backfillMissingGreenOsShipmentIds, remigrateAllGreenOsShipmentIds } from "./modules/shipment/shipment.id.js";
 import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
+import { resetShipmentsForEpoch } from "./services/shipment-epoch-reset.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -56,6 +57,11 @@ startDocumentAiScheduler(15_000);
 
 app.listen(config.port, config.host, async () => {
     await configureSqlite();
+    try {
+        await resetShipmentsForEpoch();
+    } catch (err) {
+        console.warn("[reset] shipment wipe skipped:", err);
+    }
     try {
         const remapped = await remigrateAllGreenOsShipmentIds();
         if (remapped > 0) {
