@@ -190,59 +190,55 @@
     }
   }
 
-  function bellStrike(ctx, when, freq, volume) {
-    var partials = [1, 2, 2.76, 3.9];
-    var weights = [1, 0.45, 0.22, 0.1];
-    for (var i = 0; i < partials.length; i++) {
+  function alarmStrike(ctx, dest, when, freq, volume) {
+    var layers = [
+      { type: "square", weight: 0.42 },
+      { type: "triangle", weight: 0.85 },
+      { type: "sine", weight: 1 },
+    ];
+    for (var i = 0; i < layers.length; i++) {
       var osc = ctx.createOscillator();
       var gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(freq * partials[i], when);
-      var peak = Math.max(0.0001, volume * weights[i]);
+      osc.type = layers[i].type;
+      osc.frequency.setValueAtTime(freq, when);
+      var peak = Math.max(0.0001, volume * layers[i].weight);
       gain.gain.setValueAtTime(0.0001, when);
-      gain.gain.exponentialRampToValueAtTime(peak, when + 0.012);
-      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.85);
+      gain.gain.exponentialRampToValueAtTime(peak, when + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.42);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(dest);
       osc.start(when);
-      osc.stop(when + 0.9);
+      osc.stop(when + 0.46);
     }
   }
 
-  /** Loud two-tone doorbell. Used only when a shipment is assigned to this person. */
-  function playShipmentBell() {
+  /** Fast rising alarm, played twice. Loud enough to cut through the office. */
+  function playEnergizingBell() {
     if (!soundEnabled) return;
     try {
       var ctx = unlockAudio();
       if (!ctx) return;
+      var master = ctx.createGain();
+      master.gain.setValueAtTime(1, ctx.currentTime);
+      master.connect(ctx.destination);
       var start = ctx.currentTime + 0.02;
-      bellStrike(ctx, start, 988, 0.55);
-      bellStrike(ctx, start + 0.22, 1318, 0.62);
-      bellStrike(ctx, start + 0.46, 1568, 0.5);
+      var notes = [740, 988, 1318, 1760];
+      for (var burst = 0; burst < 2; burst++) {
+        for (var n = 0; n < notes.length; n++) {
+          alarmStrike(ctx, master, start + burst * 0.72 + n * 0.13, notes[n], 0.72);
+        }
+      }
     } catch (e) {
       /* ignore */
     }
+  }
+
+  function playShipmentBell() {
+    playEnergizingBell();
   }
 
   function playNotifySound() {
-    if (!soundEnabled) return;
-    try {
-      var ctx = unlockAudio();
-      if (!ctx) return;
-      var osc = ctx.createOscillator();
-      var gain = ctx.createGain();
-      var when = ctx.currentTime;
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(880, when);
-      gain.gain.setValueAtTime(0.08, when);
-      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.18);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(when);
-      osc.stop(when + 0.2);
-    } catch (e) {
-      /* ignore */
-    }
+    playEnergizingBell();
   }
 
   /** Open shipment card from toast / notification click. */
