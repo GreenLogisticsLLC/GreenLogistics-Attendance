@@ -461,11 +461,12 @@ window.GreenOSModules.broker = {
             s.shipmentLeadId +
             '"><td>' +
             ((page - 1) * pageSize + i + 1) +
-            "</td><td><strong>" +
-            esc(s.greenOsShipmentId || s.shipmentTitle) +
-            "</strong>" +
+            "</td><td>" +
+            '<div class="gos-ship-title">' +
+            esc(s.shipmentTitle || s.greenOsShipmentId || "Shipment") +
+            "</div>" +
             (s.greenOsShipmentId
-              ? '<br><small class="gos-muted">' + esc(s.shipmentTitle) + "</small>"
+              ? '<div class="gos-ship-id">' + esc(s.greenOsShipmentId) + "</div>"
               : "") +
             (isOtherShipment(s) && tab !== "accepted-another"
               ? '<br><small class="gos-muted">Passed from another broker</small>'
@@ -697,11 +698,12 @@ window.GreenOSModules.broker = {
             s.shipmentLeadId +
             '"><td>' +
             (i + 1) +
-            "</td><td><strong>" +
-            esc(s.greenOsShipmentId || s.shipmentTitle) +
-            "</strong>" +
+            "</td><td>" +
+            '<div class="gos-ship-title">' +
+            esc(s.shipmentTitle || s.greenOsShipmentId || "Shipment") +
+            "</div>" +
             (s.greenOsShipmentId
-              ? '<br><small class="gos-muted">' + esc(s.shipmentTitle) + "</small>"
+              ? '<div class="gos-ship-id">' + esc(s.greenOsShipmentId) + "</div>"
               : "") +
             "</td><td>" +
             esc(s.customer) +

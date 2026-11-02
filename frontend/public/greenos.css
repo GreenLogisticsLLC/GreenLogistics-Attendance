@@ -1277,6 +1277,19 @@ html[data-theme="light"] {
   border-collapse: collapse;
   font-size: 0.88rem;
 }
+.gos-ship-title {
+  color: #5dffb0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+.gos-ship-id {
+  color: var(--gos-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-top: 0.15rem;
+}
 .crm-table th,
 .crm-table td {
   padding: 0.55rem 0.65rem;

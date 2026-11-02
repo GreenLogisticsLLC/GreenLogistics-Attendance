@@ -694,9 +694,13 @@ window.GreenOSModules.crm = {
               ? '<span class="lot-day-badge" title="Operational day: 17:00–16:59">17:00–16:59</span>'
               : "") +
             "</td>" +
-            "<td><strong>" +
-            esc(s.greenOsShipmentId || s.shipmentTitle || s.externalShipmentId || s.shipmentLeadId.slice(0, 8)) +
-            "</strong></td>" +
+            "<td>" +
+            '<div class="gos-ship-title">' +
+            esc(s.shipmentTitle || s.greenOsShipmentId || s.externalShipmentId || "Shipment") +
+            "</div>" +
+            '<div class="gos-ship-id">' +
+            esc(s.greenOsShipmentId || s.externalShipmentId || s.shipmentLeadId.slice(0, 8)) +
+            "</div></td>" +
             "<td>" +
             esc(s.customer) +
             "</td>" +
