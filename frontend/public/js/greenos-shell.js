@@ -1224,11 +1224,13 @@
         const modeEl = root.querySelector("#gos-cc-mode");
         if (modeEl) {
           modeEl.textContent =
-            mode === "in_office"
-              ? "Mode: In Office"
-              : mode === "none"
-                ? "Mode: Waiting for check-in"
-                : "Mode: Live";
+            mode === "after_hours"
+              ? "Mode: After 01:00"
+              : mode === "in_office"
+                ? "Mode: In Office"
+                : mode === "none"
+                  ? "Mode: Waiting for check-in"
+                  : "Mode: Live";
         }
         const updatedEl = root.querySelector("#gos-cc-updated");
         if (updatedEl) {

@@ -11,6 +11,8 @@ import {
 import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
 import { arrivedAfterShipmentCutoff } from "../../services/shipment-cutoff.js";
+import { config } from "../../config/env.js";
+import { isAfterHoursAssignment } from "../../utils/helpers.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
@@ -80,7 +82,10 @@ function sortBrokersForRoundRobin(brokers: EligibleBroker[]): EligibleBroker[] {
     });
 }
 
-export type AssignmentPoolMode = "in_office" | "none";
+export type AssignmentPoolMode = "in_office" | "after_hours" | "none";
+
+/** After 01:00 office time, New shipments go to these roles even if they are out. */
+const AFTER_HOURS_ROLE_NAMES = new Set(["Broker", "Team Lead"]);
 
 /**
  * Assignment Engine v1.0 — Round Robin driven only by Attendance:
@@ -618,9 +623,11 @@ export class AssignmentEngine {
             state.nextIndex
         );
         const modeLabel =
-            mode === "in_office"
-                ? "Checked-in eligible staff (Broker / Team Lead / Manager / Accounting / Owner)"
-                : "No eligible staff In Office — new shipments stay Unassigned";
+            mode === "after_hours"
+                ? "After 01:00 — all Brokers and Team Leads, In Office not required"
+                : mode === "in_office"
+                  ? "Checked-in eligible staff (Broker / Team Lead / Manager / Accounting / Owner)"
+                  : "No eligible staff In Office — new shipments stay Unassigned";
         return {
             version: "1.0",
             algorithm: "round_robin_sequential",
@@ -891,15 +898,17 @@ export class AssignmentEngine {
             }),
         ]);
 
+        const afterHours = isAfterHoursAssignment(new Date(), config.timezone);
         const allLinked: EligibleBroker[] = [];
         const employeeIdsToCheck: string[] = [];
         const linkUpdates: Array<{ userId: string; employeeId: string }> = [];
 
         for (const user of users) {
+            if (afterHours && !AFTER_HOURS_ROLE_NAMES.has(user.role.roleName)) continue;
             const employeeId = this.resolveEmployeeIdSync(user, activeEmployees);
-            if (!employeeId) continue;
+            if (!employeeId && !afterHours) continue;
 
-            if (!user.employeeId) {
+            if (employeeId && !user.employeeId) {
                 linkUpdates.push({ userId: user.userId, employeeId });
             }
 
@@ -921,11 +930,11 @@ export class AssignmentEngine {
                 username: user.username,
                 firstName: user.firstName,
                 lastName: user.lastName,
-                employeeId,
+                employeeId: employeeId || "",
                 displayName: displayName(user),
             };
             allLinked.push(entry);
-            employeeIdsToCheck.push(employeeId);
+            if (employeeId) employeeIdsToCheck.push(employeeId);
         }
 
         if (linkUpdates.length) {
@@ -938,8 +947,18 @@ export class AssignmentEngine {
             );
         }
 
+        if (afterHours) {
+            console.info(
+                `[assignment] after 01:00 office time — New shipments go to all Brokers and Team Leads (${allLinked.length}), In Office is not required`
+            );
+            return {
+                eligible: sortBrokersForRoundRobin(allLinked),
+                mode: "after_hours",
+            };
+        }
+
         const inOfficeIds = await getInOfficeEmployeeIds(employeeIdsToCheck);
-        const inOffice = allLinked.filter((entry) => inOfficeIds.has(entry.employeeId));
+        const inOffice = allLinked.filter((entry) => entry.employeeId && inOfficeIds.has(entry.employeeId));
 
         if (inOffice.length > 0) {
             return {

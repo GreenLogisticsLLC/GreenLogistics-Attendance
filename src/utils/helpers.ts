@@ -231,6 +231,18 @@ export function getAttendanceDayBounds(workDate: string, timezone: string) {
     };
 }
 
+/**
+ * After the 01:00 office-clock end of shift, until the next 17:00 start.
+ * New shipments then go to every Broker and Team Lead, not only people In Office.
+ */
+export function isAfterHoursAssignment(date: Date, timezone: string): boolean {
+    const local = zonedParts(date, timezone);
+    const minutes = local.hour * 60 + local.minute;
+    const workEnd = 1 * 60;
+    const workStart = 17 * 60;
+    return minutes >= workEnd && minutes < workStart;
+}
+
 /** Paid/countable work window: 17:00 → 01:00 next day. */
 export function getAttendanceWorkHoursBounds(workDate: string, timezone: string) {
     return {
