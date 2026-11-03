@@ -288,11 +288,11 @@ window.GreenOSModules.broker = {
       (activeTab === "accepted" ? " is-active" : "") +
       '" data-ship-tab="accepted">Accepted shipments <span class="gos-queue-badge" id="broker-ship-count-accepted">…</span></button>' +
       '<button type="button" class="gos-subnav-item' +
-      (activeTab === "loads" ? " is-active" : "") +
-      '" data-ship-tab="loads">Load Created <span class="gos-queue-badge" id="broker-ship-count-loads">…</span></button>' +
-      '<button type="button" class="gos-subnav-item' +
       (activeTab === "accepted-another" ? " is-active" : "") +
       '" data-ship-tab="accepted-another">Accepted to another company <span class="gos-queue-badge" id="broker-ship-count-aac">…</span></button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (activeTab === "loads" ? " is-active" : "") +
+      '" data-ship-tab="loads">Load Created <span class="gos-queue-badge" id="broker-ship-count-loads">…</span></button>' +
       "</nav>" +
       '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0 0 0.75rem">' +
       '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +

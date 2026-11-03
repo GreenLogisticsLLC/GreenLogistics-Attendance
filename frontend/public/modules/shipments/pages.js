@@ -56,11 +56,11 @@ window.GreenOSModules.shipments = {
       (tab === "accepted" ? " is-active" : "") +
       '" data-subpage="accepted">Accepted shipments</button>' +
       '<button type="button" class="gos-subnav-item' +
-      (tab === "load-created" ? " is-active" : "") +
-      '" data-subpage="load-created">Load Created</button>' +
-      '<button type="button" class="gos-subnav-item' +
       (tab === "accepted-another" ? " is-active" : "") +
       '" data-subpage="accepted-another">Accepted to another company</button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (tab === "load-created" ? " is-active" : "") +
+      '" data-subpage="load-created">Load Created</button>' +
       (isTeamLead
         ? '<button type="button" class="gos-subnav-item' +
           (tab === "by-broker" ? " is-active" : "") +

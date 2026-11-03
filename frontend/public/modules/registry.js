@@ -38,8 +38,8 @@ window.GreenOSRegistry = [
       { id: "new", title: "New Shipment" },
       { id: "other", title: "Other Shipment" },
       { id: "accepted", title: "Accepted shipments" },
-      { id: "load-created", title: "Load Created" },
       { id: "accepted-another", title: "Accepted to another company" },
+      { id: "load-created", title: "Load Created" },
     ],
   },
   {
