@@ -11,6 +11,7 @@ import { startAssignmentAcceptanceScheduler } from "./modules/assignment/assignm
 import { startBrokerResponseTimeoutScheduler } from "./modules/crm/broker-response-timeout.scheduler.js";
 import { startCarrierViewReconciliation } from "./modules/tracking/scheduler.js";
 import { startDocumentAiScheduler } from "./modules/ai/documents/scheduler.js";
+import { startCarrierMissingScheduler } from "./modules/shipment/carrier-missing.scheduler.js";
 import { carrierService } from "./modules/carriers/services/carrier.service.js";
 import { backfillMissingGreenOsShipmentIds, remigrateAllGreenOsShipmentIds } from "./modules/shipment/shipment.id.js";
 import { getWebhookUrls, getAllNetworkIps } from "./utils/helpers.js";
@@ -57,6 +58,7 @@ startAssignmentAcceptanceScheduler(60_000);
 startBrokerResponseTimeoutScheduler(30_000);
 startCarrierViewReconciliation();
 startDocumentAiScheduler(15_000);
+startCarrierMissingScheduler();
 
 app.listen(config.port, config.host, async () => {
     await configureSqlite();

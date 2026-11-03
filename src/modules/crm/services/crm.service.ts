@@ -1,5 +1,6 @@
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
+import { carrierMissingOnPickup } from "../../shipment/carrier-missing-on-pickup.js";
 import { getInOfficeEmployeeIds } from "../../../services/attendance-presence.service.js";
 import { ACTIVE_STATUSES } from "../crm.constants.js";
 import {
@@ -110,6 +111,14 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
         ushipUrl: ushipListingUrlFromLead(lead),
         brokerReplyDeadline: lead.brokerReplyDeadline || null,
         customerReplied: String(lead.status || "") === "CUSTOMER_REPLIED",
+        carrierMissingOnPickup: carrierMissingOnPickup({
+            loadNumber: lead.loadNumber as string | null,
+            carrierName: lead.carrierName as string | null,
+            status: lead.status as string | null,
+            pickupFrom: lead.pickupFrom as Date | null,
+            opsPickupAt: lead.opsPickupAt as Date | null,
+            timeZone: config.timezone,
+        }),
     };
 }
 
@@ -135,6 +144,9 @@ const SHIPMENT_LIST_SELECT = {
     priority: true,
     status: true,
     loadNumber: true,
+    carrierName: true,
+    pickupFrom: true,
+    opsPickupAt: true,
     viewUrl: true,
     assignedBrokerId: true,
     isReassignment: true,
@@ -159,6 +171,14 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         statusLabel: e.statusLabel,
         isReassignment: Boolean(lead.isReassignment || lead.wasEverReassigned),
         wasEverReassigned: Boolean(lead.wasEverReassigned || lead.isReassignment),
+        carrierMissingOnPickup: carrierMissingOnPickup({
+            loadNumber: lead.loadNumber as string | null,
+            carrierName: lead.carrierName as string | null,
+            status: lead.status as string | null,
+            pickupFrom: lead.pickupFrom as Date | null,
+            opsPickupAt: lead.opsPickupAt as Date | null,
+            timeZone: config.timezone,
+        }),
         brokerReplyDeadline: lead.brokerReplyDeadline as Date | string | null,
         customerReplied: Boolean(e.customerReplied),
         competitorQuotes: Number(lead.competitorQuotes || 0),

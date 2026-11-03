@@ -820,9 +820,12 @@ window.GreenOSModules.crm = {
           return (
             '<tr class="crm-row' +
             (isDayStart ? " lot-day-start" : "") +
+            (s.carrierMissingOnPickup ? " load-row-no-carrier" : "") +
             '" data-id="' +
             s.shipmentLeadId +
-            '">' +
+            '"' +
+            (s.carrierMissingOnPickup ? ' title="Pickup day and no carrier registered"' : "") +
+            ">" +
             '<td class="lot-num">' +
             rowNum +
             (isDayStart

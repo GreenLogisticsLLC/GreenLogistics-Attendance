@@ -23,6 +23,8 @@ import {
     customerPaymentQuote,
     normalizeCustomerPaymentMethod,
 } from "../customer-payment.js";
+import { carrierMissingOnPickup } from "../carrier-missing-on-pickup.js";
+import { config } from "../../../config/env.js";
 
 function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
@@ -220,6 +222,8 @@ export class LoadService {
                 price: true,
                 updatedAt: true,
                 createdAt: true,
+                pickupFrom: true,
+                opsPickupAt: true,
             },
         });
 
@@ -280,6 +284,14 @@ export class LoadService {
                 deliveryCity: r.deliveryCity,
                 deliveryState: r.deliveryState,
                 pricing: computePricing({ ...r, customerRate, carrierRate }),
+                carrierMissingOnPickup: carrierMissingOnPickup({
+                    loadNumber: r.loadNumber,
+                    carrierName: r.carrierName,
+                    status: r.status,
+                    pickupFrom: r.pickupFrom,
+                    opsPickupAt: r.opsPickupAt,
+                    timeZone: config.timezone,
+                }),
                 updatedAt: r.updatedAt,
                 createdAt: r.createdAt,
             };

@@ -1608,11 +1608,15 @@ window.GreenOSModules["dispatch"] = {
             .join(" ")
             .toLowerCase();
         html +=
-          '<tr class="load-row" data-id="' +
+          '<tr class="load-row' +
+          (r.carrierMissingOnPickup ? " load-row-no-carrier" : "") +
+          '" data-id="' +
           self.esc(r.shipmentLeadId) +
           '" data-hay="' +
           self.esc(hay) +
-          '">' +
+          '"' +
+          (r.carrierMissingOnPickup ? ' title="Pickup day and no carrier registered"' : "") +
+          ">" +
           "<td><strong>" + self.esc(r.loadNumber) + "</strong></td>" +
           "<td>" + self.esc(r.shipmentNumber || "—") + "</td>" +
           "<td>" + self.esc(r.customerName || "—") + "</td>" +

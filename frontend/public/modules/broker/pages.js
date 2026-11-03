@@ -492,9 +492,13 @@ window.GreenOSModules.broker = {
       tbody.innerHTML = visibleRows
         .map(function (s, i) {
           return (
-            '<tr class="crm-row" data-id="' +
+            '<tr class="crm-row' +
+            (s.carrierMissingOnPickup ? " load-row-no-carrier" : "") +
+            '" data-id="' +
             s.shipmentLeadId +
-            '"><td>' +
+            '"' +
+            (s.carrierMissingOnPickup ? ' title="Pickup day and no carrier registered"' : "") +
+            "><td>" +
             ((page - 1) * pageSize + i + 1) +
             "</td><td>" +
             '<div class="gos-ship-title">' +
