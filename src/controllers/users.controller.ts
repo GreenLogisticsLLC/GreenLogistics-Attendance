@@ -76,6 +76,24 @@ export async function updateUserTeamLeadController(req: AuthRequest, res: Respon
     }
 }
 
+export async function removeUserController(req: AuthRequest, res: Response) {
+    if (!req.user) {
+        return res.status(401).json(apiResponse(false, "Unauthorized"));
+    }
+    try {
+        const userId = String(req.params.userId || "");
+        const result = await usersService.removeUser(req.user, userId);
+        if (!result.ok) {
+            return res.status(result.status).json(apiResponse(false, result.message));
+        }
+        return res.json(apiResponse(true, result.data.message, result.data));
+    } catch (err) {
+        console.error("[users] removeUserController:", err);
+        const message = err instanceof Error ? err.message : "Remove failed";
+        return res.status(500).json(apiResponse(false, message));
+    }
+}
+
 export async function deleteUserController(req: AuthRequest, res: Response) {
     if (!req.user) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));

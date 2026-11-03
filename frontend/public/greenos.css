@@ -378,6 +378,19 @@ html[data-theme="light"] {
   white-space: nowrap;
 }
 
+.emp-user-remove {
+  border: 1px solid #92400e;
+  background: #451a03;
+  color: #fde68a;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  margin-right: 0.35rem;
+}
+.emp-user-remove:hover {
+  background: #92400e;
+  color: #fff;
+}
 .emp-user-delete {
   border: 1px solid #7f1d1d;
   background: #450a0a;

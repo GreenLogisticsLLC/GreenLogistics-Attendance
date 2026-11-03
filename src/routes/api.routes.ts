@@ -55,6 +55,7 @@ import {
     listAssignableRolesController,
     updateUserRoleController,
     updateUserTeamLeadController,
+    removeUserController,
     deleteUserController,
     syncAttendanceBadgesController,
 } from "../controllers/users.controller.js";
@@ -150,6 +151,12 @@ apiRouter.patch(
     authMiddleware,
     requireRole("Administrator", "Owner", "Manager", "HR"),
     updateUserTeamLeadController
+);
+apiRouter.post(
+    "/v1/users/:userId/remove",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    removeUserController
 );
 apiRouter.delete(
     "/v1/users/:userId",

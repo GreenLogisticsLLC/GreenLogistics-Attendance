@@ -23,6 +23,187 @@ import {
     transferTeamLeadership,
 } from "../auth/team-scope.js";
 
+type DeletableUser = {
+    userId: string;
+    username: string;
+    email: string | null;
+    employeeId: string | null;
+    employee: { cardNumber: string } | null;
+};
+
+async function dropUserFromAssignmentQueues(db: typeof prisma, userId: string) {
+    let removed = 0;
+    for (const queueKey of ["brokers", "other"]) {
+        const queue = await db.assignmentQueueState.findUnique({ where: { queueKey } });
+        if (!queue) continue;
+        let ordered: string[] = [];
+        try {
+            ordered = JSON.parse(queue.orderedUserIdsJson || "[]");
+        } catch {
+            ordered = [];
+        }
+        if (!Array.isArray(ordered)) ordered = [];
+        const filtered = ordered.filter((id) => id !== userId);
+        if (filtered.length === ordered.length) continue;
+        await db.assignmentQueueState.update({
+            where: { queueKey },
+            data: {
+                orderedUserIdsJson: JSON.stringify(filtered),
+                nextIndex: Math.min(queue.nextIndex, Math.max(filtered.length - 1, 0)),
+            },
+        });
+        removed += 1;
+    }
+    return removed;
+}
+
+async function reactivateLinkedEmployee(employeeId: string | null | undefined) {
+    if (!employeeId) return;
+    await prisma.employee.updateMany({
+        where: { employeeId },
+        data: { status: "ACTIVE" },
+    });
+}
+
+/** Delete every row that would block removing this login. One transaction. */
+async function purgePlatformUser(actorUserId: string, user: DeletableUser) {
+    const userId = user.userId;
+    const leadIds = `SELECT shipment_lead_id FROM shipment_leads WHERE assigned_broker_id = ?`;
+    return prisma.$transaction(
+        async (tx) => {
+            const deleted: Record<string, number> = {};
+            const exec = async (sql: string, ...params: Array<string | null>) =>
+                Number(await tx.$executeRawUnsafe(sql, ...params));
+
+            deleted.trackingPositions = await exec(
+                `DELETE FROM tracking_positions WHERE shipment_lead_id IN (${leadIds})`,
+                userId
+            );
+            deleted.trackingEvents = await exec(
+                `DELETE FROM tracking_integration_events WHERE shipment_lead_id IN (${leadIds})
+                 OR tracking_id IN (
+                   SELECT tracking_id FROM shipment_trackings WHERE shipment_lead_id IN (${leadIds})
+                 )`,
+                userId,
+                userId
+            );
+            deleted.trackings = await exec(
+                `DELETE FROM shipment_trackings WHERE shipment_lead_id IN (${leadIds})`,
+                userId
+            );
+            for (const table of [
+                "load_documents",
+                "domain_events",
+                "broker_response_problems",
+                "load_late_problems",
+                "shipment_ops_comments",
+                "shipment_timeline_events",
+                "shipment_import_logs",
+                "broker_mailbox_messages",
+                "platform_notifications",
+            ]) {
+                deleted[table] = await exec(
+                    `DELETE FROM ${table} WHERE shipment_lead_id IN (${leadIds})`,
+                    userId
+                );
+            }
+            deleted.assignmentLogs = await exec(
+                `DELETE FROM assignment_logs WHERE assigned_user_id = ? OR shipment_lead_id IN (${leadIds})`,
+                userId,
+                userId
+            );
+            deleted.shipmentLeads = await exec(
+                `DELETE FROM shipment_leads WHERE assigned_broker_id = ?`,
+                userId
+            );
+            await exec(
+                `UPDATE shipment_timeline_events SET actor_user_id = NULL WHERE actor_user_id = ?`,
+                userId
+            );
+            deleted.directCustomersReassigned = await exec(
+                `UPDATE direct_customers SET created_by_user_id = ? WHERE created_by_user_id = ?`,
+                actorUserId,
+                userId
+            );
+            await exec(
+                `UPDATE carriers SET assigned_broker_id = NULL WHERE assigned_broker_id = ?`,
+                userId
+            );
+            deleted.auditLogs = await exec(`DELETE FROM audit_logs WHERE user_id = ?`, userId);
+            await exec(
+                `DELETE FROM document_validation_results WHERE job_id IN (
+                   SELECT job_id FROM ai_document_jobs WHERE actor_user_id = ?
+                 )`,
+                userId
+            );
+            for (const [key, sql] of [
+                ["aiJobs", `DELETE FROM ai_document_jobs WHERE actor_user_id = ?`],
+                ["aiActions", `DELETE FROM ai_actions WHERE actor_user_id = ?`],
+                ["aiRuns", `DELETE FROM ai_runs WHERE actor_user_id = ?`],
+                ["aiThreads", `DELETE FROM ai_agent_threads WHERE user_id = ?`],
+                ["aiFolders", `DELETE FROM ai_agent_folders WHERE user_id = ?`],
+                ["mailbox", `DELETE FROM broker_mailbox_messages WHERE user_id = ?`],
+                ["gmail", `DELETE FROM broker_gmail_accounts WHERE user_id = ?`],
+                ["notifications", `DELETE FROM platform_notifications WHERE user_id = ?`],
+            ] as const) {
+                deleted[key] = await exec(sql, userId);
+            }
+            await exec(`UPDATE users SET team_lead_id = NULL WHERE team_lead_id = ?`, userId);
+            deleted.removedFromAssignmentQueue = await dropUserFromAssignmentQueues(
+                tx as unknown as typeof prisma,
+                userId
+            );
+            if (user.email) {
+                deleted.pendingRegistrations = await exec(
+                    `DELETE FROM pending_registrations WHERE username = ? OR email = ?`,
+                    user.username,
+                    user.email
+                );
+            } else {
+                deleted.pendingRegistrations = await exec(
+                    `DELETE FROM pending_registrations WHERE username = ?`,
+                    user.username
+                );
+            }
+            if (user.employeeId) {
+                await exec(`UPDATE users SET employee_id = NULL WHERE user_id = ?`, userId);
+            }
+            deleted.users = await exec(`DELETE FROM users WHERE user_id = ?`, userId);
+
+            if (user.employeeId) {
+                const employeeId = user.employeeId;
+                await exec(
+                    `DELETE FROM absence_intervals WHERE session_id IN (
+                       SELECT session_id FROM attendance_sessions WHERE employee_id = ?
+                     )`,
+                    employeeId
+                );
+                await exec(`DELETE FROM attendance_events WHERE employee_id = ?`, employeeId);
+                deleted.attendanceSessions = await exec(
+                    `DELETE FROM attendance_sessions WHERE employee_id = ?`,
+                    employeeId
+                );
+                await exec(`DELETE FROM notifications WHERE employee_id = ?`, employeeId);
+                await exec(
+                    `DELETE FROM assignment_logs WHERE assigned_employee_id = ?`,
+                    employeeId
+                );
+                if (user.employee?.cardNumber) {
+                    await tx.pendingCardScan.deleteMany({
+                        where: { cardToken: normalizeCardToken(user.employee.cardNumber) },
+                    });
+                }
+                deleted.linkedEmployees = await exec(
+                    `DELETE FROM employees WHERE employee_id = ?`,
+                    employeeId
+                );
+            }
+            return deleted;
+        },
+        { timeout: 60_000 }
+    );
+}
+
 export class UsersService {
     listAssignableRoles(actorRole: string) {
         return ASSIGNABLE_ROLE_NAMES.filter((role) => canAssignRole(actorRole, role)).map(
@@ -93,7 +274,11 @@ export class UsersService {
 
         const updated = await prisma.user.update({
             where: { userId },
-            data: { teamLeadId: nextTeamLeadId },
+            data: {
+                teamLeadId: nextTeamLeadId,
+                isActive: true,
+                availableForAssignment: true,
+            },
             include: {
                 role: true,
                 teamLead: {
@@ -101,6 +286,7 @@ export class UsersService {
                 },
             },
         });
+        await reactivateLinkedEmployee(updated.employeeId);
 
         try {
             const { ensureAttendanceBadgeForUser } = await import(
@@ -252,12 +438,15 @@ export class UsersService {
                     data: {
                         roleId: role.roleId,
                         accountingSubRole,
+                        isActive: true,
+                        availableForAssignment: true,
                         // Non-brokers do not report to a Team Lead.
                         ...(roleName !== Roles.Broker ? { teamLeadId: null } : {}),
                     },
                     include: { role: true },
                 })
             );
+            await reactivateLinkedEmployee(updated.employeeId);
 
             try {
                 const roleChanged = user.role.roleName !== updated.role.roleName;
@@ -368,6 +557,95 @@ export class UsersService {
     }
 
     /**
+     * Take the person off the team and the assignment rotation.
+     * The account stays so the role and Team Lead can still be changed and saved.
+     */
+    async removeUser(actor: { userId: string; role: string }, userId: string) {
+        if (!userId) {
+            return { ok: false as const, status: 422, message: "userId is required" };
+        }
+        if (actor.userId === userId) {
+            return { ok: false as const, status: 422, message: "You cannot remove your own account" };
+        }
+
+        beginAdminWrite();
+        try {
+            const user = await withDbRetry("findUserRemove", () =>
+                prisma.user.findUnique({
+                    where: { userId },
+                    include: { role: true },
+                })
+            );
+            if (!user) {
+                return { ok: false as const, status: 404, message: "User not found" };
+            }
+            if (!canDeleteUserAccount(actor.role, user.role.roleName)) {
+                return {
+                    ok: false as const,
+                    status: 403,
+                    message: "You do not have permission to remove this account",
+                };
+            }
+            if (user.role.roleName === Roles.Owner) {
+                const ownerCount = await prisma.user.count({
+                    where: { role: { roleName: Roles.Owner }, isActive: true },
+                });
+                if (ownerCount <= 1 && user.isActive) {
+                    return {
+                        ok: false as const,
+                        status: 422,
+                        message: "Cannot remove the last active Owner",
+                    };
+                }
+            }
+
+            let brokersUnassigned = 0;
+            if (user.role.roleName === Roles.TeamLead) {
+                const cleared = await clearTeamLeadership(userId);
+                brokersUnassigned = cleared.brokersUnassigned;
+            }
+
+            await withDbRetry("removeUserRow", () =>
+                prisma.user.update({
+                    where: { userId },
+                    data: {
+                        isActive: false,
+                        availableForAssignment: false,
+                        teamLeadId: null,
+                    },
+                })
+            );
+            if (user.employeeId) {
+                await prisma.employee.updateMany({
+                    where: { employeeId: user.employeeId },
+                    data: { status: "INACTIVE" },
+                });
+            }
+            await dropUserFromAssignmentQueues(prisma, userId);
+
+            const name = `${user.firstName} ${user.lastName}`.trim();
+            return {
+                ok: true as const,
+                data: {
+                    userId,
+                    isActive: false,
+                    message:
+                        `Removed ${name}. The account stays inactive so you can change the role or Team Lead and press Save.` +
+                        (brokersUnassigned
+                            ? ` Unassigned ${brokersUnassigned} broker(s) from this Team Lead.`
+                            : ""),
+                },
+            };
+        } catch (err) {
+            console.error("[users] removeUser failed:", err);
+            const message = err instanceof Error ? err.message : "Remove failed";
+            return { ok: false as const, status: 500, message };
+        } finally {
+            endAdminWrite();
+        }
+    }
+
+    /**
      * Permanently remove a platform user and related GreenOS data.
      * Pauses email poller + retries on SQLite lock/timeout.
      */
@@ -416,202 +694,9 @@ export class UsersService {
                 }
             }
 
-            const deleted: Record<string, number> = {};
-
-            // Fast path: raw SQL batches (fewer round-trips, less lock time on SQLite)
-            deleted.auditLogs = Number(
-                (
-                    await withDbRetry("deleteAudit", () =>
-                        prisma.$executeRawUnsafe(
-                            `DELETE FROM audit_logs WHERE user_id = ?`,
-                            userId
-                        )
-                    )
-                ) as number
+            const deleted = await withDbRetry("deleteUserTx", () =>
+                purgePlatformUser(actor.userId, user)
             );
-
-            deleted.shipmentImportLogs = Number(
-                (
-                    await withDbRetry("deleteImportLogs", () =>
-                        prisma.$executeRawUnsafe(
-                            `DELETE FROM shipment_import_logs WHERE shipment_lead_id IN (
-                               SELECT shipment_lead_id FROM shipment_leads WHERE assigned_broker_id = ?
-                             )`,
-                            userId
-                        )
-                    )
-                ) as number
-            );
-
-            await withDbRetry("deleteTimelineByLead", () =>
-                prisma.$executeRawUnsafe(
-                    `DELETE FROM shipment_timeline_events WHERE shipment_lead_id IN (
-                       SELECT shipment_lead_id FROM shipment_leads WHERE assigned_broker_id = ?
-                     )`,
-                    userId
-                )
-            );
-
-            deleted.shipmentLeads = Number(
-                (
-                    await withDbRetry("deleteLeads", () =>
-                        prisma.$executeRawUnsafe(
-                            `DELETE FROM shipment_leads WHERE assigned_broker_id = ?`,
-                            userId
-                        )
-                    )
-                ) as number
-            );
-
-            await withDbRetry("clearTimelineActor", () =>
-                prisma.$executeRawUnsafe(
-                    `UPDATE shipment_timeline_events SET actor_user_id = NULL WHERE actor_user_id = ?`,
-                    userId
-                )
-            );
-
-            deleted.assignmentLogs = Number(
-                (
-                    await withDbRetry("deleteAssignLogs", () =>
-                        prisma.$executeRawUnsafe(
-                            `DELETE FROM assignment_logs WHERE assigned_user_id = ?`,
-                            userId
-                        )
-                    )
-                ) as number
-            );
-
-            const queue = await withDbRetry("getQueue", () =>
-                prisma.assignmentQueueState.findUnique({
-                    where: { queueKey: "brokers" },
-                })
-            );
-            if (queue) {
-                let ordered: string[] = [];
-                try {
-                    ordered = JSON.parse(queue.orderedUserIdsJson || "[]");
-                } catch {
-                    ordered = [];
-                }
-                if (!Array.isArray(ordered)) ordered = [];
-                const filtered = ordered.filter((id) => id !== userId);
-                if (filtered.length !== ordered.length) {
-                    await withDbRetry("updateQueue", () =>
-                        prisma.assignmentQueueState.update({
-                            where: { queueKey: "brokers" },
-                            data: {
-                                orderedUserIdsJson: JSON.stringify(filtered),
-                                nextIndex: Math.min(
-                                    queue.nextIndex,
-                                    Math.max(filtered.length - 1, 0)
-                                ),
-                            },
-                        })
-                    );
-                    deleted.removedFromAssignmentQueue = 1;
-                }
-            }
-
-            if (user.email) {
-                deleted.pendingRegistrations = Number(
-                    (
-                        await withDbRetry("deletePending", () =>
-                            prisma.$executeRawUnsafe(
-                                `DELETE FROM pending_registrations WHERE username = ? OR email = ?`,
-                                user.username,
-                                user.email
-                            )
-                        )
-                    ) as number
-                );
-            } else {
-                deleted.pendingRegistrations = Number(
-                    (
-                        await withDbRetry("deletePending", () =>
-                            prisma.$executeRawUnsafe(
-                                `DELETE FROM pending_registrations WHERE username = ?`,
-                                user.username
-                            )
-                        )
-                    ) as number
-                );
-            }
-
-            const employeeId = user.employeeId;
-            if (employeeId) {
-                await withDbRetry("unlinkEmployee", () =>
-                    prisma.$executeRawUnsafe(
-                        `UPDATE users SET employee_id = NULL WHERE user_id = ?`,
-                        userId
-                    )
-                );
-            }
-
-            await withDbRetry("deleteUserRow", () =>
-                prisma.$executeRawUnsafe(`DELETE FROM users WHERE user_id = ?`, userId)
-            );
-            deleted.users = 1;
-
-            if (employeeId) {
-                const sessions = (await withDbRetry("findSessions", () =>
-                    prisma.$queryRawUnsafe<{ session_id: string }[]>(
-                        `SELECT session_id FROM attendance_sessions WHERE employee_id = ?`,
-                        employeeId
-                    )
-                )) as { session_id: string }[];
-                const sessionIds = sessions.map((s) => s.session_id);
-                if (sessionIds.length) {
-                    const placeholders = sessionIds.map(() => "?").join(",");
-                    await withDbRetry("deleteAbsences", () =>
-                        prisma.$executeRawUnsafe(
-                            `DELETE FROM absence_intervals WHERE session_id IN (${placeholders})`,
-                            ...sessionIds
-                        )
-                    );
-                }
-                await withDbRetry("deleteEvents", () =>
-                    prisma.$executeRawUnsafe(
-                        `DELETE FROM attendance_events WHERE employee_id = ?`,
-                        employeeId
-                    )
-                );
-                await withDbRetry("deleteSessions", () =>
-                    prisma.$executeRawUnsafe(
-                        `DELETE FROM attendance_sessions WHERE employee_id = ?`,
-                        employeeId
-                    )
-                );
-                await withDbRetry("deleteNotifications", () =>
-                    prisma.$executeRawUnsafe(
-                        `DELETE FROM notifications WHERE employee_id = ?`,
-                        employeeId
-                    )
-                );
-                const employee = await withDbRetry("findEmployee", () =>
-                    prisma.employee.findUnique({ where: { employeeId } })
-                );
-                if (employee) {
-                    await withDbRetry("deleteCardScans", () =>
-                        prisma.pendingCardScan.deleteMany({
-                            where: { cardToken: normalizeCardToken(employee.cardNumber) },
-                        })
-                    );
-                }
-                await withDbRetry("deleteAssignByEmployee", () =>
-                    prisma.$executeRawUnsafe(
-                        `DELETE FROM assignment_logs WHERE assigned_employee_id = ?`,
-                        employeeId
-                    )
-                );
-                await withDbRetry("deleteEmployee", () =>
-                    prisma.$executeRawUnsafe(
-                        `DELETE FROM employees WHERE employee_id = ?`,
-                        employeeId
-                    )
-                );
-                deleted.linkedEmployees = 1;
-                deleted.attendanceSessions = sessionIds.length;
-            }
 
             return {
                 ok: true as const,

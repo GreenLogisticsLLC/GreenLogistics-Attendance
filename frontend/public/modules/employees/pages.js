@@ -561,6 +561,7 @@ window.GreenOSModules["employees"] = {
               "</td>" +
               '<td class="emp-actions">' +
               '<button type="button" class="btn-primary emp-role-save" style="width:auto;padding:0.4rem 0.75rem">Save</button> ' +
+              '<button type="button" class="emp-user-remove" style="width:auto;padding:0.4rem 0.75rem">Remove</button> ' +
               '<button type="button" class="emp-user-delete" style="width:auto;padding:0.4rem 0.75rem">Delete</button>' +
               "</td>" +
               "</tr>"
@@ -717,6 +718,44 @@ window.GreenOSModules["employees"] = {
               roleSelect.value = prevRole;
               syncRowControls(tr);
             } finally {
+              btn.disabled = false;
+            }
+          });
+        });
+
+        tbody.querySelectorAll(".emp-user-remove").forEach(function (btn) {
+          btn.addEventListener("click", async function () {
+            var tr = btn.closest("tr");
+            if (!tr) return;
+            var userId = tr.getAttribute("data-user-id");
+            if (!userId) return;
+            var name = (tr.cells[0] && tr.cells[0].textContent) || "this user";
+            var ok = window.confirm(
+              "Remove " +
+                name.trim() +
+                " from the team?\n\nThe account stays. You can change the role or Team Lead and press Save."
+            );
+            if (!ok) return;
+            btn.disabled = true;
+            statusEl.textContent = "Removing…";
+            statusEl.style.color = "";
+            try {
+              var data = await api("/users/" + encodeURIComponent(userId) + "/remove", {
+                method: "POST",
+                body: {},
+              });
+              if (!data.success) {
+                statusEl.textContent = data.message || "Remove failed";
+                statusEl.style.color = "#ef4444";
+                btn.disabled = false;
+                return;
+              }
+              statusEl.textContent = data.message || "Removed";
+              statusEl.style.color = "#22c55e";
+              await loadTable();
+            } catch (e) {
+              statusEl.textContent = e && e.message ? e.message : "Connection error";
+              statusEl.style.color = "#ef4444";
               btn.disabled = false;
             }
           });
