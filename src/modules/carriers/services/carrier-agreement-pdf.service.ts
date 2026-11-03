@@ -41,6 +41,7 @@ export type AgreementPdfInput = {
     zip?: string | null;
     equipmentNotes?: string | null;
     paymentOption?: string | null;
+    factoringCompanyName?: string | null;
     agreementTitle: string;
     agreementVersion: string;
     agreementBody: string;
@@ -139,10 +140,13 @@ export function buildCarrierAgreementPdf(input: AgreementPdfInput): Promise<Buff
             align: "center",
         });
         doc.moveDown(0.25);
-        doc.fillColor("#152033").fontSize(10).font("Helvetica").text("121 Frog Hollow Rd, Churchville, PA 18966", {
+        doc.fillColor("#152033").fontSize(10).font("Helvetica").text(BROKER_AGREEMENT_CONTACT.address, {
             align: "center",
         });
-        doc.text("Ph (267) 703-5313  ·  MC # 1237784", { align: "center" });
+        doc.text(
+            `Ph ${BROKER_AGREEMENT_CONTACT.phone}  ·  MC # ${BROKER_AGREEMENT_CONTACT.mcNumber}  ·  USDOT # ${BROKER_AGREEMENT_CONTACT.usdotNumber}`,
+            { align: "center" }
+        );
         doc.moveDown(0.8);
         doc.fontSize(13).font("Helvetica-Bold").text(input.agreementTitle, { align: "center" });
         doc.fontSize(9).font("Helvetica").fillColor("#5b6b84").text(`Version ${input.agreementVersion}`, {
@@ -169,6 +173,7 @@ export function buildCarrierAgreementPdf(input: AgreementPdfInput): Promise<Buff
             ],
             ["Equipment", input.equipmentNotes || "—"],
             ["Payment option", paymentLabel(input.paymentOption)],
+            ["Factoring company", input.factoringCompanyName || "—"],
         ];
         for (const [label, value] of profile) {
             doc.font("Helvetica-Bold").text(`${label}: `, { continued: true });
@@ -246,7 +251,13 @@ export function buildCarrierAgreementPdf(input: AgreementPdfInput): Promise<Buff
 
         if (after) {
             doc.moveDown(0.8);
-            doc.fontSize(8.5).font("Helvetica").fillColor("#152033").text(after, {
+            doc.fontSize(9).font("Helvetica-Bold").fillColor("#152033").text(
+                `Selected in Green OS: ${paymentLabel(input.paymentOption) || "—"}${
+                    input.factoringCompanyName ? " — " + input.factoringCompanyName : ""
+                }`
+            );
+            doc.moveDown(0.3);
+            doc.fontSize(8.5).font("Helvetica").text(after, {
                 align: "left",
                 lineGap: 1.5,
             });

@@ -78,6 +78,7 @@ function normalizePortalDocType(raw: string): string {
         return "INSURANCE";
     }
     if (t === "MC" || t === "AUTHORITY" || t === "MC_AUTHORITY_LETTER") return "MC_AUTHORITY";
+    if (t === "LOR" || t === "LETTER_OF_RELEASE" || t === "FACTORING_LOR") return "LOR";
     return t;
 }
 
@@ -1456,6 +1457,7 @@ export class CarrierService {
             state: string | null;
             zip: string | null;
             paymentOption?: string | null;
+            factoringCompanyName?: string | null;
         };
         documents: Array<{ documentType: string; status: string }>;
         agreementSigned: boolean;
@@ -1489,6 +1491,12 @@ export class CarrierService {
         if (requireDocs || requireAgreement) {
             if (!companyOk) missing.push("Company Information");
             if (!input.carrier.paymentOption) missing.push("Payment option");
+            if (String(input.carrier.paymentOption || "").toUpperCase() === "FACTORING") {
+                if (!String(input.carrier.factoringCompanyName || "").trim()) {
+                    missing.push("Factoring company name");
+                }
+                if (!currentTypes.has("LOR")) missing.push("Letter of Release (LOR)");
+            }
         }
         if (requireAgreement && !input.agreementSigned) {
             missing.push("Carrier-Broker Agreement signature");
@@ -1534,6 +1542,7 @@ export class CarrierService {
             ["zip", "zip"],
             ["equipmentNotes", "equipmentNotes"],
             ["paymentOption", "paymentOption"],
+            ["factoringCompanyName", "factoringCompanyName"],
         ];
         for (const [from, to] of map) {
             if (body[from] !== undefined) {
@@ -1564,6 +1573,9 @@ export class CarrierService {
                 paymentOption:
                     (data.paymentOption as string | null | undefined) ??
                     session.carrier.paymentOption,
+                factoringCompanyName:
+                    (data.factoringCompanyName as string | null | undefined) ??
+                    session.carrier.factoringCompanyName,
             };
             const missingCompany: string[] = [];
             if (!merged.legalName) missingCompany.push("Carrier Name");
@@ -1575,6 +1587,9 @@ export class CarrierService {
             if (!merged.state) missingCompany.push("State");
             if (!merged.zip) missingCompany.push("ZIP");
             if (!merged.paymentOption) missingCompany.push("Payment option");
+            if (String(merged.paymentOption || "").toUpperCase() === "FACTORING" && !String(merged.factoringCompanyName || "").trim()) {
+                missingCompany.push("Factoring company name");
+            }
             if (missingCompany.length) {
                 throw Object.assign(
                     new Error(`Please complete required fields:\n- ${missingCompany.join("\n- ")}`),
@@ -1764,6 +1779,7 @@ export class CarrierService {
             zip: string | null;
             equipmentNotes?: string | null;
             paymentOption?: string | null;
+            factoringCompanyName?: string | null;
         };
     }) {
         const prev = await prisma.carrierDocument.findFirst({
@@ -1800,6 +1816,7 @@ export class CarrierService {
             zip: input.carrier.zip,
             equipmentNotes: input.carrier.equipmentNotes,
             paymentOption: input.carrier.paymentOption,
+            factoringCompanyName: input.carrier.factoringCompanyName,
             agreementTitle: input.template.title,
             agreementVersion: input.template.version,
             agreementBody: input.template.bodyText,
@@ -2088,6 +2105,7 @@ export class CarrierService {
             "RATE_CONFIRMATION",
             "BOL",
             "POD",
+            "LOR",
             "OTHER",
         ];
         if (!allowed.includes(documentType)) {

@@ -256,7 +256,8 @@
       '<label><input type="radio" name="pay" value="QUICK_3"' + (pay==="QUICK_3"?" checked":"") + '> Quick Pay 3% (3-5 business days, ACH)</label>' +
       '<label><input type="radio" name="pay" value="QUICK_5"' + (pay==="QUICK_5"?" checked":"") + '> Quick Pay 5% (24hrs)</label>' +
       '<label><input type="radio" name="pay" value="FACTORING"' + (pay==="FACTORING"?" checked":"") + '> Factoring company</label>' +
-      '</div><div class="actions"><button type="button" class="btn-secondary" id="btn-save">Save Progress</button><button type="button" class="btn-primary" id="btn-next">Continue</button></div><p id="msg" class="muted"></p></div>';
+      '</div><label class="full" style="grid-column:1/-1;margin-top:0.5rem">Factoring company name <span class="muted">(required if Factoring is selected)</span><input id="f-factor" value="' + esc(c.factoringCompanyName) + '"></label>' +
+      '<div class="actions"><button type="button" class="btn-secondary" id="btn-save">Save Progress</button><button type="button" class="btn-primary" id="btn-next">Continue</button></div><p id="msg" class="muted"></p></div>';
   }
 
   function agreementForm() {
@@ -290,6 +291,7 @@
       { id: "NOA", label: "NOA", required: false },
       { id: "W9", label: "W-9", required: true },
       { id: "INSURANCE", label: "Insurance", required: true },
+      { id: "LOR", label: "Letter of Release (required for Factoring)", required: (state.carrier || {}).paymentOption === "FACTORING" },
       { id: "OTHER", label: "Other (optional)", required: false },
     ];
     var current = {};
@@ -539,7 +541,7 @@
       legalName: val("f-legal"), dbaName: val("f-dba"), contactName: val("f-contact"), email: val("f-email"),
       phone: val("f-phone"), fax: val("f-fax"), federalTaxId: val("f-fed"), mcNumber: val("f-mc"), dotNumber: val("f-dot"),
       address: val("f-address"), city: val("f-city"), state: val("f-state"), zip: val("f-zip"),
-      equipmentNotes: val("f-equip"), paymentOption: pay, progress: { step: step },
+      equipmentNotes: val("f-equip"), paymentOption: pay, factoringCompanyName: val("f-factor"), progress: { step: step },
     };
     if (extra) Object.keys(extra).forEach(function (k) { base[k] = extra[k]; });
     return base;
@@ -568,6 +570,9 @@
     var payBlock = document.getElementById("pay-block");
     if (payBlock) payBlock.classList.toggle("invalid", !pay);
     if (!pay) missing.push("Payment option");
+    if (pay && pay.value === "FACTORING" && !String((document.getElementById("f-factor") || {}).value || "").trim()) {
+      missing.push("Factoring company name");
+    }
     return missing;
   }
 
@@ -581,6 +586,9 @@
       var label = t === "MC_AUTHORITY" ? "MC Authority" : t === "W9" ? "W-9" : t === "INSURANCE" ? "Insurance" : t;
       if (!d) missing.push(label);
     });
+    if ((state.carrier || {}).paymentOption === "FACTORING" && !current.LOR) {
+      missing.push("Letter of Release (LOR)");
+    }
     return { missing: missing, rejected: [] };
   }
 

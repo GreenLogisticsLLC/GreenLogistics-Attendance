@@ -1,3 +1,5 @@
+import { buildBrokerCarrierAgreement } from "./agreement-template-v2.js";
+
 export const CARRIER_ONBOARDING_STATUSES = [
     "INVITED",
     "OPENED",
@@ -16,6 +18,7 @@ export const CARRIER_DOC_TYPES = {
     CARRIER_PROFILE: "CARRIER_PROFILE",
     MC_AUTHORITY: "MC_AUTHORITY",
     NOA: "NOA",
+    LOR: "LOR",
     W9: "W9",
     INSURANCE: "INSURANCE",
     COI: "COI",
@@ -71,11 +74,10 @@ export const ONBOARDING_PURPOSE = {
 
 export type OnboardingPurpose = (typeof ONBOARDING_PURPOSE)[keyof typeof ONBOARDING_PURPOSE];
 
-export { GREEN_LOGISTICS_AGREEMENT_V2 as DEFAULT_AGREEMENT_BODY } from "./agreement-template-v2.js";
-export const AGREEMENT_TEMPLATE_VERSION = "2.4";
+export const AGREEMENT_TEMPLATE_VERSION = "2.5";
 export const AGREEMENT_TEMPLATE_TITLE = "Broker - Carrier Agreement";
 
-/** Broker block used on signed Agreement PDFs. */
+/** Single source for the broker block on the Setup agreement and the signed PDF. */
 export const BROKER_AGREEMENT_CONTACT = {
     legalName: "GREEN LOGISTICS LLC",
     signerName: "SPARTAK KAZARYAN",
@@ -83,7 +85,11 @@ export const BROKER_AGREEMENT_CONTACT = {
     address: "121 Frog Hollow Rd, Churchville, PA 18966",
     phone: "(267) 703-5313",
     email: "accounting@greengrouplogistics.com",
+    mcNumber: "1237784",
+    usdotNumber: "3622287",
 } as const;
+
+export const DEFAULT_AGREEMENT_BODY = buildBrokerCarrierAgreement(BROKER_AGREEMENT_CONTACT);
 
 /** Human-readable label for carrier portal payment option codes. */
 export function carrierPaymentOptionLabel(code: string | null | undefined): string {

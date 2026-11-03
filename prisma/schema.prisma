@@ -845,6 +845,8 @@ model Carrier {
   federalTaxId      String?                     @map("federal_tax_id")
   equipmentNotes    String?                     @map("equipment_notes")
   paymentOption     String?                     @map("payment_option")
+  /// Required when paymentOption is FACTORING. Quick Pay to this company waits for a Letter of Release.
+  factoringCompanyName String?                  @map("factoring_company_name")
   /// ACTIVE | INACTIVE | BLOCKED
   status            String                      @default("ACTIVE")
   /// INVITED | OPENED | IN_PROGRESS | SUBMITTED | UNDER_REVIEW | APPROVED | REJECTED | EXPIRED | REQUEST_CHANGES
