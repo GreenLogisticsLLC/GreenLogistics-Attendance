@@ -186,6 +186,10 @@
     },
 
     buildRouteUrl(moduleId, subPageId, detail) {
+      const url = new URL(window.location.href);
+      if (!(detail && detail.type === "carrier" && detail.id)) {
+        url.searchParams.delete("carrierId");
+      }
       let hash = "#/" + encodeURIComponent(moduleId || "dashboard");
       if (detail && detail.type === "carrier" && detail.id) {
         hash = "#/carriers/" + encodeURIComponent(detail.id);
@@ -200,7 +204,7 @@
           hash += "/" + encodeURIComponent(detail.id);
         }
       }
-      return window.location.pathname + window.location.search + hash;
+      return url.pathname + url.search + hash;
     },
 
     writeHistory(moduleId, subPageId, replace, detail) {
@@ -951,6 +955,11 @@
 
       const nextSub = subPageId || null;
       const detail = opts.detail || null;
+      if (moduleId === "carriers" && !(detail && detail.type === "carrier")) {
+        if (window.GreenOSModules && window.GreenOSModules.carriers) {
+          window.GreenOSModules.carriers._carrierId = null;
+        }
+      }
       const same =
         this.currentModule === moduleId &&
         (this.currentSub || null) === nextSub &&

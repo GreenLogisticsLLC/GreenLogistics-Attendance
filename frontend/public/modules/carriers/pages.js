@@ -105,7 +105,8 @@ window.GreenOSModules.carriers = {
     }
     try {
       var params = new URLSearchParams(window.location.search);
-      if (params.get("carrierId")) self._carrierId = params.get("carrierId");
+      if (subPageId === "list" || subPageId === "add") self._carrierId = null;
+      else if (!self._carrierId && params.get("carrierId")) self._carrierId = params.get("carrierId");
     } catch (e) {}
 
     root.innerHTML =
@@ -396,15 +397,12 @@ window.GreenOSModules.carriers = {
         '<div id="cr-tab"></div>';
 
       main.querySelector("#cr-back")?.addEventListener("click", function () {
-        var fallback = function () {
-          self._carrierId = null;
-          self.showList(main);
-        };
-        if (window.GreenOS && typeof window.GreenOS.goBack === "function") {
-          window.GreenOS.goBack(fallback);
-        } else {
-          fallback();
+        self._carrierId = null;
+        if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
+          window.GreenOS.navigate("carriers", "list", { replace: true });
+          return;
         }
+        self.showList(main);
       });
       main.querySelectorAll("[data-tab]").forEach(function (btn) {
         btn.addEventListener("click", function () {
