@@ -3,7 +3,32 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { config } from "../../../config/env.js";
 import { prisma } from "../../../config/database.js";
+import { Roles } from "../../../auth/roles.js";
 import { getGmailRedirectUri } from "./gmail-oauth.service.js";
+
+/** People whose uShip mailbox can be connected from Administration → Email Accounts. */
+export function isMailboxRole(roleName: string | null | undefined): boolean {
+    return roleName === Roles.Broker || roleName === Roles.TeamLead;
+}
+
+/** Google login_hint. Empty when the value is not an email. */
+export function normalizeLoginHint(value: string | null | undefined): string {
+    const hint = String(value || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(hint)) return "";
+    return hint;
+}
+
+export function mailboxAccountWhere(teamUserIds?: string[] | null): Record<string, unknown> {
+    const where: Record<string, unknown> = {
+        isActive: true,
+        role: { roleName: { in: [Roles.Broker, Roles.TeamLead] } },
+        OR: [{ employee: { is: { status: "ACTIVE" } } }, { employeeId: null }],
+    };
+    if (teamUserIds) {
+        where.userId = { in: teamUserIds.length ? teamUserIds : ["__none__"] };
+    }
+    return where;
+}
 
 const BROKER_GMAIL_SCOPES = [
     // Same Gmail scopes as company inbox — already approved on the Google Cloud OAuth client.
@@ -332,10 +357,11 @@ export class BrokerGmailOAuthService {
         return { from };
     }
 
-    getAuthUrlForBroker(userId: string, brokerId: string): string {
+    getAuthUrlForBroker(userId: string, brokerId: string, loginHint?: string | null): string {
         if (!this.isClientConfigured()) {
             throw new Error("Gmail OAuth client is not configured");
         }
+        const hint = normalizeLoginHint(loginHint);
         const oauth2 = createOAuthClient();
         return oauth2.generateAuthUrl({
             access_type: "offline",
@@ -343,6 +369,7 @@ export class BrokerGmailOAuthService {
             scope: BROKER_GMAIL_SCOPES,
             include_granted_scopes: false,
             state: encodeBrokerOAuthState(userId, brokerId),
+            ...(hint ? { login_hint: hint } : {}),
         });
     }
 
@@ -361,10 +388,11 @@ export class BrokerGmailOAuthService {
                 status: 404,
             });
         }
-        if (user.role.roleName !== "Broker") {
-            throw Object.assign(new Error("Gmail can only be connected to a Broker account"), {
-                status: 403,
-            });
+        if (!isMailboxRole(user.role.roleName)) {
+            throw Object.assign(
+                new Error("Gmail can only be connected to a Broker or Team Lead account"),
+                { status: 403 }
+            );
         }
 
         const oauth2 = createOAuthClient();
@@ -546,8 +574,8 @@ export class BrokerGmailOAuthService {
             where: { userId },
             include: { role: true, employee: true },
         });
-        if (!user || !user.isActive || user.role.roleName !== "Broker") {
-            throw Object.assign(new Error("Broker not found"), { status: 404 });
+        if (!user || !user.isActive || !isMailboxRole(user.role.roleName)) {
+            throw Object.assign(new Error("Broker or Team Lead not found"), { status: 404 });
         }
         if (!user.employeeId || !user.employee) {
             throw Object.assign(

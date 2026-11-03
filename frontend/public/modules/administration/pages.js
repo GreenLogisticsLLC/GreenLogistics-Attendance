@@ -263,7 +263,7 @@ window.GreenOSModules['administration'] = {
     body.innerHTML =
       '<section class="gos-dash-hero">' +
       '<h1>Email Accounts</h1>' +
-      '<p>Owner connects each broker mailbox once. uShip emails on that Gmail update the shipment card automatically. Brokers do not need to connect anything.</p>' +
+      '<p>Owner connects each broker or team lead mailbox once. uShip emails on that Gmail update the shipment card automatically. They do not need to connect anything themselves.</p>' +
       '</section>' +
       '<div class="gos-card" style="margin-bottom:1rem;padding:1rem 1.25rem;border-left:3px solid #f59e0b">' +
       '<strong>If you see Reconnect required / invalid_grant</strong>' +
@@ -272,8 +272,8 @@ window.GreenOSModules['administration'] = {
       '<div class="gos-card" style="margin-bottom:1rem;padding:1rem 1.25rem">' +
       '<strong>Connect a broker Gmail (one time)</strong>' +
       '<ol style="margin:0.5rem 0 0;padding-left:1.25rem;line-height:1.55">' +
-      '<li>Click <em>Add Gmail broker</em> or <em>Connect Gmail</em> on the broker row.</li>' +
-      '<li>On Google, sign in as <strong>that broker\'s personal Gmail</strong> (the one uShip emails).</li>' +
+      '<li>Click <em>Add Gmail broker</em>, pick the person (broker or team lead), and type their Gmail.</li>' +
+      '<li>On Google, sign in as <strong>that Gmail</strong> (the one uShip emails).</li>' +
       '<li>Click Allow. GreenOS stores access and keeps syncing (requires OAuth app in Production for permanent tokens).</li>' +
       '</ol>' +
       '</div>' +
@@ -285,11 +285,19 @@ window.GreenOSModules['administration'] = {
       '</div>' +
       '<div id="email-accounts-add-panel" class="gos-card" style="display:none;margin-bottom:1rem;padding:1rem 1.25rem">' +
       '<strong style="display:block;margin-bottom:0.5rem">Add Gmail broker</strong>' +
-      '<p class="gos-muted" style="margin:0 0 0.75rem">Pick a broker, then connect their personal Gmail on Google.</p>' +
+      '<p class="gos-muted" style="margin:0 0 0.75rem">Pick the broker or team lead, type the Gmail that receives their uShip mail, then connect. Google will ask you to sign in as that address.</p>' +
       '<div style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap">' +
-      '<label style="display:flex;flex-direction:column;gap:0.35rem;min-width:220px;flex:1">' +
-      '<span class="gos-muted">Broker</span>' +
+      '<label style="display:flex;flex-direction:column;gap:0.35rem;min-width:180px;flex:1">' +
+      '<span class="gos-muted">Find</span>' +
+      '<input id="email-accounts-add-search" type="search" placeholder="Name, badge, or email" autocomplete="off" style="padding:0.55rem 0.65rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">' +
+      '</label>' +
+      '<label style="display:flex;flex-direction:column;gap:0.35rem;min-width:220px;flex:1.2">' +
+      '<span class="gos-muted">Person</span>' +
       '<select id="email-accounts-add-select" style="padding:0.55rem 0.65rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)"></select>' +
+      '</label>' +
+      '<label style="display:flex;flex-direction:column;gap:0.35rem;min-width:240px;flex:1.2">' +
+      '<span class="gos-muted">Gmail</span>' +
+      '<input id="email-accounts-add-gmail" type="email" placeholder="name@greengrouplogistics.com" autocomplete="off" style="padding:0.55rem 0.65rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">' +
       '</label>' +
       '<button type="button" class="btn-primary" id="email-accounts-add-connect" style="width:auto">Connect Gmail</button>' +
       '<button type="button" class="btn-secondary" id="email-accounts-add-cancel" style="width:auto">Cancel</button>' +
@@ -338,52 +346,71 @@ window.GreenOSModules['administration'] = {
       return response.json();
     }
 
-    function fillAddSelect(rows) {
+    function fillAddSelect(rows, query) {
       if (!addSelect) return;
+      var q = String(query || "").trim().toLowerCase();
       var options = (rows || []).filter(function (row) {
-        return row.employeeId;
+        if (!q) return true;
+        var blob = [row.name, row.employeeNumber, row.email, row.gmailAddress, row.role, row.username]
+          .join(" ")
+          .toLowerCase();
+        return blob.indexOf(q) >= 0;
+      });
+      options.sort(function (a, b) {
+        var ac = a.status === "CONNECTED" && a.isActive ? 1 : 0;
+        var bc = b.status === "CONNECTED" && b.isActive ? 1 : 0;
+        if (ac !== bc) return ac - bc;
+        return String(a.name || "").localeCompare(String(b.name || ""));
       });
       if (!options.length) {
-        addSelect.innerHTML = '<option value="">No brokers with employee link</option>';
+        addSelect.innerHTML = '<option value="">No matching broker or team lead</option>';
         return;
       }
       addSelect.innerHTML =
-        '<option value="">Select broker…</option>' +
+        '<option value="">Select person…</option>' +
         options
           .map(function (row) {
             var label =
               row.name +
-              (row.employeeNumber ? ' (' + row.employeeNumber + ')' : '') +
-              (row.gmailAddress ? ' — ' + row.gmailAddress : '') +
-              (row.status === 'CONNECTED' && row.isActive ? ' ✓' : '');
+              (row.role ? " · " + row.role : "") +
+              (row.employeeNumber ? " (" + row.employeeNumber + ")" : "") +
+              (row.gmailAddress ? " — " + row.gmailAddress : row.email ? " — " + row.email : "") +
+              (row.status === "CONNECTED" && row.isActive ? " ✓" : "");
             return (
               '<option value="' +
               esc(row.userId) +
+              '" data-email="' +
+              esc(row.email || "") +
               '">' +
               esc(label) +
-              '</option>'
+              "</option>"
             );
           })
-          .join('');
+          .join("");
     }
 
     function showAddPanel(show) {
       if (!addPanel) return;
       addPanel.style.display = show ? 'block' : 'none';
       if (show) {
-        fillAddSelect(lastRows);
+        var search = body.querySelector('#email-accounts-add-search');
+        fillAddSelect(lastRows, search && search.value);
         if (addMsg) addMsg.textContent = '';
       }
     }
 
-    async function connectBroker(userId, button) {
+    async function connectBroker(userId, button, loginHint) {
       if (button) {
         button.disabled = true;
         button.textContent = 'Opening Google…';
       }
       try {
+        var hint = String(loginHint || "").trim();
         var result = await api(
-          '/broker/accounts/' + encodeURIComponent(userId) + '/connect?json=1'
+          '/broker/accounts/' +
+            encodeURIComponent(userId) +
+            '/connect?json=1' +
+            (hint ? '&loginHint=' + encodeURIComponent(hint) : '')
         );
         if (!result.success || !result.data || !result.data.url) {
           alert(result.message || 'Could not start Gmail connect');
@@ -421,20 +448,20 @@ window.GreenOSModules['administration'] = {
         return;
       }
 
-      // Defense in depth: never render brokers without a live employee link.
       var rows = (response.data || []).filter(function (row) {
-        return Boolean(row && row.employeeId);
+        return Boolean(row && row.userId);
       });
       lastRows = rows;
       if (addPanel && addPanel.style.display !== 'none') {
-        fillAddSelect(rows);
+        var searchBox = body.querySelector('#email-accounts-add-search');
+        fillAddSelect(rows, searchBox && searchBox.value);
       }
       var connected = rows.filter(function (row) {
         return row.status === 'CONNECTED' && row.isActive;
       }).length;
       var missing = rows.length - connected;
       summary.textContent =
-        connected + ' connected / ' + rows.length + ' broker(s)' +
+        connected + ' connected / ' + rows.length + ' mailbox(es)' +
         (missing ? ' — ' + missing + ' without Gmail (still can receive loads if In Office; connect for uShip updates)' : '');
 
       tbody.innerHTML = rows.map(function (row) {
@@ -456,21 +483,22 @@ window.GreenOSModules['administration'] = {
           '<tr>' +
           '<td>' + esc(row.gmailAddress || '—') + '</td>' +
           '<td><strong>' + esc(row.name) + '</strong>' +
+          (row.role ? '<br><span class="gos-muted">' + esc(row.role) + '</span>' : '') +
           (row.employeeNumber ? '<br><span class="gos-muted">' + esc(row.employeeNumber) + '</span>' : '') +
-          (!row.employeeId ? '<br><span style="color:var(--red)">No employee link</span>' : '') +
+          (!row.employeeId ? '<br><span class="gos-muted">Attendance link is created when you connect</span>' : '') +
           '</td>' +
           '<td>' + statusLabel +
           (row.lastError ? '<br><span style="color:var(--red)">' + esc(row.lastError) + '</span>' : '') +
           '</td>' +
           '<td>' + fmtDate(row.lastSyncAt) + '</td>' +
           '<td style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center">' +
-          (row.employeeId
-            ? '<button type="button" class="btn-primary" style="width:auto" data-connect-user="' +
-              esc(row.userId) +
-              '">' +
-              connectLabel +
-              '</button>'
-            : '<span class="gos-muted">Link employee first</span>') +
+          '<button type="button" class="btn-primary" style="width:auto" data-connect-user="' +
+            esc(row.userId) +
+            '" data-login-hint="' +
+            esc(row.gmailAddress || row.email || '') +
+            '">' +
+            connectLabel +
+            '</button>' +
           (isConnected
             ? '<button type="button" class="btn-secondary" style="width:auto" data-disconnect-user="' +
               esc(row.userId) +
@@ -492,7 +520,11 @@ window.GreenOSModules['administration'] = {
 
       tbody.querySelectorAll('[data-connect-user]').forEach(function (button) {
         button.addEventListener('click', function () {
-          connectBroker(button.getAttribute('data-connect-user'), button);
+          connectBroker(
+            button.getAttribute('data-connect-user'),
+            button,
+            button.getAttribute('data-login-hint')
+          );
         });
       });
 
@@ -540,15 +572,30 @@ window.GreenOSModules['administration'] = {
     body.querySelector('#email-accounts-add-cancel')?.addEventListener('click', function () {
       showAddPanel(false);
     });
+    body.querySelector('#email-accounts-add-search')?.addEventListener('input', function (event) {
+      fillAddSelect(lastRows, event.target && event.target.value);
+    });
+    addSelect?.addEventListener('change', function () {
+      var opt = addSelect.options[addSelect.selectedIndex];
+      var stored = opt ? opt.getAttribute('data-email') || '' : '';
+      var input = body.querySelector('#email-accounts-add-gmail');
+      if (input && stored) input.value = stored;
+    });
     body.querySelector('#email-accounts-add-connect')?.addEventListener('click', async function () {
       var userId = addSelect && addSelect.value;
       if (!userId) {
-        if (addMsg) addMsg.textContent = 'Select a broker first.';
+        if (addMsg) addMsg.textContent = 'Select a broker or team lead first.';
+        return;
+      }
+      var gmailInput = body.querySelector('#email-accounts-add-gmail');
+      var gmail = gmailInput ? String(gmailInput.value || '').trim() : '';
+      if (gmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gmail)) {
+        if (addMsg) addMsg.textContent = 'Enter a Gmail address like name@greengrouplogistics.com.';
         return;
       }
       var btn = body.querySelector('#email-accounts-add-connect');
       if (addMsg) addMsg.textContent = 'Opening Google…';
-      await connectBroker(userId, btn);
+      await connectBroker(userId, btn, gmail);
     });
 
     body.querySelector('#email-accounts-refresh').addEventListener('click', load);

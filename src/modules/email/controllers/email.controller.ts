@@ -13,9 +13,13 @@ import {
 } from "../gmail/gmail-oauth.service.js";
 import {
     brokerGmailOAuthService,
+    isMailboxRole,
+    mailboxAccountWhere,
+    normalizeLoginHint,
     parseBrokerGmailInvite,
     parseBrokerOAuthState,
 } from "../gmail/broker-gmail-oauth.service.js";
+import { ensureAttendanceBadgeForUser } from "../../../services/user-attendance-link.service.js";
 import { brokerGmailSyncService } from "../gmail/broker-gmail-sync.service.js";
 import { prisma } from "../../../config/database.js";
 import { authService } from "../../../services/auth.service.js";
@@ -281,26 +285,19 @@ export async function brokerGmailMessagesController(req: AuthRequest, res: Respo
 }
 
 export async function listBrokerGmailAccountsController(req: AuthRequest, res: Response) {
-    // Only active brokers still linked to a live Attendance employee.
-    // Orphans (deleted contact / unlinked employee) must not appear here.
-    const where: Record<string, unknown> = {
-        role: { roleName: "Broker" },
-        isActive: true,
-        employeeId: { not: null },
-        employee: { is: { status: "ACTIVE" } },
-    };
+    // Brokers and Team Leads. A missing Attendance link is still listed so
+    // Owner can connect Gmail; connect creates the badge. Inactive badges stay hidden.
     const { teamScopeUserId } = await import("../../../auth/access.js");
     const { listTeamBrokerIds } = await import("../../../auth/team-scope.js");
     const teamLeadId = teamScopeUserId(req);
-    if (teamLeadId) {
-        const ids = await listTeamBrokerIds(teamLeadId);
-        where.userId = { in: ids.length ? ids : ["__none__"] };
-    }
+    const teamUserIds = teamLeadId ? await listTeamBrokerIds(teamLeadId) : null;
+    const where = mailboxAccountWhere(teamUserIds);
 
     const brokers = await prisma.user.findMany({
         where,
         orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
         include: {
+            role: { select: { roleName: true } },
             employee: {
                 select: {
                     employeeId: true,
@@ -332,6 +329,8 @@ export async function listBrokerGmailAccountsController(req: AuthRequest, res: R
                 employeeId: broker.employeeId,
                 employeeNumber: broker.employee?.employeeNumber || null,
                 username: broker.username,
+                email: broker.email || null,
+                role: broker.role.roleName,
                 name:
                     `${broker.employee?.firstName || broker.firstName} ${
                         broker.employee?.lastName || broker.lastName
@@ -355,8 +354,8 @@ export async function adminDisconnectBrokerGmailController(req: AuthRequest, res
         where: { userId },
         include: { role: true },
     });
-    if (!broker || broker.role.roleName !== "Broker") {
-        return res.status(404).json(apiResponse(false, "Broker not found"));
+    if (!broker || !isMailboxRole(broker.role.roleName)) {
+        return res.status(404).json(apiResponse(false, "Broker or Team Lead not found"));
     }
 
     const disconnected = await brokerGmailOAuthService.disconnect(userId);
@@ -386,8 +385,8 @@ export async function adminDeleteBrokerGmailController(req: AuthRequest, res: Re
         where: { userId },
         include: { role: true },
     });
-    if (!broker || broker.role.roleName !== "Broker") {
-        return res.status(404).json(apiResponse(false, "Broker not found"));
+    if (!broker || !isMailboxRole(broker.role.roleName)) {
+        return res.status(404).json(apiResponse(false, "Broker or Team Lead not found"));
     }
 
     const removed = await brokerGmailOAuthService.removeAccount(userId);
@@ -462,16 +461,28 @@ export async function adminConnectBrokerGmailController(req: AuthRequest, res: R
             where: { userId },
             include: { role: true, employee: true },
         });
-        if (!broker || !broker.isActive || broker.role.roleName !== "Broker") {
-            return res.status(404).json(apiResponse(false, "Broker not found"));
+        if (!broker || !broker.isActive || !isMailboxRole(broker.role.roleName)) {
+            return res.status(404).json(apiResponse(false, "Broker or Team Lead not found"));
         }
-        if (!broker.employeeId) {
+        let employeeId = broker.employee?.status === "ACTIVE" ? broker.employeeId : null;
+        if (!employeeId) {
+            const badge = await ensureAttendanceBadgeForUser(broker.userId);
+            employeeId = badge?.employeeId || null;
+        }
+        if (!employeeId) {
             return res.status(400).json(
-                apiResponse(false, "Broker must be linked to an Attendance employee before connecting Gmail")
+                apiResponse(false, "This person needs an Attendance profile before Gmail can be connected")
             );
         }
 
-        const url = brokerGmailOAuthService.getAuthUrlForBroker(broker.userId, broker.employeeId);
+        const loginHint = normalizeLoginHint(
+            typeof req.query.loginHint === "string" ? req.query.loginHint : broker.email
+        );
+        const url = brokerGmailOAuthService.getAuthUrlForBroker(
+            broker.userId,
+            employeeId,
+            loginHint
+        );
         if (wantsJson(req)) {
             return res.json(
                 apiResponse(true, "OK", {
@@ -533,7 +544,7 @@ export async function brokerGmailConnectInviteController(req: Request, res: Resp
         if (
             !user ||
             !user.isActive ||
-            user.role.roleName !== "Broker" ||
+            !isMailboxRole(user.role.roleName) ||
             user.employeeId !== invite.brokerId
         ) {
             return res
