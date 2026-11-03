@@ -14,15 +14,51 @@ window.GreenOSModules.carriers = {
       .replace(/"/g, "&quot;");
   },
 
+  token() {
+    if (typeof window.gosReadToken === "function") return window.gosReadToken();
+    var stored = "";
+    try {
+      stored = localStorage.getItem("gl_token") || sessionStorage.getItem("gl_token") || "";
+    } catch (e) {}
+    return stored || window.GreenOSToken || "";
+  },
+
+  authHeaders(extra) {
+    var token = this.token();
+    var headers = Object.assign({}, extra || {});
+    if (token) {
+      headers.Authorization = "Bearer " + token;
+      headers["X-GreenOS-Token"] = token;
+    }
+    return headers;
+  },
+
   async api(path, opts) {
-    var token = localStorage.getItem("gl_token") || "";
-    var res = await fetch("/api/carriers" + path, Object.assign({
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + token,
-      },
-    }, opts || {}));
+    opts = opts || {};
+    var token = this.token();
+    if (!token) {
+      throw new Error("Please sign in again, then add the carrier.");
+    }
+    var headers = this.authHeaders({ "Content-Type": "application/json" });
+    var body = opts.body;
+    if (typeof body === "string" && token) {
+      try {
+        var parsed = JSON.parse(body);
+        if (parsed && typeof parsed === "object") {
+          parsed.sessionToken = token;
+          body = JSON.stringify(parsed);
+        }
+      } catch (e) {}
+    }
+    var res = await fetch("/api/carriers" + path, {
+      method: opts.method || "GET",
+      headers: headers,
+      body: body,
+    });
     var data = await res.json().catch(function () { return {}; });
+    if (res.status === 401) {
+      throw new Error("Please sign in again, then add the carrier.");
+    }
     if (!res.ok || data.success === false) {
       throw new Error(data.message || "Request failed");
     }
@@ -31,15 +67,16 @@ window.GreenOSModules.carriers = {
 
   /** Open or download a carrier-archived document (Agreement / RC / BOL / uploads). */
   async openCarrierDoc(carrierId, documentId, filename, inline) {
-    var token = localStorage.getItem("gl_token") || "";
+    var token = this.token();
     var url =
       "/api/carriers/" +
       encodeURIComponent(carrierId) +
       "/documents/" +
       encodeURIComponent(documentId) +
       "/download" +
-      (inline ? "?inline=1" : "");
-    var res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+      (inline ? "?inline=1" : "") +
+      (token ? (inline ? "&" : "?") + "token=" + encodeURIComponent(token) : "");
+    var res = await fetch(url, { headers: this.authHeaders() });
     if (!res.ok) throw new Error(inline ? "Failed to open document" : "Download failed");
     var blob = await res.blob();
     var obj = URL.createObjectURL(blob);
@@ -543,7 +580,7 @@ window.GreenOSModules.carriers = {
         }
         btn.disabled = true;
         try {
-          var token = localStorage.getItem("gl_token") || "";
+          var token = self.token();
           var res = await fetch(
             "/api/carriers/" +
               encodeURIComponent(c.carrierId) +
@@ -551,7 +588,8 @@ window.GreenOSModules.carriers = {
               encodeURIComponent(docId),
             {
               method: "DELETE",
-              headers: { Authorization: token ? "Bearer " + token : "" },
+              headers: self.authHeaders({ "Content-Type": "application/json" }),
+              body: JSON.stringify({ sessionToken: token }),
             }
           );
           var json = await res.json().catch(function () {
@@ -576,14 +614,15 @@ window.GreenOSModules.carriers = {
         var cell = el.querySelector('.cr-doc-ai[data-id="' + docId + '"]');
         if (cell) cell.innerHTML = '<span class="gos-muted">Queued…</span>';
         try {
-          var token = localStorage.getItem("gl_token") || "";
+          var token = self.token();
           var res = await fetch("/api/ai/documents/process", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: token ? "Bearer " + token : "",
-            },
-            body: JSON.stringify({ documentSource: "CARRIER", documentId: docId }),
+            headers: self.authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({
+              documentSource: "CARRIER",
+              documentId: docId,
+              sessionToken: token,
+            }),
           });
           var json = await res.json();
           if (!json.success) throw new Error(json.message || "Queue failed");
@@ -606,11 +645,17 @@ window.GreenOSModules.carriers = {
   async loadDocAiStatus(documentId, cell) {
     if (!cell) return;
     try {
-      var token = localStorage.getItem("gl_token") || "";
-      var res = await fetch("/api/ai/documents/" + encodeURIComponent(documentId) + "/validation", {
-        headers: { Authorization: token ? "Bearer " + token : "" },
-        cache: "no-store",
-      });
+      var token = this.token();
+      var res = await fetch(
+        "/api/ai/documents/" +
+          encodeURIComponent(documentId) +
+          "/validation" +
+          (token ? "?token=" + encodeURIComponent(token) : ""),
+        {
+          headers: this.authHeaders(),
+          cache: "no-store",
+        }
+      );
       var json = await res.json();
       if (!json.success || !json.data || !json.data.validation) return;
       cell.innerHTML = this.formatDocAiBadge(json.data);
@@ -621,13 +666,18 @@ window.GreenOSModules.carriers = {
 
   async pollDocAiJob(jobId, cell) {
     var self = this;
-    var token = localStorage.getItem("gl_token") || "";
+    var token = this.token();
     for (var i = 0; i < 40; i++) {
       await new Promise(function (r) { setTimeout(r, 1000); });
-      var res = await fetch("/api/ai/documents/jobs/" + encodeURIComponent(jobId), {
-        headers: { Authorization: token ? "Bearer " + token : "" },
-        cache: "no-store",
-      });
+      var res = await fetch(
+        "/api/ai/documents/jobs/" +
+          encodeURIComponent(jobId) +
+          (token ? "?token=" + encodeURIComponent(token) : ""),
+        {
+          headers: this.authHeaders(),
+          cache: "no-store",
+        }
+      );
       var json = await res.json();
       if (!json.success) throw new Error(json.message || "Job failed");
       var st = json.data && json.data.status;

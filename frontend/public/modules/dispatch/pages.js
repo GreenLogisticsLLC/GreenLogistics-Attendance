@@ -462,14 +462,44 @@ window.GreenOSModules["dispatch"] = {
     });
   },
 
+  authToken() {
+    if (typeof window.gosReadToken === "function") return window.gosReadToken();
+    var stored = "";
+    try {
+      stored = localStorage.getItem("gl_token") || sessionStorage.getItem("gl_token") || "";
+    } catch (e) {}
+    return stored || window.GreenOSToken || "";
+  },
+
+  authHeaders(extra) {
+    var token = this.authToken();
+    var headers = Object.assign({}, extra || {});
+    if (token) {
+      headers.Authorization = "Bearer " + token;
+      headers["X-GreenOS-Token"] = token;
+    }
+    return headers;
+  },
+
   async api(path, opts) {
-    var token = localStorage.getItem("gl_token") || "";
-    var res = await fetch("/api/loads" + path, Object.assign({
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + token,
-      },
-    }, opts || {}));
+    opts = opts || {};
+    var token = this.authToken();
+    var headers = this.authHeaders({ "Content-Type": "application/json" });
+    var body = opts.body;
+    if (typeof body === "string" && token) {
+      try {
+        var parsed = JSON.parse(body);
+        if (parsed && typeof parsed === "object") {
+          parsed.sessionToken = token;
+          body = JSON.stringify(parsed);
+        }
+      } catch (e) {}
+    }
+    var res = await fetch("/api/loads" + path, {
+      method: opts.method || "GET",
+      headers: headers,
+      body: body,
+    });
     var json = await res.json().catch(function () { return {}; });
     if (!res.ok || json.success === false) {
       throw new Error(json.message || ("Request failed " + res.status));
@@ -478,10 +508,9 @@ window.GreenOSModules["dispatch"] = {
   },
 
   async apiUpload(path, formData) {
-    var token = localStorage.getItem("gl_token") || "";
     var res = await fetch("/api/loads" + path, {
       method: "POST",
-      headers: { Authorization: "Bearer " + token },
+      headers: this.authHeaders(),
       body: formData,
     });
     var json = await res.json().catch(function () { return {}; });
@@ -793,14 +822,14 @@ window.GreenOSModules["dispatch"] = {
       panel.innerHTML = '<div class="ld-carrier-suggest-empty">Searching GreenOS carriers…</div>';
       panel.classList.remove("hidden");
       try {
-        var token = localStorage.getItem("gl_token") || "";
+        var token = self.authToken();
         var res = await fetch(
-          "/api/carriers/lookup?q=" + encodeURIComponent(q) + "&limit=10",
+          "/api/carriers/lookup?q=" +
+            encodeURIComponent(q) +
+            "&limit=10" +
+            (token ? "&token=" + encodeURIComponent(token) : ""),
           {
-            headers: {
-              Accept: "application/json",
-              Authorization: token ? "Bearer " + token : "",
-            },
+            headers: self.authHeaders({ Accept: "application/json" }),
             cache: "no-store",
           }
         );
@@ -2603,16 +2632,14 @@ window.GreenOSModules["dispatch"] = {
               "\n\nNo field changes — onboarding link was not resent to the same carrier.";
           } else {
             try {
-              var token = localStorage.getItem("gl_token") || "";
+              var token = self.authToken();
               var invRes = await fetch(
                 "/api/carriers/from-load/" + encodeURIComponent(targetId) + "/invite-agreement",
                 {
                   method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: "Bearer " + token,
-                  },
+                  headers: self.authHeaders({ "Content-Type": "application/json" }),
                   body: JSON.stringify({
+                    sessionToken: token,
                     reason: isFirstAssign
                       ? "assign"
                       : nameAndEmailChange || fork
@@ -3911,16 +3938,13 @@ window.GreenOSModules["dispatch"] = {
 
                 if (statusEl) statusEl.textContent = "Sending Rate Confirmation sign link to carrier…";
         try {
-          var rcToken = localStorage.getItem("gl_token") || "";
+          var rcToken = self.authToken();
           var rcInvRes = await fetch(
             "/api/carriers/from-load/" + encodeURIComponent(id) + "/invite-rc-bol",
             {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: "Bearer " + rcToken,
-              },
-              body: JSON.stringify({ kind: "rc_sign" }),
+              headers: self.authHeaders({ "Content-Type": "application/json" }),
+              body: JSON.stringify({ kind: "rc_sign", sessionToken: rcToken }),
             }
           );
           var rcInvJson = await rcInvRes.json().catch(function () { return {}; });
@@ -4183,16 +4207,13 @@ window.GreenOSModules["dispatch"] = {
         });
         if (statusEl) statusEl.textContent = "Sending BOL / POD secure link to carrier…";
         try {
-          var bolToken = localStorage.getItem("gl_token") || "";
+          var bolToken = self.authToken();
           var bolInvRes = await fetch(
             "/api/carriers/from-load/" + encodeURIComponent(id) + "/invite-rc-bol",
             {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: "Bearer " + bolToken,
-              },
-              body: JSON.stringify({ kind: "bol_pod" }),
+              headers: self.authHeaders({ "Content-Type": "application/json" }),
+              body: JSON.stringify({ kind: "bol_pod", sessionToken: bolToken }),
             }
           );
           var bolInvJson = await bolInvRes.json().catch(function () { return {}; });
