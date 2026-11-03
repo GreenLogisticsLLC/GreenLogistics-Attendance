@@ -3799,6 +3799,23 @@ button.load-review-choice:hover {
   padding: 0.35rem 0.65rem;
 }
 .acc-load-delete { color: #f0a8a8; border-color: #8a3a3a; }
+.acc-pay-cell { min-width: 15rem; }
+.acc-pay-grid {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, 1fr) minmax(6.5rem, 1fr);
+  gap: 0.15rem 0.85rem;
+  align-items: start;
+}
+.acc-pay-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--gos-muted);
+}
+.acc-pay-rate { font-weight: 600; }
+.acc-pay-due { font-weight: 700; }
+.acc-pay-due.is-unpaid { color: #f07178; }
+.acc-pay-due.is-paid { color: #3dd68c; }
 button.acc-doc-file {
   background: none;
   border: 0;

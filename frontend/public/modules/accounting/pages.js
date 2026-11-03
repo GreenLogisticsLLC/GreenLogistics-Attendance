@@ -137,6 +137,38 @@ window.GreenOSModules.accounting = {
     return "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
 
+  /** Customer rate beside carrier rate, with the amounts still due underneath. */
+  paymentsCell(r) {
+    var accessorials = Number(r.accessorialCharges);
+    if (!Number.isFinite(accessorials)) accessorials = 0;
+    var hasCustomerRate = r.customerRate != null && r.customerRate !== "" && !Number.isNaN(Number(r.customerRate));
+    var hasCarrierRate = r.carrierRate != null && r.carrierRate !== "" && !Number.isNaN(Number(r.carrierRate));
+    var customerDue = hasCustomerRate ? Number(r.customerRate) + accessorials : accessorials ? accessorials : null;
+    var carrierDue = hasCarrierRate ? Number(r.carrierRate) : null;
+    function due(amount, paid) {
+      if (amount == null) return '<div class="acc-pay-due">—</div>';
+      return (
+        '<div class="acc-pay-due ' +
+        (paid ? "is-paid" : "is-unpaid") +
+        '">' +
+        this.money(amount) +
+        "</div>"
+      );
+    }
+    return (
+      '<div class="acc-pay-grid">' +
+      '<div><div class="acc-pay-label">Customer rate</div><div class="acc-pay-rate">' +
+      this.money(hasCustomerRate ? r.customerRate : null) +
+      "</div></div>" +
+      '<div><div class="acc-pay-label">Carrier rate</div><div class="acc-pay-rate">' +
+      this.money(hasCarrierRate ? r.carrierRate : null) +
+      "</div></div>" +
+      due.call(this, customerDue, Boolean(r.customerPaidAt)) +
+      due.call(this, carrierDue, Boolean(r.carrierPaidAt)) +
+      "</div>"
+    );
+  },
+
   userMeta() {
     var u = window.GreenOSUser || (window.GreenOS && window.GreenOS.user) || {};
     return {
@@ -553,10 +585,8 @@ window.GreenOSModules.accounting = {
           self.esc(r.carrierName || "—") +
           "</td>" +
           mid +
-          "<td>" +
-          (r.customerPaidAt ? "Cust✓ " : "") +
-          (r.carrierPaidAt ? "Carr✓" : "") +
-          (!r.customerPaidAt && !r.carrierPaidAt ? "—" : "") +
+          "<td class=\"acc-pay-cell\">" +
+          self.paymentsCell(r) +
           "</td>" +
           '<td class="acc-row-actions">' +
           (self.canManageLoads()
