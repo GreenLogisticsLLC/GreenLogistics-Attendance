@@ -1010,55 +1010,61 @@ window.GreenOSModules.broker = {
   async renderCarriers(body, root) {
     body.innerHTML = "<p>Loading carriers…</p>";
     try {
-      var data = await this.api("/carriers");
-      if (!data.success) {
-        body.innerHTML = "<p>" + this.esc(data.message) + "</p>";
+      var mod = window.GreenOSModules && window.GreenOSModules.carriers;
+      if (!mod || typeof mod.api !== "function") {
+        body.innerHTML = "<p>Carriers module is not loaded. Refresh the page.</p>";
         return;
       }
-      var rows = data.data || [];
+      var rows = (await mod.api("/")) || [];
+      var esc = this.esc.bind(this);
       body.innerHTML =
         '<section class="gos-dash-hero">' +
         "<h1>MY Carrier</h1>" +
-        "<p>Carriers that worked with you — filled from Operations on the shipment card. For secure onboarding packages open <strong>Carriers</strong>.</p>" +
-        '<p><button type="button" class="btn-primary" id="broker-goto-carriers">Carrier Onboarding</button></p>' +
+        "<p>Registered carriers in Green OS. Open a row to see the onboarding package.</p>" +
         "</section>" +
         '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-        "<th>Carrier</th><th>Shipments</th><th>Active</th><th>Drivers used</th><th>Last status</th><th>Updated</th>" +
+        "<th>Carrier</th><th>MC</th><th>DOT</th><th>Email</th><th>Status</th><th>Broker</th>" +
         '</tr></thead><tbody id="broker-carrier-body"></tbody></table></div>';
-      body.querySelector("#broker-goto-carriers")?.addEventListener("click", function () {
-        if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
-          window.GreenOS.navigate("carriers");
-        }
-      });
       var tbody = body.querySelector("#broker-carrier-body");
       if (!rows.length) {
         tbody.innerHTML =
-          '<tr><td colspan="6">No carriers yet — add Carrier in Operations on a shipment card</td></tr>';
+          '<tr><td colspan="6">No registered carriers yet.</td></tr>';
         return;
       }
-      var esc = this.esc.bind(this);
-      var fmt = this.fmtDate.bind(this);
       tbody.innerHTML = rows
-        .map(function (c) {
+        .map(function (r) {
+          var broker = r.assignedBroker
+            ? (r.assignedBroker.firstName || "") + " " + (r.assignedBroker.lastName || "")
+            : "—";
           return (
-            "<tr><td><strong>" +
-            esc(c.carrier) +
+            '<tr data-carrier="' +
+            esc(r.carrierId) +
+            '"><td><strong>' +
+            esc(r.legalName) +
             "</strong></td><td>" +
-            c.shipmentCount +
+            esc(r.mcNumber || "—") +
             "</td><td>" +
-            c.activeCount +
+            esc(r.dotNumber || "—") +
             "</td><td>" +
-            esc((c.drivers || []).join(", ") || "—") +
+            esc(r.email || "—") +
             "</td><td>" +
-            esc(c.lastStatus || "—") +
+            esc(r.onboardingStatus || "—") +
             "</td><td>" +
-            fmt(c.lastUpdated) +
+            esc(broker.trim() || "—") +
             "</td></tr>"
           );
         })
         .join("");
-    } catch {
-      body.innerHTML = "<p>Failed to load carriers</p>";
+      tbody.querySelectorAll("[data-carrier]").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          var id = tr.getAttribute("data-carrier");
+          if (!id || !window.GreenOS || typeof window.GreenOS.navigate !== "function") return;
+          window.GreenOSModules.carriers._carrierId = id;
+          window.GreenOS.navigate("carriers");
+        });
+      });
+    } catch (err) {
+      body.innerHTML = "<p>" + this.esc(err.message || "Failed to load carriers") + "</p>";
     }
   },
 

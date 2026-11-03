@@ -166,15 +166,12 @@ export class CarrierService {
     async assertCarrierAccess(carrierId: string, actor: Actor) {
         const carrier = await prisma.carrier.findUnique({ where: { carrierId } });
         if (!carrier) throw Object.assign(new Error("Carrier not found"), { status: 404 });
-        if (actor.role === "Broker" && carrier.assignedBrokerId && carrier.assignedBrokerId !== actor.userId) {
-            throw Object.assign(new Error("Access denied"), { status: 403 });
-        }
         return carrier;
     }
 
     async list(actor: Actor, query: { status?: string; q?: string }) {
+        void actor;
         const where: Record<string, unknown> = {};
-        if (actor.role === "Broker") where.assignedBrokerId = actor.userId;
         if (query.status) where.onboardingStatus = query.status;
         if (query.q) {
             const q = String(query.q).trim();
@@ -193,7 +190,7 @@ export class CarrierService {
             include: {
                 assignedBroker: { select: { userId: true, firstName: true, lastName: true, email: true } },
             },
-            take: 200,
+            take: 500,
         });
         return this.enrichListSuperseded(rows);
     }
@@ -481,11 +478,9 @@ export class CarrierService {
     }
 
     async dashboard(actor: Actor) {
-        const where: Record<string, unknown> = {};
-        if (actor.role === "Broker") where.assignedBrokerId = actor.userId;
+        void actor;
         const rows = await prisma.carrier.groupBy({
             by: ["onboardingStatus"],
-            where,
             _count: { _all: true },
         });
         const counts: Record<string, number> = {};
