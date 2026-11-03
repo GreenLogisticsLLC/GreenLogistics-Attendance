@@ -13,7 +13,7 @@ window.GreenOSModules.shipments = {
       return;
     }
 
-    var me = window.GreenOSUser || {};
+    var me = (window.GreenOS && window.GreenOS.user) || window.GreenOSUser || {};
     var isTeamLead = me.role === "Team Lead";
     var tab =
       subPageId === "other"
@@ -22,11 +22,13 @@ window.GreenOSModules.shipments = {
           ? "accepted"
           : subPageId === "accepted-another"
             ? "accepted-another"
-            : subPageId === "new"
-              ? "new"
-              : isTeamLead
-                ? "mine"
-                : "new";
+            : subPageId === "by-broker"
+              ? "by-broker"
+              : subPageId === "new"
+                ? "new"
+                : isTeamLead
+                  ? "mine"
+                  : "new";
 
     root.innerHTML =
       '<div class="gos-module-layout">' +
@@ -50,6 +52,11 @@ window.GreenOSModules.shipments = {
       '<button type="button" class="gos-subnav-item' +
       (tab === "accepted-another" ? " is-active" : "") +
       '" data-subpage="accepted-another">Accepted to another company</button>' +
+      (isTeamLead
+        ? '<button type="button" class="gos-subnav-item' +
+          (tab === "by-broker" ? " is-active" : "") +
+          '" data-subpage="by-broker">By Broker</button>'
+        : "") +
       "</nav>" +
       '<div class="gos-module-body" id="shipments-module-body"></div>' +
       "</div>";
@@ -57,6 +64,10 @@ window.GreenOSModules.shipments = {
     window.GreenOSCrmReloadBody = function () {
       /* Team Lead / ops Shipments list is manual — no push remount. */
     };
+    if (tab === "by-broker") {
+      this.renderBrokerStats(body);
+      return;
+    }
     var opts =
       tab === "accepted-another"
         ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
@@ -65,5 +76,118 @@ window.GreenOSModules.shipments = {
           : { assignmentKind: tab, page: 1 };
     var brokerId = tab === "mine" ? me.userId || null : null;
     crm.renderShipments(body, root, brokerId, opts);
+  },
+
+  async renderBrokerStats(body) {
+    var crm = window.GreenOSModules.crm;
+    body.innerHTML =
+      '<section class="gos-dash-hero"><h1>By Broker</h1>' +
+      "<p>New shipments that arrived, Other shipments passed from someone who did not Accept, how many this broker Accepted, and New shipments still without Accept.</p></section>" +
+      '<p class="gos-muted">Loading…</p>';
+    var data;
+    try {
+      data = await crm.api("/team-broker-stats");
+    } catch (err) {
+      body.innerHTML = "<p>Could not load broker totals.</p>";
+      return;
+    }
+    if (!data || !data.success) {
+      body.innerHTML = "<p>" + (data && data.message ? data.message : "Could not load broker totals.") + "</p>";
+      return;
+    }
+    var payload = data.data || {};
+    var rows = payload.rows || [];
+    var selected = "";
+
+    function esc(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+    function sum(list, key) {
+      return list.reduce(function (n, row) {
+        return n + (Number(row[key]) || 0);
+      }, 0);
+    }
+    function card(label, value, hint) {
+      return (
+        '<article class="gos-broker-stat"><div class="label">' +
+        esc(label) +
+        '</div><div class="value">' +
+        esc(value) +
+        '</div><p>' +
+        esc(hint) +
+        "</p></article>"
+      );
+    }
+    function paint() {
+      var shown = selected
+        ? rows.filter(function (row) {
+            return row.brokerId === selected;
+          })
+        : rows;
+      var options =
+        '<option value="">All brokers</option>' +
+        rows
+          .map(function (row) {
+            return (
+              '<option value="' +
+              esc(row.brokerId) +
+              '"' +
+              (row.brokerId === selected ? " selected" : "") +
+              ">" +
+              esc(row.name) +
+              "</option>"
+            );
+          })
+          .join("");
+      var table = shown.length
+        ? '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+          "<th>Broker</th><th>New received</th><th>Other received</th><th>Accepted</th><th>New without Accept</th>" +
+          "</tr></thead><tbody>" +
+          shown
+            .map(function (row) {
+              return (
+                "<tr><td>" +
+                esc(row.name) +
+                "</td><td>" +
+                row.newReceived +
+                "</td><td>" +
+                row.otherReceived +
+                "</td><td>" +
+                row.accepted +
+                "</td><td>" +
+                row.newNotAccepted +
+                "</td></tr>"
+              );
+            })
+            .join("") +
+          "</tbody></table></div>"
+        : '<p class="gos-muted">No brokers on your team yet.</p>';
+      body.innerHTML =
+        '<section class="gos-dash-hero"><h1>By Broker</h1>' +
+        "<p>Filter one broker, or leave All brokers to compare the team.</p></section>" +
+        '<label class="crm-page-size">Broker <select id="gos-broker-stat-filter" aria-label="Broker">' +
+        options +
+        "</select></label>" +
+        '<div class="gos-broker-stats">' +
+        card("New received", sum(shown, "newReceived"), "First assignment to this broker") +
+        card("Other received", sum(shown, "otherReceived"), "Passed on because someone did not Accept") +
+        card("Accepted", sum(shown, "accepted"), "This broker clicked Accept") +
+        card("New without Accept", sum(shown, "newNotAccepted"), "New that is still waiting or was passed on") +
+        "</div>" +
+        table;
+      var select = document.getElementById("gos-broker-stat-filter");
+      if (select) {
+        select.value = selected;
+        select.addEventListener("change", function () {
+          selected = select.value || "";
+          paint();
+        });
+      }
+    }
+    paint();
   },
 };

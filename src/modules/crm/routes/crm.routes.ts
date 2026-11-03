@@ -32,6 +32,7 @@ import {
     crmAddOpsCommentController,
     crmSendOpsCommentToManagerController,
 } from "../controllers/crm.controller.js";
+import { crmBrokerShipmentStatsController } from "../controllers/broker-shipment-stats.controller.js";
 import { crmEventsSseController } from "../controllers/crm-events.controller.js";
 
 export const crmRouter = Router();
@@ -63,6 +64,7 @@ crmRouter.get("/problems", problemsRoles, crmListProblemsController);
 crmRouter.get("/problems/monthly-stats", problemsRoles, crmProblemsMonthlyStatsController);
 crmRouter.get("/problems/late", problemsRoles, crmListLateProblemsController);
 crmRouter.get("/shipments", crmRoles, crmListShipmentsController);
+crmRouter.get("/team-broker-stats", crmRoles, crmBrokerShipmentStatsController);
 crmRouter.get("/shipments/:id/uship", crmRoles, crmOpenUshipController);
 crmRouter.get("/shipments/:id", crmRoles, crmGetShipmentController);
 crmRouter.post("/shipments/:id/opened", crmRoles, crmMarkShipmentOpenedController);
