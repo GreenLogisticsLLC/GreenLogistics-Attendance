@@ -14,7 +14,7 @@ import { arrivedAfterShipmentCutoff } from "../../services/shipment-cutoff.js";
 import { config } from "../../config/env.js";
 import { isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE } from "../../utils/helpers.js";
 import { receivesNewShipments } from "./activity-window.js";
-import { syncQueueOrder, takeNextInQueue } from "./round-robin.js";
+import { queuePlaces, syncQueueOrder, takeNextInQueue } from "./round-robin.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
@@ -705,6 +705,104 @@ export class AssignmentEngine {
                 ? eligible.find((e) => e.userId === synced.orderedUserIds[synced.nextIndex % synced.orderedUserIds.length])
                       ?.displayName || null
                 : null,
+        };
+    }
+
+    /**
+     * Manager / Owner view of the live circle.
+     * Names and turn only — no shipment titles or ids.
+     */
+    async getAssignmentBoard() {
+        const { eligible, mode } = await this.resolveEligibleBrokers();
+        const eligibleIds = eligible.map((person) => person.userId);
+        const [newState, otherState, lastNew, lastOther, staff] = await Promise.all([
+            this.loadQueueState(QUEUE_NEW),
+            this.loadQueueState(QUEUE_OTHER),
+            prisma.assignmentLog.findFirst({
+                where: { eventType: "ASSIGNED", assignedUserId: { not: null } },
+                orderBy: { createdAt: "desc" },
+                select: { assignedUserId: true, createdAt: true },
+            }),
+            prisma.assignmentLog.findFirst({
+                where: { eventType: "REASSIGNED", assignedUserId: { not: null } },
+                orderBy: { createdAt: "desc" },
+                select: { assignedUserId: true, createdAt: true },
+            }),
+            prisma.user.findMany({
+                where: {
+                    isActive: true,
+                    role: { roleName: { in: ["Broker", "Team Lead"] } },
+                },
+                include: { role: true, employee: true },
+                orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+            }),
+        ]);
+        const newSynced = syncQueueOrder(newState.orderedUserIds, eligibleIds, newState.nextIndex);
+        const otherSynced = syncQueueOrder(
+            otherState.orderedUserIds,
+            eligibleIds,
+            otherState.nextIndex
+        );
+        const paint = (
+            synced: { orderedUserIds: string[]; nextIndex: number },
+            lastUserId: string | null,
+            lastAt: Date | null
+        ) => {
+            const places = queuePlaces(synced.orderedUserIds, synced.nextIndex, lastUserId);
+            const people = places.map((row) => {
+                const person = eligible.find((item) => item.userId === row.userId);
+                return {
+                    userId: row.userId,
+                    name: person?.displayName || "Broker",
+                    position: row.position,
+                    place: row.place,
+                };
+            });
+            const next = people.find((row) => row.place === "next") || null;
+            return {
+                people,
+                nextName: next?.name || null,
+                lastReceivedName:
+                    people.find((row) => row.place === "received")?.name || null,
+                lastReceivedAt: lastAt,
+            };
+        };
+        const outsideIds = staff.filter((user) => !eligibleIds.includes(user.userId));
+        const officeIds = await getInOfficeEmployeeIds(
+            outsideIds.map((user) => user.employeeId || "").filter(Boolean)
+        );
+        const now = new Date();
+        const outside = outsideIds.map((user) => {
+            const inOffice = Boolean(user.employeeId && officeIds.has(user.employeeId));
+            const clicked = receivesNewShipments(
+                user.role.roleName,
+                user.greenOsActivityAt,
+                now
+            );
+            let reason = "Not in office";
+            if (!user.employeeId) reason = "No attendance link";
+            else if (inOffice && !clicked) reason = "No click for 20 minutes";
+            else if (!inOffice && !clicked) reason = "Not in office and no click for 20 minutes";
+            return {
+                userId: user.userId,
+                name: displayName(user),
+                role: user.role.roleName,
+                reason,
+            };
+        });
+        return {
+            assignmentMode: mode,
+            assignmentModeLabel:
+                mode === "in_office"
+                    ? "In Office and active within 20 minutes"
+                    : "Nobody is in the queue",
+            newQueue: paint(newSynced, lastNew?.assignedUserId || null, lastNew?.createdAt || null),
+            otherQueue: paint(
+                otherSynced,
+                lastOther?.assignedUserId || null,
+                lastOther?.createdAt || null
+            ),
+            outside,
         };
     }
 

@@ -4,6 +4,15 @@ import type { AuthRequest } from "../../../middlewares/auth.middleware.js";
 import { assignmentEngine } from "../assignment.engine.js";
 import { prisma } from "../../../config/database.js";
 
+export async function assignmentBoardController(req: AuthRequest, res: Response) {
+    const role = req.user?.role || "";
+    if (role !== "Owner" && role !== "Manager" && role !== "Administrator") {
+        return res.status(403).json(apiResponse(false, "Only Manager and Owner can view the queue"));
+    }
+    const data = await assignmentEngine.getAssignmentBoard();
+    return res.json(apiResponse(true, "Assignment queue", data));
+}
+
 export async function assignmentQueueStatusController(_req: AuthRequest, res: Response) {
     const data = await assignmentEngine.getQueueStatus();
     return res.json(apiResponse(true, "Assignment queue", data));

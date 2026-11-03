@@ -3,6 +3,7 @@ import { authMiddleware, requireRole } from "../../../middlewares/auth.middlewar
 import {
     assignmentEligibleController,
     assignmentLogsController,
+    assignmentBoardController,
     assignmentQueueStatusController,
     assignmentDrainPendingController,
     assignmentRefreshMailingController,
@@ -16,6 +17,11 @@ assignmentRouter.use(authMiddleware);
 
 const roles = requireRole("Administrator", "Owner", "Manager", "Broker");
 
+assignmentRouter.get(
+    "/board",
+    requireRole("Administrator", "Owner", "Manager"),
+    assignmentBoardController
+);
 assignmentRouter.get("/queue", roles, assignmentQueueStatusController);
 assignmentRouter.get("/eligible", roles, assignmentEligibleController);
 assignmentRouter.get("/logs", roles, assignmentLogsController);

@@ -74,6 +74,25 @@ export function takeNextInQueue(
 }
 
 /** Hand `count` shipments to whoever is eligible on every turn. */
+export type QueuePlace = "next" | "waiting" | "received";
+
+/** Live circle only: who receives the next shipment, who received the last turn, who is waiting. */
+export function queuePlaces(
+    order: string[],
+    nextIndex: number,
+    lastUserId: string | null
+): Array<{ userId: string; position: number; place: QueuePlace }> {
+    const n = order.length;
+    if (!n) return [];
+    const next = ((nextIndex % n) + n) % n;
+    return order.map((userId, index) => {
+        let place: QueuePlace = "waiting";
+        if (index === next) place = "next";
+        else if (lastUserId && userId === lastUserId) place = "received";
+        return { userId, position: index + 1, place };
+    });
+}
+
 export function assignInTurns(
     eligibleIds: string[],
     count: number,

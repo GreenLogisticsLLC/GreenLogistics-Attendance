@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assignInTurns, takeNextInQueue } from "./round-robin.js";
+import { assignInTurns, queuePlaces, takeNextInQueue } from "./round-robin.js";
 
 test("two brokers who stay eligible split new shipments one by one", () => {
     const picks = assignInTurns(["aaron", "bob"], 8);
@@ -39,6 +39,16 @@ test("a broker who steps out does not take the loads, and does not steal the lin
     give(both);
     give(both);
     assert.deepEqual(got, ["aaron", "bob", "aaron", "aaron", "aaron", "bob"]);
+});
+
+test("queue board marks who receives next, who received last, and who is waiting", () => {
+    const places = queuePlaces(["aaron", "bob", "lia"], 1, "aaron");
+    assert.deepEqual(
+        places.map((row) => row.place),
+        ["received", "next", "waiting"]
+    );
+    const alone = queuePlaces(["aaron"], 0, "aaron");
+    assert.deepEqual(alone.map((row) => row.place), ["next"]);
 });
 
 test("a missed accept is passed to the other broker, not back to the same one", () => {

@@ -2689,6 +2689,11 @@ button.load-review-choice:hover {
   color: var(--gos-muted);
   background: var(--gos-surface2);
 }
+.gos-queue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
 .load-table tbody tr.load-row { cursor: pointer; }
 .load-row-actions { white-space: nowrap; }
 .load-row-actions .btn-secondary {

@@ -15,6 +15,8 @@ window.GreenOSModules.shipments = {
 
     var me = (window.GreenOS && window.GreenOS.user) || window.GreenOSUser || {};
     var isTeamLead = me.role === "Team Lead";
+    var canSeeQueue =
+      me.role === "Owner" || me.role === "Manager" || me.role === "Administrator";
     var tab =
       subPageId === "other"
         ? "other"
@@ -24,7 +26,9 @@ window.GreenOSModules.shipments = {
             ? "accepted-another"
             : subPageId === "by-broker"
               ? "by-broker"
-              : subPageId === "new"
+              : subPageId === "queue" && canSeeQueue
+                ? "queue"
+                : subPageId === "new"
                 ? "new"
                 : isTeamLead
                   ? "mine"
@@ -57,6 +61,11 @@ window.GreenOSModules.shipments = {
           (tab === "by-broker" ? " is-active" : "") +
           '" data-subpage="by-broker">By Broker</button>'
         : "") +
+      (canSeeQueue
+        ? '<button type="button" class="gos-subnav-item' +
+          (tab === "queue" ? " is-active" : "") +
+          '" data-subpage="queue">Queue</button>'
+        : "") +
       "</nav>" +
       '<div class="gos-module-body" id="shipments-module-body"></div>' +
       "</div>";
@@ -68,6 +77,10 @@ window.GreenOSModules.shipments = {
       this.renderBrokerStats(body);
       return;
     }
+    if (tab === "queue") {
+      this.renderQueue(body);
+      return;
+    }
     var opts =
       tab === "accepted-another"
         ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
@@ -76,6 +89,117 @@ window.GreenOSModules.shipments = {
           : { assignmentKind: tab, page: 1 };
     var brokerId = tab === "mine" ? me.userId || null : null;
     crm.renderShipments(body, root, brokerId, opts);
+  },
+
+  async renderQueue(body) {
+    var self = this;
+    body.innerHTML =
+      '<section class="gos-dash-hero"><h1>Shipment queue</h1>' +
+      "<p>Who receives the next New shipment and the next Other shipment. Names and turns only.</p></section>" +
+      '<p class="gos-muted">Loading…</p>';
+    var token = "";
+    try {
+      token = localStorage.getItem("gl_token") || "";
+    } catch (e) {}
+    var response;
+    try {
+      response = await fetch("/api/assignment/board", {
+        headers: { Accept: "application/json", Authorization: token ? "Bearer " + token : "" },
+      });
+    } catch (err) {
+      body.innerHTML = "<p>Could not load the queue.</p>";
+      return;
+    }
+    var data = await response.json().catch(function () {
+      return {};
+    });
+    if (!response.ok || !data.success) {
+      body.innerHTML = "<p>" + self.esc(data.message || "Could not load the queue.") + "</p>";
+      return;
+    }
+    var board = data.data || {};
+    function placeLabel(place) {
+      if (place === "next") return "Receives next";
+      if (place === "received") return "Received last";
+      return "Waiting";
+    }
+    function table(queue, emptyText) {
+      var people = (queue && queue.people) || [];
+      if (!people.length) {
+        return '<p class="gos-muted">' + emptyText + "</p>";
+      }
+      return (
+        '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+        "<th>#</th><th>Name</th><th>Turn</th></tr></thead><tbody>" +
+        people
+          .map(function (row) {
+            return (
+              "<tr><td>" +
+              self.esc(row.position) +
+              "</td><td><strong>" +
+              self.esc(row.name) +
+              "</strong></td><td>" +
+              self.esc(placeLabel(row.place)) +
+              "</td></tr>"
+            );
+          })
+          .join("") +
+        "</tbody></table></div>"
+      );
+    }
+    var outside = board.outside || [];
+    body.innerHTML =
+      '<section class="gos-dash-hero"><h1>Shipment queue</h1>' +
+      "<p>" +
+      self.esc(board.assignmentModeLabel || "") +
+      ". The next shipment goes to the person marked Receives next. Everyone else in the circle is Waiting.</p></section>" +
+      '<div style="display:flex;gap:0.75rem;margin:0 0 1rem"><button type="button" class="btn-secondary" id="queue-refresh" style="width:auto">Refresh</button></div>' +
+      '<div class="gos-queue-grid">' +
+      '<section class="gos-card" style="padding:1rem"><h2 style="margin:0 0 0.35rem">New shipments</h2>' +
+      '<p class="gos-muted" style="margin:0 0 0.75rem">Next: ' +
+      self.esc((board.newQueue && board.newQueue.nextName) || "nobody") +
+      "</p>" +
+      table(board.newQueue, "No one is in the New queue.") +
+      "</section>" +
+      '<section class="gos-card" style="padding:1rem"><h2 style="margin:0 0 0.35rem">Other shipments</h2>' +
+      '<p class="gos-muted" style="margin:0 0 0.75rem">Next: ' +
+      self.esc((board.otherQueue && board.otherQueue.nextName) || "nobody") +
+      "</p>" +
+      table(board.otherQueue, "No one is in the Other queue.") +
+      "</section></div>" +
+      '<section class="gos-card" style="padding:1rem;margin-top:1rem"><h2 style="margin:0 0 0.75rem">Not in the queue</h2>' +
+      (outside.length
+        ? '<div class="table-wrap"><table class="crm-table"><thead><tr><th>Name</th><th>Role</th><th>Why</th></tr></thead><tbody>' +
+          outside
+            .map(function (row) {
+              return (
+                "<tr><td><strong>" +
+                self.esc(row.name) +
+                "</strong></td><td>" +
+                self.esc(row.role) +
+                "</td><td>" +
+                self.esc(row.reason) +
+                "</td></tr>"
+              );
+            })
+            .join("") +
+          "</tbody></table></div>"
+        : '<p class="gos-muted">Everyone who can receive shipments is in the queue.</p>') +
+      "</section>";
+    var refresh = body.querySelector("#queue-refresh");
+    if (refresh) {
+      refresh.addEventListener("click", function () {
+        self.renderQueue(body);
+      });
+    }
+  },
+
+  esc(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   },
 
   async renderBrokerStats(body) {
