@@ -11,6 +11,7 @@ import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { ensureGreenOsShipmentId } from "../../shipment/shipment.id.js";
 import { isLoadPhase, normalizeStatus, statusLabel } from "../../shipment/shipment.lifecycle.js";
 import { listTeamBrokerIds } from "../../../auth/team-scope.js";
+import { awaitingAcceptWhere, unassignedShipmentWhere } from "../unassigned-where.js";
 import { canWorkAnyShipment } from "../../../auth/roles.js";
 import {
     followUshipToListingUrl,
@@ -173,9 +174,19 @@ export class CrmService {
             teamBrokerIds != null
                 ? { assignedBrokerId: { in: teamBrokerIds } }
                 : {};
-        const unassignedWhere = {
-            status: { in: ["NEW", "UNASSIGNED"] },
-            OR: [{ assignedBrokerId: null }, { assignedBrokerId: "" }],
+        const { assignmentEngine } = await import("../../assignment/assignment.engine.js");
+        const { eligible } = await assignmentEngine.resolveEligibleBrokers();
+        const eligibleIds = eligible.map((broker) => broker.userId);
+        const unassignedWhere = unassignedShipmentWhere(eligibleIds, teamBrokerIds);
+        const awaitingWhere = {
+            AND: [
+                awaitingAcceptWhere(
+                    teamBrokerIds
+                        ? eligibleIds.filter((id) => teamBrokerIds.includes(id))
+                        : eligibleIds
+                ),
+                ...(teamBrokerIds ? [teamAssigned] : []),
+            ],
         };
 
         const shell = options?.shell === true;
@@ -196,7 +207,7 @@ export class CrmService {
             }),
             prisma.shipmentLead.count({ where: unassignedWhere }),
             prisma.shipmentLead.count({
-                where: { status: "AWAITING_ACCEPTANCE", ...teamAssigned },
+                where: awaitingWhere,
             }),
             prisma.shipmentLead.count({
                 where: { status: "WORKING", ...teamAssigned },
