@@ -13,6 +13,8 @@ import { ensureFlexibleShiftId } from "../services/shift-default.service.js";
 import { apiResponse, normalizeCardToken, getWebhookUrls, getAllNetworkIps } from "../utils/helpers.js";
 import { config, getOpenAiConfig } from "../config/env.js";
 import type { AuthRequest } from "../middlewares/auth.middleware.js";
+import { teamScopeUserId } from "../auth/access.js";
+import { listTeamBrokerEmployeeIds } from "../auth/team-scope.js";
 
 function getDeployedCommit(): string {
     if (process.env.GIT_COMMIT) return process.env.GIT_COMMIT.slice(0, 7);
@@ -36,11 +38,16 @@ function getDeployedCommit(): string {
     }
 }
 
-export async function listEmployeesController(req: Request, res: Response) {
+export async function listEmployeesController(req: AuthRequest, res: Response) {
     const includeInactive = req.query.all === "true";
-    const employees = includeInactive
+    let employees = includeInactive
         ? await employeeRepository.findAll()
         : await employeeRepository.findAllActive();
+    const teamLeadUserId = teamScopeUserId(req);
+    if (teamLeadUserId) {
+        const allowed = new Set(await listTeamBrokerEmployeeIds(teamLeadUserId));
+        employees = employees.filter((employee) => allowed.has(employee.employeeId));
+    }
     return res.json(apiResponse(true, "Employees loaded", employees));
 }
 

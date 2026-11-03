@@ -4,6 +4,8 @@ export interface PeriodReportFilters {
     employeeId?: string;
     name?: string;
     status?: string;
+    /** When set, the journal is limited to these attendance badges. Empty means nobody. */
+    employeeIds?: string[];
 }
 
 export type ReportFilterableRow = {

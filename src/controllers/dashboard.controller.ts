@@ -3,7 +3,7 @@ import type { AuthRequest } from "../middlewares/auth.middleware.js";
 import { dashboardService } from "../services/dashboard.service.js";
 import { apiResponse } from "../utils/helpers.js";
 import { teamScopeUserId } from "../auth/access.js";
-import { listTeamEmployeeIds } from "../auth/team-scope.js";
+import { listTeamBrokerEmployeeIds } from "../auth/team-scope.js";
 
 export async function getDashboardController(req: AuthRequest, res: Response) {
     const date = req.query.date as string | undefined;
@@ -21,7 +21,7 @@ export async function getEmployeeDetailController(req: AuthRequest, res: Respons
     const date = req.query.date as string | undefined;
     const teamLeadUserId = teamScopeUserId(req);
     if (teamLeadUserId) {
-        const allowed = await listTeamEmployeeIds(teamLeadUserId);
+        const allowed = await listTeamBrokerEmployeeIds(teamLeadUserId);
         if (!allowed.includes(employeeId)) {
             return res.status(403).json(apiResponse(false, "Forbidden — outside your team"));
         }

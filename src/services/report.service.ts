@@ -63,10 +63,25 @@ function statusLabel(status: string): string {
 export class ReportService {
     async getPeriodReport(from: string, to: string, filters: PeriodReportFilters = {}) {
         const employeeId = filters.employeeId?.trim() || undefined;
+        const scopedIds = filters.employeeIds;
+        const allowedIds =
+            scopedIds == null
+                ? null
+                : employeeId
+                  ? scopedIds.includes(employeeId)
+                      ? [employeeId]
+                      : []
+                  : scopedIds;
+        const idWhere =
+            allowedIds != null
+                ? { employeeId: { in: allowedIds } }
+                : employeeId
+                  ? { employeeId }
+                  : {};
         const sessions = await prisma.attendanceSession.findMany({
             where: {
                 workDate: { gte: from, lte: to },
-                ...(employeeId ? { employeeId } : {}),
+                ...idWhere,
             },
             include: {
                 employee: true,
@@ -150,11 +165,16 @@ export class ReportService {
             name: filters.name,
         });
 
-        const employees = employeeId
-            ? await prisma.employee.findMany({
-                  where: { employeeId, status: "ACTIVE" },
-              })
-            : await employeeRepository.findAllActive();
+        const employees =
+            allowedIds != null
+                ? await prisma.employee.findMany({
+                      where: { status: "ACTIVE", employeeId: { in: allowedIds } },
+                  })
+                : employeeId
+                  ? await prisma.employee.findMany({
+                        where: { employeeId, status: "ACTIVE" },
+                    })
+                  : await employeeRepository.findAllActive();
 
         const notArrivedAll = buildNotArrivedRows({
             from,

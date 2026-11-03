@@ -260,3 +260,32 @@ export async function listTeamEmployeeIds(teamLeadUserId: string): Promise<strin
     }
     return [...ids];
 }
+
+/**
+ * Attendance badges for brokers who report to this Team Lead.
+ * The Team Lead's own badge is omitted. A broker assigned to someone else is omitted.
+ */
+export async function listTeamBrokerEmployeeIds(teamLeadUserId: string): Promise<string[]> {
+    const ids = await listTeamEmployeeIds(teamLeadUserId);
+    if (!ids.length) return [];
+    const linked = await prisma.user.findMany({
+        where: { employeeId: { in: ids } },
+        select: {
+            userId: true,
+            employeeId: true,
+            teamLeadId: true,
+            role: { select: { roleName: true } },
+        },
+    });
+    const drop = new Set<string>();
+    for (const user of linked) {
+        if (!user.employeeId) continue;
+        if (user.userId === teamLeadUserId) {
+            drop.add(user.employeeId);
+            continue;
+        }
+        if (user.role.roleName !== Roles.Broker) drop.add(user.employeeId);
+        if (user.teamLeadId && user.teamLeadId !== teamLeadUserId) drop.add(user.employeeId);
+    }
+    return ids.filter((id) => !drop.has(id));
+}

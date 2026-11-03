@@ -30,8 +30,8 @@ export class DashboardService {
         const now = new Date();
         let employees = await employeeRepository.findAllActive();
         if (options?.teamLeadUserId) {
-            const { listTeamEmployeeIds } = await import("../auth/team-scope.js");
-            const allowed = new Set(await listTeamEmployeeIds(options.teamLeadUserId));
+            const { listTeamBrokerEmployeeIds } = await import("../auth/team-scope.js");
+            const allowed = new Set(await listTeamBrokerEmployeeIds(options.teamLeadUserId));
             employees = employees.filter((e) => allowed.has(e.employeeId));
         }
 
@@ -109,8 +109,8 @@ export class DashboardService {
         const now = new Date();
         let employees = await employeeRepository.findAllActive();
         if (options?.teamLeadUserId) {
-            const { listTeamEmployeeIds } = await import("../auth/team-scope.js");
-            const allowed = new Set(await listTeamEmployeeIds(options.teamLeadUserId));
+            const { listTeamBrokerEmployeeIds } = await import("../auth/team-scope.js");
+            const allowed = new Set(await listTeamBrokerEmployeeIds(options.teamLeadUserId));
             employees = employees.filter((e) => allowed.has(e.employeeId));
         }
 

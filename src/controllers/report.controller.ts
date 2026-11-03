@@ -1,9 +1,12 @@
-import { Request, Response } from "express";
+import { Response } from "express";
 import PDFDocument from "pdfkit";
 import { reportService } from "../services/report.service.js";
 import { apiResponse, formatMinutes } from "../utils/helpers.js";
+import type { AuthRequest } from "../middlewares/auth.middleware.js";
+import { teamScopeUserId } from "../auth/access.js";
+import { listTeamBrokerEmployeeIds } from "../auth/team-scope.js";
 
-function parseDateRange(req: Request): { from: string; to: string } | null {
+function parseDateRange(req: AuthRequest): { from: string; to: string } | null {
     const from = (req.query.from as string)?.trim();
     const to = (req.query.to as string)?.trim();
     if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
@@ -13,7 +16,7 @@ function parseDateRange(req: Request): { from: string; to: string } | null {
     return { from, to };
 }
 
-function parseReportFilters(req: Request): { employeeId?: string; name?: string; status?: string } {
+function parseReportFilters(req: AuthRequest): { employeeId?: string; name?: string; status?: string } {
     const employeeId = String(req.query.employeeId || "").trim();
     const name = String(req.query.name || req.query.q || "").trim();
     const status = String(req.query.status || "").trim();
@@ -39,23 +42,33 @@ function reportFilterLabel(report: {
     return bits.length ? bits.join(" · ") : null;
 }
 
-export async function periodReportController(req: Request, res: Response) {
+async function reportFiltersForActor(req: AuthRequest) {
+    const filters = parseReportFilters(req);
+    const teamLeadUserId = teamScopeUserId(req);
+    if (!teamLeadUserId) return filters;
+    return {
+        ...filters,
+        employeeIds: await listTeamBrokerEmployeeIds(teamLeadUserId),
+    };
+}
+
+export async function periodReportController(req: AuthRequest, res: Response) {
     const range = parseDateRange(req);
     if (!range) {
         return res.status(422).json(apiResponse(false, "Invalid date range — use from=YYYY-MM-DD&to=YYYY-MM-DD"));
     }
 
-    const report = await reportService.getPeriodReport(range.from, range.to, parseReportFilters(req));
+    const report = await reportService.getPeriodReport(range.from, range.to, await reportFiltersForActor(req));
     return res.json(apiResponse(true, "Period report generated", report));
 }
 
-export async function periodReportPdfController(req: Request, res: Response) {
+export async function periodReportPdfController(req: AuthRequest, res: Response) {
     const range = parseDateRange(req);
     if (!range) {
         return res.status(422).json(apiResponse(false, "Invalid date range"));
     }
 
-    const filters = parseReportFilters(req);
+    const filters = await reportFiltersForActor(req);
     const report = await reportService.getPeriodReport(range.from, range.to, filters);
 
     res.setHeader("Content-Type", "application/pdf");
