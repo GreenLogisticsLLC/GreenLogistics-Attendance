@@ -30,7 +30,7 @@ test("payment option names and the four methods that add 3 percent", () => {
     assert.equal(waived.waived, true);
     assert.equal(waived.fee, 0);
     assert.equal(waived.total, 5000);
-    assert.equal(waived.label, "PayPal +3%");
+    assert.equal(waived.label, "PayPal");
 });
 
 test("only accounting, owner, and administrator can waive the 3 percent", () => {

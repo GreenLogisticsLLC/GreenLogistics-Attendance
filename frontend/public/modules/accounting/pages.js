@@ -175,8 +175,6 @@ window.GreenOSModules.accounting = {
         '">+3% ' +
         this.money(fee) +
         "</div>";
-    } else if (r.customerPaymentWaived || r.waiveCustomerPaymentFee) {
-      feeLine = '<div class="acc-pay-fee">3% not added</div>';
     }
     return (
       '<div class="acc-pay-grid">' +
@@ -196,7 +194,7 @@ window.GreenOSModules.accounting = {
     );
   },
 
-  paymentMethodOptions(selected) {
+  paymentMethodOptions(selected, hideFee) {
     var methods = [
       ["WIRE", "Wire"],
       ["VENMO", "Venmo +3%"],
@@ -210,13 +208,16 @@ window.GreenOSModules.accounting = {
       '<option value="">Select payment option</option>' +
       methods
         .map(function (pair) {
+          var text = hideFee ? pair[1].replace(/ \+3%$/, "") : pair[1];
           return (
             '<option value="' +
             pair[0] +
+            '" data-full="' +
+            pair[1] +
             '"' +
             (selected === pair[0] ? " selected" : "") +
             ">" +
-            pair[1] +
+            text +
             "</option>"
           );
         })
@@ -990,9 +991,7 @@ window.GreenOSModules.accounting = {
         "</div>" +
         (cust.paymentFee
           ? "<div>+3%: " + self.money(cust.paymentFee) + "</div>"
-          : cust.paymentFeeWaived
-            ? "<div>3% not added</div>"
-            : "") +
+          : "") +
         "<div>Accessorials: " +
         self.money(cust.accessorials) +
         "</div>" +
@@ -1017,7 +1016,7 @@ window.GreenOSModules.accounting = {
         '"></label>' +
         '<label>Payment option' +
         '<select id="acc-pay-method">' +
-        self.paymentMethodOptions(cust.paymentMethod) +
+        self.paymentMethodOptions(cust.paymentMethod, cust.paymentFeeWaived) +
         "</select></label>" +
         '<label style="flex-direction:row;align-items:center;gap:0.4rem;margin-top:0.35rem">' +
         '<input type="checkbox" id="acc-pay-waive"' +
@@ -1079,6 +1078,18 @@ window.GreenOSModules.accounting = {
         });
       });
       var savePay = host.querySelector("#acc-save-pay");
+      var payMethod = host.querySelector("#acc-pay-method");
+      var payWaive = host.querySelector("#acc-pay-waive");
+      function syncPayLabels() {
+        if (!payMethod) return;
+        var hide = Boolean(payWaive && payWaive.checked);
+        payMethod.querySelectorAll("option").forEach(function (opt) {
+          var full = opt.getAttribute("data-full");
+          if (!full) return;
+          opt.textContent = hide ? full.replace(/ \+3%$/, "") : full;
+        });
+      }
+      if (payWaive) payWaive.addEventListener("change", syncPayLabels);
       if (savePay) {
         savePay.addEventListener("click", async function () {
           var raw = (host.querySelector("#acc-cust-rate") || {}).value;

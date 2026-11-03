@@ -67,7 +67,7 @@ export function customerPaymentQuote(input: {
     const total = rate == null && !accessorials ? null : cents((rate || 0) + accessorials + fee);
     return {
         method: methodId,
-        label: method?.label || null,
+        label: method ? (input.waiveFee ? method.label.replace(/ \+3%$/, "") : method.label) : null,
         feeRate,
         fee,
         waived: Boolean(input.waiveFee && method && method.feeRate > 0),
