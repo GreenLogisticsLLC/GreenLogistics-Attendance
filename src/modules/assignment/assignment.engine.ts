@@ -10,7 +10,7 @@ import {
 } from "../email/services/repositories.js";
 import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
-import { arrivedAfterShipmentCutoff } from "../../services/shipment-cutoff.js";
+import { arrivedAfterShipmentCutoff, SHIPMENTS_FROM } from "../../services/shipment-cutoff.js";
 import { config } from "../../config/env.js";
 import { isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE } from "../../utils/helpers.js";
 import { receivesNewShipments } from "./activity-window.js";
@@ -796,7 +796,7 @@ export class AssignmentEngine {
     async getAssignmentBoard() {
         const { eligible, mode } = await this.resolveEligibleBrokers();
         const eligibleIds = eligible.map((person) => person.userId);
-        const [newState, otherState, lastNew, lastOther, staff, arrivalLogs] = await Promise.all([
+        const [newState, otherState, lastNew, lastOther, staff] = await Promise.all([
             this.loadQueueState(QUEUE_NEW),
             this.loadQueueState(QUEUE_OTHER),
             prisma.assignmentLog.findFirst({
@@ -817,52 +817,49 @@ export class AssignmentEngine {
                 include: { role: true, employee: true },
                 orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
             }),
-            prisma.assignmentLog.findMany({
-                where: {
-                    eventType: { in: ["ASSIGNED", "REASSIGNED"] },
-                    assignedUserId: { not: null },
-                    shipmentLeadId: { not: null },
-                },
-                select: {
-                    assignedUserId: true,
-                    eventType: true,
-                    shipmentLeadId: true,
-                },
-            }),
         ]);
-        const arrivalIds = [
-            ...new Set(
-                arrivalLogs
-                    .map((log) => log.shipmentLeadId)
-                    .filter((id): id is string => Boolean(id))
-            ),
-        ];
-        const arrivalLeads = arrivalIds.length
-            ? await prisma.shipmentLead.findMany({
-                  where: {
-                      shipmentLeadId: { in: arrivalIds },
-                      status: { not: "DELETED_FROM_CUSTOMER" },
-                      ...arrivedAfterShipmentCutoff,
-                  },
-                  select: {
-                      shipmentLeadId: true,
-                      assignedBrokerId: true,
-                      acceptedAt: true,
-                  },
-              })
-            : [];
+        const arrivalRows = await prisma.$queryRaw<
+            Array<{
+                userId: string;
+                eventType: string;
+                shipmentId: string;
+                assignedBrokerId: string | null;
+                acceptedAt: Date | string | null;
+            }>
+        >`
+            SELECT DISTINCT
+                l.assigned_user_id AS userId,
+                l.event_type AS eventType,
+                s.shipment_lead_id AS shipmentId,
+                s.assigned_broker_id AS assignedBrokerId,
+                s.accepted_at AS acceptedAt
+            FROM shipment_leads s
+            INNER JOIN assignment_logs l ON l.shipment_lead_id = s.shipment_lead_id
+            WHERE l.event_type IN ('ASSIGNED', 'REASSIGNED')
+              AND l.assigned_user_id IS NOT NULL
+              AND s.status != 'DELETED_FROM_CUSTOMER'
+              AND (
+                    s.received_at >= ${SHIPMENTS_FROM}
+                    OR (s.received_at IS NULL AND s.created_at >= ${SHIPMENTS_FROM})
+                  )
+        `;
+        const arrivalLeads = new Map<
+            string,
+            { assignedBrokerId: string | null; acceptedAt: Date | string | null }
+        >();
+        for (const row of arrivalRows) {
+            arrivalLeads.set(row.shipmentId, {
+                assignedBrokerId: row.assignedBrokerId,
+                acceptedAt: row.acceptedAt,
+            });
+        }
         const arrivals = summarizeShipmentArrivals({
-            logs: arrivalLogs.map((log) => ({
-                userId: log.assignedUserId,
-                eventType: log.eventType,
-                shipmentId: log.shipmentLeadId,
+            logs: arrivalRows.map((row) => ({
+                userId: row.userId,
+                eventType: row.eventType,
+                shipmentId: row.shipmentId,
             })),
-            leads: new Map(
-                arrivalLeads.map((lead) => [
-                    lead.shipmentLeadId,
-                    { assignedBrokerId: lead.assignedBrokerId, acceptedAt: lead.acceptedAt },
-                ])
-            ),
+            leads: arrivalLeads,
         });
         const newSynced = syncQueueOrder(newState.orderedUserIds, eligibleIds, newState.nextIndex);
         const otherSynced = syncQueueOrder(

@@ -9,8 +9,13 @@ export async function assignmentBoardController(req: AuthRequest, res: Response)
     if (role !== "Owner" && role !== "Manager" && role !== "Administrator") {
         return res.status(403).json(apiResponse(false, "Only Manager and Owner can view the queue"));
     }
-    const data = await assignmentEngine.getAssignmentBoard();
-    return res.json(apiResponse(true, "Assignment queue", data));
+    try {
+        const data = await assignmentEngine.getAssignmentBoard();
+        return res.json(apiResponse(true, "Assignment queue", data));
+    } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not load the queue";
+        return res.status(500).json(apiResponse(false, message));
+    }
 }
 
 export async function assignmentQueueStatusController(_req: AuthRequest, res: Response) {

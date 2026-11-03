@@ -109,14 +109,21 @@ window.GreenOSModules.shipments = {
       token = localStorage.getItem("gl_token") || "";
     } catch (e) {}
     var response;
+    var ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = setTimeout(function () {
+      if (ctrl) ctrl.abort();
+    }, 20000);
     try {
       response = await fetch("/api/assignment/board", {
         headers: { Accept: "application/json", Authorization: token ? "Bearer " + token : "" },
+        signal: ctrl ? ctrl.signal : undefined,
       });
     } catch (err) {
-      body.innerHTML = "<p>Could not load the queue.</p>";
+      clearTimeout(timer);
+      body.innerHTML = "<p>Could not load the queue. Press Refresh.</p>";
       return;
     }
+    clearTimeout(timer);
     var data = await response.json().catch(function () {
       return {};
     });
