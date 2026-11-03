@@ -2669,11 +2669,11 @@ window.GreenOSModules["dispatch"] = {
         '<label class="full">Message to driver <input id="ld-gps-chat" maxlength="500" placeholder="Chat via CarrierView"></label>' +
         "</div>" +
         '<div class="load-actions" style="margin-top:0.5rem">' +
-        '<button type="button" class="btn-primary" id="ld-gps-start">Start CarrierView tracking</button>' +
+        '<button type="button" class="btn-primary" id="ld-gps-sms">Send tracking link</button>' +
+        '<button type="button" class="btn-secondary" id="ld-gps-start">Start tracking only</button>' +
         '<button type="button" class="btn-secondary" id="ld-gps-refresh">Refresh</button>' +
         '<button type="button" class="btn-secondary" id="ld-gps-disable">Disable tracking</button>' +
         '<button type="button" class="btn-secondary" id="ld-gps-chat-send">Send chat</button>' +
-        '<button type="button" class="btn-secondary" id="ld-gps-sms">Send welcome SMS</button>' +
         "</div>" +
         '<p id="ld-gps-status" class="gos-muted" style="margin-top:0.5rem"></p>' +
         "</div>";
@@ -2732,12 +2732,22 @@ window.GreenOSModules["dispatch"] = {
         }
       });
       main.querySelector("#ld-gps-sms")?.addEventListener("click", async function () {
-        if (!confirm("Send welcome SMS via CarrierView? This is NOT idempotent — do not spam.")) return;
+        var phone = self.toE164UsPhone(main.querySelector("#ld-gps-phone").value);
+        if (!phone || String(phone).charAt(0) !== "+") {
+          return alert("Enter the carrier number, for example (267) 579-2793");
+        }
+        if (!confirm("Text the tracking link to " + main.querySelector("#ld-gps-phone").value + "?")) return;
         try {
-          await gpsApi("/sms", { method: "POST", body: JSON.stringify({ type: "welcome" }) });
-          setGpsStatus("SMS sent");
+          setGpsStatus("Sending tracking link…");
+          await gpsApi("/send-link", {
+            method: "POST",
+            body: JSON.stringify({ driverPhone: phone }),
+          });
+          setGpsStatus("Tracking link sent");
+          self.openLoad(document.querySelector("#load-tms-body"), id, "tracking");
         } catch (err) {
           alert(err.message || err);
+          setGpsStatus("");
         }
       });
       return;

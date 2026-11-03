@@ -490,6 +490,59 @@ export class TrackingService {
         });
     }
 
+    /**
+     * Start CarrierView for this load if needed, then text the tracking link
+     * to the carrier number. The broker stays in GreenOS.
+     */
+    async sendTrackingLink(input: {
+        shipmentLeadId: string;
+        driverPhone: string;
+        actorUserId?: string;
+    }) {
+        const phone = toE164UsPhone(input.driverPhone || "");
+        if (!phone) {
+            throw Object.assign(
+                new Error(
+                    "Carrier number must be a valid US number, e.g. (267) 579-2793"
+                ),
+                { status: 422 }
+            );
+        }
+
+        const existing = await this.getActiveTracking(input.shipmentLeadId, "carrier_view");
+        const samePhone =
+            existing && toE164UsPhone(existing.driverPhone || "") === phone;
+        const row = samePhone
+            ? existing
+            : await this.startCarrierViewTracking({
+                  shipmentLeadId: input.shipmentLeadId,
+                  actorUserId: input.actorUserId,
+                  driverPhone: phone,
+                  forceRecreate: Boolean(existing),
+              });
+
+        await this.sendSms(input.shipmentLeadId, "welcome", undefined, input.actorUserId);
+
+        const shipment = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId: input.shipmentLeadId },
+            select: { carrierPhone: true },
+        });
+        if (shipment && !String(shipment.carrierPhone || "").trim()) {
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId: input.shipmentLeadId },
+                data: { carrierPhone: phone },
+            });
+        }
+
+        return {
+            phone,
+            trackingUrl: row.trackingUrl,
+            clientTrackingUrl: row.clientTrackingUrl,
+            providerLoadId: row.providerLoadId,
+            sms: "welcome" as const,
+        };
+    }
+
     async sendSms(
         shipmentLeadId: string,
         type: "welcome" | "assigned_load" | "one_time_ping_request" | "installation_guide" | "custom",

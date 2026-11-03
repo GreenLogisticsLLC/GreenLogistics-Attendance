@@ -723,6 +723,50 @@ export async function crmTruckingController(req: AuthRequest, res: Response) {
         });
     }
 
+    const closedStatuses = [
+        "DELIVERED",
+        "COMPLETED",
+        "CLOSED",
+        "LOST",
+        "ACCEPTED_ANOTHER_COMPANY",
+        "DELETED_FROM_CUSTOMER",
+        "CANCELLED",
+    ];
+    const linkRows = await prisma.shipmentLead.findMany({
+        where: {
+            ...leadScope,
+            loadNumber: { not: null },
+            status: { notIn: closedStatuses },
+        },
+        select: {
+            shipmentLeadId: true,
+            greenOsShipmentId: true,
+            loadNumber: true,
+            shipmentTitle: true,
+            carrierName: true,
+            driverPhone: true,
+            carrierPhone: true,
+            pickupCity: true,
+            pickupState: true,
+            deliveryCity: true,
+            deliveryState: true,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 150,
+    });
+    const linkLoads = linkRows.map((s) => ({
+        shipmentLeadId: s.shipmentLeadId,
+        loadNumber: s.loadNumber,
+        greenOsShipmentId: s.greenOsShipmentId,
+        shipmentTitle: s.shipmentTitle,
+        carrier: s.carrierName || "",
+        phone: s.driverPhone || s.carrierPhone || "",
+        lane:
+            [s.pickupCity, s.pickupState].filter(Boolean).join(", ") +
+            " → " +
+            [s.deliveryCity, s.deliveryState].filter(Boolean).join(", "),
+    }));
+
     trucks.sort((a, b) => {
         if (a.online !== b.online) return a.online ? -1 : 1;
         const ta = a.lastPositionAt ? new Date(a.lastPositionAt).getTime() : 0;
@@ -734,6 +778,7 @@ export async function crmTruckingController(req: AuthRequest, res: Response) {
         apiResponse(true, "Trucking", {
             count: trucks.length,
             onlineCount: trucks.filter((t) => t.online).length,
+            linkLoads,
             updatedAt: new Date().toISOString(),
             items: trucks,
         })

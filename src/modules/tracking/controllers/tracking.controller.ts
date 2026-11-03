@@ -110,6 +110,32 @@ export const trackingController = {
         }
     },
 
+    async sendLink(req: AuthRequest, res: Response) {
+        try {
+            const id = String(req.params.id || "");
+            const access = await assertShipmentAccess(req, res, id);
+            if (!access.ok) return;
+            const driverPhone = String(req.body?.driverPhone || req.body?.phone || "").trim();
+            if (!driverPhone) {
+                return res.status(422).json({
+                    success: false,
+                    message: "Carrier number is required",
+                });
+            }
+            const data = await trackingService.sendTrackingLink({
+                shipmentLeadId: id,
+                driverPhone,
+                actorUserId: req.user?.userId,
+            });
+            res.json({ success: true, data });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: carrierViewUserMessage(err),
+            });
+        }
+    },
+
     async sms(req: AuthRequest, res: Response) {
         try {
             const id = String(req.params.id || "");

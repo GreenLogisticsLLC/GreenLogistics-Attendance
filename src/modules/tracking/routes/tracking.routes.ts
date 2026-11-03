@@ -35,5 +35,6 @@ loadTrackingRouter.post("/start", authMiddleware, trackingController.start);
 loadTrackingRouter.post("/refresh", authMiddleware, trackingController.refresh);
 loadTrackingRouter.post("/disable", authMiddleware, trackingController.disable);
 loadTrackingRouter.post("/chat", authMiddleware, trackingController.chat);
+loadTrackingRouter.post("/send-link", authMiddleware, trackingController.sendLink);
 loadTrackingRouter.post("/sms", authMiddleware, trackingController.sms);
 loadTrackingRouter.get("/positions", authMiddleware, trackingController.positions);

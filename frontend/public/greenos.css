@@ -3013,6 +3013,37 @@ button.load-review-choice:hover {
   overflow: hidden;
 }
 
+.gos-trucking__send {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.75rem 0.7rem 0.85rem;
+  border-bottom: 1px solid var(--gos-border);
+  background: var(--gos-surface2);
+}
+.gos-trucking__send h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.gos-trucking__send p {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+.gos-trucking__send select,
+.gos-trucking__send input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid var(--gos-border);
+  background: var(--gos-bg);
+  color: var(--gos-text);
+}
+.gos-trucking__send .btn-primary {
+  width: 100%;
+}
 .gos-trucking__sidebar-tools {
   padding: 0.65rem;
   border-bottom: 1px solid var(--gos-border);

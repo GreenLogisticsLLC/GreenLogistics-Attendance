@@ -273,7 +273,7 @@ window.GreenOSModules.trucking = {
     }
     if (!filtered.length) {
       list.innerHTML =
-        '<p class="gos-muted gos-track-empty">No tracks match. Start CarrierView on Load → Tracking, or mark a load In Road.</p>';
+        '<p class="gos-muted gos-track-empty">No live tracks yet. Send the tracking link with the carrier number above.</p>';
       return;
     }
     list.innerHTML = filtered.map(function (r) {
@@ -511,6 +511,62 @@ window.GreenOSModules.trucking = {
     }
   },
 
+  toE164(raw) {
+    var dispatch = window.GreenOSModules && window.GreenOSModules.dispatch;
+    if (dispatch && dispatch.toE164UsPhone) return dispatch.toE164UsPhone(raw);
+    var d = String(raw == null ? "" : raw).replace(/\D/g, "");
+    if (d.length === 11 && d.charAt(0) === "1") d = d.slice(1);
+    if (d.length !== 10) return null;
+    return "+1" + d;
+  },
+
+  formatPhone(raw) {
+    var dispatch = window.GreenOSModules && window.GreenOSModules.dispatch;
+    if (dispatch && dispatch.formatUsPhone) return dispatch.formatUsPhone(raw);
+    var d = String(raw == null ? "" : raw).replace(/\D/g, "");
+    if (d.length === 11 && d.charAt(0) === "1") d = d.slice(1);
+    if (d.length !== 10) return String(raw || "");
+    return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6);
+  },
+
+  fillLinkLoads(loads) {
+    var sel = document.getElementById("trucking-link-load");
+    if (!sel || document.activeElement === sel) return;
+    loads = loads || [];
+    var current = sel.value;
+    var esc = this.esc.bind(this);
+    var html =
+      '<option value="">Choose a load</option>' +
+      loads
+        .map(function (s) {
+          var label =
+            (s.loadNumber || s.greenOsShipmentId || "Load") +
+            (s.shipmentTitle ? " · " + s.shipmentTitle : "") +
+            (s.lane && s.lane !== " → " ? " · " + s.lane : "");
+          return (
+            '<option value="' +
+            esc(s.shipmentLeadId) +
+            '" data-phone="' +
+            esc(s.phone || "") +
+            '">' +
+            esc(label) +
+            "</option>"
+          );
+        })
+        .join("");
+    if (sel.getAttribute("data-sig") === html) return;
+    sel.setAttribute("data-sig", html);
+    sel.innerHTML = html;
+    if (
+      current &&
+      loads.some(function (s) {
+        return s.shipmentLeadId === current;
+      })
+    ) {
+      sel.value = current;
+    }
+  },
+
   bindChrome() {
     var self = this;
     var search = document.getElementById("trucking-search");
@@ -518,6 +574,38 @@ window.GreenOSModules.trucking = {
       search._gosBound = true;
       search.addEventListener("input", function () {
         self.renderList(self._rows, search.value.trim());
+      });
+    }
+    var form = document.getElementById("trucking-send-form");
+    if (form && !form._gosBound) {
+      form._gosBound = true;
+      form.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        self.sendTrackingLink();
+      });
+    }
+    var phone = document.getElementById("trucking-link-phone");
+    if (phone && !phone._gosBound) {
+      phone._gosBound = true;
+      phone.addEventListener("input", function () {
+        phone.value = self.formatPhone(phone.value);
+      });
+    }
+    var loadSel = document.getElementById("trucking-link-load");
+    if (loadSel && !loadSel._gosBound) {
+      loadSel._gosBound = true;
+      loadSel.addEventListener("change", function () {
+        var opt = loadSel.options[loadSel.selectedIndex];
+        var preset = opt ? opt.getAttribute("data-phone") || "" : "";
+        var box = document.getElementById("trucking-link-phone");
+        if (box && preset && !box.value.trim()) box.value = self.formatPhone(preset);
+      });
+    }
+    var send = document.getElementById("trucking-link-send");
+    if (send && !send._gosBound) {
+      send._gosBound = true;
+      send.addEventListener("click", function () {
+        self.sendTrackingLink();
       });
     }
     var fit = document.getElementById("trucking-fit");
@@ -536,6 +624,60 @@ window.GreenOSModules.trucking = {
           self._map.fitBounds(pts, { padding: [40, 40], maxZoom: 8 });
         }
       });
+    }
+  },
+
+  async postJson(path, body) {
+    var token = localStorage.getItem("gl_token") || "";
+    var res = await fetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token,
+      },
+      body: JSON.stringify(body || {}),
+    });
+    var json = await res.json().catch(function () {
+      return {};
+    });
+    if (!res.ok || json.success === false) {
+      throw new Error(json.message || "Request failed");
+    }
+    return json.data;
+  },
+
+  async sendTrackingLink() {
+    var status = document.getElementById("trucking-link-status");
+    var btn = document.getElementById("trucking-link-send");
+    var loadId = (document.getElementById("trucking-link-load") || {}).value || "";
+    var phoneRaw = (document.getElementById("trucking-link-phone") || {}).value || "";
+    var phone = this.toE164(phoneRaw);
+    if (!loadId) {
+      if (status) status.textContent = "Choose the load first.";
+      return;
+    }
+    if (!phone || phone.charAt(0) !== "+") {
+      if (status) status.textContent = "Enter a carrier number, for example (267) 555-0199.";
+      return;
+    }
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = "Sending the tracking link…";
+    try {
+      var data = await this.postJson(
+        "/api/loads/" + encodeURIComponent(loadId) + "/tracking/send-link",
+        { driverPhone: phone }
+      );
+      if (status) {
+        status.textContent =
+          "Tracking link sent to " +
+          phone +
+          (data && data.trackingUrl ? ". " + data.trackingUrl : ".");
+      }
+      if (this._paint) this._paint();
+    } catch (err) {
+      if (status) status.textContent = (err && err.message) || "Could not send the link.";
+    } finally {
+      if (btn) btn.disabled = false;
     }
   },
 
@@ -562,6 +704,14 @@ window.GreenOSModules.trucking = {
       "</header>" +
       '<div class="gos-trucking__board">' +
       '<aside class="gos-trucking__sidebar">' +
+      '<form class="gos-trucking__send" id="trucking-send-form">' +
+      "<h2>Send tracking link</h2>" +
+      '<p class="gos-muted">Type the carrier number. GreenOS texts the MacroPoint tracking link. You stay here.</p>' +
+      '<select id="trucking-link-load" aria-label="Load"><option value="">Choose a load</option></select>' +
+      '<input id="trucking-link-phone" type="tel" inputmode="tel" maxlength="14" placeholder="(XXX) XXX-XXXX" aria-label="Carrier number" autocomplete="tel">' +
+      '<button type="button" class="btn-primary" id="trucking-link-send">Send link</button>' +
+      '<p id="trucking-link-status" class="gos-muted"></p>' +
+      "</form>" +
       '<div class="gos-trucking__sidebar-tools">' +
       '<input type="search" id="trucking-search" class="gos-trucking__search" placeholder="Search loads, carrier, phone…" autocomplete="off">' +
       "</div>" +
@@ -581,6 +731,7 @@ window.GreenOSModules.trucking = {
     this.renderDetail();
 
     async function paint() {
+      self._paint = paint;
       var sync = document.getElementById("trucking-sync");
       var pill = document.getElementById("trucking-online-pill");
       if (!document.getElementById("trucking-track-list")) return;
@@ -592,6 +743,7 @@ window.GreenOSModules.trucking = {
         }
         var payload = data.data || {};
         self._rows = payload.items || [];
+        self.fillLinkLoads(payload.linkLoads || []);
         if (pill) {
           pill.textContent = (payload.onlineCount || 0) + " online";
         }
