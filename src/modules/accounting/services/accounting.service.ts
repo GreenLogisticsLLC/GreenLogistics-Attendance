@@ -11,6 +11,7 @@ import { Roles } from "../../../auth/roles.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { AccountingDocStatus } from "../accounting.constants.js";
 import { buildAccountingDocuments } from "../accounting-documents.js";
+import { customerPaymentQuote } from "../../shipment/customer-payment.js";
 
 type Actor = {
     userId: string;
@@ -204,6 +205,8 @@ export class AccountingService {
                 deliveryState: true,
                 customerRate: true,
                 carrierRate: true,
+                customerPaymentMethod: true,
+                waiveCustomerPaymentFee: true,
                 accessorialCharges: true,
                 assignedBrokerId: true,
                 accountingDocStatus: true,
@@ -237,20 +240,29 @@ export class AccountingService {
             ])
         );
 
-        let list = rows.map((r) => ({
-            ...r,
-            brokerName: r.assignedBrokerId
-                ? brokerName.get(r.assignedBrokerId) || "—"
-                : "—",
-            customerTotal:
-                (money(r.customerRate) || 0) + (money(r.accessorialCharges) || 0) || null,
-            carrierTotal: money(r.carrierRate),
-            outstandingCustomer:
-                r.customerPaidAt
-                    ? 0
-                    : (money(r.customerRate) || 0) + (money(r.accessorialCharges) || 0),
-            outstandingCarrier: r.carrierPaidAt ? 0 : money(r.carrierRate) || 0,
-        }));
+        let list = rows.map((r) => {
+            const payment = customerPaymentQuote({
+                customerRate: r.customerRate,
+                accessorialCharges: r.accessorialCharges,
+                method: r.customerPaymentMethod,
+                waiveFee: r.waiveCustomerPaymentFee,
+            });
+            const customerOwes = payment.total;
+            return {
+                ...r,
+                brokerName: r.assignedBrokerId
+                    ? brokerName.get(r.assignedBrokerId) || "—"
+                    : "—",
+                customerPaymentLabel: payment.label,
+                customerPaymentFee: payment.fee,
+                customerPaymentWaived: payment.waived,
+                customerPays: customerOwes,
+                customerTotal: customerOwes,
+                carrierTotal: money(r.carrierRate),
+                outstandingCustomer: r.customerPaidAt ? 0 : customerOwes || 0,
+                outstandingCarrier: r.carrierPaidAt ? 0 : money(r.carrierRate) || 0,
+            };
+        });
 
         if (f === "documents" || f === "review") {
             list = list.filter(
@@ -352,8 +364,13 @@ export class AccountingService {
                 : null;
         }
 
-        const customerTotal =
-            (money(s.customerRate) || 0) + (money(s.accessorialCharges) || 0);
+        const payment = customerPaymentQuote({
+            customerRate: s.customerRate,
+            accessorialCharges: s.accessorialCharges,
+            method: s.customerPaymentMethod,
+            waiveFee: s.waiveCustomerPaymentFee,
+        });
+        const customerTotal = payment.total || 0;
         const carrierTotal = money(s.carrierRate) || 0;
 
         return {
@@ -372,8 +389,12 @@ export class AccountingService {
             },
             customer: {
                 name: s.customerName,
-                rate: money(s.customerRate),
-                accessorials: money(s.accessorialCharges),
+                rate: payment.rate,
+                accessorials: payment.accessorials,
+                paymentMethod: payment.method,
+                paymentLabel: payment.label,
+                paymentFee: payment.fee,
+                paymentFeeWaived: payment.waived,
                 total: customerTotal,
                 invoiceNumber: s.invoiceNumber,
                 invoiceDate: s.invoiceDate,

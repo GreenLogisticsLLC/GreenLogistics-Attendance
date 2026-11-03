@@ -186,7 +186,7 @@ export const loadController = {
                     });
                 }
             }
-            const data = await loadService.updateLoad(id, body, req.user?.userId);
+            const data = await loadService.updateLoad(id, body, req.user?.userId, role);
             res.json({ success: true, data });
         } catch (err) {
             res.status(errStatus(err)).json({

@@ -375,6 +375,10 @@ model ShipmentLead {
   reviewSentById        String?                 @map("review_sent_by_id")
   /// Pricing (broker never hand-calculates profit — derived in API).
   customerRate          Float?                  @map("customer_rate")
+  /// How the customer pays this load: WIRE | VENMO | PAYPAL | CREDIT_CARD | CASHAPP | ZELLE | ACH.
+  customerPaymentMethod String?                 @map("customer_payment_method")
+  /// Accounting can turn off the 3% fee without changing the payment method.
+  waiveCustomerPaymentFee Boolean               @default(false) @map("waive_customer_payment_fee")
   carrierRate           Float?                  @map("carrier_rate")
   fuelSurcharge         Float?                  @map("fuel_surcharge")
   accessorialCharges    Float?                  @map("accessorial_charges")

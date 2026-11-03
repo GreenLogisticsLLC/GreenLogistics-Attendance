@@ -969,6 +969,34 @@ window.GreenOSModules["dispatch"] = {
     return Number.isFinite(n) ? String(n) : null;
   },
 
+  customerPaymentOptions(selected) {
+    var methods = [
+      ["WIRE", "Wire"],
+      ["VENMO", "Venmo +3%"],
+      ["PAYPAL", "PayPal +3%"],
+      ["CREDIT_CARD", "Credit card +3%"],
+      ["CASHAPP", "Cash App +3%"],
+      ["ZELLE", "Zelle"],
+      ["ACH", "ACH"],
+    ];
+    return (
+      '<option value="">Select payment option</option>' +
+      methods
+        .map(function (pair) {
+          return (
+            '<option value="' +
+            pair[0] +
+            '"' +
+            (selected === pair[0] ? " selected" : "") +
+            ">" +
+            pair[1] +
+            "</option>"
+          );
+        })
+        .join("")
+    );
+  },
+
   paymentProofHtml(doc, opts) {
     opts = opts || {};
     var html = "";
@@ -2288,19 +2316,24 @@ window.GreenOSModules["dispatch"] = {
         field("Miles", g.miles) +
         field(
           "Customer rate",
-          custPrice !== "" ? self.money(custPrice) : "— enter below"
+          custPrice !== "" ? self.money(custPrice) : "— required"
         ) +
+        field("Payment option", (p.customerPayment && p.customerPayment.label) || "— required") +
         moneyGrid +
         field("Created", g.createdAt ? new Date(g.createdAt).toLocaleString() : "—") +
         field("Last Updated", g.updatedAt ? new Date(g.updatedAt).toLocaleString() : "—") +
         "</div>" +
         '<div class="load-edit-panel">' +
         "<h3>Customer rate (взяли у customer)</h3>" +
-        '<p class="gos-muted">How much you took this load for from the customer. Brokers set this when the Load is created — used on Customer Invoice.</p>' +
+        '<p class="gos-muted">How much you took this load for from the customer. Customer rate and payment option are both required.</p>' +
         '<div class="load-form-grid" style="margin-bottom:1rem">' +
-        "<label>Customer rate" +
+        "<label>Customer rate *" +
         self.moneyFieldHtml("ld-rate", custPrice, "1500.00") +
         "</label>" +
+        "<label>Payment option *" +
+        '<select id="ld-pay-method">' +
+        self.customerPaymentOptions(p.customerPayment && p.customerPayment.method) +
+        "</select></label>" +
         "</div>" +
         moneyPanel +
         "<h3>Emails — Broker Gmail / Customer / Carrier</h3>" +
@@ -2389,6 +2422,16 @@ window.GreenOSModules["dispatch"] = {
           var phoneFmt = self.formatUsPhone(phoneRaw);
           var pickupAppt = self.readApptFields(main, "ld-pickup");
           var deliveryAppt = self.readApptFields(main, "ld-delivery");
+          var rate = self.parseMoneyInput(main.querySelector("#ld-rate").value);
+          var method = (main.querySelector("#ld-pay-method") || {}).value || "";
+          if (rate == null || Number(rate) < 0) {
+            alert("Customer rate is required");
+            return;
+          }
+          if (!method) {
+            alert("Payment option is required");
+            return;
+          }
           var payload = {
             customerName: main.querySelector("#ld-customer").value || null,
             customerEmail: main.querySelector("#ld-customer-email").value || null,
@@ -2406,7 +2449,8 @@ window.GreenOSModules["dispatch"] = {
             deliveryTo: deliveryAppt.to,
             opsPickupAt: pickupAppt.opsAt,
             opsDeliveryAt: deliveryAppt.opsAt,
-            customerRate: self.parseMoneyInput(main.querySelector("#ld-rate").value),
+            customerRate: rate,
+            customerPaymentMethod: method,
           };
           if (showMoney) {
             payload.carrierRate = self.parseMoneyInput(main.querySelector("#ld-carr-price").value);

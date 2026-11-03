@@ -3816,6 +3816,10 @@ button.load-review-choice:hover {
 .acc-pay-due { font-weight: 700; }
 .acc-pay-due.is-unpaid { color: #f07178; }
 .acc-pay-due.is-paid { color: #3dd68c; }
+.acc-pay-method { font-size: 0.75rem; margin-top: 0.15rem; }
+.acc-pay-fee { font-size: 0.75rem; font-weight: 700; }
+.acc-pay-fee.is-unpaid { color: #f07178; }
+.acc-pay-fee.is-paid { color: #3dd68c; }
 button.acc-doc-file {
   background: none;
   border: 0;

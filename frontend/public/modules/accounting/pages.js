@@ -137,14 +137,23 @@ window.GreenOSModules.accounting = {
     return "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
 
-  /** Customer rate beside carrier rate, with the amounts still due underneath. */
+  /** Customer rate beside carrier rate. A +3% method adds that fee under the rate. */
   paymentsCell(r) {
     var accessorials = Number(r.accessorialCharges);
     if (!Number.isFinite(accessorials)) accessorials = 0;
     var hasCustomerRate = r.customerRate != null && r.customerRate !== "" && !Number.isNaN(Number(r.customerRate));
     var hasCarrierRate = r.carrierRate != null && r.carrierRate !== "" && !Number.isNaN(Number(r.carrierRate));
-    var customerDue = hasCustomerRate ? Number(r.customerRate) + accessorials : accessorials ? accessorials : null;
+    var fee = Number(r.customerPaymentFee);
+    if (!Number.isFinite(fee)) fee = 0;
+    var customerDue =
+      r.customerPays != null && r.customerPays !== "" && !Number.isNaN(Number(r.customerPays))
+        ? Number(r.customerPays)
+        : hasCustomerRate
+          ? Number(r.customerRate) + accessorials + fee
+          : null;
     var carrierDue = hasCarrierRate ? Number(r.carrierRate) : null;
+    var customerPaid = Boolean(r.customerPaidAt);
+    var carrierPaid = Boolean(r.carrierPaidAt);
     function due(amount, paid) {
       if (amount == null) return '<div class="acc-pay-due">—</div>';
       return (
@@ -155,17 +164,63 @@ window.GreenOSModules.accounting = {
         "</div>"
       );
     }
+    var method = r.customerPaymentLabel
+      ? '<div class="acc-pay-method">' + this.esc(r.customerPaymentLabel) + "</div>"
+      : '<div class="acc-pay-method acc-pay-label">Payment option —</div>';
+    var feeLine = "";
+    if (fee > 0) {
+      feeLine =
+        '<div class="acc-pay-fee ' +
+        (customerPaid ? "is-paid" : "is-unpaid") +
+        '">+3% ' +
+        this.money(fee) +
+        "</div>";
+    } else if (r.customerPaymentWaived || r.waiveCustomerPaymentFee) {
+      feeLine = '<div class="acc-pay-fee">3% not added</div>';
+    }
     return (
       '<div class="acc-pay-grid">' +
       '<div><div class="acc-pay-label">Customer rate</div><div class="acc-pay-rate">' +
       this.money(hasCustomerRate ? r.customerRate : null) +
-      "</div></div>" +
+      "</div>" +
+      method +
+      feeLine +
+      due.call(this, customerDue, customerPaid) +
+      "</div>" +
       '<div><div class="acc-pay-label">Carrier rate</div><div class="acc-pay-rate">' +
       this.money(hasCarrierRate ? r.carrierRate : null) +
-      "</div></div>" +
-      due.call(this, customerDue, Boolean(r.customerPaidAt)) +
-      due.call(this, carrierDue, Boolean(r.carrierPaidAt)) +
+      "</div>" +
+      due.call(this, carrierDue, carrierPaid) +
+      "</div>" +
       "</div>"
+    );
+  },
+
+  paymentMethodOptions(selected) {
+    var methods = [
+      ["WIRE", "Wire"],
+      ["VENMO", "Venmo +3%"],
+      ["PAYPAL", "PayPal +3%"],
+      ["CREDIT_CARD", "Credit card +3%"],
+      ["CASHAPP", "Cash App +3%"],
+      ["ZELLE", "Zelle"],
+      ["ACH", "ACH"],
+    ];
+    return (
+      '<option value="">Select payment option</option>' +
+      methods
+        .map(function (pair) {
+          return (
+            '<option value="' +
+            pair[0] +
+            '"' +
+            (selected === pair[0] ? " selected" : "") +
+            ">" +
+            pair[1] +
+            "</option>"
+          );
+        })
+        .join("")
     );
   },
 
@@ -930,6 +985,14 @@ window.GreenOSModules.accounting = {
         "<div>Rate: " +
         self.money(cust.rate) +
         "</div>" +
+        "<div>Payment: " +
+        self.esc(cust.paymentLabel || "—") +
+        "</div>" +
+        (cust.paymentFee
+          ? "<div>+3%: " + self.money(cust.paymentFee) + "</div>"
+          : cust.paymentFeeWaived
+            ? "<div>3% not added</div>"
+            : "") +
         "<div>Accessorials: " +
         self.money(cust.accessorials) +
         "</div>" +
@@ -947,7 +1010,21 @@ window.GreenOSModules.accounting = {
         "</div>" +
         "<div>Status: " +
         self.esc(cust.paymentStatus || "—") +
-        "</div></div>" +
+        "</div>" +
+        '<label style="margin-top:0.65rem">Customer rate' +
+        '<input id="acc-cust-rate" inputmode="decimal" value="' +
+        self.esc(cust.rate == null ? "" : cust.rate) +
+        '"></label>' +
+        '<label>Payment option' +
+        '<select id="acc-pay-method">' +
+        self.paymentMethodOptions(cust.paymentMethod) +
+        "</select></label>" +
+        '<label style="flex-direction:row;align-items:center;gap:0.4rem;margin-top:0.35rem">' +
+        '<input type="checkbox" id="acc-pay-waive"' +
+        (cust.paymentFeeWaived ? " checked" : "") +
+        "> Do not add the 3%</label>" +
+        '<button type="button" class="btn-primary" id="acc-save-pay" style="width:auto;margin-top:0.45rem">Save rate and payment</button>' +
+        "</div>" +
         "<div><h4>Carrier</h4>" +
         "<div>" +
         self.esc(carr.name || "—") +
@@ -1001,6 +1078,38 @@ window.GreenOSModules.accounting = {
           self.runAction(host, id, btn.getAttribute("data-act"));
         });
       });
+      var savePay = host.querySelector("#acc-save-pay");
+      if (savePay) {
+        savePay.addEventListener("click", async function () {
+          var raw = (host.querySelector("#acc-cust-rate") || {}).value;
+          var rate = raw == null || String(raw).trim() === "" ? null : Number(String(raw).replace(/[$,\s]/g, ""));
+          var method = (host.querySelector("#acc-pay-method") || {}).value || "";
+          var waive = Boolean((host.querySelector("#acc-pay-waive") || {}).checked);
+          if (rate == null || !Number.isFinite(rate) || rate < 0) {
+            alert("Customer rate is required");
+            return;
+          }
+          if (!method) {
+            alert("Payment option is required");
+            return;
+          }
+          savePay.disabled = true;
+          try {
+            await self.loadApi("/" + encodeURIComponent(id), {
+              method: "PATCH",
+              body: {
+                customerRate: String(rate),
+                customerPaymentMethod: method,
+                waiveCustomerPaymentFee: waive,
+              },
+            });
+            self.openShipment(host, id);
+          } catch (err) {
+            savePay.disabled = false;
+            alert(err.message || "Could not save");
+          }
+        });
+      }
       host.querySelectorAll(".acc-doc-file").forEach(function (btn) {
         btn.addEventListener("click", function (ev) {
           ev.preventDefault();

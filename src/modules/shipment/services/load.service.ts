@@ -18,6 +18,11 @@ import { sendLoadReviewEmail } from "./load-review-email.service.js";
 import { shipmentLifecycleService } from "../../ai/lifecycle/service.js";
 import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
 import { isNameAndEmailCarrierChange } from "../../carriers/carrier-superseded.js";
+import {
+    canWaiveCustomerPaymentFee,
+    customerPaymentQuote,
+    normalizeCustomerPaymentMethod,
+} from "../customer-payment.js";
 
 function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
@@ -483,7 +488,15 @@ export class LoadService {
             }
         }
 
-        const pricing = computePricing(s);
+        const pricing = {
+            ...computePricing(s),
+            customerPayment: customerPaymentQuote({
+                customerRate: s.customerRate,
+                accessorialCharges: s.accessorialCharges,
+                method: s.customerPaymentMethod,
+                waiveFee: s.waiveCustomerPaymentFee,
+            }),
+        };
         const tracking = trackingFromStatus(s.status, s.trackingStatus);
         const mappedDocs = documents
             .filter((d) => {
@@ -929,7 +942,8 @@ export class LoadService {
     async updateLoad(
         shipmentLeadId: string,
         body: Record<string, unknown>,
-        actorUserId?: string
+        actorUserId?: string,
+        actorRole?: string
     ) {
         const shipment = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!shipment) throw Object.assign(new Error("Load not found"), { status: 404 });
@@ -939,6 +953,24 @@ export class LoadService {
             throw Object.assign(
                 new Error("Load Number is system-generated only — brokers cannot set it manually"),
                 { status: 422 }
+            );
+        }
+
+        if (body.customerPaymentMethod !== undefined) {
+            const method = normalizeCustomerPaymentMethod(body.customerPaymentMethod);
+            if (!method) {
+                throw Object.assign(new Error("Payment option is required"), { status: 422 });
+            }
+            const rateRaw = body.customerRate !== undefined ? body.customerRate : shipment.customerRate;
+            const rate = rateRaw == null || rateRaw === "" ? null : Number(rateRaw);
+            if (rate == null || !Number.isFinite(rate) || rate < 0) {
+                throw Object.assign(new Error("Customer rate is required"), { status: 422 });
+            }
+        }
+        if (body.waiveCustomerPaymentFee !== undefined && !canWaiveCustomerPaymentFee(actorRole)) {
+            throw Object.assign(
+                new Error("Only Accounting can change whether the 3% is added"),
+                { status: 403 }
             );
         }
 
@@ -1010,6 +1042,13 @@ export class LoadService {
         str("pickupState");
         str("deliveryCity");
         str("deliveryState");
+        if (body.customerPaymentMethod !== undefined) {
+            data.customerPaymentMethod = normalizeCustomerPaymentMethod(body.customerPaymentMethod);
+        }
+        if (body.waiveCustomerPaymentFee !== undefined) {
+            data.waiveCustomerPaymentFee =
+                body.waiveCustomerPaymentFee === true || body.waiveCustomerPaymentFee === "true";
+        }
         if (body.status !== undefined) {
             const nextStatus = String(body.status || "").trim().toUpperCase();
             const allowed = new Set([
