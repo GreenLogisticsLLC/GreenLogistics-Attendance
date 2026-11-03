@@ -32,6 +32,7 @@ const podUpload = multer({
 loadRouter.get("/", roles, (req, res) => loadController.list(req, res));
 loadRouter.use("/:id/tracking", roles, loadTrackingRouter);
 loadRouter.get("/:id", roles, (req, res) => loadController.get(req, res));
+loadRouter.delete("/:id", roles, (req, res) => loadController.remove(req, res));
 loadRouter.post("/:id/create", roles, (req, res) => loadController.create(req, res));
 loadRouter.patch("/:id", roles, (req, res) => loadController.update(req, res));
 loadRouter.post("/:id/actions/:action", roles, (req, res) => loadController.action(req, res));

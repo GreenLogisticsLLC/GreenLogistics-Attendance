@@ -24,6 +24,12 @@ window.GreenOSModules["dispatch"] = {
     );
   },
 
+  /** Delete and Change on the Loads list. */
+  canManageLoads() {
+    var r = this.role();
+    return r === "Team Lead" || r === "Manager" || r === "Owner";
+  },
+
   /** Money / Profit — Accounting + Owner (+ Admin). Brokers never see it. */
   canSeeMoney() {
     var r = this.role();
@@ -1557,7 +1563,18 @@ window.GreenOSModules["dispatch"] = {
           "<td>" + self.esc(r.carrierName || "—") + "</td>" +
           "<td><span class=\"load-status-pill\">" + self.esc(r.statusLabel || r.status) + "</span></td>" +
           moneyCols +
-          '<td><button type="button" class="btn-secondary load-open-btn" data-id="' +
+          '<td class="load-row-actions">' +
+          (self.canManageLoads()
+            ? '<button type="button" class="btn-secondary load-change-btn" data-id="' +
+              self.esc(r.shipmentLeadId) +
+              '">Change</button>' +
+              '<button type="button" class="btn-secondary load-delete-btn" data-id="' +
+              self.esc(r.shipmentLeadId) +
+              '" data-load="' +
+              self.esc(r.loadNumber || "") +
+              '">Delete</button>'
+            : "") +
+          '<button type="button" class="btn-secondary load-open-btn" data-id="' +
           self.esc(r.shipmentLeadId) +
           '">Open</button></td>' +
           "</tr>";
@@ -1573,6 +1590,130 @@ window.GreenOSModules["dispatch"] = {
           openLoadRow(btn.getAttribute("data-id"));
         });
       });
+      if (self.canManageLoads()) {
+        var statuses = [
+          ["LOAD_CREATED", "Load Created"],
+          ["CARRIER_ASSIGNED", "Assign Carrier"],
+          ["RATE_CON_GENERATED", "Rate Confirmation Generated"],
+          ["CARRIER_ACCEPTED", "Carrier Accepted"],
+          ["PICKUP", "Pickup"],
+          ["IN_TRANSIT", "In Road"],
+          ["DELIVERED", "Delivered"],
+          ["POD_UPLOADED", "POD Uploaded"],
+          ["CUSTOMER_INVOICE", "Customer Invoice"],
+          ["CARRIER_PAYMENT", "Carrier Payment"],
+          ["DISPATCH", "Dispatch"],
+          ["COMPLETED", "Completed"],
+          ["CLOSED", "Closed"],
+        ];
+        function field(label, name, value) {
+          return (
+            "<label>" +
+            label +
+            '<input name="' +
+            name +
+            '" value="' +
+            self.esc(value || "") +
+            '"></label>'
+          );
+        }
+        body.querySelectorAll(".load-change-btn").forEach(function (btn) {
+          btn.addEventListener("click", function (ev) {
+            ev.stopPropagation();
+            var id = btn.getAttribute("data-id");
+            var row = rows.filter(function (item) {
+              return item.shipmentLeadId === id;
+            })[0];
+            var tr = btn.closest("tr");
+            var next = tr && tr.nextElementSibling;
+            if (next && next.classList.contains("load-change-row") && next.getAttribute("data-id") === id) {
+              next.remove();
+              return;
+            }
+            body.querySelectorAll(".load-change-row").forEach(function (open) {
+              open.remove();
+            });
+            if (!tr || !row) return;
+            var options = statuses
+              .map(function (pair) {
+                return (
+                  '<option value="' +
+                  pair[0] +
+                  '"' +
+                  (row.status === pair[0] ? " selected" : "") +
+                  ">" +
+                  pair[1] +
+                  "</option>"
+                );
+              })
+              .join("");
+            var editor = document.createElement("tr");
+            editor.className = "load-change-row";
+            editor.setAttribute("data-id", id);
+            editor.innerHTML =
+              '<td colspan="' +
+              (self.canSeeMoney() ? "10" : "7") +
+              '"><form class="load-change-form">' +
+              field("Customer", "customerName", row.customerName) +
+              field("Pickup city", "pickupCity", row.pickupCity) +
+              field("Pickup state", "pickupState", row.pickupState) +
+              field("Delivery city", "deliveryCity", row.deliveryCity) +
+              field("Delivery state", "deliveryState", row.deliveryState) +
+              field("Carrier", "carrierName", row.carrierName) +
+              '<label>Status<select name="status">' +
+              options +
+              "</select></label>" +
+              '<button type="submit" class="btn-primary" style="width:auto">Save</button>' +
+              '<button type="button" class="btn-secondary load-change-cancel" style="width:auto">Cancel</button>' +
+              '<span class="gos-muted load-change-msg"></span>' +
+              "</form></td>";
+            tr.insertAdjacentElement("afterend", editor);
+            editor.querySelector(".load-change-cancel").addEventListener("click", function () {
+              editor.remove();
+            });
+            editor.querySelector("form").addEventListener("submit", async function (submitEv) {
+              submitEv.preventDefault();
+              var form = submitEv.target;
+              var msg = editor.querySelector(".load-change-msg");
+              var payload = {
+                customerName: form.customerName.value,
+                pickupCity: form.pickupCity.value,
+                pickupState: form.pickupState.value,
+                deliveryCity: form.deliveryCity.value,
+                deliveryState: form.deliveryState.value,
+                carrierName: form.carrierName.value,
+                status: form.status.value,
+              };
+              if (msg) msg.textContent = "Saving…";
+              try {
+                await self.api("/" + encodeURIComponent(id), {
+                  method: "PATCH",
+                  body: JSON.stringify(payload),
+                });
+                await self.renderList(body, phase);
+              } catch (err) {
+                if (msg) msg.textContent = err.message || "Could not save";
+              }
+            });
+          });
+        });
+        body.querySelectorAll(".load-delete-btn").forEach(function (btn) {
+          btn.addEventListener("click", async function (ev) {
+            ev.stopPropagation();
+            var id = btn.getAttribute("data-id");
+            var num = btn.getAttribute("data-load") || "this load";
+            if (!confirm("Delete load " + num + "? This removes it from Loads.")) return;
+            btn.disabled = true;
+            try {
+              await self.api("/" + encodeURIComponent(id), { method: "DELETE" });
+              await self.renderList(body, phase);
+            } catch (err) {
+              btn.disabled = false;
+              alert(err.message || "Could not delete the load");
+            }
+          });
+        });
+      }
       body.querySelectorAll("tr.load-row").forEach(function (tr) {
         tr.addEventListener("click", function () {
           openLoadRow(tr.getAttribute("data-id"));

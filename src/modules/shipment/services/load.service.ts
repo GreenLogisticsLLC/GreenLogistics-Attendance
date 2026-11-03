@@ -270,6 +270,10 @@ export class LoadService {
                 carrierName: r.carrierName,
                 pickup: [r.pickupCity, r.pickupState].filter(Boolean).join(", "),
                 delivery: [r.deliveryCity, r.deliveryState].filter(Boolean).join(", "),
+                pickupCity: r.pickupCity,
+                pickupState: r.pickupState,
+                deliveryCity: r.deliveryCity,
+                deliveryState: r.deliveryState,
                 pricing: computePricing({ ...r, customerRate, carrierRate }),
                 updatedAt: r.updatedAt,
                 createdAt: r.createdAt,
@@ -895,6 +899,30 @@ export class LoadService {
         };
     }
 
+    async deleteLoad(shipmentLeadId: string) {
+        const shipment = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+            select: { shipmentLeadId: true, loadNumber: true },
+        });
+        if (!shipment?.loadNumber) {
+            throw Object.assign(new Error("Load not found"), { status: 404 });
+        }
+        const unlink = async (sql: string) => {
+            try {
+                await prisma.$executeRawUnsafe(sql, shipmentLeadId);
+            } catch {
+                /* older databases may not have the table */
+            }
+        };
+        await unlink(`UPDATE carrier_documents SET shipment_lead_id = NULL WHERE shipment_lead_id = ?`);
+        await unlink(`UPDATE carrier_rc_signatures SET shipment_lead_id = NULL WHERE shipment_lead_id = ?`);
+        await unlink(`UPDATE carrier_onboarding_events SET shipment_lead_id = NULL WHERE shipment_lead_id = ?`);
+        await unlink(`DELETE FROM ai_document_jobs WHERE shipment_lead_id = ?`);
+        const removed = await shipmentService.purgeShipmentLead(shipmentLeadId);
+        if (!removed) throw Object.assign(new Error("Load not found"), { status: 404 });
+        return { shipmentLeadId, loadNumber: shipment.loadNumber };
+    }
+
     async updateLoad(
         shipmentLeadId: string,
         body: Record<string, unknown>,
@@ -974,6 +1002,34 @@ export class LoadService {
         str("invoiceNumber");
         str("trackingStatus");
         str("customerName");
+        str("pickupCity");
+        str("pickupState");
+        str("deliveryCity");
+        str("deliveryState");
+        if (body.status !== undefined) {
+            const nextStatus = String(body.status || "").trim().toUpperCase();
+            const allowed = new Set([
+                "LOAD_CREATED",
+                "CARRIER_ASSIGNED",
+                "RATE_CON_GENERATED",
+                "CARRIER_ACCEPTED",
+                "PICKUP",
+                "IN_TRANSIT",
+                "DELIVERED",
+                "POD_UPLOADED",
+                "CUSTOMER_INVOICE",
+                "CARRIER_PAYMENT",
+                "DISPATCH",
+                "COMPLETED",
+                "CLOSED",
+            ]);
+            if (!allowed.has(nextStatus)) {
+                throw Object.assign(new Error("That load status cannot be set from Change"), {
+                    status: 422,
+                });
+            }
+            data.status = nextStatus;
+        }
         num("pieces");
         num("miles");
         num("customerRate");

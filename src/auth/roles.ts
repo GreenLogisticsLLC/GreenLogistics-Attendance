@@ -41,6 +41,11 @@ export function canReceiveNewShipments(role: string | null | undefined): boolean
     return (NEW_SHIPMENT_ASSIGNMENT_ROLES as readonly string[]).includes(String(role || ""));
 }
 
+/** Delete and Change on the Loads list. */
+export function canManageLoads(role: string | null | undefined): boolean {
+    return role === Roles.TeamLead || role === Roles.Manager || role === Roles.Owner;
+}
+
 export const ROLE_DESCRIPTIONS: Record<string, string> = {
     [Roles.Administrator]: "Full system access",
     [Roles.Owner]: "Company owner — full access",

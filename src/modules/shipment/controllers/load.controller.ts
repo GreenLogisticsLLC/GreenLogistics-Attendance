@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import type { AuthRequest } from "../../../middlewares/auth.middleware.js";
 import { assertShipmentAccess } from "../../../auth/access.js";
-import { canViewLoadProfit } from "../../../auth/roles.js";
+import { canManageLoads, canViewLoadProfit } from "../../../auth/roles.js";
 import { loadService } from "../services/load.service.js";
 import { loadDocumentsService } from "../services/load-documents.service.js";
 import { LOAD_DOCS_ROOT } from "../services/load-pdf.service.js";
@@ -144,6 +144,27 @@ export const loadController = {
             res.status(errStatus(err)).json({
                 success: false,
                 message: err instanceof Error ? err.message : "Failed to create load",
+            });
+        }
+    },
+
+    async remove(req: AuthRequest, res: Response) {
+        try {
+            if (!canManageLoads(req.user?.role)) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Only Team Lead, Manager, and Owner can delete a load",
+                });
+            }
+            const id = String(req.params.id || "");
+            const access = await accessOr404(req, res, id);
+            if (!access.ok) return;
+            const data = await loadService.deleteLoad(id);
+            res.json({ success: true, message: "Load deleted", data });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to delete load",
             });
         }
     },
