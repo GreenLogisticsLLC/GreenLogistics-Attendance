@@ -12,6 +12,7 @@ import {
 import { canAccessModule, Roles } from "./roles.js";
 import { AccountingService } from "../modules/accounting/services/accounting.service.js";
 import { AccountingDocStatus } from "../modules/accounting/accounting.constants.js";
+import { buildAccountingDocuments } from "../modules/accounting/accounting-documents.js";
 
 test("TEST 1: Accounting Documents can access Accounting workspace", () => {
     assert.equal(canAccessAccountingWorkspace(Roles.Accounting), true);
@@ -204,6 +205,110 @@ test("TEST 11/12: Team identity + sub-role normalize; leaving Accounting clears 
         permissionsForAccounting(Roles.Broker, AccountingSubRoles.Payments).length,
         0
     );
+});
+
+test("accounting shipment documents open as PDF and include carrier uploads", () => {
+    const rows = buildAccountingDocuments({
+        shipmentLeadId: "ship-1",
+        loadDocs: [
+            {
+                documentId: "ld-rc",
+                docType: "RATE_CONFIRMATION",
+                status: "READY",
+                fileName: "rc.pdf",
+                fileUrl: "/uploads/loads/ship-1/rc.pdf",
+                mimeType: "application/pdf",
+            },
+            {
+                documentId: "ld-bol",
+                docType: "BOL",
+                status: "READY",
+                fileName: "bol.pdf",
+                fileUrl: "/uploads/loads/ship-1/bol.pdf",
+            },
+            {
+                documentId: "ld-sheet",
+                docType: "DISPATCH_SHEET",
+                status: "READY",
+                fileName: "sheet.pdf",
+                fileUrl: "/uploads/loads/ship-1/sheet.pdf",
+            },
+        ],
+        carrierDocs: [
+            {
+                documentId: "cd-rc",
+                carrierId: "car-1",
+                documentType: "RATE_CONFIRMATION",
+                status: "CURRENT",
+                originalFilename: "signed-rc.pdf",
+                mimeType: "application/pdf",
+            },
+            {
+                documentId: "cd-mc",
+                carrierId: "car-1",
+                documentType: "MC_AUTHORITY",
+                status: "CURRENT",
+                originalFilename: "authority.pdf",
+                mimeType: "application/octet-stream",
+            },
+            {
+                documentId: "cd-noa",
+                carrierId: "car-1",
+                documentType: "NOA",
+                status: "CURRENT",
+                originalFilename: "noa.pdf",
+                mimeType: "application/pdf",
+            },
+            {
+                documentId: "cd-w9",
+                carrierId: "car-1",
+                documentType: "W9",
+                status: "CURRENT",
+                originalFilename: "w9.pdf",
+                mimeType: "application/pdf",
+            },
+            {
+                documentId: "cd-ins",
+                carrierId: "car-1",
+                documentType: "INSURANCE",
+                status: "CURRENT",
+                originalFilename: "coi.jpg",
+                mimeType: "image/jpeg",
+            },
+            {
+                documentId: "cd-ag",
+                carrierId: "car-1",
+                documentType: "BROKER_CARRIER_AGREEMENT",
+                status: "CURRENT",
+                originalFilename: "agreement.pdf",
+                mimeType: "application/pdf",
+            },
+        ],
+    });
+    assert.deepEqual(
+        rows.map((row) => row.label),
+        [
+            "Rate Confirmation",
+            "BOL",
+            "Broker–Carrier Agreement",
+            "MC Authority",
+            "NOA/VOID CHECK-OTHER",
+            "W-9",
+            "Insurance",
+        ]
+    );
+    const rc = rows[0];
+    assert.equal(rc.openUrl, "/api/loads/ship-1/documents/ld-rc/download?inline=1");
+    assert.equal(rc.mimeType, "application/pdf");
+    assert.equal(rc.openUrl?.includes("/uploads/"), false);
+    const mc = rows.find((row) => row.docType === "MC_AUTHORITY");
+    assert.equal(mc?.mimeType, "application/pdf");
+    assert.equal(mc?.status, "Uploaded");
+    assert.equal(mc?.openUrl, "/api/carriers/car-1/documents/cd-mc/download?inline=1");
+    const ins = rows.find((row) => row.docType === "INSURANCE");
+    assert.equal(ins?.mimeType, "image/jpeg");
+    assert.equal(rows.some((row) => row.documentId === "cd-rc"), false);
+    assert.equal(rows.some((row) => row.docType === "DISPATCH_SHEET"), false);
 });
 
 test("TEST 13: Existing Broker/Ops modules remain available; Accounting isolated", () => {

@@ -10,6 +10,7 @@ import {
 import { Roles } from "../../../auth/roles.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { AccountingDocStatus } from "../accounting.constants.js";
+import { buildAccountingDocuments } from "../accounting-documents.js";
 
 type Actor = {
     userId: string;
@@ -313,6 +314,33 @@ export class AccountingService {
         });
         if (!s) throw notFound("Shipment not found");
 
+        let carrierId = s.carrierProfileId || null;
+        if (!carrierId && s.carrierEmail) {
+            const match = await prisma.carrier.findFirst({
+                where: { email: s.carrierEmail.toLowerCase() },
+                select: { carrierId: true },
+            });
+            carrierId = match?.carrierId || null;
+        }
+        const carrierDocs = await prisma.carrierDocument.findMany({
+            where: {
+                status: "CURRENT",
+                OR: [
+                    { shipmentLeadId },
+                    ...(carrierId ? [{ carrierId }] : []),
+                ],
+            },
+            select: {
+                documentId: true,
+                carrierId: true,
+                documentType: true,
+                originalFilename: true,
+                mimeType: true,
+                status: true,
+            },
+            orderBy: { uploadedAt: "desc" },
+        });
+
         let brokerName: string | null = null;
         if (s.assignedBrokerId) {
             const b = await prisma.user.findUnique({
@@ -365,7 +393,11 @@ export class AccountingService {
                 paymentStatus: s.carrierPaidAt ? "PAID" : "UNPAID",
                 paidAt: s.carrierPaidAt,
             },
-            documents: s.loadDocuments,
+            documents: buildAccountingDocuments({
+                shipmentLeadId,
+                loadDocs: s.loadDocuments,
+                carrierDocs,
+            }),
             accounting: {
                 docStatus: s.accountingDocStatus || AccountingDocStatus.Pending,
                 docVerifiedAt: s.accountingDocVerifiedAt,

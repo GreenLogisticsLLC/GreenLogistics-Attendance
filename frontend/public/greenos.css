@@ -3799,6 +3799,15 @@ button.load-review-choice:hover {
   padding: 0.35rem 0.65rem;
 }
 .acc-load-delete { color: #f0a8a8; border-color: #8a3a3a; }
+button.acc-doc-file {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--gos-accent, #34d399);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
 .acc-change-row td { background: rgba(255, 255, 255, 0.03); }
 
 .acc-pending-section {

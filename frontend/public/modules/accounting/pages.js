@@ -772,6 +772,42 @@ window.GreenOSModules.accounting = {
     }
   },
 
+  async openDocumentFile(url, filename, mime) {
+    if (!url) return;
+    var token = "";
+    try {
+      token = localStorage.getItem("gl_token") || sessionStorage.getItem("gl_token") || "";
+    } catch (e) {}
+    if (!token && window.GreenOSToken) token = window.GreenOSToken;
+    var headers = { Accept: "application/pdf,image/*,*/*" };
+    if (token) {
+      headers.Authorization = "Bearer " + token;
+      headers["X-GreenOS-Token"] = token;
+    }
+    try {
+      var res = await fetch(url, { headers: headers, cache: "no-store" });
+      var headerType = String(res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      if (!res.ok || headerType.indexOf("application/json") === 0 || headerType.indexOf("text/html") === 0) {
+        var errBody = await res.json().catch(function () { return {}; });
+        throw new Error(errBody.message || "Could not open the file");
+      }
+      var type = headerType;
+      var hinted = String(mime || "").toLowerCase();
+      var name = String(filename || "");
+      if (!type || type === "application/octet-stream") type = hinted || "application/pdf";
+      if (hinted.indexOf("pdf") >= 0 || /\.pdf$/i.test(name) || type === "application/pdf" || type === "application/x-pdf") {
+        type = "application/pdf";
+      }
+      var bytes = await res.arrayBuffer();
+      var blob = new Blob([bytes], { type: type || "application/pdf" });
+      var obj = URL.createObjectURL(blob);
+      var opened = window.open(obj, "_blank", "noopener");
+      if (!opened) alert("Allow pop-ups to view the PDF.");
+    } catch (err) {
+      alert(err.message || "Could not open the file");
+    }
+  },
+
   async openShipment(host, id) {
     if (!host || !id) return;
     var self = this;
@@ -791,16 +827,25 @@ window.GreenOSModules.accounting = {
       var carr = d.carrier || {};
       var docs = (d.documents || [])
         .map(function (doc) {
+          var name = doc.fileName || doc.label || "document.pdf";
+          var mime = doc.mimeType || "application/pdf";
+          var file = doc.openUrl
+            ? ' <button type="button" class="acc-doc-file" data-url="' +
+              self.esc(doc.openUrl) +
+              '" data-name="' +
+              self.esc(name) +
+              '" data-mime="' +
+              self.esc(mime) +
+              '" title="Open ' +
+              self.esc(name) +
+              '">file</button>'
+            : "";
           return (
             "<li>" +
-            self.esc(doc.docType) +
+            self.esc(doc.label || doc.docType) +
             " — " +
             self.esc(doc.status || "") +
-            (doc.fileUrl
-              ? ' <a href="' +
-                self.esc(doc.fileUrl) +
-                '" target="_blank" rel="noopener">file</a>'
-              : "") +
+            file +
             "</li>"
           );
         })
@@ -924,6 +969,16 @@ window.GreenOSModules.accounting = {
       host.querySelectorAll("[data-act]").forEach(function (btn) {
         btn.addEventListener("click", function () {
           self.runAction(host, id, btn.getAttribute("data-act"));
+        });
+      });
+      host.querySelectorAll(".acc-doc-file").forEach(function (btn) {
+        btn.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          self.openDocumentFile(
+            btn.getAttribute("data-url"),
+            btn.getAttribute("data-name"),
+            btn.getAttribute("data-mime")
+          );
         });
       });
     } catch (err) {
