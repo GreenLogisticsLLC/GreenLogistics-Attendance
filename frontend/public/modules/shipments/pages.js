@@ -130,6 +130,22 @@ window.GreenOSModules.shipments = {
       if (place === "received") return "Received last";
       return "Waiting";
     }
+    function countCell(row, kind) {
+      var total = kind === "other" ? row.otherShipments || 0 : row.newShipments || 0;
+      if (kind === "other") {
+        return "<td><strong>" + self.esc(total) + "</strong></td>";
+      }
+      var lines =
+        "<div class=\"gos-muted\">Accept " +
+        self.esc(row.newAccepted || 0) +
+        "</div><div class=\"gos-muted\">Declined " +
+        self.esc(row.newDeclined || 0) +
+        "</div>";
+      if (row.newWaiting) {
+        lines += "<div class=\"gos-muted\">Waiting " + self.esc(row.newWaiting) + "</div>";
+      }
+      return "<td><strong>" + self.esc(total) + "</strong>" + lines + "</td>";
+    }
     function table(queue, emptyText) {
       var people = (queue && queue.people) || [];
       if (!people.length) {
@@ -143,11 +159,10 @@ window.GreenOSModules.shipments = {
             return (
               "<tr><td>" +
               self.esc(row.position) +
-              "</td><td><strong>" +
-              self.esc(row.newShipments || 0) +
-              "</strong></td><td><strong>" +
-              self.esc(row.otherShipments || 0) +
-              "</strong></td><td><strong>" +
+              "</td>" +
+              countCell(row, "new") +
+              countCell(row, "other") +
+              "<td><strong>" +
               self.esc(row.name) +
               "</strong></td><td>" +
               self.esc(placeLabel(row.place)) +
@@ -184,11 +199,10 @@ window.GreenOSModules.shipments = {
           outside
             .map(function (row) {
               return (
-                "<tr><td><strong>" +
-                self.esc(row.newShipments || 0) +
-                "</strong></td><td><strong>" +
-                self.esc(row.otherShipments || 0) +
-                "</strong></td><td><strong>" +
+                "<tr>" +
+                countCell(row, "new") +
+                countCell(row, "other") +
+                "<td><strong>" +
                 self.esc(row.name) +
                 "</strong></td><td>" +
                 self.esc(row.role) +

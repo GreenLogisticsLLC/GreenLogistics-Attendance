@@ -15,7 +15,7 @@ import { config } from "../../config/env.js";
 import { isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE } from "../../utils/helpers.js";
 import { receivesNewShipments } from "./activity-window.js";
 import { queuePlaces, syncQueueOrder, takeNextInQueue } from "./round-robin.js";
-import { arrivalCountsFor, countShipmentArrivals } from "./arrival-counts.js";
+import { arrivalCountsFor, summarizeShipmentArrivals } from "./arrival-counts.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
@@ -741,23 +741,49 @@ export class AssignmentEngine {
                 where: {
                     eventType: { in: ["ASSIGNED", "REASSIGNED"] },
                     assignedUserId: { not: null },
+                    shipmentLeadId: { not: null },
                 },
                 select: {
-                    logId: true,
                     assignedUserId: true,
                     eventType: true,
                     shipmentLeadId: true,
                 },
             }),
         ]);
-        const arrivals = countShipmentArrivals(
-            arrivalLogs.map((log) => ({
+        const arrivalIds = [
+            ...new Set(
+                arrivalLogs
+                    .map((log) => log.shipmentLeadId)
+                    .filter((id): id is string => Boolean(id))
+            ),
+        ];
+        const arrivalLeads = arrivalIds.length
+            ? await prisma.shipmentLead.findMany({
+                  where: {
+                      shipmentLeadId: { in: arrivalIds },
+                      status: { not: "DELETED_FROM_CUSTOMER" },
+                      ...arrivedAfterShipmentCutoff,
+                  },
+                  select: {
+                      shipmentLeadId: true,
+                      assignedBrokerId: true,
+                      acceptedAt: true,
+                  },
+              })
+            : [];
+        const arrivals = summarizeShipmentArrivals({
+            logs: arrivalLogs.map((log) => ({
                 userId: log.assignedUserId,
                 eventType: log.eventType,
                 shipmentId: log.shipmentLeadId,
-                logId: log.logId,
-            }))
-        );
+            })),
+            leads: new Map(
+                arrivalLeads.map((lead) => [
+                    lead.shipmentLeadId,
+                    { assignedBrokerId: lead.assignedBrokerId, acceptedAt: lead.acceptedAt },
+                ])
+            ),
+        });
         const newSynced = syncQueueOrder(newState.orderedUserIds, eligibleIds, newState.nextIndex);
         const otherSynced = syncQueueOrder(
             otherState.orderedUserIds,
@@ -779,6 +805,9 @@ export class AssignmentEngine {
                     position: row.position,
                     place: row.place,
                     newShipments: received.newShipments,
+                    newAccepted: received.newAccepted,
+                    newDeclined: received.newDeclined,
+                    newWaiting: received.newWaiting,
                     otherShipments: received.otherShipments,
                 };
             });
@@ -814,6 +843,9 @@ export class AssignmentEngine {
                 role: user.role.roleName,
                 reason,
                 newShipments: received.newShipments,
+                newAccepted: received.newAccepted,
+                newDeclined: received.newDeclined,
+                newWaiting: received.newWaiting,
                 otherShipments: received.otherShipments,
             };
         });
