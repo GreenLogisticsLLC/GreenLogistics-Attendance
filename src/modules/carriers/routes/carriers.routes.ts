@@ -88,6 +88,10 @@ carrierOnboardingPublicRouter.post(
     carrierOnboardingPublicController.signAgreement
 );
 carrierOnboardingPublicRouter.post("/:token/sign-rc", carrierOnboardingPublicController.signRc);
+carrierOnboardingPublicRouter.post(
+    "/:token/email-signed-rc",
+    carrierOnboardingPublicController.emailSignedRc
+);
 carrierOnboardingPublicRouter.post("/:token/submit", carrierOnboardingPublicController.submit);
 carrierOnboardingPublicRouter.get(
     "/:token/load-documents/:documentId/download",

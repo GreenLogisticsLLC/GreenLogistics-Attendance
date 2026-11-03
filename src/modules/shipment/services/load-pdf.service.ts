@@ -12,6 +12,14 @@ export const LOAD_DOCS_ROOT = path.join(__dirname, "..", "..", "..", "uploads", 
 const LIA_TORRES_SIGNATURE_PNG = path.resolve(__dirname, "../assets/lia-torres-signature.png");
 const GREEN_LOGISTICS_LOGO_PNG = path.resolve(__dirname, "../assets/green-logistics-logo.png");
 
+/** Lia Torres is the only broker with a stored signature image. Everyone else signs in their own name. */
+export function brokerUsesLiaSignature(name: string | null | undefined): boolean {
+    const compact = String(name || "")
+        .toLowerCase()
+        .replace(/[^a-z]/g, "");
+    return compact === "liatorres";
+}
+
 function resolveLiaTorresSignaturePng(): string | null {
     const candidates = [
         LIA_TORRES_SIGNATURE_PNG,
@@ -550,22 +558,31 @@ function renderRateConfirmationPdf(
     const brokerBoxW = usable / 2 - 4;
     doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#111111").text("BROKER SIGNATURE:", brokerBoxX + 8, ySig + 4);
     doc.font("Helvetica").fontSize(7.5).fillColor("#222222").text(GREEN_LOGISTICS_RC.legalName, brokerBoxX + 8, ySig + 14);
-    const brokerPrinted = txt(c.brokerName) || "Lia Torres";
-    doc.text(brokerPrinted, brokerBoxX + 8, ySig + 23);
-    const sigPath = resolveLiaTorresSignaturePng();
-    const brokerSigMaxW = 100;
+    const brokerPrinted = txt(c.brokerName);
+    doc.text(brokerPrinted || "—", brokerBoxX + 8, ySig + 23);
+    const brokerSigMaxW = 120;
     const brokerSigMaxH = 24;
     const brokerSigX = brokerBoxX + brokerBoxW - brokerSigMaxW - 8;
-    if (sigPath) {
-        try {
-            doc.image(sigPath, brokerSigX, ySig + 6, {
-                fit: [brokerSigMaxW, brokerSigMaxH],
-                align: "right",
-                valign: "bottom",
-            });
-        } catch {
-            /* keep printed name if image fails */
+    if (brokerUsesLiaSignature(brokerPrinted)) {
+        const sigPath = resolveLiaTorresSignaturePng();
+        if (sigPath) {
+            try {
+                doc.image(sigPath, brokerSigX, ySig + 6, {
+                    fit: [100, brokerSigMaxH],
+                    align: "right",
+                    valign: "bottom",
+                });
+            } catch {
+                /* keep printed name if image fails */
+            }
         }
+    } else if (brokerPrinted) {
+        doc.font("Times-Italic").fontSize(13).fillColor("#111111").text(brokerPrinted, brokerSigX, ySig + 8, {
+            width: brokerSigMaxW,
+            align: "right",
+            lineBreak: false,
+        });
+        doc.font("Helvetica").fontSize(7.5).fillColor("#222222");
     }
     doc
         .moveTo(brokerBoxX + 8, ySig + 32)

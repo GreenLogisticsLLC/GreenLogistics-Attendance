@@ -2000,6 +2000,17 @@ export class CarrierService {
                 err instanceof Error ? err.message : err
             );
         }
+        const mailed = await this.emailSignedRateConfirmation({
+            shipmentLeadId: session.shipmentLeadId,
+            to: session.carrier.email,
+            carrierName: session.carrier.legalName,
+            brokerUserId: lead.assignedBrokerId,
+            loadNumber: lead.loadNumber,
+        }).catch((err) => ({
+            emailed: false,
+            emailTo: session.carrier.email,
+            emailWarning: err instanceof Error ? err.message : "Could not email the signed Rate Confirmation",
+        }));
         const archived = await this.archiveSignedRcBolPdfs({
             carrierId: session.carrierId,
             shipmentLeadId: session.shipmentLeadId,
@@ -2025,7 +2036,7 @@ export class CarrierService {
                 status: "CARRIER_ACCEPTED",
             });
         }
-        return { ...row, stampedDocumentId, ...archived };
+        return { ...row, stampedDocumentId, ...archived, ...mailed };
     }
 
     /**
@@ -2047,6 +2058,90 @@ export class CarrierService {
             data: { status: "ARCHIVED" },
         });
         return { rateConDocumentId: null, bolDocumentId: null };
+    }
+
+    /** Email the current signed Rate Confirmation PDF to the carrier. */
+    async emailSignedRateConfirmation(input: {
+        shipmentLeadId: string;
+        to: string;
+        carrierName?: string | null;
+        brokerUserId?: string | null;
+        loadNumber?: string | null;
+    }): Promise<{ emailed: boolean; emailTo: string; emailWarning: string | null }> {
+        const to = String(input.to || "").trim();
+        if (!to || !to.includes("@")) {
+            return { emailed: false, emailTo: to, emailWarning: "Carrier email is missing." };
+        }
+        const doc = await prisma.loadDocument.findFirst({
+            where: {
+                shipmentLeadId: input.shipmentLeadId,
+                docType: "RATE_CONFIRMATION",
+                isCurrent: true,
+                status: { not: "ARCHIVED" },
+            },
+            orderBy: { version: "desc" },
+        });
+        if (!doc?.storedName) {
+            return {
+                emailed: false,
+                emailTo: to,
+                emailWarning: "Signed Rate Confirmation PDF is not ready yet.",
+            };
+        }
+        const absolutePath = path.join(LOAD_DOCS_ROOT, input.shipmentLeadId, doc.storedName);
+        if (!fs.existsSync(absolutePath)) {
+            return {
+                emailed: false,
+                emailTo: to,
+                emailWarning: "Signed Rate Confirmation file was not found.",
+            };
+        }
+        const loadNumber = input.loadNumber || input.shipmentLeadId.slice(0, 8);
+        const filename = `Rate-Confirmation-${loadNumber}.pdf`;
+        await carrierEmailService.sendAsBrokerOrSystem({
+            brokerUserId: input.brokerUserId,
+            to,
+            allowSystemFallback: false,
+            subject: `Signed Rate Confirmation ${loadNumber} — Green Logistics`,
+            text: `Your signed Rate Confirmation for load ${loadNumber} is attached.`,
+            html:
+                `<p>Hello${input.carrierName ? ` ${input.carrierName}` : ""},</p>` +
+                `<p>Your signed Rate Confirmation for load <strong>${loadNumber}</strong> is attached.</p>` +
+                `<p>Green Logistics LLC</p>`,
+            attachments: [
+                {
+                    filename,
+                    content: fs.readFileSync(absolutePath),
+                    contentType: "application/pdf",
+                },
+            ],
+        });
+        return { emailed: true, emailTo: to, emailWarning: null };
+    }
+
+    async publicEmailSignedRateConfirmation(rawToken: string, meta: { ip?: string }) {
+        const session = await this.resolveSession(rawToken, meta.ip);
+        if (!session.shipmentLeadId) {
+            throw Object.assign(new Error("No Rate Confirmation is linked to this link."), { status: 400 });
+        }
+        const signed = await prisma.carrierRcSignature.findFirst({
+            where: { shipmentLeadId: session.shipmentLeadId, carrierId: session.carrierId },
+            orderBy: { signedAt: "desc" },
+        });
+        if (!signed) {
+            throw Object.assign(new Error("Sign the Rate Confirmation first."), { status: 400 });
+        }
+        const lead = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId: session.shipmentLeadId },
+            select: { assignedBrokerId: true, loadNumber: true },
+        });
+        return this.emailSignedRateConfirmation({
+            shipmentLeadId: session.shipmentLeadId,
+            to: session.carrier.email,
+            carrierName: session.carrier.legalName,
+            brokerUserId: lead?.assignedBrokerId,
+            loadNumber: lead?.loadNumber,
+        });
     }
 
     /** Backfill: stamp the latest portal RC signature onto the load Rate Confirmation PDF. */

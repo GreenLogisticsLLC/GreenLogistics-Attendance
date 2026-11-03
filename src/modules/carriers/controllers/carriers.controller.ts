@@ -344,6 +344,27 @@ export const carrierOnboardingPublicController = {
         }
     },
 
+    async emailSignedRc(req: AuthRequest, res: Response) {
+        try {
+            const data = await carrierService.publicEmailSignedRateConfirmation(
+                String(req.params.token),
+                publicMeta(req)
+            );
+            res.json({
+                success: true,
+                message: data.emailed
+                    ? `Signed Rate Confirmation sent to ${data.emailTo}`
+                    : data.emailWarning || "Could not email the signed Rate Confirmation",
+                data,
+            });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed",
+            });
+        }
+    },
+
     async signRc(req: AuthRequest, res: Response) {
         try {
             const data = await carrierService.publicSignRc(

@@ -715,7 +715,7 @@
     });
     document.getElementById("btn-sign-rc")?.addEventListener("click", async function () {
       try {
-        await api("/sign-rc", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ signerName: val("sig-name"), signatureData: sigData() }) });
+        var signed = await api("/sign-rc", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ signerName: val("sig-name"), signatureData: sigData() }) });
         var data = await api("/submit", { method:"POST", headers:{"Content-Type":"application/json"}, body: "{}" });
         step = 2;
         var doneMsg = isRcSignOnly()
@@ -724,10 +724,36 @@
         var extra = data.brokerNotified
           ? '<p class="ok" style="margin-top:0.75rem">Your broker was emailed your signed package.</p>'
           : (data.warning ? '<p class="error" style="margin-top:0.75rem">' + esc(data.warning) + "</p>" : "");
+        var mailNote = "";
+        if (signed && signed.emailed) {
+          mailNote = '<p class="ok" style="margin-top:0.75rem">Signed Rate Confirmation was sent to ' + esc(signed.emailTo) + ".</p>";
+        } else if (signed && signed.emailWarning) {
+          mailNote = '<p class="error" style="margin-top:0.75rem">' + esc(signed.emailWarning) + "</p>";
+        }
         document.getElementById("app").innerHTML =
           '<div class="card" style="text-align:center"><h2>Complete</h2><p class="ok">' +
           esc(data.message || doneMsg) +
-          "</p>" + extra + "</div>";
+          "</p>" + extra + mailNote +
+          '<div class="actions" style="justify-content:center"><button type="button" class="btn-primary" id="btn-email-rc">Email signed Rate Confirmation</button></div>' +
+          '<p id="rc-mail-msg" class="muted"></p></div>';
+        document.getElementById("btn-email-rc")?.addEventListener("click", async function () {
+          var btn = document.getElementById("btn-email-rc");
+          var msg = document.getElementById("rc-mail-msg");
+          if (btn) btn.disabled = true;
+          if (msg) msg.textContent = "Sending…";
+          try {
+            var sent = await api("/email-signed-rc", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+            if (msg) {
+              msg.className = sent && sent.emailed ? "ok" : "error";
+              msg.textContent = sent && sent.emailed
+                ? "Sent to " + (sent.emailTo || "your email") + "."
+                : (sent && sent.emailWarning) || "Could not send the email.";
+            }
+          } catch (err) {
+            if (msg) { msg.className = "error"; msg.textContent = err.message || "Could not send the email."; }
+          }
+          if (btn) btn.disabled = false;
+        });
       } catch (e) { setMsg(e.message, false); await reload(); }
     });
     document.querySelectorAll('input[type="file"][data-type]').forEach(function (inp) {
