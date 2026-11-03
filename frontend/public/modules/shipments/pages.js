@@ -137,13 +137,17 @@ window.GreenOSModules.shipments = {
       }
       return (
         '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-        "<th>#</th><th>Name</th><th>Turn</th></tr></thead><tbody>" +
+        "<th>#</th><th>New shipment</th><th>Other shipment</th><th>Name</th><th>Turn</th></tr></thead><tbody>" +
         people
           .map(function (row) {
             return (
               "<tr><td>" +
               self.esc(row.position) +
               "</td><td><strong>" +
+              self.esc(row.newShipments || 0) +
+              "</strong></td><td><strong>" +
+              self.esc(row.otherShipments || 0) +
+              "</strong></td><td><strong>" +
               self.esc(row.name) +
               "</strong></td><td>" +
               self.esc(placeLabel(row.place)) +
@@ -176,11 +180,15 @@ window.GreenOSModules.shipments = {
       "</section></div>" +
       '<section class="gos-card" style="padding:1rem;margin-top:1rem"><h2 style="margin:0 0 0.75rem">Not in the queue</h2>' +
       (outside.length
-        ? '<div class="table-wrap"><table class="crm-table"><thead><tr><th>Name</th><th>Role</th><th>Why</th></tr></thead><tbody>' +
+        ? '<div class="table-wrap"><table class="crm-table"><thead><tr><th>New shipment</th><th>Other shipment</th><th>Name</th><th>Role</th><th>Why</th></tr></thead><tbody>' +
           outside
             .map(function (row) {
               return (
                 "<tr><td><strong>" +
+                self.esc(row.newShipments || 0) +
+                "</strong></td><td><strong>" +
+                self.esc(row.otherShipments || 0) +
+                "</strong></td><td><strong>" +
                 self.esc(row.name) +
                 "</strong></td><td>" +
                 self.esc(row.role) +

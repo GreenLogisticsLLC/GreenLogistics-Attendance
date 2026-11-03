@@ -15,6 +15,7 @@ import { config } from "../../config/env.js";
 import { isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE } from "../../utils/helpers.js";
 import { receivesNewShipments } from "./activity-window.js";
 import { queuePlaces, syncQueueOrder, takeNextInQueue } from "./round-robin.js";
+import { arrivalCountsFor, countShipmentArrivals } from "./arrival-counts.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
@@ -715,7 +716,7 @@ export class AssignmentEngine {
     async getAssignmentBoard() {
         const { eligible, mode } = await this.resolveEligibleBrokers();
         const eligibleIds = eligible.map((person) => person.userId);
-        const [newState, otherState, lastNew, lastOther, staff] = await Promise.all([
+        const [newState, otherState, lastNew, lastOther, staff, arrivalLogs] = await Promise.all([
             this.loadQueueState(QUEUE_NEW),
             this.loadQueueState(QUEUE_OTHER),
             prisma.assignmentLog.findFirst({
@@ -736,7 +737,27 @@ export class AssignmentEngine {
                 include: { role: true, employee: true },
                 orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
             }),
+            prisma.assignmentLog.findMany({
+                where: {
+                    eventType: { in: ["ASSIGNED", "REASSIGNED"] },
+                    assignedUserId: { not: null },
+                },
+                select: {
+                    logId: true,
+                    assignedUserId: true,
+                    eventType: true,
+                    shipmentLeadId: true,
+                },
+            }),
         ]);
+        const arrivals = countShipmentArrivals(
+            arrivalLogs.map((log) => ({
+                userId: log.assignedUserId,
+                eventType: log.eventType,
+                shipmentId: log.shipmentLeadId,
+                logId: log.logId,
+            }))
+        );
         const newSynced = syncQueueOrder(newState.orderedUserIds, eligibleIds, newState.nextIndex);
         const otherSynced = syncQueueOrder(
             otherState.orderedUserIds,
@@ -751,11 +772,14 @@ export class AssignmentEngine {
             const places = queuePlaces(synced.orderedUserIds, synced.nextIndex, lastUserId);
             const people = places.map((row) => {
                 const person = eligible.find((item) => item.userId === row.userId);
+                const received = arrivalCountsFor(arrivals, row.userId);
                 return {
                     userId: row.userId,
                     name: person?.displayName || "Broker",
                     position: row.position,
                     place: row.place,
+                    newShipments: received.newShipments,
+                    otherShipments: received.otherShipments,
                 };
             });
             const next = people.find((row) => row.place === "next") || null;
@@ -783,11 +807,14 @@ export class AssignmentEngine {
             if (!user.employeeId) reason = "No attendance link";
             else if (inOffice && !clicked) reason = "No click for 20 minutes";
             else if (!inOffice && !clicked) reason = "Not in office and no click for 20 minutes";
+            const received = arrivalCountsFor(arrivals, user.userId);
             return {
                 userId: user.userId,
                 name: displayName(user),
                 role: user.role.roleName,
                 reason,
+                newShipments: received.newShipments,
+                otherShipments: received.otherShipments,
             };
         });
         return {
