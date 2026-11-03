@@ -1286,32 +1286,65 @@ html[data-theme="light"] {
   border-radius: 8px;
   padding: 0.28rem 0.4rem;
 }
-.gos-module-layout:has(.crm-ship-board) {
+/* Shipment tables scroll inside the screen. The left-right bar stays
+   on the bottom edge of that pane, above the page footer controls. */
+.gos-app:has(.crm-ship-scroll) {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+.gos-main:has(.crm-ship-scroll) {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.gos-content:has(.crm-ship-scroll) {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - var(--gos-topbar-h) - 2.5rem);
   min-height: 0;
+  overflow: hidden;
 }
-.gos-module-body:has(.crm-ship-board) {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.crm-ship-board {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.crm-ship-scroll {
-  overflow: auto;
-  max-height: calc(100dvh - var(--gos-topbar-h) - 16rem);
-}
-.crm-ship-board .crm-ship-scroll {
+#gos-module-host:has(.crm-ship-scroll) {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.crm-root:has(.crm-ship-board),
+.broker-root:has(.crm-ship-scroll) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.gos-module-body:has(.crm-ship-scroll) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.crm-ship-board {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.crm-ship-board > .gos-dash-hero,
+.crm-ship-board > .crm-ship-pager,
+.gos-module-body:has(.crm-ship-scroll) > .gos-dash-hero,
+.gos-module-body:has(.crm-ship-scroll) > .gos-subnav,
+.gos-module-body:has(.crm-ship-scroll) > .crm-ship-pager {
+  flex-shrink: 0;
+}
+.crm-ship-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 .crm-ship-scroll thead th {
   position: sticky;
