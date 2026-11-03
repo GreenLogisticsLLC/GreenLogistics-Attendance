@@ -32,13 +32,8 @@ export type SignupRoleName = (typeof SIGNUP_ROLE_NAMES)[number];
  * Who may receive NEW shipments via Attendance In-Office round-robin.
  * Anyone else (HR, Dispatcher, Viewer, Administrator, no role, etc.) is excluded.
  */
-export const NEW_SHIPMENT_ASSIGNMENT_ROLES = [
-    Roles.Broker,
-    Roles.TeamLead,
-    Roles.Manager,
-    Roles.Accounting,
-    Roles.Owner,
-] as const;
+/** New and Other shipments. Manager, Accounting, and Owner are never in this queue. */
+export const NEW_SHIPMENT_ASSIGNMENT_ROLES = [Roles.Broker, Roles.TeamLead] as const;
 
 export type NewShipmentAssignmentRole = (typeof NEW_SHIPMENT_ASSIGNMENT_ROLES)[number];
 

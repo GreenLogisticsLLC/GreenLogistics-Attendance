@@ -114,12 +114,10 @@ function sortBrokersForRoundRobin(brokers: EligibleBroker[]): EligibleBroker[] {
 
 export type AssignmentPoolMode = "in_office" | "after_hours" | "none";
 
-/** After 01:00 office time, New shipments go to these roles even if they are out. */
-const AFTER_HOURS_ROLE_NAMES = new Set(["Broker", "Team Lead"]);
-
 /**
- * Assignment Engine v1.0 — Round Robin driven only by Attendance:
- * In Office → in queue; Out of Office → removed immediately.
+ * Assignment Engine v1.0 — Round Robin among Brokers and Team Leads
+ * who are In Office and clicked GreenOS within 20 minutes.
+ * Manager, Accounting, and Owner never receive a shipment.
  */
 export class AssignmentEngine {
     async startPipeline(shipmentLeadId: string) {
@@ -147,7 +145,7 @@ export class AssignmentEngine {
                       });
             await this.pipelineLog(
                 shipmentLeadId,
-                "No eligible staff (need Broker / Team Lead / Manager / Accounting / Owner + In Office) — lead marked UNASSIGNED"
+                "No broker In Office within the 20-minute window — lead marked UNASSIGNED"
             );
             await this.assignmentLog({
                 shipmentLeadId,
@@ -675,19 +673,17 @@ export class AssignmentEngine {
             state.nextIndex
         );
         const modeLabel =
-            mode === "after_hours"
-                ? "After 01:00 — all Brokers and Team Leads, In Office not required"
-                : mode === "in_office"
-                  ? "Checked-in eligible staff (Broker / Team Lead / Manager / Accounting / Owner)"
-                  : "No eligible staff In Office — new shipments stay Unassigned";
+            mode === "in_office"
+                ? "Brokers and Team Leads who are In Office and active within 20 minutes"
+                : "No broker In Office within 20 minutes — new shipments stay Unassigned";
         return {
             version: "1.0",
             algorithm: "round_robin_sequential",
             assignmentMode: mode,
             assignmentModeLabel: modeLabel,
             rules: [
-                "NEW shipments go ONLY to Broker / Team Lead / Manager / Accounting / Owner who are In Office",
-                "Other roles (HR, Dispatcher, Viewer, Administrator, etc.) never receive NEW shipments",
+                "NEW shipments go only to Brokers and Team Leads who are In Office and clicked within 20 minutes",
+                "Manager, Accounting, Owner, and every other role never receive NEW shipments",
                 "Fresh NEW imports are assigned before passed-along (reassigned) loads",
                 "If nobody eligible is In Office → shipments stay UNASSIGNED until someone checks in",
                 "When eligible staff checks in → they join the queue and pending NEW/UNASSIGNED drain",
@@ -947,10 +943,9 @@ export class AssignmentEngine {
     }
 
     /**
-     * Eligible staff for NEW-shipment round-robin:
-     * Broker / Team Lead / Manager / Accounting / Owner who are In Office.
-     * Other roles never enter the pool. If nobody eligible is In Office →
-     * empty pool; NEW shipments stay UNASSIGNED until check-in.
+     * Brokers and Team Leads who are In Office and clicked within 20 minutes.
+     * Manager, Accounting, and Owner are not loaded into this pool.
+     * If nobody qualifies, NEW shipments stay UNASSIGNED until check-in.
      * Gmail is NOT required. `availableForAssignment` is ignored.
      */
     async listEligibleBrokers(): Promise<EligibleBroker[]> {
@@ -977,18 +972,16 @@ export class AssignmentEngine {
             }),
         ]);
 
-        const afterHours = isAfterHoursAssignment(new Date(), config.timezone);
         const allLinked: EligibleBroker[] = [];
         const employeeIdsToCheck: string[] = [];
         const linkUpdates: Array<{ userId: string; employeeId: string }> = [];
 
         for (const user of users) {
-            if (afterHours && !AFTER_HOURS_ROLE_NAMES.has(user.role.roleName)) continue;
             if (!receivesNewShipments(user.role.roleName, user.greenOsActivityAt, new Date())) {
                 continue;
             }
             const employeeId = this.resolveEmployeeIdSync(user, activeEmployees);
-            if (!employeeId && !afterHours) continue;
+            if (!employeeId) continue;
 
             if (employeeId && !user.employeeId) {
                 linkUpdates.push({ userId: user.userId, employeeId });
@@ -1027,16 +1020,6 @@ export class AssignmentEngine {
                         .catch(() => undefined)
                 )
             );
-        }
-
-        if (afterHours) {
-            console.info(
-                `[assignment] after 01:00 office time — New shipments go to all Brokers and Team Leads (${allLinked.length}), In Office is not required`
-            );
-            return {
-                eligible: sortBrokersForRoundRobin(allLinked),
-                mode: "after_hours",
-            };
         }
 
         const inOfficeIds = await getInOfficeEmployeeIds(employeeIdsToCheck);
