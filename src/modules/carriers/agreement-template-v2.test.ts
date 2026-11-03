@@ -1,0 +1,38 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { AGREEMENT_TEMPLATE_VERSION } from "./constants.js";
+import { GREEN_LOGISTICS_AGREEMENT_V2 } from "./agreement-template-v2.js";
+
+test("setup agreement keeps the expanded PDF sections", () => {
+    const text = GREEN_LOGISTICS_AGREEMENT_V2;
+    assert.match(text, /Version 2\.4/);
+    assert.equal(AGREEMENT_TEMPLATE_VERSION, "2.4");
+    assert.match(text, /primary and non-contributory/);
+    assert.match(text, /waive all rights of subrogation/);
+    assert.match(text, /full value of the cargo/);
+    assert.match(text, /deductible shall not exceed US\$10,000 per shipment/);
+    assert.match(text, /while the cargo is in storage/);
+    assert.match(text, /no aggregate limit/);
+    assert.match(text, /MCS-90 endorsement and Broadened Pollution Liability/);
+    assert.match(text, /unattended or unattached trailer/);
+    assert.match(text, /at least once each month/);
+    assert.match(text, /retain that log for at least one \(1\) year/);
+    assert.match(text, /49 C\.F\.R\. §§ 370\.1 through 370\.11/);
+    assert.match(text, /picked up at the place of origin/);
+    assert.match(text, /copies of those documents to Broker’s customers/);
+    assert.match(text, /ENVIRONMENTAL CLEANUP AND REMEDIATION COSTS/);
+    assert.match(text, /NEGLIGENCE OR WILLFUL MISCONDUCT/);
+    assert.match(text, /clear and convincing evidence/);
+    assert.match(text, /treated as a total loss/);
+    assert.match(text, /within ninety \(90\) days/);
+    assert.match(text, /within thirty \(30\) days after Carrier receives the claim/);
+    assert.match(text, /8\.1 Salvage Claims/);
+    assert.match(text, /salvage market/);
+    assert.match(text, /inconvenient forum/);
+    assert.match(text, /writing signed by both parties/);
+    assert.match(text, /commodity types/);
+    assert.match(text, /government authority or a court order/);
+    assert.match(text, /first shipment for that customer was tendered/);
+    assert.match(text, /ten percent \(10%\)/);
+    assert.match(text, /US\$200 for one shipment/);
+});
