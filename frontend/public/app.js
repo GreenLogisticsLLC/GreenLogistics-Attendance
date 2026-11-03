@@ -295,11 +295,9 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
 function updateClock() {
     const el = $("#current-date");
     if (!el) return;
-    // Same −1h office clock as First Entry / Last Activity / Outside Now.
-    const now = new Date(Date.now() - 60 * 60 * 1000);
     el.textContent =
-        now.toLocaleString("en-GB", {
-            timeZone: "America/Los_Angeles",
+        new Date().toLocaleString("en-GB", {
+            timeZone: "Asia/Yerevan",
             weekday: "long",
             year: "numeric",
             month: "long",
@@ -308,7 +306,7 @@ function updateClock() {
             minute: "2-digit",
             second: "2-digit",
             hour12: false,
-        }) + " PT";
+        }) + " Yerevan";
     setTimeout(updateClock, 1000);
 }
 
