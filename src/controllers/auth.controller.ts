@@ -134,6 +134,17 @@ export async function deletePendingRegistrationController(req: AuthRequest, res:
     return res.json(apiResponse(true, result.message));
 }
 
+export async function activityController(req: AuthRequest, res: Response) {
+    if (!req.user) {
+        return res.status(401).json(apiResponse(false, "Unauthorized"));
+    }
+    await prisma.user.update({
+        where: { userId: req.user.userId },
+        data: { greenOsActivityAt: new Date() },
+    });
+    return res.json(apiResponse(true, "Activity recorded"));
+}
+
 export async function meController(req: AuthRequest, res: Response) {
     if (!req.user) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));

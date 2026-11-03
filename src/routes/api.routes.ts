@@ -5,6 +5,7 @@ import {
     approveRegistrationController,
     rejectRegistrationController,
     meController,
+    activityController,
     listTeamLeadsController,
     listPendingRegistrationsController,
     approvePendingRegistrationController,
@@ -97,6 +98,7 @@ apiRouter.get("/v1/auth/team-leads", listTeamLeadsController);
 apiRouter.get("/v1/auth/registration/approve", approveRegistrationController);
 apiRouter.get("/v1/auth/registration/reject", rejectRegistrationController);
 apiRouter.get("/v1/auth/me", authMiddleware, meController);
+apiRouter.post("/v1/auth/activity", authMiddleware, activityController);
 apiRouter.get(
     "/v1/auth/registrations/pending",
     authMiddleware,

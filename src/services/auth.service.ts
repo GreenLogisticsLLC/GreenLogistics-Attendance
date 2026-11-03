@@ -647,7 +647,7 @@ export class AuthService {
 
         await prisma.user.update({
             where: { userId: user.userId },
-            data: { lastLogin: new Date() },
+            data: { lastLogin: new Date(), greenOsActivityAt: new Date() },
         });
 
         return { ok: true as const, data: await this.issueToken(user) };

@@ -52,6 +52,92 @@
       if (this.role() === "Broker") {
         this.initAgentWidget();
       }
+      this.startBrokerTeamRhythm();
+    },
+
+    stopBrokerTeamRhythm() {
+      if (this._gosRefreshTimer) {
+        clearInterval(this._gosRefreshTimer);
+        this._gosRefreshTimer = null;
+      }
+      if (this._gosIdleTimer) {
+        clearInterval(this._gosIdleTimer);
+        this._gosIdleTimer = null;
+      }
+      if (this._gosActivity) {
+        document.removeEventListener("pointerdown", this._gosActivity, true);
+        document.removeEventListener("keydown", this._gosActivity, true);
+        this._gosActivity = null;
+      }
+    },
+
+    pingGreenOsActivity(force) {
+      const role = this.role();
+      if (role !== "Broker" && role !== "Team Lead") return;
+      const now = Date.now();
+      if (!force && now - (this._gosPingAt || 0) < 20000) return;
+      this._gosPingAt = now;
+      const token = localStorage.getItem("gl_token");
+      if (!token) return;
+      fetch("/api/v1/auth/activity", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: "{}",
+      }).catch(function () {});
+    },
+
+    refreshBrokerTeamScreen() {
+      const role = this.role();
+      if (role !== "Broker" && role !== "Team Lead") return;
+      if (document.hidden) return;
+      if (!localStorage.getItem("gl_token")) return;
+      const el = document.activeElement;
+      const tag = el && el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const modal = document.getElementById("crm-modal");
+      if (modal && !modal.classList.contains("hidden")) return;
+      if (!this.currentModule) return;
+      this.navigate(this.currentModule, this.currentSub || undefined, { skipHistory: true });
+    },
+
+    disconnectIdleBroker() {
+      this.stopBrokerTeamRhythm();
+      if (window.GreenOSRealtime && typeof window.GreenOSRealtime.disconnect === "function") {
+        window.GreenOSRealtime.disconnect();
+      }
+      const btn = document.getElementById("logout-btn");
+      if (btn) btn.click();
+      else localStorage.removeItem("gl_token");
+    },
+
+    startBrokerTeamRhythm() {
+      const role = this.role();
+      this.stopBrokerTeamRhythm();
+      if (role !== "Broker" && role !== "Team Lead") return;
+      const self = this;
+      this._gosLastClick = Date.now();
+      this._gosActivity = function () {
+        self._gosLastClick = Date.now();
+        self.pingGreenOsActivity(false);
+      };
+      document.addEventListener("pointerdown", this._gosActivity, true);
+      document.addEventListener("keydown", this._gosActivity, true);
+      this.pingGreenOsActivity(true);
+      this._gosRefreshTimer = setInterval(function () {
+        self.refreshBrokerTeamScreen();
+      }, 3 * 60 * 1000);
+      this._gosIdleTimer = setInterval(function () {
+        if (!localStorage.getItem("gl_token")) {
+          self.stopBrokerTeamRhythm();
+          return;
+        }
+        if (Date.now() - (self._gosLastClick || 0) >= 20 * 60 * 1000) {
+          self.disconnectIdleBroker();
+        }
+      }, 15000);
     },
 
     /**

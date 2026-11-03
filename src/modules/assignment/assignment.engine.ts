@@ -13,6 +13,7 @@ import { getInOfficeEmployeeIds } from "../../services/attendance-presence.servi
 import { arrivedAfterShipmentCutoff } from "../../services/shipment-cutoff.js";
 import { config } from "../../config/env.js";
 import { isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE } from "../../utils/helpers.js";
+import { receivesNewShipments } from "./activity-window.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
@@ -966,6 +967,9 @@ export class AssignmentEngine {
 
         for (const user of users) {
             if (afterHours && !AFTER_HOURS_ROLE_NAMES.has(user.role.roleName)) continue;
+            if (!receivesNewShipments(user.role.roleName, user.greenOsActivityAt, new Date())) {
+                continue;
+            }
             const employeeId = this.resolveEmployeeIdSync(user, activeEmployees);
             if (!employeeId && !afterHours) continue;
 
