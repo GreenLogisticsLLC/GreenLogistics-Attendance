@@ -14,15 +14,45 @@ window.GreenOSModules.customers = {
       .replace(/"/g, "&quot;");
   },
 
+  token() {
+    if (typeof window.gosReadToken === "function") return window.gosReadToken();
+    var stored = "";
+    try {
+      stored = localStorage.getItem("gl_token") || sessionStorage.getItem("gl_token") || "";
+    } catch (e) {}
+    return stored || window.GreenOSToken || "";
+  },
+
   async api(path, opts) {
-    var token = localStorage.getItem("gl_token") || "";
-    var res = await fetch("/api/customers" + path, Object.assign({
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + token,
-      },
-    }, opts || {}));
+    opts = opts || {};
+    var token = this.token();
+    if (!token) {
+      throw new Error("Please sign in again, then save the customer.");
+    }
+    var headers = {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + token,
+      "X-GreenOS-Token": token,
+    };
+    var body = opts.body;
+    if (typeof body === "string") {
+      try {
+        var parsed = JSON.parse(body);
+        if (parsed && typeof parsed === "object") {
+          parsed.sessionToken = token;
+          body = JSON.stringify(parsed);
+        }
+      } catch (e) {}
+    }
+    var res = await fetch("/api/customers" + path, {
+      method: opts.method || "GET",
+      headers: headers,
+      body: body,
+    });
     var data = await res.json().catch(function () { return {}; });
+    if (res.status === 401) {
+      throw new Error("Please sign in again, then save the customer.");
+    }
     if (!res.ok || data.success === false) {
       throw new Error(data.message || "Request failed");
     }

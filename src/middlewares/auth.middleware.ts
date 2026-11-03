@@ -17,13 +17,27 @@ export interface AuthRequest extends Request {
     };
 }
 
-export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+export function readRequestToken(req: Request): string {
     const header = req.headers.authorization;
-    const qToken = typeof req.query.token === "string" ? req.query.token : "";
-    const raw =
-        (header?.startsWith("Bearer ") ? header.slice(7) : "") ||
-        (req.method === "GET" ? qToken : "") ||
-        "";
+    const fromHeader = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    if (fromHeader) return fromHeader;
+    const altHeader = req.headers["x-greenos-token"];
+    const alt = Array.isArray(altHeader) ? altHeader[0] : altHeader;
+    if (typeof alt === "string" && alt.trim()) return alt.trim();
+    const body = req.body as { sessionToken?: unknown } | undefined;
+    if (body && typeof body.sessionToken === "string" && body.sessionToken.trim()) {
+        const token = body.sessionToken.trim();
+        delete body.sessionToken;
+        return token;
+    }
+    if (req.method === "GET" && typeof req.query.token === "string" && req.query.token.trim()) {
+        return req.query.token.trim();
+    }
+    return "";
+}
+
+export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+    const raw = readRequestToken(req);
     if (!raw) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));
     }

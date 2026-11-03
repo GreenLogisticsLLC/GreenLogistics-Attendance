@@ -1,12 +1,36 @@
 const API = "/api/v1";
-let token = localStorage.getItem("gl_token");
+function gosReadToken() {
+    try {
+        var stored = localStorage.getItem("gl_token");
+        if (stored) return stored;
+    } catch (e) {}
+    try {
+        var backup = sessionStorage.getItem("gl_token");
+        if (backup) return backup;
+    } catch (e) {}
+    return window.GreenOSToken || "";
+}
+function gosRememberToken(value) {
+    token = value || "";
+    window.GreenOSToken = token;
+    try {
+        if (token) {
+            localStorage.setItem("gl_token", token);
+            sessionStorage.setItem("gl_token", token);
+        } else {
+            localStorage.removeItem("gl_token");
+            sessionStorage.removeItem("gl_token");
+        }
+    } catch (e) {}
+}
+window.gosReadToken = gosReadToken;
+let token = gosReadToken();
 
 function consumeTokenFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get("token");
     if (!urlToken) return;
-    token = urlToken;
-    localStorage.setItem("gl_token", urlToken);
+    gosRememberToken(urlToken);
     window.history.replaceState({}, document.title, window.location.pathname);
 }
 
@@ -299,8 +323,7 @@ async function apiFetch(path, options = {}) {
         throw new Error(`Server returned invalid response (HTTP ${res.status})`);
     }
     if (res.status === 401) {
-        localStorage.removeItem("gl_token");
-        token = null;
+        gosRememberToken("");
         showLogin();
         throw new Error("Unauthorized");
     }
@@ -361,8 +384,7 @@ loginForm.addEventListener("submit", async (e) => {
             loginError.classList.remove("hidden");
             return;
         }
-        token = data.data.token;
-        localStorage.setItem("gl_token", token);
+        gosRememberToken(data.data.token);
         showApp(data.data.user);
     } catch {
         loginError.textContent = "Connection error";
@@ -486,8 +508,7 @@ signupForm.addEventListener("submit", async (e) => {
 });
 
 $("#logout-btn").addEventListener("click", () => {
-    localStorage.removeItem("gl_token");
-    token = null;
+    gosRememberToken("");
     showLogin();
 });
 
