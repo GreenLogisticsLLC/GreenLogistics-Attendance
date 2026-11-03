@@ -143,6 +143,24 @@ window.GreenOSModules.shipments = {
             );
           })
           .join("");
+      var groups = [
+        ["New received", "newShipments"],
+        ["Other received", "otherShipments"],
+        ["Accepted", "acceptedShipments"],
+        ["New without Accept", "newNotAcceptedShipments"],
+      ];
+      var listRows = [];
+      shown.forEach(function (row) {
+        groups.forEach(function (group) {
+          (row[group[1]] || []).forEach(function (ship) {
+            listRows.push({
+              broker: row.name,
+              group: group[0],
+              ship: ship,
+            });
+          });
+        });
+      });
       var table = shown.length
         ? '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
           "<th>Broker</th><th>New received</th><th>Other received</th><th>Accepted</th><th>New without Accept</th>" +
@@ -164,7 +182,36 @@ window.GreenOSModules.shipments = {
               );
             })
             .join("") +
-          "</tbody></table></div>"
+          "</tbody></table></div>" +
+          '<h2 style="margin:1.25rem 0 0.6rem;font-size:1.05rem">Shipments</h2>' +
+          (listRows.length
+            ? '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+              "<th>Broker</th><th>List</th><th>Shipment</th><th>ID</th><th>Customer</th><th>Status</th>" +
+              "</tr></thead><tbody>" +
+              listRows
+                .map(function (item) {
+                  var ship = item.ship || {};
+                  return (
+                    '<tr class="crm-row" data-ship="' +
+                    esc(ship.shipmentLeadId) +
+                    '"><td>' +
+                    esc(item.broker) +
+                    "</td><td>" +
+                    esc(item.group) +
+                    "</td><td>" +
+                    esc(ship.title || "Shipment") +
+                    "</td><td>" +
+                    esc(ship.greenOsShipmentId || "—") +
+                    "</td><td>" +
+                    esc(ship.customerName || "—") +
+                    "</td><td>" +
+                    esc(ship.status || "—") +
+                    "</td></tr>"
+                  );
+                })
+                .join("") +
+              "</tbody></table></div>"
+            : '<p class="gos-muted">No shipments in this filter.</p>')
         : '<p class="gos-muted">No brokers on your team yet.</p>';
       body.innerHTML =
         '<section class="gos-dash-hero"><h1>By Broker</h1>' +
@@ -187,6 +234,12 @@ window.GreenOSModules.shipments = {
           paint();
         });
       }
+      body.querySelectorAll("tr[data-ship]").forEach(function (tr) {
+        tr.addEventListener("click", function () {
+          var id = tr.getAttribute("data-ship");
+          if (id && crm.openShipmentCard) crm.openShipmentCard(document, id);
+        });
+      });
     }
     paint();
   },

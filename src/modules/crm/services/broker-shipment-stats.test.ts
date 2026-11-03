@@ -109,6 +109,10 @@ test("team lead broker totals split new, other, accept, and new without accept",
         assert.equal(byName["Andy Murrey"].otherReceived, 0);
         assert.equal(byName["Andy Murrey"].accepted, 1);
         assert.equal(byName["Andy Murrey"].newNotAccepted, 1);
+        assert.equal(byName["Andy Murrey"].newShipments.length, 2);
+        assert.equal(byName["Andy Murrey"].acceptedShipments.length, 1);
+        assert.equal(byName["Lia Torres"].otherShipments[0].shipmentLeadId, passedNew.shipmentLeadId);
+        assert.equal(byName["Lia Torres"].newNotAcceptedShipments[0].title, waitingNew.shipmentTitle);
         assert.equal(byName["Lia Torres"].newReceived, 1);
         assert.equal(byName["Lia Torres"].otherReceived, 1);
         assert.equal(byName["Lia Torres"].accepted, 1);

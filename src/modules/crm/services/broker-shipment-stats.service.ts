@@ -2,6 +2,14 @@ import { prisma } from "../../../config/database.js";
 import { listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { Roles } from "../../../auth/roles.js";
 
+export type BrokerStatShipment = {
+    shipmentLeadId: string;
+    title: string;
+    greenOsShipmentId: string | null;
+    customerName: string | null;
+    status: string;
+};
+
 export type BrokerShipmentStat = {
     brokerId: string;
     name: string;
@@ -9,6 +17,10 @@ export type BrokerShipmentStat = {
     otherReceived: number;
     accepted: number;
     newNotAccepted: number;
+    newShipments: BrokerStatShipment[];
+    otherShipments: BrokerStatShipment[];
+    acceptedShipments: BrokerStatShipment[];
+    newNotAcceptedShipments: BrokerStatShipment[];
 };
 
 type Arrival = { brokerId: string; shipmentId: string; kind: "new" | "other" };
@@ -85,6 +97,9 @@ export class BrokerShipmentStatsService {
             },
             select: {
                 shipmentLeadId: true,
+                shipmentTitle: true,
+                greenOsShipmentId: true,
+                customerName: true,
                 assignedBrokerId: true,
                 acceptedAt: true,
                 isReassignment: true,
@@ -134,30 +149,53 @@ export class BrokerShipmentStatsService {
             touch(brokerId, lead.shipmentLeadId, other ? "other" : "new");
         }
 
+        const brief = (shipmentId: string): BrokerStatShipment => {
+            const lead = live.get(shipmentId);
+            return {
+                shipmentLeadId: shipmentId,
+                title: lead?.shipmentTitle || "Shipment",
+                greenOsShipmentId: lead?.greenOsShipmentId || null,
+                customerName: lead?.customerName || null,
+                status: lead?.status || "",
+            };
+        };
         const rows = brokers.map((broker) => {
             const byShipment = arrivals.get(broker.userId) || new Map();
-            let newReceived = 0;
-            let otherReceived = 0;
-            let accepted = 0;
-            let newNotAccepted = 0;
+            const newShipments: BrokerStatShipment[] = [];
+            const otherShipments: BrokerStatShipment[] = [];
+            const acceptedShipments: BrokerStatShipment[] = [];
+            const newNotAcceptedShipments: BrokerStatShipment[] = [];
             for (const [shipmentId, kinds] of byShipment) {
                 const lead = live.get(shipmentId);
                 const took =
                     Boolean(lead?.acceptedAt) && lead?.assignedBrokerId === broker.userId;
-                if (kinds.has("new")) newReceived += 1;
-                if (kinds.has("other")) otherReceived += 1;
-                if (took) accepted += 1;
-                if (kinds.has("new") && !(took && !kinds.has("other"))) newNotAccepted += 1;
+                const card = brief(shipmentId);
+                if (kinds.has("new")) newShipments.push(card);
+                if (kinds.has("other")) otherShipments.push(card);
+                if (took) acceptedShipments.push(card);
+                if (kinds.has("new") && !(took && !kinds.has("other"))) {
+                    newNotAcceptedShipments.push(card);
+                }
             }
+            const byTitle = (a: BrokerStatShipment, b: BrokerStatShipment) =>
+                a.title.localeCompare(b.title);
+            newShipments.sort(byTitle);
+            otherShipments.sort(byTitle);
+            acceptedShipments.sort(byTitle);
+            newNotAcceptedShipments.sort(byTitle);
             const name =
                 `${broker.firstName} ${broker.lastName}`.trim() || broker.username;
             return {
                 brokerId: broker.userId,
                 name,
-                newReceived,
-                otherReceived,
-                accepted,
-                newNotAccepted,
+                newReceived: newShipments.length,
+                otherReceived: otherShipments.length,
+                accepted: acceptedShipments.length,
+                newNotAccepted: newNotAcceptedShipments.length,
+                newShipments,
+                otherShipments,
+                acceptedShipments,
+                newNotAcceptedShipments,
             };
         });
 
