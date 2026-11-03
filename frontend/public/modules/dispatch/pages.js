@@ -51,7 +51,7 @@ window.GreenOSModules["dispatch"] = {
     var map = {
       BROKER_CARRIER_AGREEMENT: "Broker–Carrier Agreement",
       MC_AUTHORITY: "MC Authority",
-      NOA: "Notice of Assignment (NOA)",
+      NOA: "NOA/VOID CHECK-OTHER",
       W9: "W-9",
       INSURANCE: "Insurance",
       COI: "Certificate of Insurance",
@@ -2519,7 +2519,7 @@ window.GreenOSModules["dispatch"] = {
         '<p class="gos-muted" style="margin-top:0.5rem">' +
         (c.carrierName
           ? "Changing <strong>both</strong> Carrier name and email creates a new Load Number for the new carrier. The previous Load Number keeps the old carrier and documents. Other field edits stay on this Load and may resend the onboarding link."
-          : "After save → status <strong>Carrier Assigned</strong>. Green OS emails the Agreement + MC/NOA/W-9 link from <strong>your Gmail</strong> to the carrier.") +
+          : "After save → status <strong>Carrier Assigned</strong>. Green OS emails the Agreement + MC / NOA/VOID CHECK-OTHER / W-9 link from <strong>your Gmail</strong> to the carrier.") +
         "</p>" +
         "</div>";
       self.bindUsPhoneInput(main.querySelector("#ld-carrier-phone"));

@@ -150,7 +150,7 @@
   var state = null;
   var step = 0;
   var stepHydrated = false;
-  var REQUIRED_DOCS = ["MC_AUTHORITY", "W9", "INSURANCE"];
+  var REQUIRED_DOCS = ["MC_AUTHORITY", "NOA", "W9", "INSURANCE"];
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -288,10 +288,9 @@
   function docsForm() {
     var types = [
       { id: "MC_AUTHORITY", label: "MC Authority", required: true },
-      { id: "NOA", label: "NOA", required: false },
+      { id: "NOA", label: "NOA/VOID CHECK-OTHER", required: true },
       { id: "W9", label: "W-9", required: true },
       { id: "INSURANCE", label: "Insurance", required: true },
-      { id: "LOR", label: "Letter of Release (required for Factoring)", required: (state.carrier || {}).paymentOption === "FACTORING" },
       { id: "OTHER", label: "Other (optional)", required: false },
     ];
     var current = {};
@@ -322,7 +321,7 @@
       "<li>" + (cl.companyInformation ? "✓" : "○") + " Company Information</li>" +
       "<li>" + (cl.agreement ? "✓" : "○") + " Broker-Carrier Agreement</li>" +
       (cl.documents || []).map(function (d) {
-        var label = d.type === "MC_AUTHORITY" ? "MC Authority" : d.type === "W9" ? "W-9" : d.type === "INSURANCE" ? "Insurance" : d.type;
+        var label = d.type === "MC_AUTHORITY" ? "MC Authority" : d.type === "NOA" ? "NOA/VOID CHECK-OTHER" : d.type === "W9" ? "W-9" : d.type === "INSURANCE" ? "Insurance" : d.type;
         return "<li>" + (d.ok ? "✓" : "○") + " " + esc(label) + "</li>";
       }).join("") +
       "</ul>" +
@@ -583,12 +582,9 @@
     // Do not block the carrier on bot RED — show UNDER REVIEW and let the broker decide.
     REQUIRED_DOCS.forEach(function (t) {
       var d = current[t];
-      var label = t === "MC_AUTHORITY" ? "MC Authority" : t === "W9" ? "W-9" : t === "INSURANCE" ? "Insurance" : t;
+      var label = t === "MC_AUTHORITY" ? "MC Authority" : t === "NOA" ? "NOA/VOID CHECK-OTHER" : t === "W9" ? "W-9" : t === "INSURANCE" ? "Insurance" : t;
       if (!d) missing.push(label);
     });
-    if ((state.carrier || {}).paymentOption === "FACTORING" && !current.LOR) {
-      missing.push("Letter of Release (LOR)");
-    }
     return { missing: missing, rejected: [] };
   }
 

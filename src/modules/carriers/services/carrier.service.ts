@@ -1495,7 +1495,6 @@ export class CarrierService {
                 if (!String(input.carrier.factoringCompanyName || "").trim()) {
                     missing.push("Factoring company name");
                 }
-                if (!currentTypes.has("LOR")) missing.push("Letter of Release (LOR)");
             }
         }
         if (requireAgreement && !input.agreementSigned) {
@@ -1508,7 +1507,7 @@ export class CarrierService {
                     if (d.type === "MC_AUTHORITY") missing.push("MC Authority");
                     else if (d.type === "W9") missing.push("W-9");
                     else if (d.type === "INSURANCE") missing.push("Insurance");
-                    else if (d.type === "NOA") missing.push("NOA");
+                    else if (d.type === "NOA") missing.push("NOA/VOID CHECK-OTHER");
                 }
             }
         }

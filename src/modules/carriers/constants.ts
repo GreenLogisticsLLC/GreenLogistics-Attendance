@@ -32,6 +32,7 @@ export const CARRIER_DOC_TYPES = {
 /** Marked required on the carrier portal Documents step (red indicators). */
 export const REQUIRED_CARRIER_DOC_TYPES = [
     CARRIER_DOC_TYPES.MC_AUTHORITY,
+    CARRIER_DOC_TYPES.NOA,
     CARRIER_DOC_TYPES.W9,
     CARRIER_DOC_TYPES.INSURANCE,
 ] as const;

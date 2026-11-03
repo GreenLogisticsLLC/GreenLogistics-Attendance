@@ -96,7 +96,7 @@ export class CarrierEmailService {
         const text = [
             `Hello ${name},`,
             "",
-            "Green Logistics is requesting your carrier profile, signed Broker-Carrier Agreement, and required documents (MC Authority, NOA, W-9).",
+            "Green Logistics is requesting your carrier profile, signed Broker-Carrier Agreement, and required documents (MC Authority, NOA/VOID CHECK-OTHER, W-9).",
             input.loadNumber ? `Load: ${input.loadNumber}` : "",
             "",
             "Open your secure link:",
@@ -121,7 +121,7 @@ export class CarrierEmailService {
             <ul>
               <li>Review / complete company information</li>
               <li>Read and sign the Broker-Carrier Agreement</li>
-              <li>Upload MC Authority, NOA, and W-9</li>
+              <li>Upload MC Authority, NOA/VOID CHECK-OTHER, and W-9</li>
             </ul>
             <p style="margin:24px 0">
               <a href="${esc(input.onboardingUrl)}" style="background:#059669;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;font-weight:600">
