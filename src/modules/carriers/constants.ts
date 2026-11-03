@@ -74,7 +74,7 @@ export const ONBOARDING_PURPOSE = {
 
 export type OnboardingPurpose = (typeof ONBOARDING_PURPOSE)[keyof typeof ONBOARDING_PURPOSE];
 
-export const AGREEMENT_TEMPLATE_VERSION = "2.5";
+export const AGREEMENT_TEMPLATE_VERSION = "2.6";
 export const AGREEMENT_TEMPLATE_TITLE = "Broker - Carrier Agreement";
 
 /** Single source for the broker block on the Setup agreement and the signed PDF. */
@@ -95,7 +95,7 @@ export const DEFAULT_AGREEMENT_BODY = buildBrokerCarrierAgreement(BROKER_AGREEME
 export function carrierPaymentOptionLabel(code: string | null | undefined): string {
     switch (String(code || "").toUpperCase()) {
         case "STANDARD":
-            return "Standard Payment (20-25 days)";
+            return "Standard Payment (10-15 days)";
         case "QUICK_3":
             return "Quick Pay 3% (3-5 business days, ACH)";
         case "QUICK_5":

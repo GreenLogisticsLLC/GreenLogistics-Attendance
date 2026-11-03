@@ -5,16 +5,16 @@ import { buildCarrierAgreementPdf } from "./services/carrier-agreement-pdf.servi
 
 const text = DEFAULT_AGREEMENT_BODY;
 
-test("setup agreement is version 2.5 and uses the company contact block", () => {
-    assert.equal(AGREEMENT_TEMPLATE_VERSION, "2.5");
-    assert.match(text, /Version 2\.5/);
+test("setup agreement is version 2.6 and uses the company contact block", () => {
+    assert.equal(AGREEMENT_TEMPLATE_VERSION, "2.6");
+    assert.match(text, /Version 2\.6/);
     assert.match(text, new RegExp(BROKER_AGREEMENT_CONTACT.address.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.match(text, /MC # 1237784/);
     assert.match(text, /USDOT # 3622287/);
     assert.doesNotMatch(text, /Kamo|sample carrier/i);
 });
 
-test("version 2.5 restores the named PDF protections", () => {
+test("version 2.6 restores the named PDF protections", () => {
     const required = [
         "A.M. Best rating of “B+” VII",
         "certificates of insurance",
@@ -69,7 +69,7 @@ test("version 2.5 restores the named PDF protections", () => {
         "US$200 for one shipment",
         "does not reach a customer with no such connection",
         "overrides this thirty (30) day period",
-        "Standard Payment: payment within 20–25 days",
+        "Standard Payment: payment within 10–15 days",
         "Quick Pay (3%)",
         "Quick Pay (5%)",
         "Letter of Release (LOR)",
@@ -85,7 +85,7 @@ test("version 2.5 restores the named PDF protections", () => {
     }
 });
 
-test("signed PDF keeps version 2.5, broker contact, and the selected payment option", async () => {
+test("signed PDF keeps version 2.6, broker contact, and the selected payment option", async () => {
     const png = Buffer.from(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
         "base64"
@@ -104,7 +104,7 @@ test("signed PDF keeps version 2.5, broker contact, and the selected payment opt
         paymentOption: "FACTORING",
         factoringCompanyName: "Sample Factor LLC",
         agreementTitle: "Broker - Carrier Agreement",
-        agreementVersion: "2.5",
+        agreementVersion: "2.6",
         agreementBody: text,
         signerName: "Sample Signer",
         signerEmail: "dispatch@sample-carrier.test",
@@ -113,7 +113,7 @@ test("signed PDF keeps version 2.5, broker contact, and the selected payment opt
     });
     const raw = pdf.toString("latin1");
     assert.ok(pdf.length > 20000);
-    assert.match(raw, /Broker-Carrier Agreement v2\.5/);
+    assert.match(raw, /Broker-Carrier Agreement v2\.6/);
     const pages = (raw.match(/\/Type \/Page[^s]/g) || []).length;
     assert.ok(pages >= 5, "pages " + pages);
 });

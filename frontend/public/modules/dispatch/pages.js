@@ -496,7 +496,7 @@ window.GreenOSModules["dispatch"] = {
   carrierPaymentOptionLabel(code) {
     switch (String(code || "").toUpperCase()) {
       case "STANDARD":
-        return "Standard Payment (20-25 days)";
+        return "Standard Payment (10-15 days)";
       case "QUICK_3":
         return "Quick Pay 3% (3-5 business days, ACH)";
       case "QUICK_5":

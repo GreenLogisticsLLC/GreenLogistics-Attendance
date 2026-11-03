@@ -1,5 +1,5 @@
 /**
- * Broker–Carrier Agreement Version 2.5.
+ * Broker–Carrier Agreement Version 2.6.
  * Restores protections named from the original PDF that Version 2.4 shortened.
  * The seal procedure in Section 8 is the practical procedure requested for 2.5:
  * a broken Broker seal is secured and reported, and is not by itself an automatic total loss.
@@ -109,11 +109,11 @@ E-Mail ${contact.email}
 (CARRIER) – legal name, signature, printed name, title, address, phone, and email are taken from the Carrier Profile and the electronic signature in Green OS. They are not pre-filled with another carrier’s information.
 
 PAYMENT OPTIONS (the option stored in Green OS overrides the 30-day period in Section 3):
-• Standard Payment: payment within 20–25 days from receipt of the invoice and all required documents.
+• Standard Payment: payment within 10–15 days from receipt of the invoice and all required documents.
 • Quick Pay (3%): payment within 3–5 business days. A fee of 3% is deducted from the invoiced amount. ACH direct deposit to the Carrier.
 • Quick Pay (5%): payment within 24 hours. A fee of 5% is deducted from the invoiced amount.
 • Factoring company: payment is made only to the factoring company named in the Carrier Profile, and only after Broker has that company’s information and a valid Letter of Release (LOR). Quick Pay is not processed to a factoring company until the LOR is on file.
 
-${broker} — Broker-Carrier Agreement Version 2.5
+${broker} — Broker-Carrier Agreement Version 2.6
 `;
 }
