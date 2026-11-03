@@ -14,6 +14,7 @@ import { arrivedAfterShipmentCutoff } from "../../services/shipment-cutoff.js";
 import { config } from "../../config/env.js";
 import { isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE } from "../../utils/helpers.js";
 import { receivesNewShipments } from "./activity-window.js";
+import { syncQueueOrder, takeNextInQueue } from "./round-robin.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
@@ -51,6 +52,22 @@ function isKeptByCurrentBroker(lead: { status: string; acceptedAt?: Date | null 
     if (lead.acceptedAt) return true;
     const status = normalizeStatus(lead.status);
     return KEPT_BY_BROKER.has(status) || isLoadPhase(status);
+}
+
+/**
+ * One assignment at a time. Email import and the acceptance timer can both
+ * hand out New shipments; without this they can read the same queue slot and
+ * give two loads to one broker.
+ */
+let roundRobinTail: Promise<void> = Promise.resolve();
+
+function withRoundRobinLock<T>(task: () => Promise<T>): Promise<T> {
+    const run = roundRobinTail.then(task, task);
+    roundRobinTail = run.then(
+        () => undefined,
+        () => undefined
+    );
+    return run;
 }
 
 /** Fresh imports only. Passing an Other shipment must not move this pointer. */
@@ -652,7 +669,7 @@ export class AssignmentEngine {
     async getQueueStatus() {
         const { eligible, mode } = await this.resolveEligibleBrokers();
         const state = await this.loadQueueState();
-        const synced = this.syncQueueOrder(
+        const synced = syncQueueOrder(
             state.orderedUserIds,
             eligible.map((e) => e.userId),
             state.nextIndex
@@ -1145,7 +1162,17 @@ export class AssignmentEngine {
         return null;
     }
 
-    private async pickNextBrokerRoundRobin(options?: {
+    private pickNextBrokerRoundRobin(options?: {
+        queueKey?: string;
+        excludeUserIds?: string[];
+    }): Promise<{
+        broker: EligibleBroker;
+        queueSnapshot: string;
+    } | null> {
+        return withRoundRobinLock(() => this.pickNextBrokerRoundRobinLocked(options));
+    }
+
+    private async pickNextBrokerRoundRobinLocked(options?: {
         queueKey?: string;
         excludeUserIds?: string[];
     }): Promise<{
@@ -1153,107 +1180,39 @@ export class AssignmentEngine {
         queueSnapshot: string;
     } | null> {
         const queueKey = options?.queueKey || QUEUE_NEW;
-        const exclude = new Set(options?.excludeUserIds || []);
+        const exclude = options?.excludeUserIds || [];
         const eligible = await this.listEligibleBrokers();
         if (!eligible.length) {
             await this.saveQueueState(queueKey, [], 0);
             return null;
         }
 
-        // Stable order by name so the rotating pointer is predictable; newcomers append via syncQueueOrder.
         const eligibleIds = eligible.map((e) => e.userId);
         const state = await this.loadQueueState(queueKey);
-        const synced = this.syncQueueOrder(state.orderedUserIds, eligibleIds, state.nextIndex);
+        const turn = takeNextInQueue(state, eligibleIds, exclude);
+        if (!turn) return null;
 
-        if (!synced.orderedUserIds.length) {
-            await this.saveQueueState(queueKey, [], 0);
-            return null;
-        }
+        await this.saveQueueState(queueKey, turn.state.orderedUserIds, turn.state.nextIndex);
+        const broker = eligible.find((e) => e.userId === turn.chosenId);
+        if (!broker) return null;
 
-        const n = synced.orderedUserIds.length;
-        // Walk from nextIndex: first In-Office broker not excluded = this shipment's assignee.
-        for (let i = 0; i < n; i++) {
-            const idx = (synced.nextIndex + i) % n;
-            const chosenId = synced.orderedUserIds[idx];
-            if (exclude.has(chosenId)) continue;
-            const broker = eligible.find((e) => e.userId === chosenId);
-            if (!broker) continue;
+        const nextId = turn.state.orderedUserIds[turn.state.nextIndex];
+        const queueSnapshot = JSON.stringify({
+            order: turn.state.orderedUserIds,
+            pickedName: broker.displayName,
+            nextIndex: turn.state.nextIndex,
+            nextName: eligible.find((e) => e.userId === nextId)?.displayName || null,
+            excluded: exclude,
+            names: turn.state.orderedUserIds.map(
+                (id) => eligible.find((e) => e.userId === id)?.displayName || id
+            ),
+        });
 
-            // Advance pointer to the person AFTER the one we just assigned (strict sequential).
-            const nextIndex = (idx + 1) % n;
-            await this.saveQueueState(queueKey, synced.orderedUserIds, nextIndex);
+        console.log(
+            `[assignment] RR ${queueKey} → ${broker.displayName}; next → ${nextId}`
+        );
 
-            const queueSnapshot = JSON.stringify({
-                order: synced.orderedUserIds,
-                pickedIndex: idx,
-                pickedName: broker.displayName,
-                nextIndex,
-                nextName:
-                    eligible.find((e) => e.userId === synced.orderedUserIds[nextIndex])
-                        ?.displayName || null,
-                excluded: [...exclude],
-                names: synced.orderedUserIds.map(
-                    (id) => eligible.find((e) => e.userId === id)?.displayName || id
-                ),
-            });
-
-            console.log(
-                `[assignment] RR ${queueKey} → ${broker.displayName} (idx ${idx}/${n}); next → ${
-                    synced.orderedUserIds[nextIndex]
-                }`
-            );
-
-            return { broker, queueSnapshot };
-        }
-
-        return null;
-    }
-
-    /**
-     * Remove ineligible; append newly eligible to the END (fair return-to-office).
-     * Adjust nextIndex so we don't skip unfairly when removals happen before cursor.
-     */
-    syncQueueOrder(
-        previousOrder: string[],
-        eligibleIds: string[],
-        previousNextIndex: number
-    ): { orderedUserIds: string[]; nextIndex: number } {
-        const eligibleSet = new Set(eligibleIds);
-        const remaining = previousOrder.filter((id) => eligibleSet.has(id));
-        const remainingSet = new Set(remaining);
-        const newcomers = eligibleIds.filter((id) => !remainingSet.has(id));
-
-        // Who was next before sync?
-        const previousNextId =
-            previousOrder.length > 0
-                ? previousOrder[previousNextIndex % previousOrder.length]
-                : null;
-
-        const orderedUserIds = [...remaining, ...newcomers];
-
-        let nextIndex = 0;
-        if (orderedUserIds.length === 0) {
-            nextIndex = 0;
-        } else if (previousNextId && remainingSet.has(previousNextId)) {
-            // Continue at the same person who was next (if still eligible)
-            nextIndex = orderedUserIds.indexOf(previousNextId);
-        } else if (previousNextId && previousOrder.length) {
-            // Next person left — find the next still-eligible after their old position
-            let found = false;
-            for (let i = 1; i <= previousOrder.length; i++) {
-                const cand = previousOrder[(previousNextIndex + i) % previousOrder.length];
-                if (remainingSet.has(cand)) {
-                    nextIndex = orderedUserIds.indexOf(cand);
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) nextIndex = 0;
-        } else {
-            nextIndex = 0;
-        }
-
-        return { orderedUserIds, nextIndex };
+        return { broker, queueSnapshot };
     }
 
     private async joinQueue(queueKey: string, userId: string) {
