@@ -3786,6 +3786,21 @@ button.load-review-choice:hover {
   color: #fb923c;
 }
 
+.acc-row-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+.acc-row-actions .btn-primary,
+.acc-row-actions .btn-secondary,
+.acc-change-form .btn-primary,
+.acc-change-form .btn-secondary {
+  width: auto;
+  margin: 0 0.25rem 0.15rem 0;
+  padding: 0.35rem 0.65rem;
+}
+.acc-load-delete { color: #f0a8a8; border-color: #8a3a3a; }
+.acc-change-row td { background: rgba(255, 255, 255, 0.03); }
+
 .acc-pending-section {
   margin-top: 1.35rem;
 }

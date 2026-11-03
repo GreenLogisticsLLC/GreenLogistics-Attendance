@@ -41,9 +41,14 @@ export function canReceiveNewShipments(role: string | null | undefined): boolean
     return (NEW_SHIPMENT_ASSIGNMENT_ROLES as readonly string[]).includes(String(role || ""));
 }
 
-/** Delete and Change on the Loads list. */
+/** Delete and Change on a load. Team Lead stays on the Loads list; Accounting uses the Accounting queue. */
 export function canManageLoads(role: string | null | undefined): boolean {
-    return role === Roles.TeamLead || role === Roles.Manager || role === Roles.Owner;
+    return (
+        role === Roles.TeamLead ||
+        role === Roles.Manager ||
+        role === Roles.Owner ||
+        role === Roles.Accounting
+    );
 }
 
 export const ROLE_DESCRIPTIONS: Record<string, string> = {

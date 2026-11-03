@@ -153,7 +153,7 @@ export const loadController = {
             if (!canManageLoads(req.user?.role)) {
                 return res.status(403).json({
                     success: false,
-                    message: "Only Team Lead, Manager, and Owner can delete a load",
+                    message: "Only Team Lead, Manager, Owner, and Accounting can delete a load",
                 });
             }
             const id = String(req.params.id || "");

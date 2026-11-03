@@ -12,11 +12,11 @@ test("only brokers and team leads can receive a new shipment", () => {
     assert.equal(canReceiveNewShipments(Roles.Dispatcher), false);
 });
 
-test("only team lead, manager, and owner can change or delete a load", () => {
+test("team lead, manager, owner, and accounting can change or delete a load", () => {
     assert.equal(canManageLoads(Roles.TeamLead), true);
     assert.equal(canManageLoads(Roles.Manager), true);
     assert.equal(canManageLoads(Roles.Owner), true);
+    assert.equal(canManageLoads(Roles.Accounting), true);
     assert.equal(canManageLoads(Roles.Broker), false);
-    assert.equal(canManageLoads(Roles.Accounting), false);
     assert.equal(canManageLoads(Roles.Administrator), false);
 });

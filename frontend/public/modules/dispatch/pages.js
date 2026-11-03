@@ -24,10 +24,10 @@ window.GreenOSModules["dispatch"] = {
     );
   },
 
-  /** Delete and Change on the Loads list. */
+  /** Delete and Change on the Loads list. Accounting uses the same actions on the Accounting queue. */
   canManageLoads() {
     var r = this.role();
-    return r === "Team Lead" || r === "Manager" || r === "Owner";
+    return r === "Team Lead" || r === "Manager" || r === "Owner" || r === "Accounting";
   },
 
   /** Money / Profit — Accounting + Owner (+ Admin). Brokers never see it. */

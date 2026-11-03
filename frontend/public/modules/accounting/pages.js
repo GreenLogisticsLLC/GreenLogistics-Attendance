@@ -146,6 +146,59 @@ window.GreenOSModules.accounting = {
     };
   },
 
+  /** Delete and Change next to Open. Team Lead keeps these on the Loads list only. */
+  canManageLoads() {
+    var r = this.userMeta().role;
+    return r === "Accounting" || r === "Manager" || r === "Owner";
+  },
+
+  loadChangeStatuses() {
+    return [
+      ["LOAD_CREATED", "Load Created"],
+      ["CARRIER_ASSIGNED", "Assign Carrier"],
+      ["RATE_CON_GENERATED", "Rate Confirmation Generated"],
+      ["CARRIER_ACCEPTED", "Carrier Accepted"],
+      ["PICKUP", "Pickup"],
+      ["IN_TRANSIT", "In Road"],
+      ["DELIVERED", "Delivered"],
+      ["POD_UPLOADED", "POD Uploaded"],
+      ["CUSTOMER_INVOICE", "Customer Invoice"],
+      ["CARRIER_PAYMENT", "Carrier Payment"],
+      ["DISPATCH", "Dispatch"],
+      ["COMPLETED", "Completed"],
+      ["CLOSED", "Closed"],
+    ];
+  },
+
+  async loadApi(path, opts) {
+    opts = opts || {};
+    var token = "";
+    try {
+      token = localStorage.getItem("gl_token") || sessionStorage.getItem("gl_token") || "";
+    } catch (e) {}
+    if (!token && window.GreenOSToken) token = window.GreenOSToken;
+    var headers = { Accept: "application/json", "Content-Type": "application/json" };
+    if (token) {
+      headers.Authorization = "Bearer " + token;
+      headers["X-GreenOS-Token"] = token;
+    }
+    var body = opts.body;
+    if (body && token) body = Object.assign({ sessionToken: token }, body);
+    var res = await fetch("/api/loads" + path, {
+      method: opts.method || "GET",
+      cache: "no-store",
+      headers: headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    var json = await res.json().catch(function () {
+      return { success: false, message: "Bad response" };
+    });
+    if (!res.ok || json.success === false) {
+      throw new Error(json.message || "Request failed (" + res.status + ")");
+    }
+    return json;
+  },
+
   filterForSub(subPageId) {
     if (subPageId === "document-review") return "documents";
     if (subPageId === "customer-billing") return "billing";
@@ -326,12 +379,140 @@ window.GreenOSModules.accounting = {
         }
       });
     });
+    self.bindLoadManageHandlers(body);
+  },
+
+  refreshLoads(body) {
+    if (!body) return;
+    var sub = this._subPageId || "dashboard";
+    if (!sub || sub === "dashboard") this.renderDashboard(body);
+    else this.renderList(body, sub);
+  },
+
+  bindLoadManageHandlers(body) {
+    var self = this;
+    if (!body || !self.canManageLoads()) return;
+    var table = body.querySelector(".emp-users-table");
+    var cols = table ? table.querySelectorAll("thead th").length : 6;
+    function field(label, name, value) {
+      return (
+        "<label>" +
+        self.esc(label) +
+        '<input name="' +
+        name +
+        '" value="' +
+        self.esc(value || "") +
+        '"></label>'
+      );
+    }
+    body.querySelectorAll(".acc-change").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var id = btn.getAttribute("data-id");
+        var row = (self._tableRows || []).filter(function (item) {
+          return item.shipmentLeadId === id;
+        })[0];
+        var tr = btn.closest("tr");
+        var next = tr && tr.nextElementSibling;
+        if (next && next.classList.contains("acc-change-row") && next.getAttribute("data-id") === id) {
+          next.remove();
+          return;
+        }
+        body.querySelectorAll(".acc-change-row").forEach(function (open) {
+          open.remove();
+        });
+        if (!tr || !row) return;
+        var options = self
+          .loadChangeStatuses()
+          .map(function (pair) {
+            return (
+              '<option value="' +
+              pair[0] +
+              '"' +
+              (row.status === pair[0] ? " selected" : "") +
+              ">" +
+              self.esc(pair[1]) +
+              "</option>"
+            );
+          })
+          .join("");
+        var editor = document.createElement("tr");
+        editor.className = "acc-change-row";
+        editor.setAttribute("data-id", id);
+        editor.innerHTML =
+          '<td colspan="' +
+          cols +
+          '"><form class="load-change-form acc-change-form">' +
+          field("Customer", "customerName", row.customerName) +
+          field("Pickup city", "pickupCity", row.pickupCity) +
+          field("Pickup state", "pickupState", row.pickupState) +
+          field("Delivery city", "deliveryCity", row.deliveryCity) +
+          field("Delivery state", "deliveryState", row.deliveryState) +
+          field("Carrier", "carrierName", row.carrierName) +
+          '<label>Status<select name="status">' +
+          options +
+          "</select></label>" +
+          '<button type="submit" class="btn-primary">Save</button>' +
+          '<button type="button" class="btn-secondary acc-change-cancel">Cancel</button>' +
+          '<span class="gos-muted load-change-msg"></span>' +
+          "</form></td>";
+        tr.insertAdjacentElement("afterend", editor);
+        editor.querySelector(".acc-change-cancel").addEventListener("click", function () {
+          editor.remove();
+        });
+        editor.querySelector("form").addEventListener("submit", async function (submitEv) {
+          submitEv.preventDefault();
+          var form = submitEv.target;
+          var msg = editor.querySelector(".load-change-msg");
+          function fieldValue(name) {
+            var el = form.elements.namedItem(name);
+            return el ? el.value : "";
+          }
+          var payload = {
+            customerName: fieldValue("customerName"),
+            pickupCity: fieldValue("pickupCity"),
+            pickupState: fieldValue("pickupState"),
+            deliveryCity: fieldValue("deliveryCity"),
+            deliveryState: fieldValue("deliveryState"),
+            carrierName: fieldValue("carrierName"),
+            status: fieldValue("status"),
+          };
+          if (msg) msg.textContent = "Saving…";
+          try {
+            await self.loadApi("/" + encodeURIComponent(id), { method: "PATCH", body: payload });
+            self.refreshLoads(body);
+          } catch (err) {
+            if (msg) msg.textContent = err.message || "Could not save";
+          }
+        });
+      });
+    });
+    body.querySelectorAll(".acc-load-delete").forEach(function (btn) {
+      btn.addEventListener("click", async function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var id = btn.getAttribute("data-id");
+        var num = btn.getAttribute("data-load") || "this load";
+        if (!confirm("Delete load " + num + "? This removes it from Loads.")) return;
+        btn.disabled = true;
+        try {
+          await self.loadApi("/" + encodeURIComponent(id), { method: "DELETE" });
+          if (self._selectedId === id) self._selectedId = null;
+          self.refreshLoads(body);
+        } catch (err) {
+          btn.disabled = false;
+          alert(err.message || "Could not delete the load");
+        }
+      });
+    });
   },
 
   shipmentsTableHtml(rows, opts) {
     var self = this;
     var options = opts || {};
     var showQueue = !!options.showQueue;
+    self._tableRows = rows || [];
     var head =
       "<th>Load</th><th>Customer</th><th>Carrier</th>" +
       (showQueue ? "<th>Waiting for</th>" : "<th>Doc status</th><th>Ready</th>") +
@@ -377,9 +558,20 @@ window.GreenOSModules.accounting = {
           (r.carrierPaidAt ? "Carr✓" : "") +
           (!r.customerPaidAt && !r.carrierPaidAt ? "—" : "") +
           "</td>" +
-          '<td><button type="button" class="btn-primary acc-open" data-id="' +
+          '<td class="acc-row-actions">' +
+          (self.canManageLoads()
+            ? '<button type="button" class="btn-secondary acc-change" data-id="' +
+              self.esc(r.shipmentLeadId) +
+              '">Change</button>' +
+              '<button type="button" class="btn-secondary acc-load-delete" data-id="' +
+              self.esc(r.shipmentLeadId) +
+              '" data-load="' +
+              self.esc(r.loadNumber || "") +
+              '">Delete</button>'
+            : "") +
+          '<button type="button" class="btn-primary acc-open" data-id="' +
           self.esc(r.shipmentLeadId) +
-          '" style="width:auto;padding:0.35rem 0.65rem">Open</button></td>' +
+          '">Open</button></td>' +
           "</tr>"
         );
       })
