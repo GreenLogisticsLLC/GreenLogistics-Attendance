@@ -560,10 +560,59 @@ window.GreenOSModules.crm = {
     );
   },
 
+  /** One remembered status filter per tab (New / Other / Accepted / …). */
+  statusFilterKey(options) {
+    options = options || {};
+    var scope = "all";
+    if (options.status) scope = "status:" + options.status;
+    else if (options.assignmentKind) scope = String(options.assignmentKind);
+    return "gos_ship_status_filter:" + scope;
+  },
+
+  statusGroupValue(options) {
+    options = options || {};
+    var raw = "";
+    if (Object.prototype.hasOwnProperty.call(options, "statusGroup")) {
+      raw = options.statusGroup == null ? "" : String(options.statusGroup);
+    } else {
+      try {
+        raw = sessionStorage.getItem(this.statusFilterKey(options)) || "";
+      } catch (e) {
+        raw = "";
+      }
+    }
+    return raw.replace(/[^A-Z0-9_]/g, "");
+  },
+
+  statusFilterSelectHtml(filters, current) {
+    var esc = this.esc.bind(this);
+    var options = '<option value="">All statuses</option>';
+    (filters || []).forEach(function (row) {
+      var id = String((row && row.id) || "").replace(/[^A-Z0-9_]/g, "");
+      if (!id) return;
+      options +=
+        '<option value="' +
+        id +
+        '"' +
+        (id === current ? " selected" : "") +
+        ">" +
+        esc(row.label || id) +
+        "</option>";
+    });
+    return (
+      '<label class="crm-page-size">Status ' +
+      '<select class="crm-page-size-select crm-status-filter" aria-label="Filter shipments by status">' +
+      options +
+      "</select></label>"
+    );
+  },
+
   async renderShipments(body, root, brokerId, options) {
     options = options || {};
     var page = Math.max(1, Number(options.page) || 1);
     var pageSize = this.shipPageSize(options.pageSize);
+    var statusGroup = this.statusGroupValue(options);
+    var filterKey = this.statusFilterKey(options);
     // Keep the current table on background reloads so the page does not blink.
     if (!body.querySelector("#crm-ship-body")) {
       body.innerHTML = "<p>Loading shipments…</p>";
@@ -580,6 +629,9 @@ window.GreenOSModules.crm = {
       }
       if (options.status) {
         params.push("status=" + encodeURIComponent(options.status));
+      }
+      if (statusGroup) {
+        params.push("statusGroup=" + encodeURIComponent(statusGroup));
       }
       params.push("page=" + encodeURIComponent(String(page)));
       params.push("pageSize=" + encodeURIComponent(String(pageSize)));
@@ -627,6 +679,14 @@ window.GreenOSModules.crm = {
       }
       var fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
       var toIdx = Math.min(total, (page - 1) * pageSize + rows.length);
+      var appliedGroup =
+        payload && typeof payload.statusGroup === "string" ? payload.statusGroup : statusGroup;
+      appliedGroup = String(appliedGroup || "").replace(/[^A-Z0-9_]/g, "");
+      try {
+        sessionStorage.setItem(filterKey, appliedGroup);
+      } catch (e) {}
+      statusGroup = appliedGroup;
+      var statusFilters = payload && Array.isArray(payload.statusFilters) ? payload.statusFilters : [];
       var crmUi = this;
       body.innerHTML =
         '<div class="crm-ship-board">' +
@@ -645,8 +705,10 @@ window.GreenOSModules.crm = {
               : "No shipments") +
             (totalPages > 1 ? " · Page " + page + " / " + totalPages : "");
           var sizeSelect = crmUi.pageSizeSelectHtml(pageSize);
+          var statusSelect = crmUi.statusFilterSelectHtml(statusFilters, statusGroup);
           var btns =
-            '<div style="display:flex;gap:0.5rem;align-items:center">' +
+            '<div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">' +
+            statusSelect +
             sizeSelect +
             '<button type="button" class="btn-secondary crm-ship-prev" style="width:auto"' +
             (page <= 1 ? " disabled" : "") +
@@ -682,32 +744,49 @@ window.GreenOSModules.crm = {
       body.querySelectorAll(".crm-ship-prev").forEach(function (btn) {
         btn.addEventListener("click", function () {
           if (page <= 1) return;
-          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page - 1, pageSize: pageSize }));
+          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page - 1, pageSize: pageSize, statusGroup: statusGroup }));
         });
       });
       body.querySelectorAll(".crm-ship-next").forEach(function (btn) {
         btn.addEventListener("click", function () {
           if (page >= totalPages) return;
-          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page + 1, pageSize: pageSize }));
+          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: page + 1, pageSize: pageSize, statusGroup: statusGroup }));
         });
       });
       body.querySelectorAll(".crm-page-size-select").forEach(function (sel) {
+        if (sel.classList.contains("crm-status-filter")) return;
         sel.addEventListener("change", function () {
           var nextSize = self.shipPageSize(sel.value);
           try {
             sessionStorage.setItem("gos_ship_page_size", String(nextSize));
           } catch (e) {}
-          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: 1, pageSize: nextSize }));
+          self.renderShipments(body, root, brokerId, Object.assign({}, options, { page: 1, pageSize: nextSize, statusGroup: statusGroup }));
+        });
+      });
+      body.querySelectorAll(".crm-status-filter").forEach(function (sel) {
+        sel.addEventListener("change", function () {
+          var nextGroup = String(sel.value || "").replace(/[^A-Z0-9_]/g, "");
+          try {
+            sessionStorage.setItem(filterKey, nextGroup);
+          } catch (e) {}
+          self.renderShipments(
+            body,
+            root,
+            brokerId,
+            Object.assign({}, options, { page: 1, pageSize: pageSize, statusGroup: nextGroup })
+          );
         });
       });
       if (!rows.length) {
         tbody.innerHTML =
           '<tr><td colspan="13">' +
-          (options.onlyMine
-            ? "No new shipments assigned to you yet"
-            : options.status === "ACCEPTED_ANOTHER_COMPANY"
-              ? "No shipments accepted by another company"
-              : "No shipments yet — import from Email Imports") +
+          (statusGroup
+            ? "No shipments with this status"
+            : options.onlyMine
+              ? "No new shipments assigned to you yet"
+              : options.status === "ACCEPTED_ANOTHER_COMPANY"
+                ? "No shipments accepted by another company"
+                : "No shipments yet — import from Email Imports") +
           "</td></tr>";
         return;
       }

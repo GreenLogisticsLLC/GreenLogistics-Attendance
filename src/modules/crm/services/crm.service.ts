@@ -12,6 +12,12 @@ import { ensureGreenOsShipmentId } from "../../shipment/shipment.id.js";
 import { isLoadPhase, normalizeStatus, statusLabel } from "../../shipment/shipment.lifecycle.js";
 import { listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { awaitingAcceptWhere, unassignedShipmentWhere } from "../unassigned-where.js";
+import {
+    applyStatusGroupFilter,
+    canonicalStatusGroup,
+    statusFiltersForClient,
+    statusGroupIncludesDeleted,
+} from "../shipment-status-filter.js";
 import { canWorkAnyShipment } from "../../../auth/roles.js";
 import {
     followUshipToListingUrl,
@@ -408,6 +414,8 @@ export class CrmService {
         lite?: boolean;
         /** new | other | accepted — board tabs for first-time / passed / broker-accepted. */
         assignmentKind?: "new" | "other" | "accepted";
+        /** Dropdown on the shipment list. Intersects the tab; unknown values are ignored. */
+        statusGroup?: string;
         /** Include terminal deleted rows (default: hide — they are purged from CRM). */
         includeDeleted?: boolean;
     }) {
@@ -435,9 +443,10 @@ export class CrmService {
                 },
             ];
         }
+        const statusGroup = canonicalStatusGroup(options?.statusGroup);
         if (options?.status) {
             where.status = options.status;
-        } else if (!options?.includeDeleted) {
+        } else if (!options?.includeDeleted && !statusGroupIncludesDeleted(statusGroup)) {
             // Deleted-by-customer cards are purged; hide any leftover soft-deleted rows.
             where.status = { not: "DELETED_FROM_CUSTOMER" };
         }
@@ -492,6 +501,10 @@ export class CrmService {
             ];
             delete where.status;
         }
+
+        // After the tab filter. New / Other / Accepted delete where.status,
+        // so the dropdown has to be a separate AND or it would be wiped.
+        applyStatusGroupFilter(where, statusGroup);
 
         const lite = options?.lite === true;
         const pageSizeRaw = options?.pageSize ?? options?.limit ?? (lite ? 50 : 50);
@@ -602,6 +615,8 @@ export class CrmService {
             page,
             pageSize,
             totalPages: Math.max(1, Math.ceil(total / pageSize)),
+            statusGroup,
+            statusFilters: statusFiltersForClient(),
         };
     }
 

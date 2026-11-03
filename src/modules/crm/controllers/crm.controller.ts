@@ -72,6 +72,8 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
         }
     }
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    const statusGroup =
+        typeof req.query.statusGroup === "string" ? req.query.statusGroup : undefined;
     const assignmentKind =
         req.query.assignmentKind === "new" ||
         req.query.assignmentKind === "other" ||
@@ -86,6 +88,7 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
     const data = await crmService.listShipments({
         brokerId,
         status,
+        statusGroup,
         assignmentKind,
         page,
         pageSize,
