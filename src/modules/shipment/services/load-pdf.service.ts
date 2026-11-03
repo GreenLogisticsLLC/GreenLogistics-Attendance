@@ -85,6 +85,8 @@ export type LoadDocumentContent = {
     driverPhone?: string | null;
     truckNumber?: string | null;
     trailerNumber?: string | null;
+    /** Trailer VIN, separate from the cargo vehicle VIN on the BOL. */
+    trailerVin?: string | null;
     vinNumber?: string | null;
     pickupAddress?: string | null;
     deliveryAddress?: string | null;
@@ -444,7 +446,7 @@ function renderRateConfirmationPdf(
     fieldRow(
         doc,
         "DRIVER INFORMATION:",
-        [txt(c.driverName), txt(c.driverPhone), txt(c.truckNumber) ? `Truck ${txt(c.truckNumber)}` : "", txt(c.trailerNumber) ? `Trailer ${txt(c.trailerNumber)}` : ""]
+        [txt(c.driverName), txt(c.driverPhone), txt(c.truckNumber) ? `Truck ${txt(c.truckNumber)}` : "", txt(c.trailerNumber) ? `Trailer ${txt(c.trailerNumber)}` : "", txt(c.trailerVin) ? `Trailer VIN ${txt(c.trailerVin)}` : ""]
             .filter(Boolean)
             .join(" · ") || "—",
         left + 8,
@@ -723,9 +725,13 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     doc.font("Helvetica").fontSize(8);
     doc.text(`MC: ${txt(c.carrierMc) || "—"}`, left + 306, y + 36);
     doc.text(`Truck: ${txt(c.truckNumber) || "—"}`, left + 400, y + 36);
-    doc.text(`Trailer#: ${txt(c.trailerNumber) || "—"}`, left + 306, y + 50);
-    doc.text(`VIN#: ${txt(c.vinNumber) || "—"}`, left + 400, y + 50);
-    doc.text(`CONTACT: ${txt(c.carrierPhone) || txt(c.driverPhone) || txt(c.driverName) || "—"}`, left + 306, y + 64, {
+    doc.text(`Trailer#: ${txt(c.trailerNumber) || "—"}`, left + 306, y + 50, { width: 88, lineBreak: false });
+    doc.text(`VIN#: ${txt(c.vinNumber) || "—"}`, left + 400, y + 50, { width: 150, lineBreak: false });
+    const contactBits = [
+        txt(c.carrierPhone) || txt(c.driverPhone) || txt(c.driverName) || "—",
+        txt(c.trailerVin) ? `Trailer VIN ${txt(c.trailerVin)}` : "",
+    ].filter(Boolean);
+    doc.text(`CONTACT: ${contactBits.join(" · ")}`, left + 306, y + 64, {
         width: 240,
     });
     y += toH;

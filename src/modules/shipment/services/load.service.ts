@@ -584,6 +584,7 @@ export class LoadService {
                 driverPhone: s.driverPhone,
                 truckNumber: s.truckNumber,
                 trailerNumber: s.trailerNumber,
+                trailerVin: s.trailerVin,
                 // From carrier online packet (mandatory payment radios).
                 paymentOption: carrierProfile?.paymentOption || null,
                 paymentOptionLabel: carrierPaymentOptionLabel(carrierProfile?.paymentOption) || null,
@@ -747,6 +748,7 @@ export class LoadService {
             priority: string;
             carrierName: string | null;
             carrierEmail: string | null;
+            trailerVin?: string | null;
         },
         body: Record<string, unknown>,
         actorUserId?: string
@@ -823,6 +825,7 @@ export class LoadService {
                 driverPhone: str("driverPhone") ?? null,
                 truckNumber: str("truckNumber") ?? null,
                 trailerNumber: str("trailerNumber") ?? null,
+                trailerVin: str("trailerVin") ?? previous.trailerVin ?? null,
                 carrierProfileId: null,
                 loadCarrierApprovedAt: null,
                 loadCarrierApprovedById: null,
@@ -998,6 +1001,7 @@ export class LoadService {
         str("driverPhone");
         str("truckNumber");
         str("trailerNumber");
+        str("trailerVin");
         str("paymentStatus");
         str("invoiceNumber");
         str("trackingStatus");

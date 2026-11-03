@@ -2462,6 +2462,7 @@ window.GreenOSModules["dispatch"] = {
         field("Driver phone", self.formatUsPhone(c.driverPhone) || c.driverPhone) +
         field("Truck", c.truckNumber) +
         field("Trailer", c.trailerNumber) +
+        field("Trailer VIN", c.trailerVin) +
         field(
           "Pickup date",
           g.pickup && (g.pickup.from || g.pickup.opsAt)
@@ -2496,6 +2497,7 @@ window.GreenOSModules["dispatch"] = {
         '" placeholder="(XXX) XXX-XXXX"></label>' +
         '<label>Truck <input id="ld-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
         '<label>Trailer <input id="ld-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
+        '<label>Trailer VIN <input id="ld-trailer-vin" value="' + self.esc(c.trailerVin || "") + '" placeholder="Trailer VIN"></label>' +
         '<div class="full load-appt-row">' +
         self.apptFieldHtml(
           "ld-c-pickup",
@@ -2548,6 +2550,7 @@ window.GreenOSModules["dispatch"] = {
             driverPhone: self.formatUsPhone(main.querySelector("#ld-driver-phone").value) || null,
             truckNumber: main.querySelector("#ld-truck").value || null,
             trailerNumber: main.querySelector("#ld-trailer").value || null,
+            trailerVin: main.querySelector("#ld-trailer-vin").value || null,
             carrierStatus: c.carrierStatus || "Assigned",
             carrierProfileId:
               profileIdEl && profileIdEl.value ? String(profileIdEl.value).trim() : null,
@@ -2584,6 +2587,7 @@ window.GreenOSModules["dispatch"] = {
             self.normCarrierPhone(carrierPayload.driverPhone) !== self.normCarrierPhone(c.driverPhone),
             self.normCarrierText(carrierPayload.truckNumber) !== self.normCarrierText(c.truckNumber),
             self.normCarrierText(carrierPayload.trailerNumber) !== self.normCarrierText(c.trailerNumber),
+            self.normCarrierText(carrierPayload.trailerVin) !== self.normCarrierText(c.trailerVin),
             self.normCarrierIso(nextPickup) !== self.normCarrierIso(prevPickup) ||
               self.normCarrierIso(pickupAppt.from) !== self.normCarrierIso(g.pickup && g.pickup.from) ||
               self.normCarrierIso(pickupAppt.to) !== self.normCarrierIso(g.pickup && g.pickup.to),
@@ -3748,6 +3752,9 @@ window.GreenOSModules["dispatch"] = {
       '" placeholder="(XXX) XXX-XXXX"></label>' +
       '<label>Truck # <input id="rc-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
       '<label>Trailer # <input id="rc-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
+      '<label>Trailer VIN <input id="rc-trailer-vin" value="' +
+      self.esc(c.trailerVin || pick("trailerVin", "")) +
+      '" placeholder="Trailer VIN"></label>' +
       '<label class="full">Payment option <input id="rc-pay" value="' +
       self.esc(
         pick(
@@ -3853,6 +3860,7 @@ window.GreenOSModules["dispatch"] = {
                 driverPhone: self.formatUsPhone(box.querySelector("#rc-dphone").value) || null,
                 truckNumber: box.querySelector("#rc-truck").value || null,
                 trailerNumber: box.querySelector("#rc-trailer").value || null,
+                trailerVin: box.querySelector("#rc-trailer-vin").value || null,
                 equipment: box.querySelector("#rc-equip").value || null,
                 weight: weight,
                 commodity: commodity,
@@ -3912,6 +3920,7 @@ window.GreenOSModules["dispatch"] = {
           driverPhone: self.formatUsPhone(box.querySelector("#rc-dphone").value) || box.querySelector("#rc-dphone").value,
           truckNumber: box.querySelector("#rc-truck").value,
           trailerNumber: box.querySelector("#rc-trailer").value,
+          trailerVin: box.querySelector("#rc-trailer-vin").value,
           paymentOption: box.querySelector("#rc-pay").value,
           deliveryNote: box.querySelector("#rc-delnote").value,
           specialNotes: box.querySelector("#rc-notes").value,
@@ -4049,6 +4058,7 @@ window.GreenOSModules["dispatch"] = {
       '<label>MC# <input id="bol-mc" value="' + self.esc(c.mc || "") + '"></label>' +
       '<label>Truck <input id="bol-truck" value="' + self.esc(c.truckNumber || "") + '"></label>' +
       '<label>Trailer# <input id="bol-trailer" value="' + self.esc(c.trailerNumber || "") + '"></label>' +
+      '<label>Trailer VIN <input id="bol-trailer-vin" value="' + self.esc(c.trailerVin || pick("trailerVin", "")) + '"></label>' +
       '<label>VIN# <input id="bol-vin" value="' + self.esc(pick("vinNumber", "")) + '"></label>' +
       '<label>Carrier / driver contact <input id="bol-cphone" value="' + self.esc(c.driverName || "") + '"></label>' +
       '<label class="full">Third party freight bills to <input id="bol-third" value="' +
@@ -4149,6 +4159,7 @@ window.GreenOSModules["dispatch"] = {
             carrierMc: box.querySelector("#bol-mc").value || null,
             truckNumber: box.querySelector("#bol-truck").value || null,
             trailerNumber: box.querySelector("#bol-trailer").value || null,
+            trailerVin: box.querySelector("#bol-trailer-vin").value || null,
             commodity: box.querySelector("#bol-commodity").value || null,
             weight: weight,
             pieces: box.querySelector("#bol-pkgs").value || null,
@@ -4169,6 +4180,7 @@ window.GreenOSModules["dispatch"] = {
           carrierPhone: box.querySelector("#bol-cphone").value,
           truckNumber: box.querySelector("#bol-truck").value,
           trailerNumber: box.querySelector("#bol-trailer").value,
+          trailerVin: box.querySelector("#bol-trailer-vin").value,
           vinNumber: box.querySelector("#bol-vin").value,
           pickupAddress: origin,
           additionalOrigins: self.collectExtraStops(box, "#bol-extra-origins"),

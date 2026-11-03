@@ -200,6 +200,7 @@ export class LoadDocumentsService {
             driverPhone: s.driverPhone,
             truckNumber: s.truckNumber,
             trailerNumber: s.trailerNumber,
+            trailerVin: s.trailerVin,
             pickupAddress: place(s.pickupCity, s.pickupState, s.pickupZip),
             deliveryAddress: place(s.deliveryCity, s.deliveryState, s.deliveryZip),
             pickupWindow: fmtWindow(s.pickupFrom, s.pickupTo),

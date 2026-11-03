@@ -346,6 +346,8 @@ model ShipmentLead {
   driverPhone           String?                 @map("driver_phone")
   truckNumber           String?                 @map("truck_number")
   trailerNumber         String?                 @map("trailer_number")
+  /// Trailer VIN written on the load and Rate Confirmation.
+  trailerVin            String?                 @map("trailer_vin")
   rateConfirmation      String?                 @map("rate_confirmation")
   podUrl                String?                 @map("pod_url")
   invoiceNumber         String?                 @map("invoice_number")
