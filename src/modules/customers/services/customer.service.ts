@@ -214,6 +214,9 @@ export class CustomerService {
                 receivedAt: now,
                 directCustomerId: customer.customerId,
                 priority: "NORMAL",
+                // A customer load is not a passed shipment. It becomes Load Created.
+                isReassignment: false,
+                wasEverReassigned: false,
             },
         });
 

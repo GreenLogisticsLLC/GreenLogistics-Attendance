@@ -22,6 +22,8 @@ window.GreenOSModules.shipments = {
         ? "other"
         : subPageId === "accepted"
           ? "accepted"
+          : subPageId === "load-created"
+            ? "load-created"
           : subPageId === "accepted-another"
             ? "accepted-another"
             : subPageId === "by-broker"
@@ -53,6 +55,9 @@ window.GreenOSModules.shipments = {
       '<button type="button" class="gos-subnav-item' +
       (tab === "accepted" ? " is-active" : "") +
       '" data-subpage="accepted">Accepted shipments</button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (tab === "load-created" ? " is-active" : "") +
+      '" data-subpage="load-created">Load Created</button>' +
       '<button type="button" class="gos-subnav-item' +
       (tab === "accepted-another" ? " is-active" : "") +
       '" data-subpage="accepted-another">Accepted to another company</button>' +
@@ -86,6 +91,8 @@ window.GreenOSModules.shipments = {
         ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
         : tab === "mine"
           ? { assignmentKind: "new", page: 1, onlyMine: true }
+          : tab === "load-created"
+            ? { assignmentKind: "loads", page: 1 }
           : { assignmentKind: tab, page: 1 };
     var brokerId = tab === "mine" ? me.userId || null : null;
     crm.renderShipments(body, root, brokerId, opts);

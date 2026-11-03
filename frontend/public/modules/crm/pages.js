@@ -623,7 +623,8 @@ window.GreenOSModules.crm = {
       if (
         options.assignmentKind === "new" ||
         options.assignmentKind === "other" ||
-        options.assignmentKind === "accepted"
+        options.assignmentKind === "accepted" ||
+        options.assignmentKind === "loads"
       ) {
         params.push("assignmentKind=" + options.assignmentKind);
       }
@@ -656,7 +657,9 @@ window.GreenOSModules.crm = {
       var tabLabel =
         options.status === "ACCEPTED_ANOTHER_COMPANY"
           ? "Accepted to another company"
-          : options.assignmentKind === "accepted"
+          : options.assignmentKind === "loads"
+            ? "Load Created"
+            : options.assignmentKind === "accepted"
             ? "Accepted shipments"
             : options.assignmentKind === "other"
               ? "Other Shipment"
@@ -666,6 +669,8 @@ window.GreenOSModules.crm = {
       var tabHelp =
         options.status === "ACCEPTED_ANOTHER_COMPANY"
           ? "Broker Gmail Decline Reason = Accepted another quote — moved here automatically."
+          : options.assignmentKind === "loads"
+            ? "Customer approved the shipment and Green OS already created the Load. Direct-customer loads land here, not in Other."
           : options.assignmentKind === "accepted"
             ? "Broker accepted the shipment (Shipment Accepted) and active work beyond waiting."
             : options.assignmentKind === "other"
@@ -786,6 +791,8 @@ window.GreenOSModules.crm = {
               ? "No new shipments assigned to you yet"
               : options.status === "ACCEPTED_ANOTHER_COMPANY"
                 ? "No shipments accepted by another company"
+                : options.assignmentKind === "loads"
+                  ? "No generated loads yet"
                 : "No shipments yet — import from Email Imports") +
           "</td></tr>";
         return;

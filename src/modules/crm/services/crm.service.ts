@@ -18,6 +18,7 @@ import {
     statusFiltersForClient,
     statusGroupIncludesDeleted,
 } from "../shipment-status-filter.js";
+import { generatedLoadWhere, notGeneratedLoadWhere } from "../shipment-tabs.js";
 import { canWorkAnyShipment } from "../../../auth/roles.js";
 import {
     followUshipToListingUrl,
@@ -412,8 +413,8 @@ export class CrmService {
         teamLeadId?: string;
         /** Broker My Shipments — slim payload, no heavy blobs. */
         lite?: boolean;
-        /** new | other | accepted — board tabs for first-time / passed / broker-accepted. */
-        assignmentKind?: "new" | "other" | "accepted";
+        /** new | other | accepted | loads — board tabs. */
+        assignmentKind?: "new" | "other" | "accepted" | "loads";
         /** Dropdown on the shipment list. Intersects the tab; unknown values are ignored. */
         statusGroup?: string;
         /** Include terminal deleted rows (default: hide — they are purged from CRM). */
@@ -469,6 +470,7 @@ export class CrmService {
                 where.AND = [
                     ...(Array.isArray(where.AND) ? where.AND : []),
                     { status: { in: waitingStatuses } },
+                    notGeneratedLoadWhere(),
                 ];
             } else {
                 // Main account: every new shipment that arrived, including ones a broker already took.
@@ -479,6 +481,7 @@ export class CrmService {
                             notIn: ["DELETED_FROM_CUSTOMER", "LOST", "ACCEPTED_ANOTHER_COMPANY"],
                         },
                     },
+                    notGeneratedLoadWhere(),
                 ];
             }
             delete where.status;
@@ -487,17 +490,27 @@ export class CrmService {
                 OR: [{ isReassignment: true }, { wasEverReassigned: true }],
             };
             // Passed on because a broker did not take it — still not accepted.
+            // A generated Load never belongs here, including a direct-customer Load.
             where.AND = [
                 ...(Array.isArray(where.AND) ? where.AND : []),
                 passed,
                 { status: { in: waitingStatuses } },
+                notGeneratedLoadWhere(),
             ];
             delete where.status;
         } else if (options?.assignmentKind === "accepted") {
             // Broker accepted (Shipment Accepted) or progressed further — leave New/Other.
+            // Generated loads have their own tab.
             where.AND = [
                 ...(Array.isArray(where.AND) ? where.AND : []),
                 { status: { notIn: [...waitingStatuses, ...excludeTerminal] } },
+                notGeneratedLoadWhere(),
+            ];
+            delete where.status;
+        } else if (options?.assignmentKind === "loads") {
+            where.AND = [
+                ...(Array.isArray(where.AND) ? where.AND : []),
+                generatedLoadWhere(),
             ];
             delete where.status;
         }

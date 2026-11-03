@@ -276,7 +276,7 @@ window.GreenOSModules.broker = {
     var self = this;
     var activeTab = self._shipmentsTab || "new";
     body.innerHTML =
-      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>New imports first — passed loads in Other · accepted work in Accepted · AAC in its own tab</p></section>' +
+      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>New imports first — passed loads in Other · accepted work in Accepted · customer-approved loads in Load Created</p></section>' +
       '<nav class="gos-subnav" id="broker-ship-tabs">' +
       '<button type="button" class="gos-subnav-item' +
       (activeTab === "new" ? " is-active" : "") +
@@ -287,6 +287,9 @@ window.GreenOSModules.broker = {
       '<button type="button" class="gos-subnav-item' +
       (activeTab === "accepted" ? " is-active" : "") +
       '" data-ship-tab="accepted">Accepted shipments <span class="gos-queue-badge" id="broker-ship-count-accepted">…</span></button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (activeTab === "loads" ? " is-active" : "") +
+      '" data-ship-tab="loads">Load Created <span class="gos-queue-badge" id="broker-ship-count-loads">…</span></button>' +
       '<button type="button" class="gos-subnav-item' +
       (activeTab === "accepted-another" ? " is-active" : "") +
       '" data-ship-tab="accepted-another">Accepted to another company <span class="gos-queue-badge" id="broker-ship-count-aac">…</span></button>' +
@@ -398,6 +401,7 @@ window.GreenOSModules.broker = {
 
     function tabLabelFor(tab) {
       if (tab === "other") return "Other Shipment";
+      if (tab === "loads") return "Load Created";
       if (tab === "accepted") return "Accepted shipments";
       if (tab === "accepted-another") return "Accepted to another company";
       return "New Shipment";
@@ -454,6 +458,8 @@ window.GreenOSModules.broker = {
       if (otherEl && meta.otherCount != null) otherEl.textContent = String(meta.otherCount);
       if (acceptedEl && meta.acceptedCount != null)
         acceptedEl.textContent = String(meta.acceptedCount);
+      var loadsEl = document.getElementById("broker-ship-count-loads");
+      if (loadsEl && meta.loadsCount != null) loadsEl.textContent = String(meta.loadsCount);
       if (aacEl && meta.aacCount != null) aacEl.textContent = String(meta.aacCount);
     }
 
@@ -651,6 +657,8 @@ window.GreenOSModules.broker = {
           params.push("status=ACCEPTED_ANOTHER_COMPANY");
         } else if (tab === "accepted") {
           params.push("assignmentKind=accepted");
+        } else if (tab === "loads") {
+          params.push("assignmentKind=loads");
         } else {
           params.push("assignmentKind=" + encodeURIComponent(tab));
         }
@@ -682,10 +690,11 @@ window.GreenOSModules.broker = {
 
         // Lightweight count probes for the other tabs (pageSize=1 → total only).
         try {
-          var [newMeta, otherMeta, acceptedMeta, aacMeta] = await Promise.all([
+          var [newMeta, otherMeta, acceptedMeta, loadsMeta, aacMeta] = await Promise.all([
             self.api("/shipments?assignmentKind=new&page=1&pageSize=1"),
             self.api("/shipments?assignmentKind=other&page=1&pageSize=1"),
             self.api("/shipments?assignmentKind=accepted&page=1&pageSize=1"),
+            self.api("/shipments?assignmentKind=loads&page=1&pageSize=1"),
             self.api("/shipments?status=ACCEPTED_ANOTHER_COMPANY&page=1&pageSize=1"),
           ]);
           updateTabCounts({
@@ -696,6 +705,8 @@ window.GreenOSModules.broker = {
               acceptedMeta && acceptedMeta.success
                 ? (acceptedMeta.data && acceptedMeta.data.total) || 0
                 : "…",
+            loadsCount:
+              loadsMeta && loadsMeta.success ? (loadsMeta.data && loadsMeta.data.total) || 0 : "…",
             aacCount: aacMeta && aacMeta.success ? (aacMeta.data && aacMeta.data.total) || 0 : "…",
           });
         } catch {

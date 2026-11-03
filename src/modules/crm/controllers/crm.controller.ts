@@ -10,6 +10,7 @@ import {
     teamScopeUserId,
 } from "../../../auth/access.js";
 import { canManageBrokers, canViewLoadProfit, canWorkAnyShipment, isDataScopedRole, isTeamScopedRole } from "../../../auth/roles.js";
+import { isShipmentAssignmentKind } from "../shipment-tabs.js";
 import { isBrokerOnTeam, listTeamBrokerIds } from "../../../auth/team-scope.js";
 import { prisma } from "../../../config/database.js";
 import path from "path";
@@ -74,12 +75,9 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
     const statusGroup =
         typeof req.query.statusGroup === "string" ? req.query.statusGroup : undefined;
-    const assignmentKind =
-        req.query.assignmentKind === "new" ||
-        req.query.assignmentKind === "other" ||
-        req.query.assignmentKind === "accepted"
-            ? req.query.assignmentKind
-            : undefined;
+    const assignmentKind = isShipmentAssignmentKind(req.query.assignmentKind)
+        ? req.query.assignmentKind
+        : undefined;
     const pageRaw = Number(req.query.page);
     const pageSizeRaw = Number(req.query.pageSize ?? req.query.limit);
     const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
