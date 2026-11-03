@@ -2712,7 +2712,7 @@ button.load-review-choice:hover {
   border-radius: 8px;
   padding: 0.35rem 0.45rem;
 }
-.load-table tbody tr.load-row:hover { background: var(--gos-accent-soft); }
+.gos-decline-btn { color: #f07178; border-color: #8a3a3a; width: auto; }
 tr.load-row.load-row-no-carrier td,
 tr.crm-row.load-row-no-carrier td {
   background: rgba(234, 88, 12, 0.38);

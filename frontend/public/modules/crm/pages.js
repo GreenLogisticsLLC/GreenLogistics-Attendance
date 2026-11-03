@@ -868,6 +868,14 @@ window.GreenOSModules.crm = {
             "</td>" +
             "<td>" +
             statusCell(s.status, { customerReplied: Boolean(s.customerReplied) }) +
+            (function () {
+              var me = (window.GreenOS && window.GreenOS.user) || window.GreenOSUser || {};
+              var waiting = s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED" || s.status === "AGENT_OPEN";
+              if (!waiting) return "";
+              if (me.role !== "Broker" && me.role !== "Team Lead") return "";
+              if (s.assignedBrokerId && me.userId && s.assignedBrokerId !== me.userId) return "";
+              return ' <button type="button" class="btn-secondary gos-decline-btn" data-decline="' + esc(s.shipmentLeadId) + '">Decline</button>';
+            })() +
             "</td>" +
             "<td>" +
             esc(s.priority || "NORMAL") +
@@ -886,6 +894,26 @@ window.GreenOSModules.crm = {
       tbody.querySelectorAll("tr[data-id]").forEach(function (tr) {
         tr.addEventListener("click", function () {
           window.GreenOSModules.crm.openShipmentCard(root, tr.getAttribute("data-id"));
+        });
+      });
+      tbody.querySelectorAll(".gos-decline-btn").forEach(function (btn) {
+        btn.addEventListener("click", async function (ev) {
+          ev.stopPropagation();
+          var id = btn.getAttribute("data-decline");
+          if (!id) return;
+          if (!confirm("Decline this shipment? It goes to the next broker now. The 15-minute timer stays for the others.")) return;
+          btn.disabled = true;
+          try {
+            var res = await window.GreenOSModules.crm.api("/shipments/" + encodeURIComponent(id) + "/decline", {
+              method: "POST",
+              body: "{}",
+            });
+            if (!res || res.success === false) throw new Error((res && res.message) || "Could not decline");
+            window.GreenOSModules.crm.renderShipments(body, root, brokerId, options);
+          } catch (err) {
+            alert(err.message || err);
+            btn.disabled = false;
+          }
         });
       });
     } catch {
@@ -1669,7 +1697,13 @@ window.GreenOSModules.crm = {
           : "") +
         '<div class="crm-actions">' +
         (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED" || s.status === "AGENT_OPEN"
-          ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>'
+          ? '<button type="button" class="btn-primary" id="crm-accept">Accept Shipment</button>' +
+            ((function () {
+              var me = (window.GreenOS && window.GreenOS.user) || window.GreenOSUser || {};
+              if (me.role !== "Broker" && me.role !== "Team Lead") return "";
+              if (s.assignedBrokerId && me.userId && s.assignedBrokerId !== me.userId) return "";
+              return '<button type="button" class="btn-secondary gos-decline-btn" id="crm-decline">Decline</button>';
+            })())
           : "") +
         (function () {
           var href = window.GreenOSModules.crm.ushipOpenHref(s, id);
@@ -1869,6 +1903,21 @@ window.GreenOSModules.crm = {
           return;
         }
         window.GreenOSModules.crm.openShipmentCard(document, id, res.data || null);
+      });
+      modal.querySelector("#crm-decline")?.addEventListener("click", async function () {
+        if (!confirm("Decline this shipment? It goes to the next broker now. The 15-minute timer stays for the others.")) return;
+        var res = await window.GreenOSModules.crm.api("/shipments/" + id + "/decline", {
+          method: "POST",
+          body: "{}",
+        });
+        if (!res || res.success === false) {
+          alert((res && res.message) || "Could not decline shipment");
+          return;
+        }
+        modal.classList.add("hidden");
+        modal.innerHTML = "";
+        if (typeof window.GreenOSBrokerReloadShipments === "function") window.GreenOSBrokerReloadShipments();
+        if (typeof window.GreenOSCrmReloadBody === "function") window.GreenOSCrmReloadBody();
       });
 
       function authFileUrl(url) {

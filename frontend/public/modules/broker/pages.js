@@ -569,10 +569,37 @@ window.GreenOSModules.broker = {
             '<button type="button" class="btn-secondary gos-bid-btn" data-bid="' +
             esc(s.shipmentLeadId) +
             '">Bid Submitted</button>' +
+            (s.status === "AWAITING_ACCEPTANCE" || s.status === "ASSIGNED" || s.status === "AGENT_OPEN"
+              ? ' <button type="button" class="btn-secondary gos-decline-btn" data-decline="' +
+                esc(s.shipmentLeadId) +
+                '">Decline</button>'
+              : "") +
             "</td></tr>"
           );
         })
         .join("");
+      tbody.querySelectorAll(".gos-decline-btn").forEach(function (btn) {
+        btn.addEventListener("click", async function (ev) {
+          ev.stopPropagation();
+          var id = btn.getAttribute("data-decline");
+          if (!id) return;
+          if (!confirm("Decline this shipment? It goes to the next broker now. The 15-minute timer stays for the others.")) return;
+          btn.disabled = true;
+          try {
+            var json = await self.api("/shipments/" + encodeURIComponent(id) + "/decline", {
+              method: "POST",
+              body: "{}",
+            });
+            if (!json || json.success === false) {
+              throw new Error((json && json.message) || "Could not decline");
+            }
+            paint(true);
+          } catch (err) {
+            alert(err.message || err);
+            btn.disabled = false;
+          }
+        });
+      });
       tbody.querySelectorAll(".gos-bid-btn").forEach(function (btn) {
         btn.addEventListener("click", async function (ev) {
           ev.stopPropagation();

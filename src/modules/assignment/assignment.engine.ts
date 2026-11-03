@@ -632,6 +632,86 @@ export class AssignmentEngine {
         return reassigned || expired.length;
     }
 
+    /**
+     * Assigned broker or team lead declines a waiting shipment now.
+     * The 15-minute timer still passes loads that nobody declines.
+     */
+    async declineShipment(shipmentLeadId: string, actorUserId: string) {
+        const lead = await shipmentLeadRepository.findById(shipmentLeadId);
+        if (!lead) {
+            throw Object.assign(new Error("Shipment not found"), { status: 404 });
+        }
+        if (lead.assignedBrokerId !== actorUserId) {
+            throw Object.assign(new Error("Only the assigned broker can decline this shipment"), {
+                status: 403,
+            });
+        }
+        const waiting = ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"];
+        if (lead.acceptedAt || !waiting.includes(String(lead.status || "")) || isKeptByCurrentBroker(lead)) {
+            throw Object.assign(new Error("This shipment can no longer be declined"), { status: 422 });
+        }
+        const previousUser = await prisma.user.findUnique({
+            where: { userId: actorUserId },
+            select: { firstName: true, lastName: true, username: true },
+        });
+        const previousLabel = previousUser
+            ? `${previousUser.firstName || ""} ${previousUser.lastName || ""}`.trim() || previousUser.username
+            : "broker";
+        const gosId = lead.greenOsShipmentId || lead.shipmentLeadId.slice(0, 8);
+        await this.pipelineLog(lead.shipmentLeadId, `${previousLabel} declined this shipment`);
+        await domainEventEngine.emit({
+            shipmentLeadId: lead.shipmentLeadId,
+            eventType: "STATUS_CHANGED",
+            title: "Broker declined",
+            message: `${previousLabel} declined shipment # ${gosId}`,
+            timelineStage: "STATUS_CHANGED",
+            payload: { previousBrokerId: actorUserId, reason: "BROKER_DECLINED" },
+        });
+        const pick = await this.pickNextBrokerRoundRobin({
+            queueKey: QUEUE_OTHER,
+            excludeUserIds: [actorUserId],
+        });
+        if (!pick) {
+            const parked = await prisma.shipmentLead.updateMany({
+                where: {
+                    shipmentLeadId: lead.shipmentLeadId,
+                    acceptedAt: null,
+                    assignedBrokerId: actorUserId,
+                    status: { in: waiting },
+                },
+                data: {
+                    status: "UNASSIGNED",
+                    assignedBrokerId: null,
+                    acceptanceDeadline: null,
+                    isReassignment: true,
+                    wasEverReassigned: true,
+                },
+            });
+            if (parked.count === 0) {
+                throw Object.assign(new Error("This shipment can no longer be declined"), { status: 422 });
+            }
+            sseEmitToUser(actorUserId, {
+                type: "SHIPMENT_UNASSIGNED",
+                shipmentLeadId: lead.shipmentLeadId,
+                removedFromYourQueue: true,
+                reason: "You declined this shipment",
+                at: new Date().toISOString(),
+            });
+            return { passed: false, unassigned: true };
+        }
+        const after = await this.assignLeadToBroker(lead.shipmentLeadId, pick.broker, pick.queueSnapshot, {
+            reassignFrom: previousLabel,
+        });
+        sseEmitToUser(actorUserId, {
+            type: "SHIPMENT_UNASSIGNED",
+            shipmentLeadId: lead.shipmentLeadId,
+            removedFromYourQueue: true,
+            reason: "You declined this shipment",
+            at: new Date().toISOString(),
+        });
+        return { passed: Boolean(after), unassigned: false, assignedTo: pick.broker.displayName };
+    }
+
     async markQuoteSent(shipmentLeadId: string) {
         const updated = await shipmentLeadRepository.update(shipmentLeadId, {
             status: "QUOTE_SENT" satisfies ShipmentLeadStatus,

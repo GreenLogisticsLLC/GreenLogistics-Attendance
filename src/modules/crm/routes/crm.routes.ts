@@ -3,6 +3,7 @@ import { authMiddleware, requireRole } from "../../../middlewares/auth.middlewar
 import { Roles } from "../../../auth/roles.js";
 import {
     crmAcceptShipmentController,
+    crmDeclineShipmentController,
     crmBrokerQuestionController,
     crmMarkBidSubmittedController,
     crmBrokerWorkspaceController,
@@ -70,6 +71,7 @@ crmRouter.get("/shipments/:id", crmRoles, crmGetShipmentController);
 crmRouter.post("/shipments/:id/opened", crmRoles, crmMarkShipmentOpenedController);
 crmRouter.patch("/shipments/:id", crmRoles, crmUpdateShipmentController);
 crmRouter.post("/shipments/:id/accept", crmRoles, crmAcceptShipmentController);
+crmRouter.post("/shipments/:id/decline", crmRoles, crmDeclineShipmentController);
 crmRouter.post("/shipments/:id/test-customer-accept", crmRoles, crmTestCustomerAcceptController);
 crmRouter.post("/shipments/:id/broker-question", crmRoles, crmBrokerQuestionController);
 crmRouter.post("/shipments/:id/bid-submitted", crmRoles, crmMarkBidSubmittedController);
