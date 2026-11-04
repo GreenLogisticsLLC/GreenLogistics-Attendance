@@ -1442,7 +1442,7 @@ export class AssignmentEngine {
 
         if (pool === "after_hours") {
             console.info(
-                `[assignment] after 01:00 — round-robin across all ${allLinked.length} Brokers and Team Leads`
+                `[assignment] 01:00–16:59 Yerevan — round-robin across all ${allLinked.length} Brokers and Team Leads`
             );
             return {
                 eligible: sortBrokersForRoundRobin(allLinked),
