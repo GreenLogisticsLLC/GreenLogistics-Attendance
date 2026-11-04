@@ -89,11 +89,28 @@
       }).catch(function () {});
     },
 
+    /** Load create/edit stays on screen until the user saves or leaves. */
+    loadFormIsOpen() {
+      if (
+        this.currentModule === "loads" ||
+        this.currentModule === "dispatch" ||
+        (this.currentModule === "broker" && this.currentSub === "loads")
+      ) {
+        return true;
+      }
+      if (document.querySelector(".load-layout")) return true;
+      try {
+        if (sessionStorage.getItem("gos_viewing_load_id")) return true;
+      } catch (e) {}
+      return false;
+    },
+
     refreshBrokerTeamScreen() {
       const role = this.role();
       if (role !== "Broker" && role !== "Team Lead") return;
       if (document.hidden) return;
       if (!localStorage.getItem("gl_token")) return;
+      if (this.loadFormIsOpen()) return;
       const el = document.activeElement;
       const tag = el && el.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
@@ -1071,28 +1088,8 @@
         window.GreenOSCrmReloadBody();
         return;
       }
-      // Freeze Load Details while editing — no realtime remount/soft-reload.
-      if (
-        this.currentModule === "loads" ||
-        this.currentModule === "dispatch" ||
-        (this.currentModule === "broker" && this.currentSub === "loads")
-      ) {
-        var viewing = false;
-        try {
-          viewing = Boolean(
-            sessionStorage.getItem("gos_viewing_load_id") ||
-              (window.GreenOSModules &&
-                window.GreenOSModules.loads &&
-                window.GreenOSModules.loads._loadId) ||
-              (window.GreenOSModules &&
-                window.GreenOSModules.dispatch &&
-                window.GreenOSModules.dispatch._loadId)
-          );
-        } catch (e) {}
-        if (viewing || document.querySelector(".load-layout")) {
-          return;
-        }
-      }
+      // Loads — manual only. Auto refresh wipes customer, carrier, and load fields.
+      if (this.loadFormIsOpen()) return;
       // A full re-render would destroy an open shipment card mid-edit.
       const modal = document.getElementById("crm-modal");
       if (modal && !modal.classList.contains("hidden")) return;
