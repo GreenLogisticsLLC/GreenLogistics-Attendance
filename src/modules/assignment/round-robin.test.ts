@@ -51,6 +51,18 @@ test("queue board marks who receives next, who received last, and who is waiting
     assert.deepEqual(alone.map((row) => row.place), ["next"]);
 });
 
+test("thirteen waiting loads go to everyone else in turn and do not return to the holder", () => {
+    const roster = ["alen", "bob", "lia", "maddy", "rio"];
+    const picks = assignInTurns(roster, 13, ["rio"]);
+    assert.equal(picks.length, 13);
+    assert.equal(picks.includes("rio"), false);
+    const counts = new Map<string, number>();
+    for (const id of picks) counts.set(id, (counts.get(id) || 0) + 1);
+    assert.equal(counts.size, 4);
+    const values = [...counts.values()];
+    assert.equal(Math.max(...values) - Math.min(...values) <= 1, true);
+});
+
 test("a missed accept is passed to the other broker, not back to the same one", () => {
     let state = { orderedUserIds: ["aaron", "bob"], nextIndex: 0 };
     const first = takeNextInQueue(state, ["aaron", "bob"]);

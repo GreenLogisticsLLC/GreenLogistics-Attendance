@@ -61,6 +61,7 @@ function isKeptByCurrentBroker(lead: { status: string; acceptedAt?: Date | null 
  * give two loads to one broker.
  */
 let roundRobinTail: Promise<void> = Promise.resolve();
+let rioSpreadRun: Promise<void> | null = null;
 
 function withRoundRobinLock<T>(task: () => Promise<T>): Promise<T> {
     const run = roundRobinTail.then(task, task);
@@ -1189,12 +1190,167 @@ export class AssignmentEngine {
      * If nobody qualifies during work hours, NEW shipments stay UNASSIGNED until check-in.
      * Gmail is NOT required. `availableForAssignment` is ignored.
      */
-    async listEligibleBrokers(): Promise<EligibleBroker[]> {
-        const { eligible } = await this.resolveEligibleBrokers();
+    async listEligibleBrokers(options?: { forceAllLinked?: boolean }): Promise<EligibleBroker[]> {
+        const { eligible } = await this.resolveEligibleBrokers(options);
         return eligible;
     }
 
-    async resolveEligibleBrokers(): Promise<{
+    /**
+     * One boot after 01:00 piled every waiting shipment on Rio Clark.
+     * Take those unaccepted loads off his list and hand them out in turn.
+     * Accepted work stays. Runs once.
+     */
+    async spreadRioClarkWaitingShipments(): Promise<void> {
+        if (rioSpreadRun) return rioSpreadRun;
+        rioSpreadRun = this.spreadRioClarkWaitingShipmentsOnce().finally(() => {
+            rioSpreadRun = null;
+        });
+        return rioSpreadRun;
+    }
+
+    private async spreadRioClarkWaitingShipmentsOnce(): Promise<void> {
+        const mark = "2026-11-04-rio-waiting-spread";
+        const existing = await prisma.setting.findUnique({
+            where: {
+                category_settingKey: { category: "ops", settingKey: "rio_waiting_spread" },
+            },
+        });
+        if (existing?.settingValue === mark) return;
+
+        const users = await prisma.user.findMany({
+            where: { isActive: true },
+            select: { userId: true, firstName: true, lastName: true },
+        });
+        const rios = users.filter(
+            (user) =>
+                user.firstName.trim().toLowerCase() === "rio" &&
+                user.lastName.trim().toLowerCase() === "clark"
+        );
+        if (!rios.length) {
+            console.warn("[assignment] Rio Clark not found — waiting spread will retry next boot");
+            return;
+        }
+
+        let left = 0;
+        let moved = 0;
+        for (const rio of rios) {
+            const result = await this.spreadWaitingShipmentsOf(rio.userId, "Rio Clark");
+            moved += result.moved;
+            left += result.left;
+        }
+        if (left > 0) {
+            console.warn(
+                `[assignment] ${left} waiting shipment(s) still on Rio Clark — will retry next boot`
+            );
+            return;
+        }
+
+        await prisma.setting.upsert({
+            where: {
+                category_settingKey: { category: "ops", settingKey: "rio_waiting_spread" },
+            },
+            create: {
+                category: "ops",
+                settingKey: "rio_waiting_spread",
+                settingValue: mark,
+                description: `Waiting shipments taken off Rio Clark and handed out in turn (${moved})`,
+            },
+            update: {
+                settingValue: mark,
+                description: `Waiting shipments taken off Rio Clark and handed out in turn (${moved})`,
+            },
+        });
+        console.log(`[assignment] Rio Clark waiting spread done — ${moved} shipment(s)`);
+    }
+
+    /** Unaccepted waiting loads leave this broker and go to everyone else, one by one. */
+    async spreadWaitingShipmentsOf(
+        userId: string,
+        label: string
+    ): Promise<{ moved: number; left: number }> {
+        const waiting = await prisma.shipmentLead.findMany({
+            where: {
+                assignedBrokerId: userId,
+                acceptedAt: null,
+                status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
+                AND: [arrivedAfterShipmentCutoff],
+            },
+            orderBy: [{ receivedAt: "asc" }, { createdAt: "asc" }],
+            select: {
+                shipmentLeadId: true,
+                greenOsShipmentId: true,
+                shipmentTitle: true,
+            },
+        });
+
+        let moved = 0;
+        let left = 0;
+        const handed: string[] = [];
+        for (const row of waiting) {
+            const pick = await this.pickNextBrokerRoundRobin({
+                queueKey: QUEUE_NEW,
+                excludeUserIds: [userId],
+                forceAllLinked: true,
+            });
+            if (!pick) {
+                left += 1;
+                console.warn(
+                    `[assignment] nobody else to take ${row.greenOsShipmentId || row.shipmentTitle} off ${label}`
+                );
+                continue;
+            }
+            const cleared = await prisma.shipmentLead.updateMany({
+                where: {
+                    shipmentLeadId: row.shipmentLeadId,
+                    assignedBrokerId: userId,
+                    acceptedAt: null,
+                    status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
+                },
+                data: {
+                    status: "UNASSIGNED",
+                    assignedBrokerId: null,
+                    acceptanceDeadline: null,
+                    isReassignment: false,
+                    wasEverReassigned: false,
+                },
+            });
+            if (cleared.count === 0) continue;
+            sseEmitToUser(userId, {
+                type: "SHIPMENT_UNASSIGNED",
+                shipmentLeadId: row.shipmentLeadId,
+                greenOsShipmentId: row.greenOsShipmentId,
+                shipmentTitle: row.shipmentTitle,
+                removedFromYourQueue: true,
+                reason: "Passed to the team in turn",
+                at: new Date().toISOString(),
+            });
+            await this.pipelineLog(
+                row.shipmentLeadId,
+                `Taken off ${label} and handed out in turn`
+            );
+            const after = await this.assignLeadToBroker(
+                row.shipmentLeadId,
+                pick.broker,
+                pick.queueSnapshot
+            );
+            if (after?.assignedBrokerId && after.assignedBrokerId !== userId) {
+                moved += 1;
+                handed.push(
+                    `${row.greenOsShipmentId || row.shipmentTitle} → ${pick.broker.displayName}`
+                );
+            } else {
+                left += 1;
+            }
+        }
+        if (waiting.length) {
+            console.log(
+                `[assignment] ${label}: moved ${moved}, left ${left}. ${handed.join("; ")}`
+            );
+        }
+        return { moved, left };
+    }
+
+    async resolveEligibleBrokers(options?: { forceAllLinked?: boolean }): Promise<{
         eligible: EligibleBroker[];
         mode: AssignmentPoolMode;
     }> {
@@ -1221,7 +1377,11 @@ export class AssignmentEngine {
         const afterHours = isAfterHoursAssignment(now, config.timezone);
 
         for (const user of users) {
-            if (!afterHours && !receivesNewShipments(user.role.roleName, user.greenOsActivityAt, now)) {
+            if (
+                !options?.forceAllLinked &&
+                !afterHours &&
+                !receivesNewShipments(user.role.roleName, user.greenOsActivityAt, now)
+            ) {
                 continue;
             }
             const employeeId = this.resolveEmployeeIdSync(user, activeEmployees);
@@ -1268,6 +1428,12 @@ export class AssignmentEngine {
 
         const inOfficeIds = await getInOfficeEmployeeIds(employeeIdsToCheck);
         const inOffice = allLinked.filter((entry) => entry.employeeId && inOfficeIds.has(entry.employeeId));
+        if (options?.forceAllLinked && allLinked.length > 0) {
+            return {
+                eligible: sortBrokersForRoundRobin(allLinked),
+                mode: "after_hours",
+            };
+        }
         const pool = chooseAssignmentPool({
             afterHours,
             linkedCount: allLinked.length,
@@ -1407,6 +1573,7 @@ export class AssignmentEngine {
     private pickNextBrokerRoundRobin(options?: {
         queueKey?: string;
         excludeUserIds?: string[];
+        forceAllLinked?: boolean;
     }): Promise<{
         broker: EligibleBroker;
         queueSnapshot: string;
@@ -1417,13 +1584,16 @@ export class AssignmentEngine {
     private async pickNextBrokerRoundRobinLocked(options?: {
         queueKey?: string;
         excludeUserIds?: string[];
+        forceAllLinked?: boolean;
     }): Promise<{
         broker: EligibleBroker;
         queueSnapshot: string;
     } | null> {
         const queueKey = options?.queueKey || QUEUE_NEW;
         const exclude = options?.excludeUserIds || [];
-        const eligible = await this.listEligibleBrokers();
+        const eligible = await this.listEligibleBrokers({
+            forceAllLinked: options?.forceAllLinked,
+        });
         if (!eligible.length) {
             await this.saveQueueState(queueKey, [], 0);
             return null;

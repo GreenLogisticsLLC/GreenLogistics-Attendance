@@ -8,6 +8,7 @@ import { configureSqlite } from "./config/database.js";
 import { attendanceService } from "./services/attendance.service.js";
 import { startEmailImportScheduler } from "./modules/email/scheduler.js";
 import { startAssignmentAcceptanceScheduler } from "./modules/assignment/assignment-acceptance.scheduler.js";
+import { assignmentEngine } from "./modules/assignment/assignment.engine.js";
 import { startBrokerResponseTimeoutScheduler } from "./modules/crm/broker-response-timeout.scheduler.js";
 import { startCarrierViewReconciliation } from "./modules/tracking/scheduler.js";
 import { startDocumentAiScheduler } from "./modules/ai/documents/scheduler.js";
@@ -71,6 +72,11 @@ app.listen(config.port, config.host, async () => {
         await assignRioClarkToAlenYoung();
     } catch (err) {
         console.warn("[team] Rio Clark assignment skipped:", err);
+    }
+    try {
+        await assignmentEngine.spreadRioClarkWaitingShipments();
+    } catch (err) {
+        console.warn("[assignment] Rio Clark waiting spread skipped:", err);
     }
     try {
         await revertFalseAcceptGos1000040();

@@ -16,6 +16,7 @@ export function startAssignmentAcceptanceScheduler(intervalMs = 60_000) {
         if (running || isAdminWriteActive()) return;
         running = true;
         try {
+            await assignmentEngine.spreadRioClarkWaitingShipments();
             await assignmentEngine.processDueAcceptances();
             await assignmentEngine.assignPendingNewLeads(5);
             await assignmentEngine.assignPendingOtherLeads(5);
