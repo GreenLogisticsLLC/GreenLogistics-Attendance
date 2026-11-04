@@ -104,25 +104,36 @@ window.GreenOSModules.shipments = {
 
   /** Team Lead: own broker desk, and Team beside it for the whole group. */
   renderTeamLead(root, subPageId, me) {
+    // Team pages use a team- prefix. Bare "other" / "new" stay on My Shipments.
     var teamTabs = {
       team: "new",
+      "team-new": "new",
+      "team-other": "other",
+      "team-accepted": "accepted",
+      "team-accepted-another": "accepted-another",
+      "team-no-longer": "no-longer",
+      "team-decline": "decline",
+      "team-load-created": "load-created",
+      "team-by-broker": "by-broker",
+    };
+    var personalTabs = {
       new: "new",
       other: "other",
       accepted: "accepted",
       "accepted-another": "accepted-another",
       "no-longer": "no-longer",
       decline: "decline",
-      "load-created": "load-created",
-      "by-broker": "by-broker",
+      loads: "loads",
+      "load-created": "loads",
     };
-    var teamTab = Object.prototype.hasOwnProperty.call(teamTabs, subPageId)
-      ? teamTabs[subPageId]
-      : null;
-    var mode = teamTab ? "team" : "mine";
+    var teamKey = Object.prototype.hasOwnProperty.call(teamTabs, subPageId) ? subPageId : null;
+    var teamTab = teamKey ? teamTabs[teamKey] : null;
+    var mode = teamKey ? "team" : "mine";
     function item(id, label) {
+      var active = teamKey === id || (teamKey === "team" && id === "team-new");
       return (
         '<button type="button" class="gos-subnav-item' +
-        (teamTab === id ? " is-active" : "") +
+        (active ? " is-active" : "") +
         '" data-subpage="' +
         id +
         '">' +
@@ -133,14 +144,14 @@ window.GreenOSModules.shipments = {
     var teamNav =
       mode === "team"
         ? '<nav class="gos-subnav">' +
-          item("new", "New Shipment") +
-          item("other", "Other Shipment") +
-          item("accepted", "Accepted shipments") +
-          item("accepted-another", "Accepted to another company") +
-          item("no-longer", "No longer needed") +
-          item("decline", "Decline") +
-          item("load-created", "Load Created") +
-          item("by-broker", "By Broker") +
+          item("team-new", "New Shipment") +
+          item("team-other", "Other Shipment") +
+          item("team-accepted", "Accepted shipments") +
+          item("team-accepted-another", "Accepted to another company") +
+          item("team-no-longer", "No longer needed") +
+          item("team-decline", "Decline") +
+          item("team-load-created", "Load Created") +
+          item("team-by-broker", "By Broker") +
           "</nav>"
         : "";
     root.innerHTML =
@@ -169,6 +180,10 @@ window.GreenOSModules.shipments = {
         me.id ||
         (window.GreenOSUser && (window.GreenOSUser.userId || window.GreenOSUser.id)) ||
         "";
+      if (personalTabs[subPageId]) broker._shipmentsTab = personalTabs[subPageId];
+      else if (!subPageId || subPageId === "mine" || subPageId === "shipments") {
+        broker._shipmentsTab = "new";
+      }
       return broker.renderShipments(body, root, { brokerId: mineId, mine: true });
     }
     if (teamTab === "by-broker") {

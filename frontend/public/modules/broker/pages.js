@@ -354,10 +354,15 @@ window.GreenOSModules.broker = {
       "</div></div>";
 
     body.querySelectorAll("[data-ship-tab]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
         self._shipmentsTab = btn.getAttribute("data-ship-tab") || "new";
         self._shipmentsPage = 1;
-        self.renderShipments(body, root);
+        self.renderShipments(body, root, {
+          brokerId: self._scopeBrokerId || "",
+          mine: Boolean(self._personalMine),
+        });
       });
     });
     function syncPageSizeSelects() {
