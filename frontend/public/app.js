@@ -755,21 +755,6 @@ function filterCachedNotArrivedRows() {
     );
 }
 
-function summarizeCachedReportRows(rows, notArrivedRows) {
-    const absent = notArrivedRows || [];
-    return {
-        totalSessions: rows.length,
-        daysWithEntry: rows.filter((r) => r.firstEntry).length,
-        totalOutsideMinutes: rows.reduce((s, r) => s + (r.totalOutsideMinutes || 0), 0),
-        totalInOfficeMinutes: rows.reduce((s, r) => s + (r.timeInOfficeMinutes || 0), 0),
-        totalOvertimeMinutes: rows.reduce((s, r) => s + (r.overtimeInOfficeMinutes || 0), 0),
-        daysNotArrived: absent.length,
-        employeesNotArrived: new Set(absent.map((r) => r.employeeId)).size,
-        daysDayOff: reportRowsCache.filter((r) => r.dayOff).length,
-        employeesDayOff: new Set(reportRowsCache.filter((r) => r.dayOff).map((r) => r.employeeId)).size,
-    };
-}
-
 function groupCachedNotArrived(rows) {
     const map = new Map();
     rows.forEach((row) => {
@@ -824,7 +809,6 @@ function applyReportView() {
     const statusEl = $("#report-status");
     const notArrivedRows = filterCachedNotArrivedRows();
     const rows = filterCachedReportRows();
-    renderReportStats(summarizeCachedReportRows(rows, notArrivedRows), from, to, getReportFilters().status === "not_arrived");
     renderReportDayOff(from, to);
     renderReportAbsenceSummary(notArrivedRows, from, to);
     renderReportTable(rows);
@@ -1052,33 +1036,6 @@ async function loadPeriodReport(silent = false) {
     } catch (err) {
         if (!silent) setSyncStatus(statusEl, err.message || "Load failed", false);
     }
-}
-
-function renderReportStats(summary, from, to, notArrivedOnly = false) {
-    const panel = $("#report-stats-panel");
-    if (!panel) return;
-    const items = notArrivedOnly
-        ? [
-            ["Period", `${from} → ${to}`, ""],
-            ["Employees", summary.employeesNotArrived || 0, ""],
-            ["Days not arrived", summary.daysNotArrived || 0, "var(--red)"],
-        ]
-        : [
-            ["Period", `${from} → ${to}`, ""],
-            ["Records", summary.totalSessions, ""],
-            ["With Entry", summary.daysWithEntry, "var(--green)"],
-            ["Not Arrived", summary.daysNotArrived || 0, "var(--red)"],
-            ["Day off", summary.daysDayOff || 0, "var(--yellow)"],
-            ["Total In Office", formatDuration(summary.totalInOfficeMinutes), "var(--green)"],
-            ["Total Outside", formatDuration(summary.totalOutsideMinutes), "var(--yellow)"],
-            ["OutTime In Office", formatDuration(summary.totalOvertimeMinutes), "var(--blue)"],
-        ];
-    panel.innerHTML = items.map(([label, value, color]) => `
-        <div class="stat-card">
-            <div class="label">${label}</div>
-            <div class="value" style="color:${color || "inherit"}">${value}</div>
-        </div>
-    `).join("");
 }
 
 function renderReportDayOff(from, to) {
