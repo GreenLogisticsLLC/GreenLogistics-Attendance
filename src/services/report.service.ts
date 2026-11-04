@@ -1,13 +1,14 @@
 import { prisma } from "../config/database.js";
 import {
+    ASSIGNMENT_TIMEZONE,
+    arrivedAfterDayOffCutoff,
     diffMinutes,
-    formatTime,
     formatMinutes,
+    formatYerevanTime,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
-    arrivalIsDayOff,
     getAttendanceWorkHoursBounds,
-    sumAttendanceOutsideMinutes,
+    overlapMinutes,
 } from "../utils/helpers.js";
 import { config } from "../config/env.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
@@ -40,16 +41,6 @@ export interface PeriodReportRow {
     overtimeInOfficeMinutes: number;
     exitCount: number;
     dayOff: boolean;
-}
-
-function calcTimeInOffice(
-    firstEntry: Date | null,
-    effectiveEnd: Date,
-    rawOutsideMinutes: number
-): number {
-    if (!firstEntry) return 0;
-    const gross = diffMinutes(firstEntry, effectiveEnd);
-    return Math.max(0, gross - rawOutsideMinutes);
 }
 
 function statusLabel(status: string): string {
@@ -107,27 +98,24 @@ export class ReportService {
             ) {
                 effectiveEnd = s.lastActivity;
             }
-            const unclippedOutsideMinutes = s.absenceIntervals.reduce((sum, interval) => {
-                if (interval.durationMinutes != null) {
-                    return sum + interval.durationMinutes;
-                }
-                return sum + diffMinutes(interval.startTime, effectiveEnd);
-            }, 0);
             const { workStart, workEnd } = getAttendanceWorkHoursBounds(
                 s.workDate,
-                config.timezone
+                ASSIGNMENT_TIMEZONE
             );
-            const rawOutsideMinutes = sumAttendanceOutsideMinutes(
-                s.absenceIntervals,
-                now,
-                workStart,
-                workEnd
-            );
-            const timeInOfficeMinutes = calcTimeInOffice(
-                s.firstEntry,
-                effectiveEnd,
-                unclippedOutsideMinutes
-            );
+            const presenceEnd =
+                s.currentStatus === "INSIDE_OFFICE"
+                    ? now
+                    : s.lastExit || s.lastActivity || effectiveEnd;
+            const cappedEnd = presenceEnd < workEnd ? presenceEnd : workEnd;
+            const outsideDuringShift = s.absenceIntervals.reduce((sum, interval) => {
+                const intervalEnd = interval.endTime || now;
+                return sum + overlapMinutes(interval.startTime, intervalEnd, workStart, workEnd);
+            }, 0);
+            const presentDuringShift = s.firstEntry
+                ? overlapMinutes(s.firstEntry, cappedEnd, workStart, workEnd)
+                : 0;
+            const rawOutsideMinutes = outsideDuringShift;
+            const timeInOfficeMinutes = Math.max(0, presentDuringShift - outsideDuringShift);
             const overtimeStart =
                 s.firstEntry && s.firstEntry > s.scheduledEnd
                     ? s.firstEntry
@@ -145,7 +133,7 @@ export class ReportService {
                       diffMinutes(overtimeStart, effectiveEnd) - overtimeOutsideMinutes
                   )
                 : 0;
-            const dayOff = Boolean(s.firstEntry && arrivalIsDayOff(s.firstEntry));
+            const dayOff = Boolean(s.firstEntry && arrivedAfterDayOffCutoff(s.firstEntry));
 
             return {
                 workDate: s.workDate,
@@ -154,8 +142,8 @@ export class ReportService {
                 employeeName: `${s.employee.firstName} ${s.employee.lastName}`,
                 department: s.employee.department,
                 position: s.employee.position,
-                firstEntry: formatTime(s.firstEntry),
-                lastExit: formatTime(s.lastExit),
+                firstEntry: formatYerevanTime(s.firstEntry),
+                lastExit: formatYerevanTime(s.lastExit),
                 status: dayOff ? "Day off" : statusLabel(s.currentStatus),
                 totalOutsideMinutes: rawOutsideMinutes,
                 timeInOfficeMinutes,
@@ -197,10 +185,17 @@ export class ReportService {
         const showDayOff = String(filters.status || "").toLowerCase().replace(/[\s-]+/g, "_") === "day_off";
         const dayOffRows = filteredSessions.filter((row) => row.dayOff);
         const visibleRows = showNotArrived ? notArrivedRows : filteredSessions;
+        const dayOffByEmployee = mergeDayOffSummaries(
+            groupDayOffByEmployee(dayOffRows),
+            notArrivedByEmployee
+        );
         const summary = summarizePeriodReportRows(
             showNotArrived ? notArrivedRows : filteredSessions,
             notArrivedRows,
-            dayOffRows
+            [
+                ...dayOffRows.map((row) => ({ employeeId: row.employeeId, dayOff: true })),
+                ...notArrivedRows.map((row) => ({ employeeId: row.employeeId, dayOff: true })),
+            ]
         );
 
         return {
@@ -217,7 +212,7 @@ export class ReportService {
             rows: visibleRows,
             notArrivedRows,
             notArrivedByEmployee,
-            dayOffByEmployee: groupDayOffByEmployee(dayOffRows),
+            dayOffByEmployee,
         };
     }
 
@@ -282,6 +277,66 @@ function buildNotArrivedRows(input: {
         return a.employeeName.localeCompare(b.employeeName, undefined, { sensitivity: "base" });
     });
     return rows;
+}
+
+function mergeDayOffSummaries(
+    late: Array<{
+        employeeId: string;
+        employeeName: string;
+        employeeNumber: string;
+        department: string | null;
+        position?: string | null;
+        dates: string[];
+    }>,
+    missed: Array<{
+        employeeId: string;
+        employeeName: string;
+        employeeNumber: string;
+        department: string | null;
+        position?: string | null;
+        dates: string[];
+    }>
+) {
+    const map = new Map<
+        string,
+        {
+            employeeId: string;
+            employeeName: string;
+            employeeNumber: string;
+            department: string | null;
+            position?: string | null;
+            daysDayOff: number;
+            dates: string[];
+        }
+    >();
+    const put = (
+        item: (typeof late)[number],
+        label: string
+    ) => {
+        const dates = item.dates.map((date) => `${date} ${label}`);
+        const existing = map.get(item.employeeId);
+        if (!existing) {
+            map.set(item.employeeId, {
+                employeeId: item.employeeId,
+                employeeName: item.employeeName,
+                employeeNumber: item.employeeNumber,
+                department: item.department,
+                position: item.position,
+                daysDayOff: dates.length,
+                dates,
+            });
+            return;
+        }
+        for (const date of dates) {
+            if (!existing.dates.includes(date)) existing.dates.push(date);
+        }
+        existing.daysDayOff = existing.dates.length;
+    };
+    for (const item of missed) put(item, "не пришёл");
+    for (const item of late) put(item, "после 17:30");
+    return [...map.values()]
+        .map((item) => ({ ...item, dates: [...item.dates].sort() }))
+        .sort((a, b) => b.daysDayOff - a.daysDayOff || a.employeeName.localeCompare(b.employeeName));
 }
 
 export const reportService = new ReportService();

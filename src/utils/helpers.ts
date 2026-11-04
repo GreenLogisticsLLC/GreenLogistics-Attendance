@@ -262,12 +262,33 @@ export function officeShiftDate(instant: Date): string | null {
     return null;
 }
 
-/** First arrival after 17:00 Yerevan on a shift that starts 5 Nov 2026 or later. */
+/** HH:MM:SS in Yerevan, from the real instant. No Los Angeles shift. */
+export function formatYerevanTime(date: Date | string | null): string | null {
+    if (!date) return null;
+    const raw = typeof date === "string" ? new Date(date) : date;
+    if (Number.isNaN(raw.getTime())) return null;
+    return raw.toLocaleString("en-GB", {
+        timeZone: ASSIGNMENT_TIMEZONE,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+    });
+}
+
+/** First arrival after 17:30 Yerevan. Reports use every date; the queue starts 5 Nov 2026. */
+export function arrivedAfterDayOffCutoff(firstEntry: Date): boolean {
+    const shift = officeShiftDate(firstEntry);
+    const day = shift ?? yerevanDateString(firstEntry);
+    const cutoff = zonedDateTime(day, "17:30", ASSIGNMENT_TIMEZONE);
+    return firstEntry.getTime() > cutoff.getTime();
+}
+
+/** Queue rule: after 17:30 Yerevan on a shift that starts 5 Nov 2026 or later. */
 export function arrivalIsDayOff(firstEntry: Date): boolean {
     const shift = officeShiftDate(firstEntry);
     if (!shift || shift < DAY_OFF_STARTS_ON) return false;
-    const start = zonedDateTime(shift, "17:00", ASSIGNMENT_TIMEZONE);
-    return firstEntry.getTime() > start.getTime();
+    return arrivedAfterDayOffCutoff(firstEntry);
 }
 
 /** Employees whose first entry this office shift was after 17:00 Yerevan. */
@@ -278,6 +299,7 @@ export function dayOffEmployeeIdsFromRows(
     const shift = officeShiftDate(now);
     if (!shift || shift < DAY_OFF_STARTS_ON) return [];
     const start = zonedDateTime(shift, "17:00", ASSIGNMENT_TIMEZONE);
+    const lateLine = zonedDateTime(shift, "17:30", ASSIGNMENT_TIMEZONE);
     const end = zonedDateTime(addDaysToDateString(shift, 1), "01:00", ASSIGNMENT_TIMEZONE);
     const earliest = new Map<string, Date>();
     for (const row of rows) {
@@ -288,7 +310,7 @@ export function dayOffEmployeeIdsFromRows(
     }
     const ids: string[] = [];
     for (const [employeeId, at] of earliest) {
-        if (at.getTime() > start.getTime()) ids.push(employeeId);
+        if (at.getTime() > lateLine.getTime()) ids.push(employeeId);
     }
     return ids;
 }

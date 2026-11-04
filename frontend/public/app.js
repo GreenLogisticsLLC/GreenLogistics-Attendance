@@ -1054,7 +1054,7 @@ function renderReportDayOff(from, to) {
         );
     }
     if (hint) {
-        hint.textContent = `Период ${from} — ${to}: приход после 17:00 по Еревану. Этот день — Day off, в очередь New и Other сотрудник не ставится.`;
+        hint.textContent = `Период ${from} — ${to}. Day off: не пришёл, или первый вход после 17:30 по Еревану. Время в таблице — Ереван, рабочий день 17:00–01:00.`;
     }
     if (!items.length) {
         tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted)">Нет Day off за этот период</td></tr>`;
