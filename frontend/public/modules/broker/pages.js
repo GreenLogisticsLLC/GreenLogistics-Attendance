@@ -97,6 +97,14 @@ window.GreenOSModules.broker = {
       "<h2>My Loads</h2><p class=\"gos-muted\">Loads module not loaded. Hard-refresh the page.</p>";
   },
 
+  shipmentsQuery(qs) {
+    var q = String(qs || "");
+    if (this._scopeBrokerId) {
+      q += (q ? "&" : "") + "brokerId=" + encodeURIComponent(this._scopeBrokerId);
+    }
+    return "/shipments?" + q;
+  },
+
   async api(path, options) {
     var token = localStorage.getItem("gl_token");
     var res = await fetch("/api/crm" + path, {
@@ -272,8 +280,9 @@ window.GreenOSModules.broker = {
     );
   },
 
-  async renderShipments(body, root) {
+  async renderShipments(body, root, options) {
     var self = this;
+    self._scopeBrokerId = options && options.brokerId ? String(options.brokerId) : "";
     var activeTab = self._shipmentsTab || "new";
     body.innerHTML =
       '<section class="gos-dash-hero"><h1>My Shipments</h1><p>New imports first — passed loads in Other · accepted work in Accepted · customer-approved loads in Load Created</p></section>' +
@@ -693,7 +702,7 @@ window.GreenOSModules.broker = {
         } else {
           params.push("assignmentKind=" + encodeURIComponent(tab));
         }
-        var data = await self.api("/shipments?" + params.join("&"));
+        var data = await self.api(self.shipmentsQuery(params.join("&")));
         if (myGen !== paintGen) return;
         if (!data.success) {
           syncEls.forEach(function (el) {
@@ -722,11 +731,11 @@ window.GreenOSModules.broker = {
         // Lightweight count probes for the other tabs (pageSize=1 → total only).
         try {
           var [newMeta, otherMeta, acceptedMeta, loadsMeta, aacMeta] = await Promise.all([
-            self.api("/shipments?assignmentKind=new&page=1&pageSize=1"),
-            self.api("/shipments?assignmentKind=other&page=1&pageSize=1"),
-            self.api("/shipments?assignmentKind=accepted&page=1&pageSize=1"),
-            self.api("/shipments?assignmentKind=loads&page=1&pageSize=1"),
-            self.api("/shipments?status=ACCEPTED_ANOTHER_COMPANY&page=1&pageSize=1"),
+            self.api(self.shipmentsQuery("assignmentKind=new&page=1&pageSize=1")),
+            self.api(self.shipmentsQuery("assignmentKind=other&page=1&pageSize=1")),
+            self.api(self.shipmentsQuery("assignmentKind=accepted&page=1&pageSize=1")),
+            self.api(self.shipmentsQuery("assignmentKind=loads&page=1&pageSize=1")),
+            self.api(self.shipmentsQuery("status=ACCEPTED_ANOTHER_COMPANY&page=1&pageSize=1")),
           ]);
           updateTabCounts({
             newCount: newMeta && newMeta.success ? (newMeta.data && newMeta.data.total) || 0 : "…",

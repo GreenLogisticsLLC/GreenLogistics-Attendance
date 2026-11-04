@@ -15,6 +15,13 @@ window.GreenOSModules.shipments = {
 
     var me = (window.GreenOS && window.GreenOS.user) || window.GreenOSUser || {};
     var isTeamLead = me.role === "Team Lead";
+    var brokerMod = window.GreenOSModules.broker;
+    if (brokerMod && typeof brokerMod.stopShipmentsAutoRefresh === "function") {
+      brokerMod.stopShipmentsAutoRefresh();
+    }
+    if (isTeamLead) {
+      return this.renderTeamLead(root, subPageId, me);
+    }
     var canSeeQueue =
       me.role === "Owner" || me.role === "Manager" || me.role === "Administrator";
     var tab =
@@ -32,23 +39,14 @@ window.GreenOSModules.shipments = {
                 ? "queue"
                 : subPageId === "new"
                 ? "new"
-                : isTeamLead
-                  ? "mine"
-                  : "new";
+                : "new";
 
     root.innerHTML =
       '<div class="gos-module-layout">' +
       '<nav class="gos-subnav">' +
-      (isTeamLead
-        ? '<button type="button" class="gos-subnav-item' +
-          (tab === "mine" ? " is-active" : "") +
-          '" data-subpage="mine">New Shipment</button>'
-        : "") +
       '<button type="button" class="gos-subnav-item' +
       (tab === "new" ? " is-active" : "") +
-      '" data-subpage="new">' +
-      (isTeamLead ? "Team New" : "New Shipment") +
-      "</button>" +
+      '" data-subpage="new">New Shipment</button>' +
       '<button type="button" class="gos-subnav-item' +
       (tab === "other" ? " is-active" : "") +
       '" data-subpage="other">Other Shipment</button>' +
@@ -61,11 +59,6 @@ window.GreenOSModules.shipments = {
       '<button type="button" class="gos-subnav-item' +
       (tab === "load-created" ? " is-active" : "") +
       '" data-subpage="load-created">Load Created</button>' +
-      (isTeamLead
-        ? '<button type="button" class="gos-subnav-item' +
-          (tab === "by-broker" ? " is-active" : "") +
-          '" data-subpage="by-broker">By Broker</button>'
-        : "") +
       (canSeeQueue
         ? '<button type="button" class="gos-subnav-item' +
           (tab === "queue" ? " is-active" : "") +
@@ -89,13 +82,84 @@ window.GreenOSModules.shipments = {
     var opts =
       tab === "accepted-another"
         ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
-        : tab === "mine"
-          ? { assignmentKind: "new", page: 1, onlyMine: true }
-          : tab === "load-created"
+        : tab === "load-created"
             ? { assignmentKind: "loads", page: 1 }
           : { assignmentKind: tab, page: 1 };
-    var brokerId = tab === "mine" ? me.userId || null : null;
-    crm.renderShipments(body, root, brokerId, opts);
+    crm.renderShipments(body, root, null, opts);
+  },
+
+  /** Team Lead: own broker desk, and Team beside it for the whole group. */
+  renderTeamLead(root, subPageId, me) {
+    var teamTabs = {
+      team: "new",
+      new: "new",
+      other: "other",
+      accepted: "accepted",
+      "accepted-another": "accepted-another",
+      "load-created": "load-created",
+      "by-broker": "by-broker",
+    };
+    var teamTab = Object.prototype.hasOwnProperty.call(teamTabs, subPageId)
+      ? teamTabs[subPageId]
+      : null;
+    var mode = teamTab ? "team" : "mine";
+    function item(id, label) {
+      return (
+        '<button type="button" class="gos-subnav-item' +
+        (teamTab === id ? " is-active" : "") +
+        '" data-subpage="' +
+        id +
+        '">' +
+        label +
+        "</button>"
+      );
+    }
+    var teamNav =
+      mode === "team"
+        ? '<nav class="gos-subnav">' +
+          item("new", "New Shipment") +
+          item("other", "Other Shipment") +
+          item("accepted", "Accepted shipments") +
+          item("accepted-another", "Accepted to another company") +
+          item("load-created", "Load Created") +
+          item("by-broker", "By Broker") +
+          "</nav>"
+        : "";
+    root.innerHTML =
+      '<div class="gos-module-layout">' +
+      '<nav class="gos-subnav">' +
+      '<button type="button" class="gos-subnav-item' +
+      (mode === "mine" ? " is-active" : "") +
+      '" data-subpage="mine">My Shipments</button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (mode === "team" ? " is-active" : "") +
+      '" data-subpage="team">Team</button>' +
+      "</nav>" +
+      teamNav +
+      '<div class="gos-module-body" id="shipments-module-body"></div>' +
+      "</div>";
+    var body = root.querySelector("#shipments-module-body");
+    window.GreenOSCrmReloadBody = function () {};
+    if (mode === "mine") {
+      var broker = window.GreenOSModules.broker;
+      if (!broker || typeof broker.renderShipments !== "function") {
+        body.innerHTML = "<p>My Shipments failed to load. Refresh the page.</p>";
+        return;
+      }
+      return broker.renderShipments(body, root, { brokerId: me.userId || "" });
+    }
+    if (teamTab === "by-broker") {
+      this.renderBrokerStats(body);
+      return;
+    }
+    var crm = window.GreenOSModules.crm;
+    var opts =
+      teamTab === "accepted-another"
+        ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
+        : teamTab === "load-created"
+          ? { assignmentKind: "loads", page: 1 }
+          : { assignmentKind: teamTab, page: 1 };
+    crm.renderShipments(body, root, null, opts);
   },
 
   async renderQueue(body) {
