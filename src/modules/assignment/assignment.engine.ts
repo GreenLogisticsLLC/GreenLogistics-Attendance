@@ -12,7 +12,7 @@ import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
 import { arrivedAfterShipmentCutoff, SHIPMENTS_FROM } from "../../services/shipment-cutoff.js";
 import { config } from "../../config/env.js";
-import { isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE, chooseAssignmentPool } from "../../utils/helpers.js";
+import { ASSIGNMENT_TIMEZONE, isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE, chooseAssignmentPool } from "../../utils/helpers.js";
 import { receivesNewShipments } from "./activity-window.js";
 import { queuePlaces, syncQueueOrder, takeNextInQueue } from "./round-robin.js";
 import { arrivalCountsFor, summarizeShipmentArrivals } from "./arrival-counts.js";
@@ -42,7 +42,7 @@ const WAITING_TO_ASSIGN = [
 function shipmentArrivedAtNight(lead: { receivedAt?: Date | null; createdAt?: Date | null }): boolean {
     const at = lead.receivedAt || lead.createdAt;
     if (!at) return false;
-    return isAfterHoursAssignment(at, config.timezone);
+    return isAfterHoursAssignment(at, ASSIGNMENT_TIMEZONE);
 }
 
 function isHeldUntilOffice(deadline: Date | null | undefined): boolean {
@@ -118,8 +118,8 @@ export type AssignmentPoolMode = "in_office" | "after_hours" | "none";
 
 /**
  * Assignment Engine v1.0 — Round Robin among Brokers and Team Leads.
- * 17:00–01:00: In Office and a GreenOS click within 20 minutes.
- * After 01:00 until 17:00: every Broker and Team Lead, in turn.
+ * 17:00–01:00 Yerevan: In Office and a GreenOS click within 20 minutes.
+ * 01:00–16:59 Yerevan: every Broker and Team Lead, in turn.
  * Manager, Accounting, and Owner never receive a shipment.
  */
 export class AssignmentEngine {
@@ -214,7 +214,7 @@ export class AssignmentEngine {
             arrivedAt: lead.receivedAt || lead.createdAt,
             now: new Date(),
             assigneeInOffice,
-            timezone: config.timezone,
+            timezone: ASSIGNMENT_TIMEZONE,
         });
         const windowLabel = !arrivedAtNight
             ? `${ACCEPTANCE_MINUTES}m`
@@ -757,18 +757,18 @@ export class AssignmentEngine {
         );
         const modeLabel =
             mode === "after_hours"
-                ? "After 01:00 — every Broker and Team Lead, in turn"
+                ? "01:00–16:59 Yerevan — every Broker and Team Lead, in turn"
                 : mode === "in_office"
-                  ? "Brokers and Team Leads who are In Office and active within 20 minutes"
-                  : "No broker In Office within 20 minutes — new shipments stay Unassigned";
+                  ? "17:00–01:00 Yerevan — In Office and active within 20 minutes"
+                  : "17:00–01:00 Yerevan — nobody is In Office";
         return {
             version: "1.0",
             algorithm: "round_robin_sequential",
             assignmentMode: mode,
             assignmentModeLabel: modeLabel,
             rules: [
-                "From 17:00 to 01:00, NEW shipments go only to Brokers and Team Leads who are In Office and clicked within 20 minutes",
-                "After 01:00 until 17:00, NEW shipments go to every Broker and Team Lead in turn, even if they are not In Office",
+                "From 17:00 to 01:00 Yerevan, NEW shipments go only to Brokers and Team Leads who are In Office and clicked within 20 minutes",
+                "From 01:00 to 16:59 Yerevan, NEW shipments go to every Broker and Team Lead in turn, even if they are not In Office",
                 "Manager, Accounting, Owner, and every other role never receive NEW shipments",
                 "Fresh NEW imports are assigned before passed-along (reassigned) loads",
                 "If nobody eligible is In Office → shipments stay UNASSIGNED until someone checks in",
@@ -935,10 +935,10 @@ export class AssignmentEngine {
             assignmentMode: mode,
             assignmentModeLabel:
                 mode === "after_hours"
-                    ? "After 01:00 — every Broker and Team Lead, in turn"
+                    ? "01:00–16:59 Yerevan — every Broker and Team Lead, in turn"
                     : mode === "in_office"
-                      ? "In Office and active within 20 minutes"
-                      : "Nobody is in the queue",
+                      ? "17:00–01:00 Yerevan — In Office and active within 20 minutes"
+                      : "17:00–01:00 Yerevan — nobody is In Office",
             newQueue: paint(newSynced, lastNew?.assignedUserId || null, lastNew?.createdAt || null),
             otherQueue: paint(
                 otherSynced,
@@ -1184,8 +1184,8 @@ export class AssignmentEngine {
     }
 
     /**
-     * 17:00–01:00: Brokers and Team Leads who are In Office and clicked within 20 minutes.
-     * After 01:00 until 17:00: every linked Broker and Team Lead, in turn.
+     * 17:00–01:00 Yerevan: Brokers and Team Leads who are In Office and clicked within 20 minutes.
+     * 01:00–16:59 Yerevan: every linked Broker and Team Lead, in turn.
      * Manager, Accounting, and Owner are not loaded into this pool.
      * If nobody qualifies during work hours, NEW shipments stay UNASSIGNED until check-in.
      * Gmail is NOT required. `availableForAssignment` is ignored.
@@ -1374,7 +1374,7 @@ export class AssignmentEngine {
         const linkUpdates: Array<{ userId: string; employeeId: string }> = [];
 
         const now = new Date();
-        const afterHours = isAfterHoursAssignment(now, config.timezone);
+        const afterHours = isAfterHoursAssignment(now, ASSIGNMENT_TIMEZONE);
 
         for (const user of users) {
             if (

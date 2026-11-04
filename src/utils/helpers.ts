@@ -232,7 +232,13 @@ export function getAttendanceDayBounds(workDate: string, timezone: string) {
 }
 
 /**
- * After the 01:00 office-clock end of shift, until the next 17:00 start.
+ * Queue clock. 17:00–01:00 Yerevan is the office day.
+ * 01:00–16:59 Yerevan every Broker and Team Lead is in the queue.
+ */
+export const ASSIGNMENT_TIMEZONE = "Asia/Yerevan";
+
+/**
+ * After 01:00 until the next 17:00 on the given clock.
  * New shipments then go to every Broker and Team Lead, not only people In Office.
  */
 export function isAfterHoursAssignment(date: Date, timezone: string): boolean {

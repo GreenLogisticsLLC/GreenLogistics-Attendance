@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+    ASSIGNMENT_TIMEZONE,
     chooseAssignmentPool,
     isAfterHoursAssignment,
     nightAcceptanceDeadline,
     NIGHT_HOLD_UNTIL_OFFICE,
     zonedDateTime,
 } from "./helpers.js";
+
+test("queue hours follow Yerevan, not Los Angeles", () => {
+    assert.equal(ASSIGNMENT_TIMEZONE, "Asia/Yerevan");
+    const morning = zonedDateTime("2026-11-04", "05:09", "Asia/Yerevan");
+    assert.equal(isAfterHoursAssignment(morning, "Asia/Yerevan"), true);
+    assert.equal(isAfterHoursAssignment(morning, "America/Los_Angeles"), false);
+    assert.equal(isAfterHoursAssignment(zonedDateTime("2026-11-04", "16:59", "Asia/Yerevan"), "Asia/Yerevan"), true);
+    assert.equal(isAfterHoursAssignment(zonedDateTime("2026-11-04", "17:00", "Asia/Yerevan"), "Asia/Yerevan"), false);
+});
 
 test("after 01:00 the whole roster is used, even if somebody is still in office", () => {
     assert.equal(
