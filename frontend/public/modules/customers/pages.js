@@ -214,7 +214,7 @@ window.GreenOSModules.customers = {
     return (
       '<div class="load-form-grid">' +
       '<label>Company name * <input id="cu-company" value="' + self.esc(c.companyName || "") + '"></label>' +
-      '<label>Contact <input id="cu-contact" value="' + self.esc(c.contactName || "") + '"></label>' +
+      '<label>Contact name <input id="cu-contact" value="' + self.esc(c.contactName || "") + '"></label>' +
       '<label>Email <input id="cu-email" type="email" value="' + self.esc(c.email || "") + '"></label>' +
       '<label>Phone <input id="cu-phone" type="tel" value="' + self.esc(c.phone || "") + '"></label>' +
       '<label>ZIP <input id="cu-zip" value="' + self.esc(c.zip || "") + '"></label>' +
