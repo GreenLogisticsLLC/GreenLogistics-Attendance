@@ -1,7 +1,8 @@
 import { prisma } from "../config/database.js";
 import {
     ASSIGNMENT_TIMEZONE,
-    arrivedAfterDayOffCutoff,
+    arrivalIsDayOff,
+    DAY_OFF_STARTS_ON,
     diffMinutes,
     formatMinutes,
     formatYerevanTime,
@@ -133,7 +134,7 @@ export class ReportService {
                       diffMinutes(overtimeStart, effectiveEnd) - overtimeOutsideMinutes
                   )
                 : 0;
-            const dayOff = Boolean(s.firstEntry && arrivedAfterDayOffCutoff(s.firstEntry));
+            const dayOff = Boolean(s.firstEntry && arrivalIsDayOff(s.firstEntry));
 
             return {
                 workDate: s.workDate,
@@ -184,17 +185,18 @@ export class ReportService {
         const showNotArrived = isNotArrivedStatus(filters.status);
         const showDayOff = String(filters.status || "").toLowerCase().replace(/[\s-]+/g, "_") === "day_off";
         const dayOffRows = filteredSessions.filter((row) => row.dayOff);
+        const dayOffMissed = notArrivedRows.filter((row) => (row.workDate || "") >= DAY_OFF_STARTS_ON);
         const visibleRows = showNotArrived ? notArrivedRows : filteredSessions;
         const dayOffByEmployee = mergeDayOffSummaries(
             groupDayOffByEmployee(dayOffRows),
-            notArrivedByEmployee
+            groupNotArrivedByEmployee(dayOffMissed)
         );
         const summary = summarizePeriodReportRows(
             showNotArrived ? notArrivedRows : filteredSessions,
             notArrivedRows,
             [
                 ...dayOffRows.map((row) => ({ employeeId: row.employeeId, dayOff: true })),
-                ...notArrivedRows.map((row) => ({ employeeId: row.employeeId, dayOff: true })),
+                ...dayOffMissed.map((row) => ({ employeeId: row.employeeId, dayOff: true })),
             ]
         );
 

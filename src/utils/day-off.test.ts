@@ -19,14 +19,16 @@ test("arrival after 17:30 Yerevan from 5 Nov 2026 is a day off", () => {
     assert.equal(arrivalIsDayOff(zonedDateTime("2026-11-06", "10:00", ye)), false);
 });
 
-test("reports count every arrival after 17:30 Yerevan, including before 5 Nov", () => {
+test("day off starts 5 Nov 2026, so earlier late arrivals are not counted", () => {
     const early = zonedDateTime("2026-11-04", "16:57", ye);
     const cutoff = zonedDateTime("2026-11-04", "17:30", ye);
-    const late = zonedDateTime("2026-11-04", "17:31", ye);
+    const lateBefore = zonedDateTime("2026-11-04", "17:31", ye);
+    const lateAfter = zonedDateTime("2026-11-05", "17:31", ye);
     assert.equal(arrivedAfterDayOffCutoff(early), false);
     assert.equal(arrivedAfterDayOffCutoff(cutoff), false);
-    assert.equal(arrivedAfterDayOffCutoff(late), true);
-    assert.equal(arrivalIsDayOff(late), false);
+    assert.equal(arrivedAfterDayOffCutoff(lateBefore), true);
+    assert.equal(arrivalIsDayOff(lateBefore), false);
+    assert.equal(arrivalIsDayOff(lateAfter), true);
     assert.equal(formatYerevanTime(early), "16:57:00");
 });
 

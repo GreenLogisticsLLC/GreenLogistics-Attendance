@@ -1054,7 +1054,7 @@ function renderReportDayOff(from, to) {
         );
     }
     if (hint) {
-        hint.textContent = `Период ${from} — ${to}. Day off: не пришёл, или первый вход после 17:30 по Еревану. Время в таблице — Ереван, рабочий день 17:00–01:00.`;
+        hint.textContent = `С 5 ноября 2026. Day off: не пришёл или первый вход после 17:30 по Еревану. Дни до этой даты не считаются.`;
     }
     if (!items.length) {
         tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted)">Нет Day off за этот период</td></tr>`;
