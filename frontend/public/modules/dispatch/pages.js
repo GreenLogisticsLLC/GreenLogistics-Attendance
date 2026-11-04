@@ -7,6 +7,7 @@ window.GreenOSModules["dispatch"] = {
   children: [
     { id: "active-loads", title: "Active Loads" },
     { id: "completed-loads", title: "Completed Loads" },
+    { id: "voided-loads", title: "Voided" },
     { id: "carriers", title: "Carriers" },
     { id: "available-trucks", title: "Available Trucks" },
     { id: "tracking", title: "Tracking" },
@@ -1527,7 +1528,14 @@ window.GreenOSModules["dispatch"] = {
     }
 
     if (active.id === "active-loads" || active.id === "completed-loads") {
-      self.renderList(body, active.id === "completed-loads" ? "completed" : "active");
+      self.renderList(
+        body,
+        active.id === "completed-loads"
+          ? "completed"
+          : active.id === "voided-loads"
+            ? "voided"
+            : "active"
+      );
       return;
     }
 
@@ -2032,6 +2040,27 @@ window.GreenOSModules["dispatch"] = {
       "<p class=\"gos-muted load-nav-sub\">" +
       self.esc(data.identity.shipmentNumber || "") +
       "</p>" +
+      (function () {
+        var status = String((data.identity && data.identity.status) || "");
+        var loadNo = data.identity && data.identity.loadNumber;
+        var past = {
+          PICKUP: 1,
+          IN_TRANSIT: 1,
+          DELIVERED: 1,
+          POD_UPLOADED: 1,
+          CUSTOMER_INVOICE: 1,
+          CARRIER_PAYMENT: 1,
+          COMPLETED: 1,
+          CLOSED: 1,
+        };
+        if (!loadNo || past[status]) return "";
+        if (status === "VOIDED") {
+          return '<p class="gos-muted">This load number is voided. It is in the Voided folder.</p>';
+        }
+        return (
+          '<button type="button" class="btn-secondary" id="load-void-btn" style="width:100%;margin:0.35rem 0 0.5rem">Void load number</button>'
+        );
+      })() +
       progressHtml +
       '<div class="load-tabs">' +
       tabNav +
@@ -2055,6 +2084,35 @@ window.GreenOSModules["dispatch"] = {
 
     self.bindPaymentDocButtons(body);
     self.loadShipmentMarketRate(body, id);
+
+    body.querySelector("#load-void-btn")?.addEventListener("click", async function () {
+      var loadNo = (data.identity && data.identity.loadNumber) || "this load";
+      if (
+        !confirm(
+          "Mark " +
+            loadNo +
+            " as voided? The carrier did not pick up this freight. The load number stays and moves to Voided."
+        )
+      ) {
+        return;
+      }
+      var btn = body.querySelector("#load-void-btn");
+      if (btn) btn.disabled = true;
+      try {
+        var res = await self.api("/" + encodeURIComponent(id) + "/void", {
+          method: "POST",
+          body: "{}",
+        });
+        if (!res || res.success === false) {
+          throw new Error((res && res.message) || "Could not void this load");
+        }
+        self._listPhase = "voided";
+        self.renderDetails(body, res.data || data);
+      } catch (err) {
+        if (btn) btn.disabled = false;
+        alert(err.message || err);
+      }
+    });
 
     body.querySelector("#load-back")?.addEventListener("click", function () {
       var fallback = function () {

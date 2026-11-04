@@ -171,7 +171,7 @@ export class LoadService {
     }
 
     async listLoads(filter: {
-        phase: "active" | "completed" | "all";
+        phase: "active" | "completed" | "voided" | "all";
         limit?: number;
         brokerId?: string;
     }) {
@@ -196,7 +196,9 @@ export class LoadService {
                 ? { loadNumber: { not: null }, status: { in: activeStatuses } }
                 : filter.phase === "completed"
                   ? { loadNumber: { not: null }, status: { in: completedStatuses } }
-                  : { loadNumber: { not: null } };
+                  : filter.phase === "voided"
+                    ? { loadNumber: { not: null }, status: "VOIDED" }
+                    : { loadNumber: { not: null }, status: { not: "VOIDED" } };
         if (filter.brokerId) where.assignedBrokerId = filter.brokerId;
 
         const rows = await prisma.shipmentLead.findMany({
@@ -1198,6 +1200,53 @@ export class LoadService {
             }
         }
 
+        return this.getLoadDetails(shipmentLeadId);
+    }
+
+    /** Carrier did not pick up. Keep the load number and move the load to Voided. */
+    async voidLoad(shipmentLeadId: string, actorUserId?: string) {
+        const shipment = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+            select: { status: true, loadNumber: true },
+        });
+        if (!shipment) throw Object.assign(new Error("Load not found"), { status: 404 });
+        const loadNumber = String(shipment.loadNumber || "").trim();
+        if (!loadNumber) {
+            throw Object.assign(new Error("Generate a load number before voiding"), { status: 422 });
+        }
+        const status = normalizeStatus(shipment.status);
+        if (status === "VOIDED") {
+            throw Object.assign(new Error("This load number is already voided"), { status: 422 });
+        }
+        const pastPickup = [
+            "PICKUP",
+            "IN_TRANSIT",
+            "DELIVERED",
+            "POD_UPLOADED",
+            "CUSTOMER_INVOICE",
+            "CARRIER_PAYMENT",
+            "COMPLETED",
+            "CLOSED",
+        ];
+        if (pastPickup.includes(status)) {
+            throw Object.assign(
+                new Error("This load already moved past pickup and cannot be voided"),
+                { status: 422 }
+            );
+        }
+        await prisma.shipmentLead.update({
+            where: { shipmentLeadId },
+            data: { status: "VOIDED" },
+        });
+        await domainEventEngine.emit({
+            shipmentLeadId,
+            eventType: "STATUS_CHANGED",
+            title: "Load voided",
+            message: `Load ${loadNumber} voided — carrier did not pick up`,
+            actorUserId: actorUserId || undefined,
+            timelineStage: "STATUS_CHANGED",
+            payload: { loadNumber, reason: "CARRIER_DID_NOT_PICK_UP" },
+        });
         return this.getLoadDetails(shipmentLeadId);
     }
 

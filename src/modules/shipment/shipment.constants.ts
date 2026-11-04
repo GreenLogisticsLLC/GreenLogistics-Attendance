@@ -159,6 +159,7 @@ export const STATUS_LABELS: Record<string, string> = {
     DISPATCH: "Dispatch",
     COMPLETED: "Completed",
     CLOSED: "Closed",
+    VOIDED: "Voided",
     LOST: "Lost",
     DELETED_FROM_CUSTOMER: "Deleted from Customer",
     DELETED: "Deleted from Customer",

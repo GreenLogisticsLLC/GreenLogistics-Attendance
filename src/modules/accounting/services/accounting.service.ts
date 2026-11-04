@@ -189,7 +189,7 @@ export class AccountingService {
         assertPerm(actor, AccountingPermissions.ShipmentsView);
         const f = String(filter || "all").toLowerCase();
         const rows = await prisma.shipmentLead.findMany({
-            where: { loadNumber: { not: null } },
+            where: { loadNumber: { not: null }, status: { not: "VOIDED" } },
             orderBy: { updatedAt: "desc" },
             take: 200,
             select: {

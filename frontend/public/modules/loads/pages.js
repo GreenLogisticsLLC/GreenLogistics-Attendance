@@ -11,6 +11,7 @@ window.GreenOSModules = window.GreenOSModules || {};
     children: [
       { id: "active-loads", title: "Active Loads" },
       { id: "completed-loads", title: "Completed Loads" },
+      { id: "voided-loads", title: "Voided" },
     ],
 
     openById: function (shipmentLeadId, tab) {
@@ -109,7 +110,14 @@ window.GreenOSModules = window.GreenOSModules || {};
         return;
       }
 
-      self.renderList(body, active.id === "completed-loads" ? "completed" : "active");
+      self.renderList(
+        body,
+        active.id === "completed-loads"
+          ? "completed"
+          : active.id === "voided-loads"
+            ? "voided"
+            : "active"
+      );
     },
   });
 

@@ -36,6 +36,7 @@ const LOAD_FLOW = [
     "DISPATCH",
     "COMPLETED",
     "CLOSED",
+    "VOIDED",
 ];
 
 /**

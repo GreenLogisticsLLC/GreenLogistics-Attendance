@@ -31,7 +31,7 @@ export function generatedLoadWhere(): Record<string, unknown> {
                     { AND: [{ loadNumber: { not: null } }, { NOT: { loadNumber: "" } }] },
                 ],
             },
-            { status: { notIn: [...TERMINAL] } },
+            { status: { notIn: [...TERMINAL, "VOIDED"] } },
         ],
     };
 }
