@@ -605,18 +605,36 @@ function formatAttendanceClock(iso) {
     });
 }
 
+function canSetOfficePresence() {
+    const role =
+        (window.GreenOSUser && window.GreenOSUser.role) ||
+        (typeof currentUser !== "undefined" && currentUser && currentUser.role) ||
+        "";
+    return role === "Owner" || role === "Manager";
+}
+
 function renderTable(employees) {
     const tbody = $("#employees-body");
+    const canSet = canSetOfficePresence();
+    const head = document.querySelector("#employees-table thead tr");
+    if (head) {
+        const first = head.querySelector("th");
+        if (first) first.style.display = canSet ? "" : "none";
+    }
     tbody.innerHTML = employees.map((emp) => {
         const lateClass = emp.late ? " late-row" : "";
         const nameClass = emp.late ? "late-yes" : "";
+        const inside = emp.currentStatus === "INSIDE_OFFICE";
+        const officeBtn = canSet
+            ? `<td><button type="button" class="btn-secondary office-presence-btn" data-id="${emp.employeeId}" data-next="${inside ? "out" : "in"}" style="width:auto;padding:0.35rem 0.6rem">${inside ? "Out of Office" : "In Office"}</button></td>`
+            : `<td style="display:none"></td>`;
         return `
         <tr class="${lateClass.trim()}" data-id="${emp.employeeId}" data-status="${emp.currentStatus}" data-late="${emp.late ? "1" : "0"}">
+            ${officeBtn}
             <td><strong class="${nameClass}">${emp.employeeName}</strong><br><small style="color:var(--muted)">${emp.employeeNumber}</small></td>
             <td>${emp.department || "—"}</td>
             <td class="${nameClass}">${emp.firstEntry || "—"}</td>
             <td><span class="status-badge status-${emp.currentStatus}">${statusLabel(emp.currentStatus)}</span></td>
-            <td>${emp.currentStatus === "INSIDE_OFFICE" ? formatDuration(emp.currentOfficeMinutes) : "—"}</td>
             <td>${emp.currentStatus === "OUTSIDE_OFFICE" ? formatDuration(emp.currentAbsenceMinutes) : "—"}</td>
             <td>${formatDuration(emp.totalAbsenceMinutes)}</td>
             <td class="${nameClass}">${emp.late ? formatLateHhMm(emp.lateMinutes) : "—"}</td>
@@ -628,6 +646,32 @@ function renderTable(employees) {
 
     tbody.querySelectorAll("tr").forEach((row) => {
         row.addEventListener("click", () => openEmployeeDrawer(row.dataset.id));
+    });
+    tbody.querySelectorAll(".office-presence-btn").forEach((btn) => {
+        btn.addEventListener("click", async (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const id = btn.getAttribute("data-id");
+            const next = btn.getAttribute("data-next");
+            if (!id) return;
+            btn.disabled = true;
+            try {
+                const path =
+                    next === "out"
+                        ? `/employees/${encodeURIComponent(id)}/mark-left`
+                        : `/employees/${encodeURIComponent(id)}/test-scan`;
+                const data = await apiFetch(path, { method: "POST", body: "{}" });
+                if (!data.success) {
+                    alert(data.message || "Could not update office status");
+                    btn.disabled = false;
+                    return;
+                }
+                await loadDashboard();
+            } catch (err) {
+                btn.disabled = false;
+                alert(err.message || err);
+            }
+        });
     });
 }
 
