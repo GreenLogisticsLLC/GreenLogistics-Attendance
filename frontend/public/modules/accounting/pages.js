@@ -604,7 +604,7 @@ window.GreenOSModules.accounting = {
     var head =
       "<th>Load</th><th>Customer</th><th>Carrier</th>" +
       (showQueue ? "<th>Waiting for</th>" : "<th>Doc status</th><th>Ready</th>") +
-      "<th>Payments</th><th></th>";
+      "<th>Broker</th><th>Payments</th><th></th>";
     var body = rows
       .map(function (r) {
         var urgency = self.rowUrgencyClass(r);
@@ -641,6 +641,9 @@ window.GreenOSModules.accounting = {
           self.esc(r.carrierName || "—") +
           "</td>" +
           mid +
+          "<td>" +
+          self.esc(r.brokerName || "—") +
+          "</td>" +
           "<td class=\"acc-pay-cell\">" +
           self.paymentsCell(r) +
           "</td>" +
