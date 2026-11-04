@@ -57,7 +57,11 @@ export async function crmDashboardController(req: AuthRequest, res: Response) {
 export async function crmListShipmentsController(req: AuthRequest, res: Response) {
     const requested =
         typeof req.query.brokerId === "string" ? req.query.brokerId : undefined;
-    const brokerId = scopedBrokerId(req, requested);
+    const mine = req.query.mine === "1" || req.query.mine === "true";
+    let brokerId = scopedBrokerId(req, requested);
+    if (mine && req.user?.userId) {
+        brokerId = req.user.userId;
+    }
     if (
         isDataScopedRole(req.user?.role || "") &&
         requested &&
@@ -91,7 +95,7 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
         page,
         pageSize,
         teamLeadId: !brokerId && teamLeadId ? teamLeadId : undefined,
-        lite: req.user?.role === "Broker",
+        lite: req.user?.role === "Broker" || mine,
     });
     return res.json(apiResponse(true, "Shipments loaded", data));
 }

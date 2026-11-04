@@ -146,7 +146,12 @@ window.GreenOSModules.shipments = {
         body.innerHTML = "<p>My Shipments failed to load. Refresh the page.</p>";
         return;
       }
-      return broker.renderShipments(body, root, { brokerId: me.userId || "" });
+      var mineId =
+        me.userId ||
+        me.id ||
+        (window.GreenOSUser && (window.GreenOSUser.userId || window.GreenOSUser.id)) ||
+        "";
+      return broker.renderShipments(body, root, { brokerId: mineId, mine: true });
     }
     if (teamTab === "by-broker") {
       this.renderBrokerStats(body);

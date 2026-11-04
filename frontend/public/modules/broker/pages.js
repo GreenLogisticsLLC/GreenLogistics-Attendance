@@ -75,7 +75,7 @@ window.GreenOSModules.broker = {
     });
 
     var body = root.querySelector("#broker-body");
-    if (active.id === "shipments") self.renderShipments(body, root);
+    if (active.id === "shipments") self.renderShipments(body, root, { brokerId: "", mine: false });
     else if (active.id === "customer-respond") self.renderCustomerRespond(body, root);
     else if (active.id === "loads") self.renderLoads(body, root);
     else if (active.id === "customers") self.renderCustomers(body, root);
@@ -101,6 +101,9 @@ window.GreenOSModules.broker = {
     var q = String(qs || "");
     if (this._scopeBrokerId) {
       q += (q ? "&" : "") + "brokerId=" + encodeURIComponent(this._scopeBrokerId);
+    }
+    if (this._personalMine) {
+      q += (q ? "&" : "") + "mine=1";
     }
     return "/shipments?" + q;
   },
@@ -296,7 +299,12 @@ window.GreenOSModules.broker = {
 
   async renderShipments(body, root, options) {
     var self = this;
-    self._scopeBrokerId = options && options.brokerId ? String(options.brokerId) : "";
+    if (options && Object.prototype.hasOwnProperty.call(options, "brokerId")) {
+      self._scopeBrokerId = options.brokerId ? String(options.brokerId) : "";
+    }
+    if (options && Object.prototype.hasOwnProperty.call(options, "mine")) {
+      self._personalMine = Boolean(options.mine);
+    }
     var activeTab = self._shipmentsTab || "new";
     body.innerHTML =
       '<section class="gos-dash-hero"><h1>My Shipments</h1><p>New imports first — passed loads in Other · accepted work in Accepted · customer-approved loads in Load Created</p></section>' +
