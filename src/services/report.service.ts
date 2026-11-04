@@ -5,6 +5,7 @@ import {
     formatMinutes,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
+    arrivalIsDayOff,
     getAttendanceWorkHoursBounds,
     sumAttendanceOutsideMinutes,
 } from "../utils/helpers.js";
@@ -12,6 +13,7 @@ import { config } from "../config/env.js";
 import { employeeRepository } from "../repositories/employee.repository.js";
 import {
     filterPeriodReportRows,
+    groupDayOffByEmployee,
     groupNotArrivedByEmployee,
     isNotArrivedStatus,
     lastCountableWorkDate,
@@ -37,6 +39,7 @@ export interface PeriodReportRow {
     timeInOfficeMinutes: number;
     overtimeInOfficeMinutes: number;
     exitCount: number;
+    dayOff: boolean;
 }
 
 function calcTimeInOffice(
@@ -142,6 +145,7 @@ export class ReportService {
                       diffMinutes(overtimeStart, effectiveEnd) - overtimeOutsideMinutes
                   )
                 : 0;
+            const dayOff = Boolean(s.firstEntry && arrivalIsDayOff(s.firstEntry));
 
             return {
                 workDate: s.workDate,
@@ -152,11 +156,12 @@ export class ReportService {
                 position: s.employee.position,
                 firstEntry: formatTime(s.firstEntry),
                 lastExit: formatTime(s.lastExit),
-                status: statusLabel(s.currentStatus),
+                status: dayOff ? "Day off" : statusLabel(s.currentStatus),
                 totalOutsideMinutes: rawOutsideMinutes,
                 timeInOfficeMinutes,
                 overtimeInOfficeMinutes,
                 exitCount: s.exitCount,
+                dayOff,
             };
         });
 
@@ -189,10 +194,13 @@ export class ReportService {
         });
         const notArrivedByEmployee = groupNotArrivedByEmployee(notArrivedRows);
         const showNotArrived = isNotArrivedStatus(filters.status);
+        const showDayOff = String(filters.status || "").toLowerCase().replace(/[\s-]+/g, "_") === "day_off";
+        const dayOffRows = filteredSessions.filter((row) => row.dayOff);
         const visibleRows = showNotArrived ? notArrivedRows : filteredSessions;
         const summary = summarizePeriodReportRows(
             showNotArrived ? notArrivedRows : filteredSessions,
-            notArrivedRows
+            notArrivedRows,
+            dayOffRows
         );
 
         return {
@@ -203,12 +211,13 @@ export class ReportService {
             filters: {
                 employeeId: employeeId || null,
                 name: normalizeReportNameQuery(filters.name) ? filters.name?.trim() : null,
-                status: showNotArrived ? "not_arrived" : null,
+                status: showNotArrived ? "not_arrived" : showDayOff ? "day_off" : null,
             },
             summary,
             rows: visibleRows,
             notArrivedRows,
             notArrivedByEmployee,
+            dayOffByEmployee: groupDayOffByEmployee(dayOffRows),
         };
     }
 
@@ -263,6 +272,7 @@ function buildNotArrivedRows(input: {
                 timeInOfficeMinutes: 0,
                 overtimeInOfficeMinutes: 0,
                 exitCount: 0,
+                dayOff: false,
             });
         }
     }

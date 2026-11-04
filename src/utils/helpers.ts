@@ -237,6 +237,62 @@ export function getAttendanceDayBounds(workDate: string, timezone: string) {
  */
 export const ASSIGNMENT_TIMEZONE = "Asia/Yerevan";
 
+/** First office day that counts a late arrival as Day off. */
+export const DAY_OFF_STARTS_ON = "2026-11-05";
+
+function yerevanDateString(date: Date): string {
+    const local = zonedParts(date, ASSIGNMENT_TIMEZONE);
+    return [
+        String(local.year).padStart(4, "0"),
+        String(local.month).padStart(2, "0"),
+        String(local.day).padStart(2, "0"),
+    ].join("-");
+}
+
+/**
+ * Office shift that is open at this instant, named by the Yerevan date of its 17:00 start.
+ * 01:00–16:59 is between shifts.
+ */
+export function officeShiftDate(instant: Date): string | null {
+    const local = zonedParts(instant, ASSIGNMENT_TIMEZONE);
+    const ymd = yerevanDateString(instant);
+    const minutes = local.hour * 60 + local.minute;
+    if (minutes >= 17 * 60) return ymd;
+    if (minutes < 60) return addDaysToDateString(ymd, -1);
+    return null;
+}
+
+/** First arrival after 17:00 Yerevan on a shift that starts 5 Nov 2026 or later. */
+export function arrivalIsDayOff(firstEntry: Date): boolean {
+    const shift = officeShiftDate(firstEntry);
+    if (!shift || shift < DAY_OFF_STARTS_ON) return false;
+    const start = zonedDateTime(shift, "17:00", ASSIGNMENT_TIMEZONE);
+    return firstEntry.getTime() > start.getTime();
+}
+
+/** Employees whose first entry this office shift was after 17:00 Yerevan. */
+export function dayOffEmployeeIdsFromRows(
+    rows: Array<{ employeeId: string; firstEntry: Date | null }>,
+    now: Date
+): string[] {
+    const shift = officeShiftDate(now);
+    if (!shift || shift < DAY_OFF_STARTS_ON) return [];
+    const start = zonedDateTime(shift, "17:00", ASSIGNMENT_TIMEZONE);
+    const end = zonedDateTime(addDaysToDateString(shift, 1), "01:00", ASSIGNMENT_TIMEZONE);
+    const earliest = new Map<string, Date>();
+    for (const row of rows) {
+        if (!row.firstEntry) continue;
+        if (row.firstEntry < start || row.firstEntry >= end) continue;
+        const prev = earliest.get(row.employeeId);
+        if (!prev || row.firstEntry < prev) earliest.set(row.employeeId, row.firstEntry);
+    }
+    const ids: string[] = [];
+    for (const [employeeId, at] of earliest) {
+        if (at.getTime() > start.getTime()) ids.push(employeeId);
+    }
+    return ids;
+}
+
 /**
  * After 01:00 until the next 17:00 on the given clock.
  * New shipments then go to every Broker and Team Lead, not only people In Office.

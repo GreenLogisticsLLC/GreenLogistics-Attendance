@@ -27,6 +27,8 @@ export interface PeriodReportSummary {
     totalOvertimeMinutes: number;
     daysNotArrived: number;
     employeesNotArrived: number;
+    daysDayOff: number;
+    employeesDayOff: number;
 }
 
 export interface NotArrivedEmployeeSummary {
@@ -152,6 +154,52 @@ export function groupNotArrivedByEmployee<T extends ReportFilterableRow>(
         });
 }
 
+export interface DayOffEmployeeSummary {
+    employeeId: string;
+    employeeName: string;
+    employeeNumber: string;
+    department: string | null;
+    position?: string | null;
+    daysDayOff: number;
+    dates: string[];
+}
+
+export function groupDayOffByEmployee<
+    T extends ReportFilterableRow & { dayOff?: boolean },
+>(rows: T[]): DayOffEmployeeSummary[] {
+    const map = new Map<string, DayOffEmployeeSummary>();
+    for (const row of rows) {
+        if (!row.dayOff) continue;
+        const existing = map.get(row.employeeId);
+        const date = row.workDate || "";
+        if (existing) {
+            if (date && !existing.dates.includes(date)) existing.dates.push(date);
+            existing.daysDayOff = existing.dates.length;
+            continue;
+        }
+        map.set(row.employeeId, {
+            employeeId: row.employeeId,
+            employeeName: row.employeeName,
+            employeeNumber: row.employeeNumber,
+            department: row.department,
+            position: row.position,
+            daysDayOff: date ? 1 : 0,
+            dates: date ? [date] : [],
+        });
+    }
+    return [...map.values()]
+        .map((item) => ({
+            ...item,
+            dates: [...item.dates].sort(),
+            daysDayOff: item.dates.length,
+        }))
+        .sort((a, b) => {
+            const days = b.daysDayOff - a.daysDayOff;
+            if (days !== 0) return days;
+            return a.employeeName.localeCompare(b.employeeName, undefined, { sensitivity: "base" });
+        });
+}
+
 export function summarizePeriodReportRows(
     rows: Array<{
         firstEntry: string | null;
@@ -159,9 +207,11 @@ export function summarizePeriodReportRows(
         timeInOfficeMinutes: number;
         overtimeInOfficeMinutes: number;
     }>,
-    notArrivedRows: Array<{ employeeId: string }> = []
+    notArrivedRows: Array<{ employeeId: string }> = [],
+    dayOffRows: Array<{ employeeId: string; dayOff?: boolean }> = []
 ): PeriodReportSummary {
     const absentIds = new Set(notArrivedRows.map((r) => r.employeeId));
+    const offIds = new Set(dayOffRows.filter((r) => r.dayOff !== false).map((r) => r.employeeId));
     return {
         totalSessions: rows.length,
         daysWithEntry: rows.filter((r) => r.firstEntry).length,
@@ -170,5 +220,7 @@ export function summarizePeriodReportRows(
         totalOvertimeMinutes: rows.reduce((s, r) => s + r.overtimeInOfficeMinutes, 0),
         daysNotArrived: notArrivedRows.length,
         employeesNotArrived: absentIds.size,
+        daysDayOff: dayOffRows.filter((r) => r.dayOff !== false).length,
+        employeesDayOff: offIds.size,
     };
 }

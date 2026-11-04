@@ -12,7 +12,7 @@ import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
 import { arrivedAfterShipmentCutoff, SHIPMENTS_FROM } from "../../services/shipment-cutoff.js";
 import { config } from "../../config/env.js";
-import { ASSIGNMENT_TIMEZONE, isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE, chooseAssignmentPool } from "../../utils/helpers.js";
+import { ASSIGNMENT_TIMEZONE, dayOffEmployeeIdsFromRows, isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE, chooseAssignmentPool } from "../../utils/helpers.js";
 import { receivesNewShipments } from "./activity-window.js";
 import { queuePlaces, syncQueueOrder, takeNextInQueue } from "./round-robin.js";
 import { arrivalCountsFor, summarizeShipmentArrivals } from "./arrival-counts.js";
@@ -964,6 +964,13 @@ export class AssignmentEngine {
         const user = await this.findBrokerUserByEmployeeId(employeeId);
         if (!user) return null;
 
+        if ((await this.dayOffEmployeeIds([employeeId])).has(employeeId)) {
+            console.info(
+                `[assignment] ${displayName(user)} arrived after 17:00 Yerevan — Day off, not added to New or Other`
+            );
+            return null;
+        }
+
         const joinedNew = await this.joinQueue(QUEUE_NEW, user.userId);
         await this.joinQueue(QUEUE_OTHER, user.userId);
         if (joinedNew.joined) {
@@ -1451,10 +1458,14 @@ export class AssignmentEngine {
         }
 
         if (pool === "in_office") {
-            return {
-                eligible: sortBrokersForRoundRobin(inOffice),
-                mode: "in_office",
-            };
+            const dayOff = await this.dayOffEmployeeIds(inOffice.map((entry) => entry.employeeId));
+            const working = inOffice.filter((entry) => !dayOff.has(entry.employeeId));
+            if (working.length) {
+                return {
+                    eligible: sortBrokersForRoundRobin(working),
+                    mode: "in_office",
+                };
+            }
         }
 
         // Nobody linked+In Office. Surface Attendance badges that ARE In Office but
@@ -1499,6 +1510,17 @@ export class AssignmentEngine {
             `[assignment] no eligible staff In Office — parking NEW shipments as UNASSIGNED until check-in (${allLinked.length} linked staff offline; roles=${ASSIGNMENT_ROLE_NAMES.join(",")})`
         );
         return { eligible: [], mode: "none" };
+    }
+
+    private async dayOffEmployeeIds(employeeIds: string[]): Promise<Set<string>> {
+        const ids = [...new Set(employeeIds.filter(Boolean))];
+        if (!ids.length) return new Set();
+        const now = new Date();
+        const rows = await prisma.attendanceSession.findMany({
+            where: { employeeId: { in: ids }, firstEntry: { not: null } },
+            select: { employeeId: true, firstEntry: true },
+        });
+        return new Set(dayOffEmployeeIdsFromRows(rows, now));
     }
 
     private resolveEmployeeIdSync(

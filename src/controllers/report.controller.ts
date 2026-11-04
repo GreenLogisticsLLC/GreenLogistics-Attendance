@@ -39,6 +39,7 @@ function reportFilterLabel(report: {
         bits.push(unique.length === 1 ? `Employee: ${unique[0]}` : "Selected employee");
     }
     if (report.filters?.status === "not_arrived") bits.push("Status: Not Arrived");
+    if (report.filters?.status === "day_off") bits.push("Status: Day off");
     return bits.length ? bits.join(" · ") : null;
 }
 
@@ -103,6 +104,7 @@ export async function periodReportPdfController(req: AuthRequest, res: Response)
         doc.text(`Records: ${report.summary.totalSessions}`);
         doc.text(`Days with entry: ${report.summary.daysWithEntry}`);
         doc.text(`Days not arrived: ${report.summary.daysNotArrived}`);
+        doc.text(`Day off: ${report.summary.daysDayOff || 0}`);
         doc.text(`Total in office: ${formatMinutes(report.summary.totalInOfficeMinutes)}`);
         doc.text(`Total outside: ${formatMinutes(report.summary.totalOutsideMinutes)}`);
         doc.text(`OutTime in office: ${formatMinutes(report.summary.totalOvertimeMinutes)}`);
@@ -118,6 +120,20 @@ export async function periodReportPdfController(req: AuthRequest, res: Response)
             if (doc.y > 520) doc.addPage();
             doc.text(
                 `${item.employeeName} (${item.employeeNumber}) — ${item.daysNotArrived} day(s): ${item.dates.join(", ")}`
+            );
+        }
+        doc.moveDown(1);
+    }
+
+    const dayOffSummary = report.dayOffByEmployee || [];
+    if (dayOffSummary.length) {
+        doc.fontSize(11).fillColor("#000").text("Day off by employee", { underline: true });
+        doc.fontSize(9);
+        doc.moveDown(0.3);
+        for (const item of dayOffSummary) {
+            if (doc.y > 520) doc.addPage();
+            doc.text(
+                `${item.employeeName} (${item.employeeNumber}) — ${item.daysDayOff} day(s): ${item.dates.join(", ")}`
             );
         }
         doc.moveDown(1);

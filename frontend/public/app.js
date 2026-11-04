@@ -207,6 +207,7 @@ async function updateWebhookUrlDisplays() {
 let reportRefreshTimer = null;
 let reportRowsCache = [];
 let reportNotArrivedCache = [];
+let reportDayOffCache = [];
 let reportRangeCache = { from: "", to: "" };
 let reportEmployeeOptionsLoaded = false;
 let reportEmployeeCache = [];
@@ -737,6 +738,11 @@ function rowMatchesReportFilters(row, filters) {
 
 function filterCachedReportRows() {
     const filters = getReportFilters();
+    if (filters.status === "day_off") {
+        return reportRowsCache.filter(
+            (row) => row.dayOff && rowMatchesReportFilters(row, { ...filters, status: "" })
+        );
+    }
     const source = filters.status === "not_arrived" ? reportNotArrivedCache : reportRowsCache;
     if (!filters.employeeId && !filters.name && filters.status !== "not_arrived") return source;
     return source.filter((row) => rowMatchesReportFilters(row, filters));
@@ -759,6 +765,8 @@ function summarizeCachedReportRows(rows, notArrivedRows) {
         totalOvertimeMinutes: rows.reduce((s, r) => s + (r.overtimeInOfficeMinutes || 0), 0),
         daysNotArrived: absent.length,
         employeesNotArrived: new Set(absent.map((r) => r.employeeId)).size,
+        daysDayOff: reportRowsCache.filter((r) => r.dayOff).length,
+        employeesDayOff: new Set(reportRowsCache.filter((r) => r.dayOff).map((r) => r.employeeId)).size,
     };
 }
 
@@ -800,6 +808,7 @@ function reportFilterStatusSuffix() {
     }
     if (name) bits.push(`имя: ${name}`);
     if (status === "not_arrived") bits.push("Not Arrived");
+    if (status === "day_off") bits.push("Day off");
     return bits.length ? ` · ${bits.join(" · ")}` : "";
 }
 
@@ -816,6 +825,7 @@ function applyReportView() {
     const notArrivedRows = filterCachedNotArrivedRows();
     const rows = filterCachedReportRows();
     renderReportStats(summarizeCachedReportRows(rows, notArrivedRows), from, to, getReportFilters().status === "not_arrived");
+    renderReportDayOff(from, to);
     renderReportAbsenceSummary(notArrivedRows, from, to);
     renderReportTable(rows);
     syncReportFilterClearButton();
@@ -1026,6 +1036,7 @@ async function loadPeriodReport(silent = false) {
         }
         reportRowsCache = Array.isArray(data.data.rows) ? data.data.rows : [];
         reportNotArrivedCache = Array.isArray(data.data.notArrivedRows) ? data.data.notArrivedRows : [];
+        reportDayOffCache = Array.isArray(data.data.dayOffByEmployee) ? data.data.dayOffByEmployee : [];
         reportRangeCache = { from, to };
         if (!reportEmployeeOptionsLoaded) {
             await loadReportEmployeeOptions();
@@ -1057,6 +1068,7 @@ function renderReportStats(summary, from, to, notArrivedOnly = false) {
             ["Records", summary.totalSessions, ""],
             ["With Entry", summary.daysWithEntry, "var(--green)"],
             ["Not Arrived", summary.daysNotArrived || 0, "var(--red)"],
+            ["Day off", summary.daysDayOff || 0, "var(--yellow)"],
             ["Total In Office", formatDuration(summary.totalInOfficeMinutes), "var(--green)"],
             ["Total Outside", formatDuration(summary.totalOutsideMinutes), "var(--yellow)"],
             ["OutTime In Office", formatDuration(summary.totalOvertimeMinutes), "var(--blue)"],
@@ -1067,6 +1079,48 @@ function renderReportStats(summary, from, to, notArrivedOnly = false) {
             <div class="value" style="color:${color || "inherit"}">${value}</div>
         </div>
     `).join("");
+}
+
+function renderReportDayOff(from, to) {
+    const tbody = $("#report-dayoff-body");
+    const hint = $("#report-dayoff-hint");
+    if (!tbody) return;
+    const { employeeId, name } = getReportFilters();
+    let items = reportDayOffCache || [];
+    if (employeeId) items = items.filter((item) => item.employeeId === employeeId);
+    const q = (name || "").trim().toLowerCase();
+    if (q) {
+        items = items.filter((item) =>
+            `${item.employeeName || ""} ${item.employeeNumber || ""} ${item.department || ""}`
+                .toLowerCase()
+                .includes(q)
+        );
+    }
+    if (hint) {
+        hint.textContent = `Период ${from} — ${to}: приход после 17:00 по Еревану. Этот день — Day off, в очередь New и Other сотрудник не ставится.`;
+    }
+    if (!items.length) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted)">Нет Day off за этот период</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = items.map((item) => `
+        <tr>
+            <td>
+                <button type="button" class="report-absence-pick" data-employee-id="${escapeReportText(item.employeeId)}">
+                    ${escapeReportText(item.employeeName)}
+                </button>
+                <br><small style="color:var(--muted)">${escapeReportText(item.employeeNumber || "")}</small>
+            </td>
+            <td>${escapeReportText(item.department || "—")}</td>
+            <td class="report-absence-days">${item.daysDayOff}</td>
+            <td>${escapeReportText((item.dates || []).join(", "))}</td>
+        </tr>
+    `).join("");
+    tbody.querySelectorAll(".report-absence-pick").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            selectReportEmployee(btn.getAttribute("data-employee-id") || "");
+        });
+    });
 }
 
 function renderReportAbsenceSummary(notArrivedRows, from, to) {
@@ -1115,6 +1169,8 @@ function renderReportTable(rows) {
         const filters = getReportFilters();
         const emptyMsg = filters.status === "not_arrived"
             ? "Нет дней Not Arrived по выбранному фильтру"
+            : filters.status === "day_off"
+            ? "Нет Day off по выбранному фильтру"
             : filters.employeeId || filters.name
             ? "Нет записей по выбранному сотруднику / фильтру"
             : "Нет данных за выбранный период";
