@@ -679,13 +679,57 @@ window.GreenOSModules.crm = {
           : options.assignmentKind === "accepted"
             ? "Broker accepted the shipment (Shipment Accepted) and active work beyond waiting."
             : options.assignmentKind === "other"
-              ? "Shipments brokers did not take. They were passed on and are still waiting for Accept."
+              ? "Only shipments passed from another broker. Who received each Other shipment, how many, and when."
               : options.assignmentKind === "new"
-                ? "All new shipments that arrived, including ones a broker already accepted."
+                ? "Only first assignments. Who received each New shipment, how many, and when."
                 : "All company shipments — Broker column shows who received each one. Click a row to open and work the card (Owner/Manager have full access).";
       if (options.onlyMine) {
         tabLabel = "New Shipment";
         tabHelp = "Only loads assigned to you. Your brokers' loads stay on the other tabs.";
+      }
+      var arrivalTabs =
+        options.assignmentKind === "new" || options.assignmentKind === "other";
+      var brokerSummary =
+        arrivalTabs && payload && Array.isArray(payload.brokerSummary) ? payload.brokerSummary : [];
+      function yerevanReceivedLabel(value) {
+        if (!value) return "—";
+        var d = new Date(value);
+        if (isNaN(d.getTime())) return "—";
+        return d.toLocaleString("en-GB", {
+          timeZone: "Asia/Yerevan",
+          day: "2-digit",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+          hourCycle: "h23",
+        });
+      }
+      function yerevanDayKey(value) {
+        if (!value) return "";
+        var d = new Date(value);
+        if (isNaN(d.getTime())) return "";
+        var parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Asia/Yerevan",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).formatToParts(d);
+        var y = "", m = "", day = "";
+        parts.forEach(function (part) {
+          if (part.type === "year") y = part.value;
+          if (part.type === "month") m = part.value;
+          if (part.type === "day") day = part.value;
+        });
+        return y + "-" + m + "-" + day;
+      }
+      function yerevanDayLabel(value) {
+        var d = new Date(value);
+        if (isNaN(d.getTime())) return "";
+        return d.toLocaleDateString("en-GB", {
+          timeZone: "Asia/Yerevan",
+          day: "numeric",
+          month: "short",
+        });
       }
       var fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
       var toIdx = Math.min(total, (page - 1) * pageSize + rows.length);
@@ -727,7 +771,26 @@ window.GreenOSModules.crm = {
             (page >= totalPages ? " disabled" : "") +
             ">Next</button>" +
             "</div>";
+          var summary = brokerSummary.length
+            ? '<div style="display:flex;flex-wrap:wrap;gap:0.45rem;margin:0 0 0.75rem">' +
+              brokerSummary
+                .map(function (row) {
+                  return (
+                    '<span style="border:1px solid var(--border);border-radius:999px;padding:0.28rem 0.7rem">' +
+                    "<strong>" +
+                    crmUi.esc(row.name || "Unassigned") +
+                    "</strong> " +
+                    crmUi.esc(row.count) +
+                    ' <span class="gos-muted">last ' +
+                    crmUi.esc(yerevanReceivedLabel(row.lastReceivedAt)) +
+                    "</span></span>"
+                  );
+                })
+                .join("") +
+              "</div>"
+            : "";
           return (
+            summary +
             '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0 0 0.75rem">' +
             '<span class="gos-muted crm-ship-page-meta">' +
             meta +
@@ -736,7 +799,9 @@ window.GreenOSModules.crm = {
             "</div>" +
             '<div class="table-wrap crm-table-wrap crm-ship-scroll"><table class="crm-table">' +
             "<thead><tr>" +
-            "<th>#</th><th>Shipment</th><th>Customer</th><th>Broker</th><th>Pickup</th><th>Delivery</th>" +
+            "<th>#</th><th>Shipment</th><th>Customer</th><th>Broker</th>" +
+            (arrivalTabs ? "<th>Received</th>" : "") +
+            "<th>Pickup</th><th>Delivery</th>" +
             "<th>Miles</th><th>Equipment</th><th>Price</th><th>Status</th><th>Priority</th>" +
             "<th>Created</th><th>Updated</th>" +
             '</tr></thead><tbody id="crm-ship-body"></tbody></table></div>' +
@@ -789,7 +854,7 @@ window.GreenOSModules.crm = {
       });
       if (!rows.length) {
         tbody.innerHTML =
-          '<tr><td colspan="13">' +
+          '<tr><td colspan="' + (arrivalTabs ? "14" : "13") + '">' +
           (statusGroup
             ? "No shipments with this status"
             : options.onlyMine
@@ -806,6 +871,7 @@ window.GreenOSModules.crm = {
       var fmt = this.fmtDate.bind(this);
       var statusCell = this.statusCellHtml.bind(this);
       function operationalDayKey(v) {
+        if (arrivalTabs) return yerevanDayKey(v);
         if (!v) return "";
         var d = new Date(v);
         if (isNaN(d.getTime())) return "";
@@ -814,13 +880,19 @@ window.GreenOSModules.crm = {
       }
       tbody.innerHTML = rows
         .map(function (s, index) {
-          var when = s.createdAt || s.receivedAt;
+          var when = arrivalTabs ? s.assignedAt || s.createdAt : s.createdAt || s.receivedAt;
           var key = operationalDayKey(when);
-          var prevKey =
+          var prevWhen =
             index > 0
-              ? operationalDayKey(rows[index - 1].createdAt || rows[index - 1].receivedAt)
+              ? arrivalTabs
+                ? rows[index - 1].assignedAt || rows[index - 1].createdAt
+                : rows[index - 1].createdAt || rows[index - 1].receivedAt
               : null;
+          var prevKey = index > 0 ? operationalDayKey(prevWhen) : null;
           var isDayStart = index === 0 || (key && key !== prevKey);
+          var dayBadge = arrivalTabs
+            ? yerevanDayLabel(when)
+            : "17:00–16:59";
           var rowNum = (page - 1) * pageSize + index + 1;
           return (
             '<tr class="crm-row' +
@@ -833,8 +905,12 @@ window.GreenOSModules.crm = {
             ">" +
             '<td class="lot-num">' +
             rowNum +
-            (isDayStart
-              ? '<span class="lot-day-badge" title="Operational day: 17:00–16:59">17:00–16:59</span>'
+            (isDayStart && dayBadge
+              ? '<span class="lot-day-badge" title="' +
+                (arrivalTabs ? "Received, Yerevan" : "Operational day: 17:00–16:59") +
+                '">' +
+                dayBadge +
+                "</span>"
               : "") +
             "</td>" +
             "<td>" +
@@ -856,6 +932,9 @@ window.GreenOSModules.crm = {
             "<td>" +
             esc(s.brokerName) +
             "</td>" +
+            (arrivalTabs
+              ? "<td>" + esc(yerevanReceivedLabel(s.assignedAt)) + "</td>"
+              : "") +
             "<td>" +
             esc(s.pickup) +
             "</td>" +

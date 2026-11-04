@@ -16,10 +16,12 @@ import { awaitingAcceptWhere, unassignedShipmentWhere } from "../unassigned-wher
 import {
     applyStatusGroupFilter,
     canonicalStatusGroup,
+    shipmentStatusFilter,
     statusFiltersForClient,
     statusGroupIncludesDeleted,
 } from "../shipment-status-filter.js";
-import { generatedLoadWhere, notGeneratedLoadWhere } from "../shipment-tabs.js";
+import { generatedLoadWhere, isGeneratedLoad, notGeneratedLoadWhere } from "../shipment-tabs.js";
+import { brokerArrivalSummary, latestHandoffs } from "../broker-arrival-summary.js";
 import { canWorkAnyShipment } from "../../../auth/roles.js";
 import {
     followUshipToListingUrl,
@@ -190,6 +192,124 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         quoteDeclinedAt: (lead.quoteDeclinedAt as Date | string | null) || null,
         updatedAt: lead.updatedAt as Date | string | null,
         assignedAt: (lead.assignedAt as Date | string | null) || null,
+    };
+}
+
+const HANDOFF_HIDDEN = [
+    "DELETED_FROM_CUSTOMER",
+    "LOST",
+    "ACCEPTED_ANOTHER_COMPANY",
+    "NO_LONGER_NEEDED",
+    "VOIDED",
+];
+
+/**
+ * Owner and team boards. New is each first give (ASSIGNED).
+ * Other is each pass (REASSIGNED). The same shipment can be in both,
+ * once for the person who received it as New and once for who received it as Other.
+ */
+async function listHandoffBoard(options: {
+    assignmentKind: "new" | "other";
+    teamLeadId?: string;
+    statusGroup?: string;
+    page?: number;
+    pageSize?: number;
+    limit?: number;
+}) {
+    const eventType = options.assignmentKind === "other" ? "REASSIGNED" : "ASSIGNED";
+    const teamIds = options.teamLeadId ? await listTeamBrokerIds(options.teamLeadId) : null;
+    const logs = await prisma.assignmentLog.findMany({
+        where: {
+            eventType,
+            shipmentLeadId: { not: null },
+            assignedUserId: teamIds
+                ? { in: teamIds.length ? teamIds : ["__none__"] }
+                : { not: null },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { shipmentLeadId: true, assignedUserId: true, createdAt: true },
+    });
+    const handoffs = latestHandoffs(
+        logs.map((log) => ({
+            shipmentId: log.shipmentLeadId || "",
+            brokerId: log.assignedUserId || "",
+            at: log.createdAt,
+        }))
+    );
+    const known = new Set(handoffs.map((row) => `${row.shipmentId}\0${row.brokerId}`));
+    const flagged = await prisma.shipmentLead.findMany({
+        where: {
+            ...(options.assignmentKind === "new"
+                ? { isReassignment: false, wasEverReassigned: false }
+                : { OR: [{ isReassignment: true }, { wasEverReassigned: true }] }),
+            status: { notIn: HANDOFF_HIDDEN },
+            ...(teamIds
+                ? { assignedBrokerId: { in: teamIds.length ? teamIds : ["__none__"] } }
+                : {}),
+            AND: [notGeneratedLoadWhere()],
+        },
+        select: SHIPMENT_LIST_SELECT,
+    });
+    for (const lead of flagged) {
+        const brokerId = String(lead.assignedBrokerId || "");
+        if (!brokerId) continue;
+        const key = `${lead.shipmentLeadId}\0${brokerId}`;
+        if (known.has(key)) continue;
+        known.add(key);
+        handoffs.push({
+            shipmentId: lead.shipmentLeadId,
+            brokerId,
+            at: lead.assignedAt || lead.receivedAt || lead.createdAt,
+        });
+    }
+    handoffs.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+    const ids = [...new Set(handoffs.map((row) => row.shipmentId))];
+    const leads = ids.length
+        ? await prisma.shipmentLead.findMany({
+              where: { shipmentLeadId: { in: ids } },
+              select: SHIPMENT_LIST_SELECT,
+          })
+        : [];
+    const byId = new Map(leads.map((lead) => [lead.shipmentLeadId, lead]));
+    const allowed = shipmentStatusFilter(options.statusGroup);
+    const matched = handoffs.filter((row) => {
+        const lead = byId.get(row.shipmentId);
+        if (!lead) return false;
+        const status = String(lead.status || "");
+        if (HANDOFF_HIDDEN.includes(status)) return false;
+        if (isGeneratedLoad(lead)) return false;
+        if (allowed && !allowed.includes(status)) return false;
+        return true;
+    });
+
+    const pageSizeRaw = options.pageSize ?? options.limit ?? 50;
+    const pageSize = Math.min(200, Math.max(1, Number(pageSizeRaw) || 50));
+    const page = Math.max(1, Number(options.page) || 1);
+    const skip = (page - 1) * pageSize;
+    const total = matched.length;
+    const slice = matched.slice(skip, skip + pageSize);
+    const brokers = await userMap(matched.map((row) => row.brokerId));
+    const items = slice.map((row) => {
+        const lead = byId.get(row.shipmentId)!;
+        return enrichLead(
+            { ...lead, assignedBrokerId: row.brokerId, assignedAt: row.at },
+            brokers
+        );
+    });
+    const statusGroup = canonicalStatusGroup(options.statusGroup);
+    return {
+        items,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        statusGroup,
+        statusFilters: statusFiltersForClient(),
+        brokerSummary: brokerArrivalSummary(
+            matched.map((row) => ({ brokerId: row.brokerId, at: row.at })),
+            (brokerId) => brokerName(brokerId ? brokers.get(brokerId) : undefined)
+        ),
     };
 }
 
@@ -451,6 +571,20 @@ export class CrmService {
             } catch {
                 /* listing still works if repair is busy */
             }
+        }
+
+        if (
+            (options?.assignmentKind === "new" || options?.assignmentKind === "other") &&
+            !options?.brokerId
+        ) {
+            return listHandoffBoard({
+                assignmentKind: options.assignmentKind,
+                teamLeadId: options.teamLeadId,
+                statusGroup: options.statusGroup,
+                page: options.page,
+                pageSize: options.pageSize,
+                limit: options.limit,
+            });
         }
 
         const where: Record<string, unknown> = {};
