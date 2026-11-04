@@ -322,6 +322,9 @@ window.GreenOSModules.broker = {
       (activeTab === "accepted-another" ? " is-active" : "") +
       '" data-ship-tab="accepted-another">Accepted to another company <span class="gos-queue-badge" id="broker-ship-count-aac">…</span></button>' +
       '<button type="button" class="gos-subnav-item' +
+      (activeTab === "no-longer" ? " is-active" : "") +
+      '" data-ship-tab="no-longer">No longer needed <span class="gos-queue-badge" id="broker-ship-count-nlr">…</span></button>' +
+      '<button type="button" class="gos-subnav-item' +
       (activeTab === "loads" ? " is-active" : "") +
       '" data-ship-tab="loads">Load Created <span class="gos-queue-badge" id="broker-ship-count-loads">…</span></button>' +
       "</nav>" +
@@ -411,6 +414,10 @@ window.GreenOSModules.broker = {
       return s.status === "ACCEPTED_ANOTHER_COMPANY";
     }
 
+    function isNoLongerNeeded(s) {
+      return s.status === "NO_LONGER_NEEDED";
+    }
+
     function isWaitingShipment(s) {
       var st = String(s.status || "");
       return (
@@ -427,7 +434,7 @@ window.GreenOSModules.broker = {
     }
 
     function isAcceptedShipment(s) {
-      return !isAcceptedAnother(s) && !isWaitingShipment(s) && stNotDeleted(s);
+      return !isAcceptedAnother(s) && !isNoLongerNeeded(s) && !isWaitingShipment(s) && stNotDeleted(s);
     }
 
     function tabLabelFor(tab) {
@@ -435,6 +442,7 @@ window.GreenOSModules.broker = {
       if (tab === "loads") return "Load Created";
       if (tab === "accepted") return "Accepted shipments";
       if (tab === "accepted-another") return "Accepted to another company";
+      if (tab === "no-longer") return "No longer needed";
       return "New Shipment";
     }
 
@@ -443,6 +451,8 @@ window.GreenOSModules.broker = {
       return rows.filter(function (s) {
         if (isAcceptedAnother(s)) return tab === "accepted-another";
         if (tab === "accepted-another") return false;
+        if (isNoLongerNeeded(s)) return tab === "no-longer";
+        if (tab === "no-longer") return false;
         if (isAcceptedShipment(s)) return tab === "accepted";
         if (tab === "accepted") return false;
         return tab === "other" ? isOtherShipment(s) : !isOtherShipment(s);
@@ -492,6 +502,8 @@ window.GreenOSModules.broker = {
       var loadsEl = document.getElementById("broker-ship-count-loads");
       if (loadsEl && meta.loadsCount != null) loadsEl.textContent = String(meta.loadsCount);
       if (aacEl && meta.aacCount != null) aacEl.textContent = String(meta.aacCount);
+      var nlrEl = document.getElementById("broker-ship-count-nlr");
+      if (nlrEl && meta.nlrCount != null) nlrEl.textContent = String(meta.nlrCount);
     }
 
     function renderRows(rows, pageMeta) {
@@ -719,6 +731,8 @@ window.GreenOSModules.broker = {
         var params = ["page=" + page, "pageSize=" + pageSize];
         if (tab === "accepted-another") {
           params.push("status=ACCEPTED_ANOTHER_COMPANY");
+        } else if (tab === "no-longer") {
+          params.push("status=NO_LONGER_NEEDED");
         } else if (tab === "accepted") {
           params.push("assignmentKind=accepted");
         } else if (tab === "loads") {
@@ -754,12 +768,13 @@ window.GreenOSModules.broker = {
 
         // Lightweight count probes for the other tabs (pageSize=1 → total only).
         try {
-          var [newMeta, otherMeta, acceptedMeta, loadsMeta, aacMeta] = await Promise.all([
+          var [newMeta, otherMeta, acceptedMeta, loadsMeta, aacMeta, nlrMeta] = await Promise.all([
             self.api(self.shipmentsQuery("assignmentKind=new&page=1&pageSize=1")),
             self.api(self.shipmentsQuery("assignmentKind=other&page=1&pageSize=1")),
             self.api(self.shipmentsQuery("assignmentKind=accepted&page=1&pageSize=1")),
             self.api(self.shipmentsQuery("assignmentKind=loads&page=1&pageSize=1")),
             self.api(self.shipmentsQuery("status=ACCEPTED_ANOTHER_COMPANY&page=1&pageSize=1")),
+            self.api(self.shipmentsQuery("status=NO_LONGER_NEEDED&page=1&pageSize=1")),
           ]);
           updateTabCounts({
             newCount: newMeta && newMeta.success ? (newMeta.data && newMeta.data.total) || 0 : "…",
@@ -772,6 +787,7 @@ window.GreenOSModules.broker = {
             loadsCount:
               loadsMeta && loadsMeta.success ? (loadsMeta.data && loadsMeta.data.total) || 0 : "…",
             aacCount: aacMeta && aacMeta.success ? (aacMeta.data && aacMeta.data.total) || 0 : "…",
+            nlrCount: nlrMeta && nlrMeta.success ? (nlrMeta.data && nlrMeta.data.total) || 0 : "…",
           });
         } catch {
           /* counts are optional */

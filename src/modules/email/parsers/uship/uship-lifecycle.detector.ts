@@ -26,6 +26,7 @@ export type UshipLifecycleKind =
     | "NEW_MESSAGE"
     | "COMPETITOR_QUOTE"
     | "QUOTE_DECLINED"
+    | "NO_LONGER_NEEDED"
     | "UNKNOWN";
 
 export type DetectedLifecycleEvent = {
@@ -257,6 +258,19 @@ export function detectUshipLifecycleEvent(subject: string, body: string): Detect
         };
     }
 
+    // Customer deleted the listing. Decline reason: shipping/shipper no longer needed or required.
+    if (
+        /(?:shipper|shipping)\s+no\s+longer\s+(?:needed|required)/.test(h) ||
+        /decline\s*reason[\s\S]{0,240}?(?:shipper|shipping)\s+no\s+longer\s+(?:needed|required)/.test(h)
+    ) {
+        return {
+            kind: "NO_LONGER_NEEDED",
+            title: "No longer needed",
+            domainEventType: "NO_LONGER_NEEDED",
+            targetStatus: "NO_LONGER_NEEDED",
+        };
+    }
+
     // Customer turned down this quote. Shown on the shipment; does not invent an accept.
     if (
         /this\s+quote\s+was\s+declined|your\s+quote\s+was\s+declined|your\s+bid\s+was\s+declined|customer\s+declined\s+(?:your\s+)?(?:quote|bid|shipment)|declined\s+your\s+(?:quote|bid)/.test(
@@ -458,7 +472,9 @@ export async function applyUshipLifecycleEvent(input: {
     if (!shipment) return { applied: false as const, detected };
 
     if (
-        (detected.kind === "COMPETITOR_QUOTE" || detected.kind === "QUOTE_DECLINED") &&
+        (detected.kind === "COMPETITOR_QUOTE" ||
+            detected.kind === "QUOTE_DECLINED" ||
+            detected.kind === "NO_LONGER_NEEDED") &&
         input.gmailMessageId
     ) {
         const already = await prisma.domainEvent.findFirst({
@@ -718,11 +734,13 @@ export async function applyUshipLifecycleEvent(input: {
             LOST: 9,
             ACCEPTED_ANOTHER_COMPANY: 9,
             DELETED_FROM_CUSTOMER: 9,
+            NO_LONGER_NEEDED: 9,
         };
         const alreadyWon = current === "ACCEPT_GREEN" || (rank[current] ?? 0) >= 5;
         const shouldUpdateStatus =
             detected.targetStatus === "LOST" ||
             detected.targetStatus === "DELETED_FROM_CUSTOMER" ||
+            detected.targetStatus === "NO_LONGER_NEEDED" ||
             (detected.targetStatus === "ACCEPTED_ANOTHER_COMPANY" && !alreadyWon) ||
             ((rank[target] ?? 0) >= (rank[current] ?? 0) &&
                 !(detected.targetStatus === "ACCEPTED_ANOTHER_COMPANY" && alreadyWon));

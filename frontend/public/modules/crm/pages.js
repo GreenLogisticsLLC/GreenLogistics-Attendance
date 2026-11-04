@@ -244,6 +244,7 @@ window.GreenOSModules.crm = {
       WON: { cls: "crm-st-won", label: "✅ Won" },
       LOST: { cls: "crm-st-lost", label: "🔴 Lost" },
       ACCEPTED_ANOTHER_COMPANY: { cls: "crm-st-lost", label: "🔴 Accepted another company" },
+      NO_LONGER_NEEDED: { cls: "crm-st-deleted", label: "⚫ No longer needed" },
       DELETED_FROM_CUSTOMER: { cls: "crm-st-deleted", label: "⚫ Deleted from Customer" },
       DELETED: { cls: "crm-st-deleted", label: "⚫ Deleted from Customer" },
       CLOSED: { cls: "crm-st-done", label: "⚫ Closed" },
@@ -657,6 +658,8 @@ window.GreenOSModules.crm = {
       var tabLabel =
         options.status === "ACCEPTED_ANOTHER_COMPANY"
           ? "Accepted to another company"
+          : options.status === "NO_LONGER_NEEDED"
+            ? "No longer needed"
           : options.assignmentKind === "loads"
             ? "Load Created"
             : options.assignmentKind === "accepted"
@@ -669,6 +672,8 @@ window.GreenOSModules.crm = {
       var tabHelp =
         options.status === "ACCEPTED_ANOTHER_COMPANY"
           ? "Broker Gmail Decline Reason = Accepted another quote — moved here automatically."
+          : options.status === "NO_LONGER_NEEDED"
+            ? "The customer deleted this shipment on uShip. Decline reason: shipping no longer required."
           : options.assignmentKind === "loads"
             ? "Customer approved the shipment and Green OS already created the Load. Direct-customer loads land here, not in Other."
           : options.assignmentKind === "accepted"

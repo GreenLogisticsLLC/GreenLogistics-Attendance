@@ -192,7 +192,8 @@ export class ShipmentService {
             to === "CLOSED" ||
             to === "LOST" ||
             to === "ACCEPTED_ANOTHER_COMPANY" ||
-            to === "DELETED_FROM_CUSTOMER"
+            to === "DELETED_FROM_CUSTOMER" ||
+            to === "NO_LONGER_NEEDED"
         ) {
             data.closedAt = new Date();
         }

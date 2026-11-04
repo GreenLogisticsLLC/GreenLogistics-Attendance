@@ -162,6 +162,7 @@ export const STATUS_LABELS: Record<string, string> = {
     VOIDED: "Voided",
     LOST: "Lost",
     DELETED_FROM_CUSTOMER: "Deleted from Customer",
+    NO_LONGER_NEEDED: "No longer needed",
     DELETED: "Deleted from Customer",
     QUOTE_SENT: "Bid Submitted",
     NEGOTIATION: "Customer Replied",

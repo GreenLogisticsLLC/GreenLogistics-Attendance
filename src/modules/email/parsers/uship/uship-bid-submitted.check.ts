@@ -147,6 +147,13 @@ const declined = detectUshipLifecycleEvent(
 assert(declined.kind === "QUOTE_DECLINED", `declined kind=${declined.kind}`);
 assert(!declined.targetStatus, "plain decline must not change status");
 
+const noLonger = detectUshipLifecycleEvent(
+    "Quote Declined - ATL - MI (PARTIAL)",
+    "THIS QUOTE WAS DECLINED\nDECLINE REASON\nShipping no longer required"
+);
+assert(noLonger.kind === "NO_LONGER_NEEDED", `no longer kind=${noLonger.kind}`);
+assert(noLonger.targetStatus === "NO_LONGER_NEEDED", "no longer needed sets status");
+
 const aacStill = detectUshipLifecycleEvent(
     "Your quote was declined",
     "THIS QUOTE WAS DECLINED\nDECLINE REASON\nAccepted another quote"

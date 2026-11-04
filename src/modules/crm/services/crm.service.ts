@@ -482,7 +482,7 @@ export class CrmService {
             "AWAITING_ACCEPTANCE",
             "AGENT_OPEN",
         ];
-        const excludeTerminal = ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER"];
+        const excludeTerminal = ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER", "NO_LONGER_NEEDED"];
 
         if (options?.assignmentKind === "new") {
             where.isReassignment = false;
@@ -500,7 +500,12 @@ export class CrmService {
                     ...(Array.isArray(where.AND) ? where.AND : []),
                     {
                         status: {
-                            notIn: ["DELETED_FROM_CUSTOMER", "LOST", "ACCEPTED_ANOTHER_COMPANY"],
+                            notIn: [
+                                "DELETED_FROM_CUSTOMER",
+                                "LOST",
+                                "ACCEPTED_ANOTHER_COMPANY",
+                                "NO_LONGER_NEEDED",
+                            ],
                         },
                     },
                     notGeneratedLoadWhere(),

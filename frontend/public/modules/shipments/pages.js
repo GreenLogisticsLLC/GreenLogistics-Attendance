@@ -33,6 +33,8 @@ window.GreenOSModules.shipments = {
             ? "load-created"
           : subPageId === "accepted-another"
             ? "accepted-another"
+            : subPageId === "no-longer"
+              ? "no-longer"
             : subPageId === "by-broker"
               ? "by-broker"
               : subPageId === "queue" && canSeeQueue
@@ -56,6 +58,9 @@ window.GreenOSModules.shipments = {
       '<button type="button" class="gos-subnav-item' +
       (tab === "accepted-another" ? " is-active" : "") +
       '" data-subpage="accepted-another">Accepted to another company</button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (tab === "no-longer" ? " is-active" : "") +
+      '" data-subpage="no-longer">No longer needed</button>' +
       '<button type="button" class="gos-subnav-item' +
       (tab === "load-created" ? " is-active" : "") +
       '" data-subpage="load-created">Load Created</button>' +
@@ -82,6 +87,8 @@ window.GreenOSModules.shipments = {
     var opts =
       tab === "accepted-another"
         ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
+        : tab === "no-longer"
+          ? { status: "NO_LONGER_NEEDED", page: 1 }
         : tab === "load-created"
             ? { assignmentKind: "loads", page: 1 }
           : { assignmentKind: tab, page: 1 };
@@ -96,6 +103,7 @@ window.GreenOSModules.shipments = {
       other: "other",
       accepted: "accepted",
       "accepted-another": "accepted-another",
+      "no-longer": "no-longer",
       "load-created": "load-created",
       "by-broker": "by-broker",
     };
@@ -121,6 +129,7 @@ window.GreenOSModules.shipments = {
           item("other", "Other Shipment") +
           item("accepted", "Accepted shipments") +
           item("accepted-another", "Accepted to another company") +
+          item("no-longer", "No longer needed") +
           item("load-created", "Load Created") +
           item("by-broker", "By Broker") +
           "</nav>"
@@ -161,6 +170,8 @@ window.GreenOSModules.shipments = {
     var opts =
       teamTab === "accepted-another"
         ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
+        : teamTab === "no-longer"
+          ? { status: "NO_LONGER_NEEDED", page: 1 }
         : teamTab === "load-created"
           ? { assignmentKind: "loads", page: 1 }
           : { assignmentKind: teamTab, page: 1 };
