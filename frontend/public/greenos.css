@@ -60,13 +60,35 @@ html[data-theme="light"] {
 
 .gos-sidebar-brand {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.45rem;
   padding: 1rem 1.1rem;
   border-bottom: 1px solid var(--gos-border);
   cursor: pointer;
   user-select: none;
   transition: background 0.15s ease;
+}
+
+.gos-sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.gos-yerevan-clock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--gos-muted);
+}
+
+.gos-yerevan-clock strong {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--gos-text);
 }
 
 .gos-sidebar-brand:hover,
@@ -90,6 +112,21 @@ html[data-theme="light"] {
 .gos-sidebar-brand span {
   display: block;
   font-size: 0.75rem;
+  color: var(--gos-muted);
+}
+
+.gos-sidebar-brand .gos-yerevan-clock strong {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--gos-text);
+}
+
+.gos-yerevan-clock .gos-yerevan-date {
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--gos-muted);
 }
 
@@ -158,9 +195,52 @@ html[data-theme="light"] {
   white-space: nowrap;
 }
 
+.gos-usa-clocks {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.gos-usa-zone {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+  min-width: 4.6rem;
+}
+
+.gos-usa-zone strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.gos-usa-zone:first-child strong {
+  color: var(--gos-accent);
+}
+
+.gos-usa-zone span {
+  margin-top: 0.12rem;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gos-muted);
+}
+
+.gos-usa-zone em {
+  font-style: normal;
+  font-size: 0.68rem;
+  color: var(--gos-muted);
+}
+
 .gos-search {
-  flex: 1;
-  max-width: 520px;
+  flex: 0 1 280px;
+  width: auto;
+  min-width: 160px;
+  max-width: 280px;
   position: relative;
   z-index: 40;
 }
@@ -1133,13 +1213,23 @@ html[data-theme="light"] {
   .gos-topbar-title {
     font-size: 0.95rem;
   }
-  #current-date {
-    display: none !important;
+  .gos-usa-clocks {
+    order: 15;
+    flex: 1 1 100%;
+    justify-content: space-between;
+    gap: 0.35rem;
+  }
+  .gos-usa-zone {
+    min-width: 0;
+  }
+  .gos-usa-zone em {
+    display: none;
   }
   .gos-search {
     display: block;
     order: 20;
     flex: 1 1 100%;
+    width: auto;
     max-width: none;
   }
   .gos-user-meta {

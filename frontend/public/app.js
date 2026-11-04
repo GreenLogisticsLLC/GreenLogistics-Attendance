@@ -292,21 +292,34 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => switchView(btn.dataset.view));
 });
 
+function formatZoneTime(date, timeZone) {
+    return date.toLocaleTimeString("en-GB", {
+        timeZone,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    });
+}
+
 function updateClock() {
+    const now = new Date();
     const el = $("#current-date");
-    if (!el) return;
-    el.textContent =
-        new Date().toLocaleString("en-GB", {
+    if (el) {
+        const date = now.toLocaleDateString("en-GB", {
             timeZone: "Asia/Yerevan",
             weekday: "long",
             year: "numeric",
             month: "long",
             day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-            hour12: false,
-        }) + " Yerevan";
+        });
+        const time = formatZoneTime(now, "Asia/Yerevan");
+        el.innerHTML = '<div class="gos-yerevan-date">' + date + "</div><strong>" + time + " Yerevan</strong>";
+    }
+    document.querySelectorAll(".gos-usa-zone strong[data-tz]").forEach((node) => {
+        const zone = node.getAttribute("data-tz");
+        if (zone) node.textContent = formatZoneTime(now, zone);
+    });
     setTimeout(updateClock, 1000);
 }
 

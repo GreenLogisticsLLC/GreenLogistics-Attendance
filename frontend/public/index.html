@@ -20,8 +20,8 @@
       })();
     </script>
     <link rel="stylesheet" href="styles.css?v=20261028mobile1">
-    <link rel="stylesheet" href="greenos.css?v=20261104decline1">
-    <link rel="stylesheet" href="greenos-modern.css?v=20261028mobile1">
+    <link rel="stylesheet" href="greenos.css?v=20261104usaclock1">
+    <link rel="stylesheet" href="greenos-modern.css?v=20261104usaclock1">
 </head>
 <body>
     <button type="button" class="gos-icon-btn gos-theme-fab" id="gos-theme-toggle-login" title="Switch theme" aria-label="Switch theme">☀️</button>
@@ -102,12 +102,15 @@
         <div id="gos-sidebar-backdrop" class="gos-sidebar-backdrop" hidden></div>
         <aside id="gos-sidebar" class="gos-sidebar">
             <div class="gos-sidebar-brand" id="gos-logo-refresh" role="button" tabindex="0" title="Refresh page">
-                <img src="images/logo.png" alt="Green Logistics">
-                <div>
-                    <strong>Green Logistics</strong>
-                    <span>GreenOS Platform</span>
+                <div class="gos-sidebar-brand-row">
+                    <img src="images/logo.png" alt="Green Logistics">
+                    <div>
+                        <strong>Green Logistics</strong>
+                        <span>GreenOS Platform</span>
+                    </div>
+                    <button type="button" class="gos-icon-btn gos-sidebar-close" id="gos-sidebar-close" aria-label="Close menu">×</button>
                 </div>
-                <button type="button" class="gos-icon-btn gos-sidebar-close" id="gos-sidebar-close" aria-label="Close menu">×</button>
+                <div id="current-date" class="gos-yerevan-clock" aria-live="polite"></div>
             </div>
             <nav id="gos-nav" class="gos-nav" aria-label="Main modules"></nav>
             <div class="gos-sidebar-foot">
@@ -120,7 +123,28 @@
             <header class="gos-topbar">
                 <button type="button" class="gos-icon-btn gos-mobile-toggle" id="gos-sidebar-toggle" aria-label="Menu" aria-controls="gos-sidebar" aria-expanded="false">☰</button>
                 <div class="gos-topbar-title">GreenOS</div>
-                <span id="current-date" style="color:var(--gos-muted);font-size:0.8rem;white-space:nowrap"></span>
+                <div class="gos-usa-clocks" id="usa-clocks" aria-label="USA time zones">
+                    <div class="gos-usa-zone">
+                        <strong data-tz="America/New_York">--:--:--</strong>
+                        <span>Eastern</span>
+                        <em>New York</em>
+                    </div>
+                    <div class="gos-usa-zone">
+                        <strong data-tz="America/Chicago">--:--:--</strong>
+                        <span>Central</span>
+                        <em>Chicago</em>
+                    </div>
+                    <div class="gos-usa-zone">
+                        <strong data-tz="America/Denver">--:--:--</strong>
+                        <span>Mountain</span>
+                        <em>Denver</em>
+                    </div>
+                    <div class="gos-usa-zone">
+                        <strong data-tz="America/Los_Angeles">--:--:--</strong>
+                        <span>Pacific</span>
+                        <em>Los Angeles</em>
+                    </div>
+                </div>
                 <div class="gos-search" id="gos-search-wrap">
                     <input type="search" id="gos-global-search" placeholder="Search all of GreenOS…" autocomplete="off" aria-autocomplete="list" aria-controls="gos-global-search-results" aria-expanded="false">
                     <div id="gos-global-search-results" class="gos-search-results hidden" role="listbox" aria-label="Search results"></div>
@@ -570,6 +594,6 @@
     <script src="modules/administration/pages.js?v=20261103gmail1"></script>
     <script src="js/greenos-shell.js?v=20261104carlist1"></script>
     <script src="js/greenos-realtime.js?v=20261103bell2"></script>
-    <script src="app.js?v=20261104yerevan1"></script>
+    <script src="app.js?v=20261104usaclock1"></script>
 </body>
 </html>
