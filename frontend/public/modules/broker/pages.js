@@ -126,6 +126,20 @@ window.GreenOSModules.broker = {
       .replace(/"/g, "&quot;");
   },
 
+  receivedAtLabel(value) {
+    if (!value) return "—";
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleString("en-GB", {
+      timeZone: "Asia/Yerevan",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+  },
+
   fmtDate(v) {
     if (!v) return "—";
     try {
@@ -313,8 +327,8 @@ window.GreenOSModules.broker = {
       '<button type="button" class="btn-secondary broker-ship-next" style="width:auto" disabled>Next</button>' +
       "</div></div>" +
       '<div class="table-wrap crm-ship-scroll"><table class="crm-table"><thead><tr>' +
-      "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Bid</th><th>Updates</th><th>Bid Submitted</th>" +
-      '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="9">Loading…</td></tr></tbody></table></div>' +
+      "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Bid</th><th>Updates</th><th>Bid Submitted</th><th>Received</th>" +
+      '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="10">Loading…</td></tr></tbody></table></div>' +
       '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0.75rem 0 0">' +
       '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +
       '<div style="display:flex;gap:0.5rem;align-items:center">' +
@@ -491,7 +505,7 @@ window.GreenOSModules.broker = {
       var tabLabel = tabLabelFor(tab);
       if (!visibleRows.length) {
         tbody.innerHTML =
-          '<tr><td colspan="9">' +
+          '<tr><td colspan="10">' +
           (query
             ? "No shipments found for ZIP " + esc(query)
             : "No " + tabLabel.toLowerCase() + " loads yet") +
@@ -583,6 +597,8 @@ window.GreenOSModules.broker = {
                 esc(s.shipmentLeadId) +
                 '">Decline</button>'
               : "") +
+            "</td><td>" +
+            esc(self.receivedAtLabel(s.assignedAt)) +
             "</td></tr>"
           );
         })

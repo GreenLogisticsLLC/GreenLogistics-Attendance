@@ -149,6 +149,7 @@ const SHIPMENT_LIST_SELECT = {
     opsPickupAt: true,
     viewUrl: true,
     assignedBrokerId: true,
+    assignedAt: true,
     isReassignment: true,
     wasEverReassigned: true,
     brokerReplyDeadline: true,
@@ -188,6 +189,7 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         quoteDeclined: Boolean(lead.quoteDeclined),
         quoteDeclinedAt: (lead.quoteDeclinedAt as Date | string | null) || null,
         updatedAt: lead.updatedAt as Date | string | null,
+        assignedAt: (lead.assignedAt as Date | string | null) || null,
     };
 }
 
