@@ -52,6 +52,16 @@ export const SHIPMENT_STATUS_FILTERS: ReadonlyArray<{
         label: "Deleted from Customer",
         statuses: ["DELETED_FROM_CUSTOMER", "DELETED"],
     },
+    {
+        id: "NO_LONGER_NEEDED",
+        label: "No longer needed",
+        statuses: ["NO_LONGER_NEEDED"],
+    },
+    {
+        id: "ROUND_DECLINED",
+        label: "Decline",
+        statuses: ["ROUND_DECLINED"],
+    },
 ];
 
 const FILTER_BY_ID = new Map(SHIPMENT_STATUS_FILTERS.map((row) => [row.id, row]));

@@ -59,6 +59,8 @@ export const SHIPMENT_STATUSES = [
     "CLOSED",
     "LOST",
     "DELETED_FROM_CUSTOMER",
+    "NO_LONGER_NEEDED",
+    "ROUND_DECLINED",
     // Legacy aliases (normalized by lifecycle.normalizeStatus)
     "QUOTE_SENT",
     "NEGOTIATION",
@@ -163,6 +165,7 @@ export const STATUS_LABELS: Record<string, string> = {
     LOST: "Lost",
     DELETED_FROM_CUSTOMER: "Deleted from Customer",
     NO_LONGER_NEEDED: "No longer needed",
+    ROUND_DECLINED: "Decline",
     DELETED: "Deleted from Customer",
     QUOTE_SENT: "Bid Submitted",
     NEGOTIATION: "Customer Replied",

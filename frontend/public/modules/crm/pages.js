@@ -245,6 +245,7 @@ window.GreenOSModules.crm = {
       LOST: { cls: "crm-st-lost", label: "🔴 Lost" },
       ACCEPTED_ANOTHER_COMPANY: { cls: "crm-st-lost", label: "🔴 Accepted another company" },
       NO_LONGER_NEEDED: { cls: "crm-st-deleted", label: "⚫ No longer needed" },
+      ROUND_DECLINED: { cls: "crm-st-lost", label: "🔴 Decline" },
       DELETED_FROM_CUSTOMER: { cls: "crm-st-deleted", label: "⚫ Deleted from Customer" },
       DELETED: { cls: "crm-st-deleted", label: "⚫ Deleted from Customer" },
       CLOSED: { cls: "crm-st-done", label: "⚫ Closed" },
@@ -660,6 +661,8 @@ window.GreenOSModules.crm = {
           ? "Accepted to another company"
           : options.status === "NO_LONGER_NEEDED"
             ? "No longer needed"
+          : options.status === "ROUND_DECLINED"
+            ? "Decline"
           : options.assignmentKind === "loads"
             ? "Load Created"
             : options.assignmentKind === "accepted"
@@ -674,6 +677,8 @@ window.GreenOSModules.crm = {
           ? "Broker Gmail Decline Reason = Accepted another quote — moved here automatically."
           : options.status === "NO_LONGER_NEEDED"
             ? "The customer deleted this shipment on uShip. Decline reason: shipping no longer required."
+          : options.status === "ROUND_DECLINED"
+            ? "Other shipment went through everyone in the office twice and nobody accepted. It stays with the person who closed the second round."
           : options.assignmentKind === "loads"
             ? "Customer approved the shipment and Green OS already created the Load. Direct-customer loads land here, not in Other."
           : options.assignmentKind === "accepted"

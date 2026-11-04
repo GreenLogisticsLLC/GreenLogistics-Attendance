@@ -200,6 +200,7 @@ const HANDOFF_HIDDEN = [
     "LOST",
     "ACCEPTED_ANOTHER_COMPANY",
     "NO_LONGER_NEEDED",
+    "ROUND_DECLINED",
     "VOIDED",
 ];
 
@@ -616,7 +617,12 @@ export class CrmService {
             "AWAITING_ACCEPTANCE",
             "AGENT_OPEN",
         ];
-        const excludeTerminal = ["ACCEPTED_ANOTHER_COMPANY", "DELETED_FROM_CUSTOMER", "NO_LONGER_NEEDED"];
+        const excludeTerminal = [
+            "ACCEPTED_ANOTHER_COMPANY",
+            "DELETED_FROM_CUSTOMER",
+            "NO_LONGER_NEEDED",
+            "ROUND_DECLINED",
+        ];
 
         if (options?.assignmentKind === "new") {
             where.isReassignment = false;
@@ -639,6 +645,7 @@ export class CrmService {
                                 "LOST",
                                 "ACCEPTED_ANOTHER_COMPANY",
                                 "NO_LONGER_NEEDED",
+                                "ROUND_DECLINED",
                             ],
                         },
                     },

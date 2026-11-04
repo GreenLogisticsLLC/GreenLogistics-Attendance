@@ -35,6 +35,8 @@ window.GreenOSModules.shipments = {
             ? "accepted-another"
             : subPageId === "no-longer"
               ? "no-longer"
+            : subPageId === "decline"
+              ? "decline"
             : subPageId === "by-broker"
               ? "by-broker"
               : subPageId === "queue" && canSeeQueue
@@ -61,6 +63,9 @@ window.GreenOSModules.shipments = {
       '<button type="button" class="gos-subnav-item' +
       (tab === "no-longer" ? " is-active" : "") +
       '" data-subpage="no-longer">No longer needed</button>' +
+      '<button type="button" class="gos-subnav-item' +
+      (tab === "decline" ? " is-active" : "") +
+      '" data-subpage="decline">Decline</button>' +
       '<button type="button" class="gos-subnav-item' +
       (tab === "load-created" ? " is-active" : "") +
       '" data-subpage="load-created">Load Created</button>' +
@@ -89,6 +94,8 @@ window.GreenOSModules.shipments = {
         ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
         : tab === "no-longer"
           ? { status: "NO_LONGER_NEEDED", page: 1 }
+        : tab === "decline"
+          ? { status: "ROUND_DECLINED", page: 1 }
         : tab === "load-created"
             ? { assignmentKind: "loads", page: 1 }
           : { assignmentKind: tab, page: 1 };
@@ -104,6 +111,7 @@ window.GreenOSModules.shipments = {
       accepted: "accepted",
       "accepted-another": "accepted-another",
       "no-longer": "no-longer",
+      decline: "decline",
       "load-created": "load-created",
       "by-broker": "by-broker",
     };
@@ -130,6 +138,7 @@ window.GreenOSModules.shipments = {
           item("accepted", "Accepted shipments") +
           item("accepted-another", "Accepted to another company") +
           item("no-longer", "No longer needed") +
+          item("decline", "Decline") +
           item("load-created", "Load Created") +
           item("by-broker", "By Broker") +
           "</nav>"
@@ -172,6 +181,8 @@ window.GreenOSModules.shipments = {
         ? { status: "ACCEPTED_ANOTHER_COMPANY", page: 1 }
         : teamTab === "no-longer"
           ? { status: "NO_LONGER_NEEDED", page: 1 }
+        : teamTab === "decline"
+          ? { status: "ROUND_DECLINED", page: 1 }
         : teamTab === "load-created"
           ? { assignmentKind: "loads", page: 1 }
           : { assignmentKind: teamTab, page: 1 };

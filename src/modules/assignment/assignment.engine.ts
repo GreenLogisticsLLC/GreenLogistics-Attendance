@@ -16,6 +16,7 @@ import { ASSIGNMENT_TIMEZONE, dayOffEmployeeIdsFromRows, isAfterHoursAssignment,
 import { receivesNewShipments } from "./activity-window.js";
 import { queuePlaces, syncQueueOrder, takeNextInQueue } from "./round-robin.js";
 import { arrivalCountsFor, summarizeShipmentArrivals } from "./arrival-counts.js";
+import { otherRoundIsClosed } from "./other-round.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
@@ -416,6 +417,106 @@ export class AssignmentEngine {
         });
     }
 
+    private async otherOfferCounts(shipmentLeadId: string): Promise<Map<string, number>> {
+        const logs = await prisma.assignmentLog.findMany({
+            where: {
+                shipmentLeadId,
+                eventType: "REASSIGNED",
+                assignedUserId: { not: null },
+            },
+            select: { assignedUserId: true },
+        });
+        const counts = new Map<string, number>();
+        for (const log of logs) {
+            const id = log.assignedUserId || "";
+            if (!id) continue;
+            counts.set(id, (counts.get(id) || 0) + 1);
+        }
+        return counts;
+    }
+
+    /** In-office Other circle only. After hours keeps passing. */
+    private async secondOfficeRoundClosed(shipmentLeadId: string, holderId: string): Promise<boolean> {
+        const { eligible, mode } = await this.resolveEligibleBrokers();
+        if (mode !== "in_office") return false;
+        const offerCounts = await this.otherOfferCounts(shipmentLeadId);
+        return otherRoundIsClosed({
+            eligibleIds: eligible.map((person) => person.userId),
+            offerCounts,
+            holderId,
+        });
+    }
+
+    /**
+     * Nobody in the office accepted. The holder who finished the second pass
+     * keeps the shipment in their Decline folder. It does not go around again.
+     */
+    private async fileSecondOfficeRound(
+        lead: {
+            shipmentLeadId: string;
+            greenOsShipmentId?: string | null;
+            shipmentTitle?: string | null;
+        },
+        holderId: string,
+        holderLabel: string
+    ): Promise<boolean> {
+        const filed = await prisma.shipmentLead.updateMany({
+            where: {
+                shipmentLeadId: lead.shipmentLeadId,
+                acceptedAt: null,
+                assignedBrokerId: holderId,
+                status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
+            },
+            data: {
+                status: "ROUND_DECLINED",
+                assignedBrokerId: holderId,
+                acceptanceDeadline: null,
+                closedAt: new Date(),
+                isReassignment: true,
+                wasEverReassigned: true,
+            },
+        });
+        if (filed.count === 0) return false;
+        const gosId = lead.greenOsShipmentId || lead.shipmentLeadId.slice(0, 8);
+        await this.pipelineLog(
+            lead.shipmentLeadId,
+            `Second office round closed by ${holderLabel} — shipment is in their Decline folder`
+        );
+        await domainEventEngine.emit({
+            shipmentLeadId: lead.shipmentLeadId,
+            eventType: "STATUS_CHANGED",
+            title: "Decline",
+            message: `${holderLabel} closed the second office round. Nobody accepted. Shipment # ${gosId} is in their Decline folder.`,
+            timelineStage: "STATUS_CHANGED",
+            payload: { brokerId: holderId, reason: "SECOND_OFFICE_ROUND" },
+        });
+        await this.assignmentLog({
+            shipmentLeadId: lead.shipmentLeadId,
+            assignedUserId: holderId,
+            eventType: "ROUND_DECLINED",
+            message: `Second office round closed by ${holderLabel}`,
+        });
+        sseEmitToUser(holderId, {
+            type: "SHIPMENT_UNASSIGNED",
+            shipmentLeadId: lead.shipmentLeadId,
+            greenOsShipmentId: lead.greenOsShipmentId,
+            shipmentTitle: lead.shipmentTitle,
+            removedFromYourQueue: true,
+            reason: "Second office round closed — moved to your Decline folder",
+            at: new Date().toISOString(),
+        });
+        await platformNotificationService
+            .notifyUser({
+                userId: holderId,
+                notificationType: "ACCEPTANCE_MISSED",
+                title: "Decline",
+                message: `Shipment # ${gosId} went through everyone in the office twice with no Accept. It is in your Decline folder.`,
+                meta: { greenOsShipmentId: lead.greenOsShipmentId },
+            })
+            .catch(() => null);
+        return true;
+    }
+
     async processDueAcceptances() {
         await this.repairPassedShipmentFlags();
         const now = new Date();
@@ -520,6 +621,14 @@ export class AssignmentEngine {
                   previousUser.username
                 : "broker";
             const gosId = lead.greenOsShipmentId || lead.shipmentLeadId.slice(0, 8);
+
+            if (await this.secondOfficeRoundClosed(lead.shipmentLeadId, previousBrokerId)) {
+                const filed = await this.fileSecondOfficeRound(lead, previousBrokerId, previousLabel);
+                if (filed) {
+                    reassigned += 1;
+                    continue;
+                }
+            }
 
             await this.pipelineLog(
                 lead.shipmentLeadId,
@@ -660,6 +769,12 @@ export class AssignmentEngine {
             ? `${previousUser.firstName || ""} ${previousUser.lastName || ""}`.trim() || previousUser.username
             : "broker";
         const gosId = lead.greenOsShipmentId || lead.shipmentLeadId.slice(0, 8);
+        if (await this.secondOfficeRoundClosed(lead.shipmentLeadId, actorUserId)) {
+            const filed = await this.fileSecondOfficeRound(lead, actorUserId, previousLabel);
+            if (filed) {
+                return { passed: false, unassigned: false, declined: true, assignedTo: previousLabel };
+            }
+        }
         await this.pipelineLog(lead.shipmentLeadId, `${previousLabel} declined this shipment`);
         await domainEventEngine.emit({
             shipmentLeadId: lead.shipmentLeadId,

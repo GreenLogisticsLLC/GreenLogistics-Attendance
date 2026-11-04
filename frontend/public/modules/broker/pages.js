@@ -316,6 +316,9 @@ window.GreenOSModules.broker = {
       (activeTab === "other" ? " is-active" : "") +
       '" data-ship-tab="other">Other Shipment <span class="gos-queue-badge" id="broker-ship-count-other">…</span></button>' +
       '<button type="button" class="gos-subnav-item' +
+      (activeTab === "decline" ? " is-active" : "") +
+      '" data-ship-tab="decline">Decline <span class="gos-queue-badge" id="broker-ship-count-decline">…</span></button>' +
+      '<button type="button" class="gos-subnav-item' +
       (activeTab === "accepted" ? " is-active" : "") +
       '" data-ship-tab="accepted">Accepted shipments <span class="gos-queue-badge" id="broker-ship-count-accepted">…</span></button>' +
       '<button type="button" class="gos-subnav-item' +
@@ -418,6 +421,10 @@ window.GreenOSModules.broker = {
       return s.status === "NO_LONGER_NEEDED";
     }
 
+    function isRoundDeclined(s) {
+      return s.status === "ROUND_DECLINED";
+    }
+
     function isWaitingShipment(s) {
       var st = String(s.status || "");
       return (
@@ -434,7 +441,7 @@ window.GreenOSModules.broker = {
     }
 
     function isAcceptedShipment(s) {
-      return !isAcceptedAnother(s) && !isNoLongerNeeded(s) && !isWaitingShipment(s) && stNotDeleted(s);
+      return !isAcceptedAnother(s) && !isNoLongerNeeded(s) && !isRoundDeclined(s) && !isWaitingShipment(s) && stNotDeleted(s);
     }
 
     function tabLabelFor(tab) {
@@ -443,6 +450,7 @@ window.GreenOSModules.broker = {
       if (tab === "accepted") return "Accepted shipments";
       if (tab === "accepted-another") return "Accepted to another company";
       if (tab === "no-longer") return "No longer needed";
+      if (tab === "decline") return "Decline";
       return "New Shipment";
     }
 
@@ -453,6 +461,8 @@ window.GreenOSModules.broker = {
         if (tab === "accepted-another") return false;
         if (isNoLongerNeeded(s)) return tab === "no-longer";
         if (tab === "no-longer") return false;
+        if (isRoundDeclined(s)) return tab === "decline";
+        if (tab === "decline") return false;
         if (isAcceptedShipment(s)) return tab === "accepted";
         if (tab === "accepted") return false;
         return tab === "other" ? isOtherShipment(s) : !isOtherShipment(s);
@@ -504,6 +514,8 @@ window.GreenOSModules.broker = {
       if (aacEl && meta.aacCount != null) aacEl.textContent = String(meta.aacCount);
       var nlrEl = document.getElementById("broker-ship-count-nlr");
       if (nlrEl && meta.nlrCount != null) nlrEl.textContent = String(meta.nlrCount);
+      var declineEl = document.getElementById("broker-ship-count-decline");
+      if (declineEl && meta.declineCount != null) declineEl.textContent = String(meta.declineCount);
     }
 
     function renderRows(rows, pageMeta) {
@@ -733,6 +745,8 @@ window.GreenOSModules.broker = {
           params.push("status=ACCEPTED_ANOTHER_COMPANY");
         } else if (tab === "no-longer") {
           params.push("status=NO_LONGER_NEEDED");
+        } else if (tab === "decline") {
+          params.push("status=ROUND_DECLINED");
         } else if (tab === "accepted") {
           params.push("assignmentKind=accepted");
         } else if (tab === "loads") {
@@ -768,13 +782,14 @@ window.GreenOSModules.broker = {
 
         // Lightweight count probes for the other tabs (pageSize=1 → total only).
         try {
-          var [newMeta, otherMeta, acceptedMeta, loadsMeta, aacMeta, nlrMeta] = await Promise.all([
+          var [newMeta, otherMeta, acceptedMeta, loadsMeta, aacMeta, nlrMeta, declineMeta] = await Promise.all([
             self.api(self.shipmentsQuery("assignmentKind=new&page=1&pageSize=1")),
             self.api(self.shipmentsQuery("assignmentKind=other&page=1&pageSize=1")),
             self.api(self.shipmentsQuery("assignmentKind=accepted&page=1&pageSize=1")),
             self.api(self.shipmentsQuery("assignmentKind=loads&page=1&pageSize=1")),
             self.api(self.shipmentsQuery("status=ACCEPTED_ANOTHER_COMPANY&page=1&pageSize=1")),
             self.api(self.shipmentsQuery("status=NO_LONGER_NEEDED&page=1&pageSize=1")),
+            self.api(self.shipmentsQuery("status=ROUND_DECLINED&page=1&pageSize=1")),
           ]);
           updateTabCounts({
             newCount: newMeta && newMeta.success ? (newMeta.data && newMeta.data.total) || 0 : "…",
@@ -788,6 +803,8 @@ window.GreenOSModules.broker = {
               loadsMeta && loadsMeta.success ? (loadsMeta.data && loadsMeta.data.total) || 0 : "…",
             aacCount: aacMeta && aacMeta.success ? (aacMeta.data && aacMeta.data.total) || 0 : "…",
             nlrCount: nlrMeta && nlrMeta.success ? (nlrMeta.data && nlrMeta.data.total) || 0 : "…",
+            declineCount:
+              declineMeta && declineMeta.success ? (declineMeta.data && declineMeta.data.total) || 0 : "…",
           });
         } catch {
           /* counts are optional */
