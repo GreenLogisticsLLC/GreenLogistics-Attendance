@@ -243,6 +243,17 @@ export function isAfterHoursAssignment(date: Date, timezone: string): boolean {
     return minutes >= workEnd && minutes < workStart;
 }
 
+/** After 01:00 the whole Broker and Team Lead roster is in the circle. */
+export function chooseAssignmentPool(input: {
+    afterHours: boolean;
+    linkedCount: number;
+    inOfficeCount: number;
+}): "after_hours" | "in_office" | "none" {
+    if (input.afterHours && input.linkedCount > 0) return "after_hours";
+    if (input.inOfficeCount > 0) return "in_office";
+    return "none";
+}
+
 /** Night shipment stays put until this instant, then check-in starts the Accept clock. */
 export const NIGHT_HOLD_UNTIL_OFFICE = new Date("2099-01-01T00:00:00.000Z");
 

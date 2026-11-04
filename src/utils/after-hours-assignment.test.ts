@@ -1,11 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+    chooseAssignmentPool,
     isAfterHoursAssignment,
     nightAcceptanceDeadline,
     NIGHT_HOLD_UNTIL_OFFICE,
     zonedDateTime,
 } from "./helpers.js";
+
+test("after 01:00 the whole roster is used, even if somebody is still in office", () => {
+    assert.equal(
+        chooseAssignmentPool({ afterHours: true, linkedCount: 8, inOfficeCount: 1 }),
+        "after_hours"
+    );
+    assert.equal(
+        chooseAssignmentPool({ afterHours: false, linkedCount: 8, inOfficeCount: 1 }),
+        "in_office"
+    );
+    assert.equal(
+        chooseAssignmentPool({ afterHours: false, linkedCount: 8, inOfficeCount: 0 }),
+        "none"
+    );
+});
 
 const tz = "America/Los_Angeles";
 
