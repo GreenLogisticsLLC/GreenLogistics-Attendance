@@ -465,9 +465,7 @@
       window.GreenOS.refreshModule();
     }
 
-    if (typeof window.GreenOSEmailAccountsReload === "function") {
-      window.GreenOSEmailAccountsReload();
-    }
+    // Email Accounts stays still while the owner is on it. Refresh is manual.
     if (
       window.GreenOSModules &&
       window.GreenOSModules.crm &&
