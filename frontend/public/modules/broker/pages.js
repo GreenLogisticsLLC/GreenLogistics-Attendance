@@ -966,18 +966,21 @@ window.GreenOSModules.broker = {
     }
 
     window.GreenOSBrokerReloadShipments = function () {
+      if (self._opsView) return;
       paint(true);
     };
 
     self.stopShipmentsAutoRefresh();
-    self._shipmentsTimer = setInterval(function () {
-      if (!document.getElementById("broker-ship-body")) {
-        self.stopShipmentsAutoRefresh();
-        return;
-      }
-      if (document.hidden) return;
-      paint(true);
-    }, 50000);
+    if (!self._opsView) {
+      self._shipmentsTimer = setInterval(function () {
+        if (!document.getElementById("broker-ship-body")) {
+          self.stopShipmentsAutoRefresh();
+          return;
+        }
+        if (document.hidden) return;
+        paint(true);
+      }, 50000);
+    }
 
     await paint(true);
   },
