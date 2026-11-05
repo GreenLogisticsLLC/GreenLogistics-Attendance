@@ -244,13 +244,29 @@ NAPERVILLE, IL
         greenOs: { mcNumber: "3154", dotNumber: "2958246", legalName: "SOME OTHER NAME LLC" },
     });
     assert.equal(wrongName.trafficLight, "RED");
-    const bad = validateDocument({
+    const wrongBroker = validateDocument({
         documentType: "MC_AUTHORITY",
         classifyConfidence: 0.9,
         fields,
-        greenOs: { mcNumber: "3154", dotNumber: "1111111", legalName: "Green Light Carrier Inc" },
+        greenOs: { mcNumber: "1454343", dotNumber: "658795", legalName: "Example Carrier LLC" },
     });
-    assert.equal(bad.trafficLight, "RED");
+    assert.equal(wrongBroker.trafficLight, "RED");
+
+    const brokerExample = `
+CERTIFICATE
+MC-1454343-C
+U.S. DOT No. 658795
+EXAMPLE CARRIER LLC
+DALLAS, TX
+`;
+    const exampleFields = extractFieldsForType("MC_AUTHORITY", brokerExample);
+    const exampleOk = validateDocument({
+        documentType: "MC_AUTHORITY",
+        classifyConfidence: 0.9,
+        fields: exampleFields,
+        greenOs: { mcNumber: "1454343", dotNumber: "658795", legalName: "Example Carrier LLC" },
+    });
+    assert.equal(exampleOk.trafficLight, "GREEN");
 });
 
 test("MC mismatch is CRITICAL_MISMATCH", () => {

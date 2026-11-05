@@ -117,8 +117,8 @@ export function validateDocument(input: {
         });
     }
 
-    // MC Authority: only the digits after MC and the digits after DOT.
-    // They must match the MC and DOT the broker entered in GreenOS.
+    // MC Authority: only the circled certificate box.
+    // MC, DOT, and the carrier name must match the carrier the broker registered for this load.
     if (input.documentType === "MC_AUTHORITY") {
         return validateMcAuthorityOnly({
             map,
@@ -777,7 +777,8 @@ function authorityDigits(raw: string | null | undefined): string | null {
 /**
  * MC Authority bot check — only the circled certificate box:
  * MC number, U.S. DOT number, and the carrier name.
- * All three must match what the employee entered in GreenOS.
+ * All three must match the carrier the broker registered for this load.
+ * The sample letters are only examples of the box, not a fixed list of numbers.
  */
 function validateMcAuthorityOnly(input: {
     map: Record<string, string | null>;
@@ -802,8 +803,9 @@ function validateMcAuthorityOnly(input: {
 
     const docMc = authorityDigits(map.mcNumber);
     const docDot = authorityDigits(map.dotNumber);
-    const gosMc = authorityDigits(gos.carrierMc || gos.mcNumber);
-    const gosDot = authorityDigits(gos.carrierDot || gos.dotNumber);
+    // Registration on the carrier card wins. The load's typed MC/DOT is only a fallback.
+    const gosMc = authorityDigits(gos.mcNumber || gos.carrierMc);
+    const gosDot = authorityDigits(gos.dotNumber || gos.carrierDot);
     const docName = map.legalName;
     const gosName = gos.legalName || gos.carrierName;
 
