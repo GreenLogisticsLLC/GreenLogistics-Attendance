@@ -69,6 +69,7 @@ export type ModuleId =
     | "dashboard"
     | "broker"
     | "crm"
+    | "brokers"
     | "shipments"
     | "problems"
     | "email"
@@ -141,6 +142,7 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
         Roles.TeamLead,
         Roles.Dispatcher,
     ],
+    brokers: [Roles.Administrator, Roles.Owner, Roles.Manager],
     /** Top-level Shipments workspace for Owner/ops — all leads, open and work. */
     shipments: [
         Roles.Administrator,

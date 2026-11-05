@@ -1220,8 +1220,11 @@ export class CrmService {
             },
             orderBy: { firstName: "asc" },
         });
-        const preferred = brokers.filter((b) => b.role.roleName === "Broker");
-        const pool = preferred.length ? preferred : brokers;
+        const pool = teamUserIds
+            ? brokers
+            : brokers.filter(
+                  (b) => b.role.roleName === "Broker" || b.role.roleName === "Team Lead"
+              );
         const poolIds = pool.map((b) => b.userId);
         const employeeIds = pool
             .map((b) => b.employeeId)

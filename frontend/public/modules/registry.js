@@ -45,6 +45,13 @@ window.GreenOSRegistry = [
     ],
   },
   {
+    id: "brokers",
+    title: "Brokers",
+    icon: "🧑‍💼",
+    subtitle: "Every broker and team lead — open, edit, and transfer",
+    roles: ["Administrator", "Owner", "Manager"],
+  },
+  {
     id: "problems",
     title: "Problems",
     icon: "⚠️",

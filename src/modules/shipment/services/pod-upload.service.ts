@@ -11,6 +11,7 @@ import { documentAiJobService } from "../../ai/documents/job.service.js";
 import { LOAD_DOCS_ROOT } from "./load-pdf.service.js";
 import {
     assertQuickActionAllowed,
+    roleSkipsLoadGates,
     quickActionIdForDocType,
 } from "../load-quick-actions.js";
 import { isLoadCarrierApproved } from "../load-carrier-review.js";
@@ -277,6 +278,7 @@ export async function uploadPodFile(input: {
         status: lead.status,
         carrierName: lead.carrierName,
         loadCarrierApproved: isLoadCarrierApproved(lead),
+        unrestricted: roleSkipsLoadGates(input.actorRole),
         documents: existingDocs,
     });
 

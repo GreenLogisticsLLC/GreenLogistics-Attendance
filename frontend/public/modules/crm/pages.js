@@ -1035,7 +1035,7 @@ window.GreenOSModules.crm = {
         "</section>" +
         '<div class="table-wrap"><table class="crm-table">' +
         "<thead><tr>" +
-        "<th>Broker</th><th>Status</th><th>In Office</th><th>Current Shipments</th>" +
+        "<th>Name</th><th>Role</th><th>Status</th><th>In Office</th><th>Current Shipments</th>" +
         "<th>Awaiting Acceptance</th><th>Follow Up</th><th>Bids</th>" +
         "<th>Won</th><th>Lost</th><th>Avg Response</th>" +
         "</tr></thead><tbody id=\"crm-broker-body\"></tbody></table></div>";
@@ -1043,7 +1043,7 @@ window.GreenOSModules.crm = {
       var tbody = body.querySelector("#crm-broker-body");
       if (!rows.length) {
         tbody.innerHTML =
-          '<tr><td colspan="10">' +
+          '<tr><td colspan="11">' +
           (teamMode
             ? "No brokers on your team yet — approve Broker registrations and they will appear here"
             : "No brokers") +
@@ -1060,6 +1060,9 @@ window.GreenOSModules.crm = {
             "<td><strong>" +
             esc(b.name) +
             "</strong></td>" +
+            "<td>" +
+            esc(b.role || "Broker") +
+            "</td>" +
             "<td>" +
             esc(b.status) +
             "</td>" +

@@ -10,6 +10,7 @@ import { allocateGreenOsShipmentId } from "../shipment.id.js";
 import { Roles } from "../../../auth/roles.js";
 import {
     assertQuickActionAllowed,
+    roleSkipsLoadGates,
     buildLoadQuickActions,
 } from "../load-quick-actions.js";
 import { isLoadCarrierApproved } from "../load-carrier-review.js";
@@ -322,7 +323,7 @@ export class LoadService {
 
     async getLoadDetails(
         shipmentLeadId: string,
-        opts?: { includeGps?: boolean; syncLifecycle?: boolean }
+        opts?: { includeGps?: boolean; syncLifecycle?: boolean; actorRole?: string }
     ) {
         const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!s) throw Object.assign(new Error("Load not found"), { status: 404 });
@@ -736,6 +737,7 @@ export class LoadService {
                 reviewCustomerSentAt: s.reviewCustomerSentAt,
                 reviewCarrierSentAt: s.reviewCarrierSentAt,
                 documents,
+                unrestricted: roleSkipsLoadGates(opts?.actorRole),
             }),
             futureReady: [
                 "DAT",
@@ -1321,6 +1323,7 @@ export class LoadService {
             reviewCustomerSentAt: shipment.reviewCustomerSentAt,
             reviewCarrierSentAt: shipment.reviewCarrierSentAt,
             documents,
+            unrestricted: roleSkipsLoadGates(actorRole),
         });
 
         if (action === "close_load") {

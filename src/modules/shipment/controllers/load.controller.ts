@@ -105,7 +105,10 @@ export const loadController = {
             const includeGps =
                 String(req.query.includeGps || req.query.gps || "") === "1" ||
                 String(req.query.includeGps || "").toLowerCase() === "true";
-            const data = await loadService.getLoadDetails(id, { includeGps });
+            const data = await loadService.getLoadDetails(id, {
+                includeGps,
+                actorRole: req.user?.role,
+            });
             const role = req.user?.role || "";
             const payload = canViewLoadProfit(role)
                 ? { ...data, canViewMoney: true }
@@ -138,7 +141,7 @@ export const loadController = {
                 customerRate = n;
             }
             await loadService.createLoad(id, req.user?.userId, { customerRate });
-            const data = await loadService.getLoadDetails(id);
+            const data = await loadService.getLoadDetails(id, { actorRole: req.user?.role });
             const role = req.user?.role || "";
             const payload = canViewLoadProfit(role)
                 ? { ...data, canViewMoney: true }

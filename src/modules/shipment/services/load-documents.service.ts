@@ -17,6 +17,7 @@ import {
 } from "./load-pdf.service.js";
 import {
     assertQuickActionAllowed,
+    roleSkipsLoadGates,
     quickActionIdForDocType,
 } from "../load-quick-actions.js";
 import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
@@ -489,7 +490,8 @@ export class LoadDocumentsService {
             });
         }
 
-        if (docType === "RATE_CONFIRMATION" && lead.carrierProfileId) {
+        const skipGates = roleSkipsLoadGates(input.actorRole);
+        if (docType === "RATE_CONFIRMATION" && lead.carrierProfileId && !skipGates) {
             const actorUserId = input.actorUserId || lead.assignedBrokerId;
             if (!actorUserId) {
                 throw Object.assign(
@@ -523,6 +525,7 @@ export class LoadDocumentsService {
                 carrierName: lead.carrierName,
                 loadCarrierApproved: isLoadCarrierApproved(lead),
                 documents: existingDocs,
+                unrestricted: roleSkipsLoadGates(input.actorRole),
             });
         }
 

@@ -22,7 +22,13 @@ export type LoadQuickActionInput = {
     reviewCustomerSentAt?: Date | string | null;
     reviewCarrierSentAt?: Date | string | null;
     documents: Array<{ docType?: string | null; contentJson?: string | null }>;
+    /** Owner, Manager, and Administrator skip step locks. */
+    unrestricted?: boolean;
 };
+
+export function roleSkipsLoadGates(role?: string | null): boolean {
+    return role === "Owner" || role === "Manager" || role === "Administrator";
+}
 
 const FLOW = [
     "LOAD_CREATED",
@@ -254,6 +260,10 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
         } else {
             state = "locked";
             blockedReason = d.need;
+        }
+        if (input.unrestricted && !d.done) {
+            state = "current";
+            blockedReason = undefined;
         }
         return {
             id: d.id,

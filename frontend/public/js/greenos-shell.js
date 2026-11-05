@@ -406,6 +406,7 @@
                   "dashboard",
                   "broker",
                   "shipments",
+                  "brokers",
                   "crm",
                   "loads",
                   "dispatch",
