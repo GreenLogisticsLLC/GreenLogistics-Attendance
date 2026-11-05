@@ -186,7 +186,7 @@ export const loadController = {
                     return res.status(403).json({
                         success: false,
                         message:
-                            "Only Accounting and Owner can set Carrier price and Profit fields",
+                            "Only Accounting, Owner, and Manager can set Carrier price and Profit fields",
                     });
                 }
             }

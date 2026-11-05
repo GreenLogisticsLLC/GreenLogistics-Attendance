@@ -261,6 +261,7 @@ export function canWorkAnyShipment(role: string): boolean {
 export function canViewLoadProfit(role: string): boolean {
     return (
         role === Roles.Owner ||
+        role === Roles.Manager ||
         role === Roles.Accounting ||
         role === Roles.Administrator
     );

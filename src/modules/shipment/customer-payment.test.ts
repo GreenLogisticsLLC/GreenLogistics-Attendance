@@ -33,10 +33,10 @@ test("payment option names and the four methods that add 3 percent", () => {
     assert.equal(waived.label, "PayPal");
 });
 
-test("only accounting, owner, and administrator can waive the 3 percent", () => {
+test("accounting, owner, manager, and administrator can waive the 3 percent", () => {
     assert.equal(canWaiveCustomerPaymentFee("Accounting"), true);
     assert.equal(canWaiveCustomerPaymentFee("Owner"), true);
+    assert.equal(canWaiveCustomerPaymentFee("Manager"), true);
     assert.equal(canWaiveCustomerPaymentFee("Administrator"), true);
     assert.equal(canWaiveCustomerPaymentFee("Broker"), false);
-    assert.equal(canWaiveCustomerPaymentFee("Manager"), false);
 });

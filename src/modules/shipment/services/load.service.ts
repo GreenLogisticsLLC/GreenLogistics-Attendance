@@ -226,6 +226,7 @@ export class LoadService {
                 createdAt: true,
                 pickupFrom: true,
                 opsPickupAt: true,
+                assignedBrokerId: true,
             },
         });
 
@@ -248,6 +249,22 @@ export class LoadService {
                 docByLead.set(d.shipmentLeadId, slot);
             }
         }
+
+        const brokerIds = [
+            ...new Set(rows.map((r) => r.assignedBrokerId).filter(Boolean) as string[]),
+        ];
+        const brokers = brokerIds.length
+            ? await prisma.user.findMany({
+                  where: { userId: { in: brokerIds } },
+                  select: { userId: true, firstName: true, lastName: true },
+              })
+            : [];
+        const brokerName = new Map(
+            brokers.map((b) => [
+                b.userId,
+                `${b.firstName || ""} ${b.lastName || ""}`.trim() || "—",
+            ])
+        );
 
         return rows.map((r) => {
             let customerRate = r.customerRate;
@@ -275,6 +292,9 @@ export class LoadService {
                 shipmentLeadId: r.shipmentLeadId,
                 loadNumber: r.loadNumber,
                 shipmentNumber: r.greenOsShipmentId,
+                brokerName: r.assignedBrokerId
+                    ? brokerName.get(r.assignedBrokerId) || "—"
+                    : "—",
                 status: r.status,
                 statusLabel: statusLabel(r.status),
                 customerName: r.customerName,
@@ -1438,11 +1458,12 @@ export class LoadService {
             const paymentRoles: Set<string> = new Set([
                 Roles.Accounting,
                 Roles.Owner,
+                Roles.Manager,
                 Roles.Administrator,
             ]);
             if (!paymentRoles.has(String(actorRole || ""))) {
                 throw Object.assign(
-                    new Error("Only Accounting can confirm customer or carrier payments"),
+                    new Error("Only Accounting, Owner, and Manager can confirm customer or carrier payments"),
                     { status: 403, code: "PAYMENT_ROLE_REQUIRED" }
                 );
             }
@@ -1455,7 +1476,8 @@ export class LoadService {
                 "../../accounting/services/accounting.service.js"
             );
             const customerPayment = action === "mark_customer_paid";
-            if (customerPayment) {
+            const fullOps = new Set<string>([Roles.Owner, Roles.Manager, Roles.Administrator]);
+            if (!fullOps.has(String(actorRole || "")) && customerPayment) {
                 if (
                     !hasAccountingPermission(
                         actorRole,
@@ -1470,7 +1492,7 @@ export class LoadService {
                         { status: 403, code: "ACCOUNTING_FORBIDDEN" }
                     );
                 }
-            } else {
+            } else if (!fullOps.has(String(actorRole || ""))) {
                 if (
                     !hasAccountingPermission(
                         actorRole,

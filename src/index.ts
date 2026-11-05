@@ -20,6 +20,7 @@ import { resetShipmentsForEpoch } from "./services/shipment-epoch-reset.js";
 import { assignRioClarkToAlenYoung } from "./services/assign-rio-clark.js";
 import { revertFalseAcceptGos1000040 } from "./services/revert-false-accept-gos1000040.js";
 import { wipeRegisteredCarriers } from "./services/wipe-registered-carriers.js";
+import { shortenExistingLoadNumbers } from "./modules/shipment/load-number.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -78,6 +79,11 @@ app.listen(config.port, config.host, async () => {
         await assignmentEngine.restoreRichNightShipments();
     } catch (err) {
         console.warn("[assignment] Rio Clark waiting spread skipped:", err);
+    }
+    try {
+        await shortenExistingLoadNumbers();
+    } catch (err) {
+        console.warn("[load-number] shorten skipped:", err);
     }
     try {
         await revertFalseAcceptGos1000040();

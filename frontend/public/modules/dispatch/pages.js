@@ -34,7 +34,7 @@ window.GreenOSModules["dispatch"] = {
   /** Money / Profit — Accounting + Owner (+ Admin). Brokers never see it. */
   canSeeMoney() {
     var r = this.role();
-    return r === "Owner" || r === "Accounting" || r === "Administrator";
+    return r === "Owner" || r === "Manager" || r === "Accounting" || r === "Administrator";
   },
 
   currentDocContent(data, docType) {
@@ -1583,7 +1583,7 @@ window.GreenOSModules["dispatch"] = {
         " loads</span>" +
         "</div>" +
         '<div class="load-table-wrap"><table class="load-table"><thead><tr>' +
-        "<th>Load #</th><th>Shipment</th><th>Customer</th><th>Lane</th><th>Carrier</th><th>Status</th>" +
+        "<th>Load #</th><th>Shipment</th><th>Broker</th><th>Customer</th><th>Lane</th><th>Carrier</th><th>Status</th>" +
         (self.canSeeMoney() ? "<th>Customer $</th><th>Carrier $</th><th>Profit</th>" : "") +
         "<th></th>" +
         "</tr></thead><tbody>";
@@ -1611,7 +1611,7 @@ window.GreenOSModules["dispatch"] = {
             "</td>";
         }
         var hay =
-          [r.loadNumber, r.shipmentNumber, r.customerName, r.pickup, r.delivery, r.carrierName, r.statusLabel, r.status]
+          [r.loadNumber, r.shipmentNumber, r.brokerName, r.customerName, r.pickup, r.delivery, r.carrierName, r.statusLabel, r.status]
             .filter(Boolean)
             .join(" ")
             .toLowerCase();
@@ -1627,6 +1627,7 @@ window.GreenOSModules["dispatch"] = {
           ">" +
           "<td><strong>" + self.esc(r.loadNumber) + "</strong></td>" +
           "<td>" + self.esc(r.shipmentNumber || "—") + "</td>" +
+          "<td>" + self.esc(r.brokerName || "—") + "</td>" +
           "<td>" + self.esc(r.customerName || "—") + "</td>" +
           "<td>" + self.esc((r.pickup || "—") + " → " + (r.delivery || "—")) + "</td>" +
           "<td>" + self.esc(r.carrierName || "—") + "</td>" +
@@ -1721,7 +1722,7 @@ window.GreenOSModules["dispatch"] = {
             editor.setAttribute("data-id", id);
             editor.innerHTML =
               '<td colspan="' +
-              (self.canSeeMoney() ? "10" : "7") +
+              (self.canSeeMoney() ? "11" : "8") +
               '"><form class="load-change-form">' +
               field("Customer", "customerName", row.customerName) +
               field("Pickup city", "pickupCity", row.pickupCity) +
@@ -1729,6 +1730,18 @@ window.GreenOSModules["dispatch"] = {
               field("Delivery city", "deliveryCity", row.deliveryCity) +
               field("Delivery state", "deliveryState", row.deliveryState) +
               field("Carrier", "carrierName", row.carrierName) +
+              (self.canSeeMoney()
+                ? field(
+                    "Customer $",
+                    "customerRate",
+                    (row.pricing && (row.pricing.fromCustomer != null ? row.pricing.fromCustomer : row.pricing.customerRate)) || ""
+                  ) +
+                  field(
+                    "Carrier $",
+                    "carrierRate",
+                    (row.pricing && (row.pricing.toCarrier != null ? row.pricing.toCarrier : row.pricing.carrierRate)) || ""
+                  )
+                : "") +
               '<label>Status<select name="status">' +
               options +
               "</select></label>" +
@@ -1753,6 +1766,10 @@ window.GreenOSModules["dispatch"] = {
                 carrierName: form.carrierName.value,
                 status: form.status.value,
               };
+              if (self.canSeeMoney() && form.customerRate && form.carrierRate) {
+                payload.customerRate = form.customerRate.value;
+                payload.carrierRate = form.carrierRate.value;
+              }
               if (msg) msg.textContent = "Saving…";
               try {
                 await self.api("/" + encodeURIComponent(id), {
@@ -2801,7 +2818,7 @@ window.GreenOSModules["dispatch"] = {
       if (!showMoney) {
         main.innerHTML =
           "<h2>Pricing</h2>" +
-          '<p class="gos-muted">Money / Profit is only available to Accounting and Owner.</p>';
+          '<p class="gos-muted">Money / Profit is only available to Accounting, Owner, and Manager.</p>';
         return;
       }
       main.innerHTML =
@@ -3071,6 +3088,7 @@ window.GreenOSModules["dispatch"] = {
       var canManagePayments =
         paymentRole === "Accounting" ||
         paymentRole === "Owner" ||
+        paymentRole === "Manager" ||
         paymentRole === "Administrator";
       var paymentActions = data.quickActions || [];
       var customerPaymentAction = paymentActions.find(function (x) {

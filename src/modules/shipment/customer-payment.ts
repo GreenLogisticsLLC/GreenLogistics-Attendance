@@ -78,5 +78,10 @@ export function customerPaymentQuote(input: {
 }
 
 export function canWaiveCustomerPaymentFee(role: string | null | undefined): boolean {
-    return role === "Accounting" || role === "Owner" || role === "Administrator";
+    return (
+        role === "Accounting" ||
+        role === "Owner" ||
+        role === "Manager" ||
+        role === "Administrator"
+    );
 }
