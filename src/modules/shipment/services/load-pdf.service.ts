@@ -139,6 +139,8 @@ export type LoadDocumentContent = {
     fob?: string | null;
     trailerLoadedBy?: string | null;
     freightCountedBy?: string | null;
+    /** SHIPPER | DRIVER | RECEIVER — who unloads the freight. */
+    freightUnloadedBy?: string | null;
     deliveredInGoodOrder?: boolean | string | null;
     exceptionsNotes?: string | null;
     receiverName?: string | null;
@@ -822,22 +824,31 @@ function renderBolPdf(doc: PDFKit.PDFDocument, content: LoadDocumentContent, ver
     );
     y += 42;
 
-    // Trailer loaded / freight counted
-    drawBox(doc, left, y, usable, 36);
+    // Trailer loaded / freight counted / freight unloaded
+    drawBox(doc, left, y, usable, 50);
     doc.font("Helvetica-Bold").fontSize(7).text("TRAILER LOADED", left + 4, y + 3);
     doc.font("Helvetica").fontSize(8);
     const loaded = String(c.trailerLoadedBy || "").toUpperCase();
-    doc.text(`[${loaded.includes("SHIPPER") ? "X" : " "}] BY SHIPPER    [${loaded.includes("DRIVER") ? "X" : " "}] BY DRIVER`, left + 4, y + 16);
-    doc.font("Helvetica-Bold").fontSize(7).text("FREIGHT COUNTED", left + 280, y + 3);
+    doc.text(`[${loaded.includes("SHIPPER") ? "X" : " "}] BY SHIPPER    [${loaded.includes("DRIVER") ? "X" : " "}] BY DRIVER`, left + 4, y + 14);
+    doc.font("Helvetica-Bold").fontSize(7).text("FREIGHT COUNTED", left + 200, y + 3);
     doc.font("Helvetica").fontSize(8);
     const counted = String(c.freightCountedBy || "").toUpperCase();
     doc.text(
         `[${counted.includes("SHIPPER") ? "X" : " "}] BY SHIPPER  [${counted.includes("DRIVER") && counted.includes("PALLET") ? "X" : " "}] BY DRIVER/PALLETS  [${counted.includes("PIECE") ? "X" : " "}] BY DRIVER/PIECES`,
-        left + 280,
-        y + 16,
-        { width: 270 }
+        left + 200,
+        y + 14,
+        { width: 350 }
     );
-    y += 42;
+    doc.font("Helvetica-Bold").fontSize(7).text("FREIGHT UNLOADED", left + 4, y + 28);
+    doc.font("Helvetica").fontSize(8);
+    const unloaded = String(c.freightUnloadedBy || "").toUpperCase();
+    const unloadedMark = (key: string) => (unloaded === key ? "X" : " ");
+    doc.text(
+        `[${unloadedMark("SHIPPER")}] BY SHIPPER    [${unloadedMark("DRIVER")}] BY DRIVER    [${unloadedMark("RECEIVER")}] BY RECEIVER`,
+        left + 110,
+        y + 27
+    );
+    y += 56;
 
     // Signatures
     const sigH = 70;

@@ -4208,6 +4208,7 @@ window.GreenOSModules["dispatch"] = {
       '<label class="full">Commodity description <input id="bol-commodity" value="' + self.esc(g.commodity || "") + '"></label>' +
       '<label>Trailer loaded by <select id="bol-loaded"><option value="">—</option><option value="SHIPPER">BY SHIPPER</option><option value="DRIVER">BY DRIVER</option></select></label>' +
       '<label>Freight counted by <select id="bol-counted"><option value="">—</option><option value="SHIPPER">BY SHIPPER</option><option value="DRIVER_PALLETS">BY DRIVER/PALLETS</option><option value="DRIVER_PIECES">BY DRIVER/PIECES</option></select></label>' +
+      '<label>Freight unloaded by <select id="bol-unloaded"><option value="">—</option><option value="SHIPPER">BY SHIPPER</option><option value="DRIVER">BY DRIVER</option><option value="RECEIVER">BY RECEIVER</option></select></label>' +
       '<label class="full">Special instructions <textarea id="bol-notes" rows="3">' +
       self.esc(g.specialInstructions || "") +
       "</textarea></label>" +
@@ -4234,6 +4235,9 @@ window.GreenOSModules["dispatch"] = {
     }
     if (box.querySelector("#bol-counted") && prev.freightCountedBy) {
       box.querySelector("#bol-counted").value = prev.freightCountedBy;
+    }
+    if (box.querySelector("#bol-unloaded") && prev.freightUnloadedBy) {
+      box.querySelector("#bol-unloaded").value = prev.freightUnloadedBy;
     }
     if (box.querySelector("#bol-htype") && prev.handlingType) {
       box.querySelector("#bol-htype").value = prev.handlingType;
@@ -4334,6 +4338,7 @@ window.GreenOSModules["dispatch"] = {
           commodity: box.querySelector("#bol-commodity").value,
           trailerLoadedBy: box.querySelector("#bol-loaded").value,
           freightCountedBy: box.querySelector("#bol-counted").value,
+          freightUnloadedBy: box.querySelector("#bol-unloaded").value,
           specialInstructions: box.querySelector("#bol-notes").value,
           specialNotes: box.querySelector("#bol-notes").value,
         };
