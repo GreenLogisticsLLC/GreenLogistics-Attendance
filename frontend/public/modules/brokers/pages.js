@@ -98,6 +98,7 @@ window.GreenOSModules.brokers = {
       return;
     }
     desk._opsGiveOptions = "";
+    desk._opsGivePeople = null;
     desk.render(root, "shipments", {
       brokerId: brokerId,
       name: person ? person.name : "Employee",

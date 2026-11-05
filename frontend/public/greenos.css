@@ -1740,6 +1740,68 @@ html[data-theme="light"] {
 .crm-row:hover {
   background: var(--gos-surface2);
 }
+.crm-ship-scroll thead th.gos-give-head,
+.crm-table td.gos-give-cell {
+  position: sticky;
+  right: 0;
+  background: var(--gos-surface);
+}
+.crm-ship-scroll thead th.gos-give-head {
+  z-index: 4;
+}
+.crm-table td.gos-give-cell {
+  z-index: 3;
+}
+.crm-row:hover .gos-give-cell {
+  background: var(--gos-surface2);
+}
+.gos-give-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.gos-give-pick,
+.gos-transfer-btn {
+  width: auto;
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  white-space: nowrap;
+}
+.gos-give-pick {
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gos-give-menu {
+  position: fixed;
+  z-index: 120;
+  min-width: 220px;
+  max-height: min(320px, 70vh);
+  overflow: auto;
+  background: var(--gos-surface);
+  color: var(--gos-text);
+  border: 1px solid var(--gos-border);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  padding: 0.3rem;
+}
+.gos-give-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: 7px;
+  padding: 0.45rem 0.65rem;
+  cursor: pointer;
+}
+.gos-give-menu button:hover {
+  background: var(--gos-surface2);
+}
+.gos-give-menu p {
+  margin: 0.35rem 0.55rem;
+}
 .crm-badge {
   display: inline-block;
   padding: 0.2rem 0.55rem;

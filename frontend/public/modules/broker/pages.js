@@ -389,7 +389,7 @@ window.GreenOSModules.broker = {
       "</div></div>" +
       '<div class="table-wrap crm-ship-scroll"><table class="crm-table"><thead><tr>' +
       "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Bid</th><th>Updates</th><th>Bid Submitted</th><th>Received</th>" +
-      (self._opsView ? "<th>Give to</th>" : "") +
+      (self._opsView ? '<th class="gos-give-head">Give to</th>' : "") +
       '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="' +
       (self._opsView ? "11" : "10") +
       '">Loading…</td></tr></tbody></table></div>' +
@@ -576,6 +576,8 @@ window.GreenOSModules.broker = {
     function renderRows(rows, pageMeta) {
       var tbody = document.getElementById("broker-ship-body");
       if (!tbody) return;
+      var staleMenu = document.getElementById("gos-give-menu");
+      if (staleMenu) staleMenu.remove();
       var esc = self.esc.bind(self);
       var fmt = self.fmtDate.bind(self);
       var statusCell =
@@ -688,24 +690,107 @@ window.GreenOSModules.broker = {
             esc(self.receivedAtLabel(s.assignedAt)) +
             "</td>" +
             (self._opsView
-              ? '<td><select data-give="' +
+              ? '<td class="gos-give-cell"><div class="gos-give-row">' +
+                '<button type="button" class="btn-secondary gos-give-pick" data-give="' +
                 esc(s.shipmentLeadId) +
-                '">' +
-                (self._opsGiveOptions || '<option value="">Choose…</option>') +
-                '</select> <button type="button" class="btn-secondary gos-transfer-btn" data-transfer="' +
+                '">Choose…</button>' +
+                '<button type="button" class="btn-secondary gos-transfer-btn" data-transfer="' +
                 esc(s.shipmentLeadId) +
-                '">Transfer</button></td>'
+                '" disabled>Transfer</button></div></td>'
               : "") +
             "</tr>"
           );
         })
         .join("");
+      function closeGiveMenu() {
+        var menu = document.getElementById("gos-give-menu");
+        if (menu) menu.remove();
+      }
+      if (!self._giveMenuBound) {
+        self._giveMenuBound = true;
+        document.addEventListener(
+          "pointerdown",
+          function (ev) {
+            var menu = document.getElementById("gos-give-menu");
+            if (!menu) return;
+            var target = ev.target;
+            if (target && menu.contains(target)) return;
+            if (target && target.closest && target.closest(".gos-give-pick")) return;
+            menu.remove();
+          },
+          true
+        );
+      }
+      function openGiveMenu(anchor) {
+        closeGiveMenu();
+        var people = self._opsGivePeople || [];
+        var menu = document.createElement("div");
+        menu.id = "gos-give-menu";
+        menu.className = "gos-give-menu";
+        menu.setAttribute("data-for", anchor.getAttribute("data-give") || "");
+        menu.innerHTML = people.length
+          ? people
+              .map(function (person) {
+                return (
+                  '<button type="button" data-user="' +
+                  self.esc(person.id) +
+                  '">' +
+                  self.esc(person.label) +
+                  "</button>"
+                );
+              })
+              .join("")
+          : '<p class="gos-muted">No one else to give this to</p>';
+        document.body.appendChild(menu);
+        var rect = anchor.getBoundingClientRect();
+        var menuRect = menu.getBoundingClientRect();
+        var top = rect.bottom + 4;
+        if (top + menuRect.height > window.innerHeight - 8) {
+          top = Math.max(8, rect.top - menuRect.height - 4);
+        }
+        var left = rect.left;
+        if (left + menuRect.width > window.innerWidth - 8) {
+          left = Math.max(8, window.innerWidth - menuRect.width - 8);
+        }
+        menu.style.top = top + "px";
+        menu.style.left = left + "px";
+        menu.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          var choice = ev.target && ev.target.closest ? ev.target.closest("[data-user]") : null;
+          if (!choice) return;
+          anchor.textContent = choice.textContent || "Choose…";
+          anchor.setAttribute("data-to", choice.getAttribute("data-user") || "");
+          var transfer = tbody.querySelector(
+            '[data-transfer="' + (anchor.getAttribute("data-give") || "") + '"]'
+          );
+          if (transfer) transfer.disabled = false;
+          closeGiveMenu();
+        });
+      }
+      tbody.querySelectorAll(".gos-give-pick").forEach(function (btn) {
+        btn.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          var existing = document.getElementById("gos-give-menu");
+          var same =
+            existing && existing.getAttribute("data-for") === btn.getAttribute("data-give");
+          closeGiveMenu();
+          if (!same) openGiveMenu(btn);
+        });
+      });
+      tbody.querySelectorAll(".gos-give-cell").forEach(function (cell) {
+        cell.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+        });
+      });
       tbody.querySelectorAll(".gos-transfer-btn").forEach(function (btn) {
         btn.addEventListener("click", async function (ev) {
+          ev.preventDefault();
           ev.stopPropagation();
           var id = btn.getAttribute("data-transfer");
-          var sel = tbody.querySelector('[data-give="' + id + '"]');
-          var toUserId = sel ? sel.value : "";
+          var pick = tbody.querySelector('[data-give="' + id + '"]');
+          var toUserId = pick ? pick.getAttribute("data-to") || "" : "";
           if (!toUserId) {
             alert("Choose who should receive this shipment");
             return;
@@ -772,7 +857,16 @@ window.GreenOSModules.broker = {
         });
       });
       tbody.querySelectorAll("[data-id]").forEach(function (tr) {
-        tr.addEventListener("click", function () {
+        tr.addEventListener("click", function (ev) {
+          var target = ev.target;
+          if (
+            target &&
+            target.closest &&
+            target.closest("button, select, input, textarea, a, label, .gos-give-cell")
+          ) {
+            return;
+          }
+          if (document.getElementById("gos-give-menu")) return;
           if (window.GreenOSModules.crm && window.GreenOSModules.crm.openShipmentCard) {
             var sid = tr.getAttribute("data-id");
             var preview = (self._shipmentsCache || []).find(function (r) {
@@ -797,29 +891,22 @@ window.GreenOSModules.broker = {
     globalSearch?.addEventListener("input", applyGlobalSearch);
 
     async function paint(force) {
-      if (self._opsView && !self._opsGiveOptions) {
+      if (self._opsView && !self._opsGivePeople) {
         try {
           var staff = await self.api("/brokers");
           var people = staff && staff.success ? staff.data || [] : [];
-          self._opsGiveOptions =
-            '<option value="">Choose…</option>' +
-            people
-              .filter(function (person) {
-                return person.brokerId && person.brokerId !== self._opsView.brokerId;
-              })
-              .map(function (person) {
-                return (
-                  '<option value="' +
-                  self.esc(person.brokerId) +
-                  '">' +
-                  self.esc(person.name) +
-                  (person.role ? " · " + self.esc(person.role) : "") +
-                  "</option>"
-                );
-              })
-              .join("");
+          self._opsGivePeople = people
+            .filter(function (person) {
+              return person.brokerId && person.brokerId !== self._opsView.brokerId;
+            })
+            .map(function (person) {
+              return {
+                id: String(person.brokerId),
+                label: person.name + (person.role ? " · " + person.role : ""),
+              };
+            });
         } catch (e) {
-          self._opsGiveOptions = '<option value="">Choose…</option>';
+          self._opsGivePeople = [];
         }
       }
       var tbody = document.getElementById("broker-ship-body");
