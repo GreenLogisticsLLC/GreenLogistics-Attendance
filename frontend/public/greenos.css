@@ -3888,6 +3888,11 @@ tr.crm-row.load-row-no-carrier td:first-child {
 .acc-row-actions {
   white-space: nowrap;
   text-align: right;
+  position: relative;
+  z-index: 2;
+}
+.acc-open-card {
+  width: min(1100px, 100%);
 }
 .acc-row-actions .btn-primary,
 .acc-row-actions .btn-secondary,

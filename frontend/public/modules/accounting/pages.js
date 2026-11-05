@@ -454,20 +454,46 @@ window.GreenOSModules.accounting = {
       btn.addEventListener("click", function (ev) {
         ev.preventDefault();
         ev.stopPropagation();
-        var detail = body.querySelector("#acc-detail");
-        if (!detail) {
-          detail = document.createElement("div");
-          detail.id = "acc-detail";
-          detail.style.marginTop = "1.25rem";
-          body.appendChild(detail);
-        }
-        self.openShipment(detail, btn.getAttribute("data-id"));
-        if (detail.scrollIntoView) {
-          detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        }
+        self.openShipmentModal(btn.getAttribute("data-id"));
       });
     });
     self.bindLoadManageHandlers(body);
+  },
+
+  openShipmentModal(id) {
+    var self = this;
+    var existing = document.getElementById("acc-modal");
+    if (existing) existing.remove();
+    var modal = document.createElement("div");
+    modal.id = "acc-modal";
+    modal.className = "crm-modal";
+    modal.innerHTML =
+      '<div class="crm-modal-card acc-open-card" style="width:min(1100px,100%)">' +
+      '<div class="crm-modal-head"><strong>Load</strong>' +
+      '<button type="button" class="btn-secondary" id="acc-modal-close" style="width:auto">Close</button></div>' +
+      '<div id="acc-detail"></div></div>';
+    document.body.appendChild(modal);
+    function close() {
+      if (modal.parentNode) modal.remove();
+    }
+    modal.addEventListener("click", function (ev) {
+      if (ev.target === modal) close();
+    });
+    var closeBtn = modal.querySelector("#acc-modal-close");
+    if (closeBtn) closeBtn.addEventListener("click", close);
+    function onKey(ev) {
+      if (ev.key === "Escape") {
+        close();
+        document.removeEventListener("keydown", onKey);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    if (!id) {
+      modal.querySelector("#acc-detail").innerHTML =
+        '<p style="color:#ef4444">This load has no id, so it cannot be opened.</p>';
+      return;
+    }
+    self.openShipment(modal.querySelector("#acc-detail"), id);
   },
 
   refreshLoads(body) {
