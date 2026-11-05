@@ -93,7 +93,7 @@ window.GreenOSModules.crm = {
       ) {
         return;
       }
-      if (page === "shipments") return;
+      if (page === "shipments" || page === "brokers") return;
       paint();
     };
     paint();

@@ -12,11 +12,6 @@ window.GreenOSModules.brokers = {
       '<div class="gos-module-body" id="brokers-body"><p class="gos-muted">Loading…</p></div>' +
       "</div>";
     this.renderList(root.querySelector("#brokers-body"), root);
-    window.GreenOSBrokersReload = function () {
-      if (!document.body.contains(root)) return;
-      if (self._openId) self.openPerson(root, self._openId);
-      else self.renderList(root.querySelector("#brokers-body"), root);
-    };
   },
 
   async api(path, options) {

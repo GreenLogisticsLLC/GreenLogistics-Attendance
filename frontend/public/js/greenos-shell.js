@@ -1060,6 +1060,8 @@
       if (this.currentModule === "email") return;
       // Administration (API Integrations, users, etc.) — never auto-remount.
       if (this.currentModule === "administration") return;
+      // Brokers list — manual only. Auto refresh closes the account the owner is editing.
+      if (this.currentModule === "brokers") return;
       // Employees (Platform users / roles) — manual only; auto refresh wipes open dropdowns.
       if (this.currentModule === "employees") return;
       // Carriers — manual Refresh only (avoid wiping open carrier detail / tabs).
