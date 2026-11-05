@@ -214,7 +214,9 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
 
         // Prefer the carrier-declared packet type for NOA/W9 (user-scoped checks).
         const documentType: DocAiType =
-            declaredType === "NOA" || declaredType === "W9"
+            declaredType === "NOA" ||
+            declaredType === "W9" ||
+            declaredType === "BROKER_CARRIER_AGREEMENT"
                 ? (declaredType as DocAiType)
                 : (classified.documentType as DocAiType);
 

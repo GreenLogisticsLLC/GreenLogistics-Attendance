@@ -117,6 +117,18 @@ export function validateDocument(input: {
         });
     }
 
+    // Broker–Carrier Agreement: only the circled Carrier Profile and signature lines.
+    // A dash in DBA, Fax, FED ID, or factoring company is still Approve.
+    if (input.documentType === "BROKER_CARRIER_AGREEMENT") {
+        return validateAgreementOnly({
+            map,
+            levels,
+            signatures,
+            classifyConfidence: input.classifyConfidence,
+            greenOs: input.greenOs,
+        });
+    }
+
     if (input.requiresBoundaryReview || input.documentType === "UNKNOWN") {
         warnings.push("Document boundary/type review required");
         return finish("REVIEW_REQUIRED", "YELLOW", true, input.classifyConfidence, {
@@ -235,7 +247,7 @@ export function validateDocument(input: {
         };
     }
 
-    if (input.documentType === "BROKER_CARRIER_AGREEMENT" || input.documentType === "RATE_CONFIRMATION") {
+    if (input.documentType === "RATE_CONFIRMATION") {
         checks.push(checkBrokerMc(map.brokerMc));
     }
 
@@ -596,6 +608,143 @@ function validateNoaOnly(input: {
 
     return finish("VALID", "GREEN", false, input.classifyConfidence, {
         documentType: "NOA",
+        levels,
+        checks,
+        matches,
+        warnings,
+        errors,
+        signatures: input.signatures,
+        classifyConfidence: input.classifyConfidence,
+    });
+}
+
+/**
+ * Broker–Carrier Agreement bot check (circled blocks on the signed PDF):
+ * Carrier Profile — name, dispatch contact, email, phone, MC, DOT, address,
+ * equipment, payment option — plus the carrier printed name and signature.
+ * DBA, fax, FED ID, and factoring company may be a dash.
+ * Filled the same way → Approved (GREEN).
+ */
+function validateAgreementOnly(input: {
+    map: Record<string, string | null>;
+    levels: ValidationBundle["levels"];
+    signatures: SignatureResult[];
+    classifyConfidence: number;
+    greenOs?: {
+        legalName?: string | null;
+        mcNumber?: string | null;
+        dotNumber?: string | null;
+        carrierName?: string | null;
+        carrierMc?: string | null;
+        carrierDot?: string | null;
+    };
+}): ValidationBundle {
+    const map = input.map;
+    const gos = input.greenOs || {};
+    const warnings: string[] = [];
+    const errors: string[] = [];
+    const checks: RuleCheck[] = [];
+    const matches: RuleCheck[] = [];
+    const levels = { ...input.levels };
+
+    const required: Array<[string, string]> = [
+        ["carrierLegalName", "Carrier Name"],
+        ["dispatchContact", "Dispatch Contact"],
+        ["dispatchEmail", "Email"],
+        ["phone", "Phone"],
+        ["carrierMc", "MC #"],
+        ["carrierDot", "DOT #"],
+        ["address", "Address"],
+        ["equipment", "Equipment"],
+        ["paymentOption", "Payment option"],
+        ["carrierPrintedName", "Printed Name"],
+        ["signed", "Signature"],
+    ];
+    const missing = required.filter(([key]) => !map[key]).map(([, label]) => label);
+    const broker = checkBrokerMc(map.brokerMc);
+    checks.push(broker);
+
+    const docName = map.carrierLegalName;
+    const gosName = gos.legalName || gos.carrierName;
+    if (gosName && docName && !namesSoftEqual(docName, gosName)) {
+        matches.push({
+            id: "MATCH-NAME",
+            ok: false,
+            status: "MISMATCH",
+            message: "Carrier name does not match the registered carrier",
+            documentValue: docName,
+            greenOsValue: gosName,
+        });
+    }
+    const mcCheck = checkExactId(
+        "MATCH-MC",
+        "MC",
+        map.carrierMc,
+        gos.mcNumber || gos.carrierMc,
+        normalizeMc
+    );
+    if (gos.mcNumber || gos.carrierMc) matches.push(mcCheck);
+    const dotCheck = checkExactId(
+        "MATCH-DOT",
+        "DOT",
+        map.carrierDot,
+        gos.dotNumber || gos.carrierDot,
+        normalizeDot
+    );
+    if (gos.dotNumber || gos.carrierDot) matches.push(dotCheck);
+
+    const nameMismatch = matches.some((m) => m.id === "MATCH-NAME" && !m.ok);
+    const idMismatch = matches.some((m) => !m.ok && m.status === "CRITICAL_MISMATCH");
+    const filled = missing.length === 0 && broker.ok && !nameMismatch && !idMismatch;
+
+    levels.completeness = {
+        ok: missing.length === 0,
+        detail: missing.length ? `missing:${missing.join(",")}` : "profile filled",
+    };
+    levels.signature = {
+        ok: Boolean(map.signed),
+        detail: map.signed ? "signed" : "missing signature",
+    };
+    levels.businessRules = { ok: broker.ok, detail: broker.message };
+    levels.expiration = { ok: true, detail: "n/a" };
+    levels.greenOsMatch = {
+        ok: !nameMismatch && !idMismatch,
+        detail: nameMismatch || idMismatch ? "mismatch" : "ok",
+    };
+
+    if (!broker.ok) {
+        errors.push(broker.status === "MISSING" ? "MISSING_BROKER_MC" : "BROKER_MC_MISMATCH");
+    }
+    if (missing.length) {
+        errors.push(`MISSING_REQUIRED_FIELD:${missing.join(",")}`);
+        checks.push({
+            id: "AGREEMENT-PROFILE",
+            ok: false,
+            status: "MISSING",
+            message: `Fill the same profile fields: ${missing.join(", ")}`,
+        });
+    }
+    if (!filled) {
+        return finish("MISSING_REQUIRED_FIELD", "RED", true, input.classifyConfidence, {
+            documentType: "BROKER_CARRIER_AGREEMENT",
+            levels,
+            checks,
+            matches,
+            warnings,
+            errors,
+            signatures: input.signatures,
+            classifyConfidence: input.classifyConfidence,
+        });
+    }
+
+    checks.push({
+        id: "AGREEMENT-PROFILE",
+        ok: true,
+        status: "PASS",
+        message: "Carrier profile and signature are filled",
+    });
+    return finish("VALID", "GREEN", false, input.classifyConfidence, {
+        documentType: "BROKER_CARRIER_AGREEMENT",
         levels,
         checks,
         matches,

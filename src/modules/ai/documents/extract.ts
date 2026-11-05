@@ -93,28 +93,59 @@ function extractCarrierProfile(t: string): ExtractedField[] {
     ];
 }
 
+/** A profile line that is blank or an em dash is not filled. */
+function filledLine(raw: string | null | undefined): string | null {
+    const value = String(raw || "")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (!value || /^(?:—|–|-|n\/?a|none|null)$/i.test(value)) return null;
+    return value;
+}
+
+/** Value on the same line as a label, or on the next line (Green OS agreement PDF). */
+function valueAfterLabel(text: string, label: string): string | null {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp("(?:^|\\n)\\s*" + escaped + "\\s*:\\s*(?:\\n\\s*)*([^\\n]+)", "i");
+    return filledLine(text.match(re)?.[1]);
+}
+
 function extractAgreement(t: string): ExtractedField[] {
-    const carrierMc = normalizeMc(
-        pick(t, /Carrier[^\n]{0,40}MC[#\s]*([0-9]{4,})/i) || pick(t, /\bMC[#\s-]*([0-9]{4,})/i)
-    );
     const brokerMc = normalizeMc(pick(t, /MC\s*#\s*(1237784)/i) || "1237784");
+    const labeledMc = t.match(/MC\s*#\s*:\s*(?:\n\s*)*([0-9][0-9\s-]{2,})/i);
+    const carrierMc = normalizeMc(labeledMc?.[1] || null);
+    const labeledDot = t.match(/DOT\s*#\s*:\s*(?:\n\s*)*([0-9][0-9\s-]{3,})/i);
+    const carrierDot = normalizeDot(labeledDot?.[1] || null);
+    const afterCarrier = t.split(/\(CARRIER\)/i)[1] || "";
+    const printed = afterCarrier.match(/Printed\s+Name\s*[:–—-]?\s*([A-Za-z][A-Za-z .'-]{2,80})/i);
+    const carrierPrintedName = filledLine(
+        printed?.[1]?.replace(/\s*\/.*$/, "").replace(/\s+Title\b.*$/i, "")
+    );
+    const signedAt = pick(t, /Signed\s+at\s*:\s*([0-9][0-9T:.\-Z]+)/i);
+    const signed =
+        signedAt ||
+        (/Electronic\s+signature/i.test(t) || /Authorized\s+Signature\s*\(electronic/i.test(t)
+            ? "electronic"
+            : null);
+    const phone = valueAfterLabel(t, "Phone");
     return [
         field("brokerLegalName", pick(t, /(GREEN\s+LOGISTICS\s+LLC)/i), { confidence: 0.95 }),
-        field("brokerMc", brokerMc, { normalized: brokerMc, confidence: 0.99 }),
-        field(
-            "carrierLegalName",
-            pick(t, /(I\s+GET\s+AROUND\s+TRANSPORTATION\s+LLC)/i) ||
-                pick(t, /\(CARRIER\)[\s\S]{0,80}?([A-Z][A-Z0-9 &\-]{5,80}LLC)/i)
-        ),
-        field("carrierMc", carrierMc, { normalized: carrierMc }),
-        field(
-            "agreementDate",
-            pick(t, /entered\s+into\s+on[,\s]*([0-9/\-]+)/i) ||
-                pick(t, /\b(\d{1,2}\s+\d{1,2}\s+20\d{2})\b/)
-        ),
-        field("paymentOption", pick(t, /(Standard\s+Payment|Quick\s+Pay|Factoring\s+company)/i)),
-        field("brokerPrintedName", pick(t, /Printed\s+Name\s*[–—-]?\s*(SPARTAK\s+KAZARYAN)/i)),
-        field("carrierPrintedName", pick(t, /Printed\s+Name[^\n]*\n([A-Za-z ]{3,40})/i)),
+        field("brokerMc", brokerMc, { normalized: brokerMc, confidence: brokerMc ? 0.99 : 0 }),
+        field("carrierLegalName", valueAfterLabel(t, "Carrier Name"), { confidence: 0.94 }),
+        field("dba", valueAfterLabel(t, "DBA")),
+        field("dispatchContact", valueAfterLabel(t, "Dispatch Contact")),
+        field("dispatchEmail", valueAfterLabel(t, "Email")),
+        field("phone", phone, { normalized: normalizePhone(phone) }),
+        field("fax", valueAfterLabel(t, "Fax")),
+        field("federalTaxId", valueAfterLabel(t, "FED ID #")),
+        field("carrierMc", carrierMc, { normalized: carrierMc, confidence: carrierMc ? 0.98 : 0 }),
+        field("carrierDot", carrierDot, { normalized: carrierDot, confidence: carrierDot ? 0.98 : 0 }),
+        field("address", valueAfterLabel(t, "Address")),
+        field("equipment", valueAfterLabel(t, "Equipment")),
+        field("paymentOption", valueAfterLabel(t, "Payment option")),
+        field("factoringCompany", valueAfterLabel(t, "Factoring company")),
+        field("carrierPrintedName", carrierPrintedName),
+        field("signedAt", signedAt),
+        field("signed", signed, { confidence: signed ? 0.95 : 0 }),
     ];
 }
 
