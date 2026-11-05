@@ -667,6 +667,8 @@
     document.getElementById("btn-back")?.addEventListener("click", goBack);
     document.getElementById("btn-clear-sig")?.addEventListener("click", clearSig);
     document.getElementById("btn-sign-ag")?.addEventListener("click", async function () {
+      var btn = this;
+      if (btn.disabled) return;
       var nameEl = document.getElementById("sig-name");
       var agreeEl = document.getElementById("sig-agree");
       var canvas = document.getElementById("sig-canvas");
@@ -684,12 +686,16 @@
         setMsg("Please complete required fields:\n- " + missing.join("\n- "), false);
         return;
       }
+      btn.disabled = true;
       try {
         await api("/sign-agreement", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ signerName: val("sig-name"), signatureData: sigData(), agreed: true }) });
         step = 2;
         await persistStep(2);
         await reload();
-      } catch (e) { setMsg(e.message, false); }
+      } catch (e) {
+        btn.disabled = false;
+        setMsg(e.message, false);
+      }
     });
     document.getElementById("btn-ack-bol-pod")?.addEventListener("click", async function () {
       try {

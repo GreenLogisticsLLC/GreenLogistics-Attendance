@@ -23,6 +23,7 @@ import {
 import { carrierEmailService } from "./carrier-email.service.js";
 import { carrierStorageService, CARRIER_UPLOADS_ROOT } from "./carrier-storage.service.js";
 import { storeCarrierAgreementPdf } from "./carrier-agreement-pdf.service.js";
+import { pickAgreementToKeep } from "../agreement-copies.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { loadDocumentsService } from "../../shipment/services/load-documents.service.js";
 import { normalizeStatus } from "../../shipment/shipment.lifecycle.js";
@@ -1744,7 +1745,74 @@ export class CarrierService {
         return { ...row, pdfDocumentId };
     }
 
-    /** Create versioned signed Agreement PDF under Carrier Documents. */
+    /** Drop a stored carrier file, its Document AI jobs, and the database row. */
+    private async forgetCarrierDocument(doc: {
+        documentId: string;
+        carrierId: string;
+        storageKey: string;
+    }) {
+        await prisma.aiDocumentJob.deleteMany({
+            where: { documentId: doc.documentId, documentSource: "CARRIER" },
+        });
+        await prisma.carrierDocument.delete({ where: { documentId: doc.documentId } });
+        carrierStorageService.tryUnlink(doc.carrierId, doc.storageKey);
+    }
+
+    /**
+     * The signed agreement is one document. A new signature replaces the file
+     * instead of leaving another copy in the carrier packet.
+     */
+    private async keepSingleAgreementPdf(carrierId: string, keepDocumentId: string) {
+        const extras = await prisma.carrierDocument.findMany({
+            where: {
+                carrierId,
+                documentType: "BROKER_CARRIER_AGREEMENT",
+                documentId: { not: keepDocumentId },
+            },
+        });
+        for (const extra of extras) {
+            await this.forgetCarrierDocument(extra);
+        }
+        return extras.length;
+    }
+
+    /**
+     * Server restarts used to save the same signed PDF again. Leave one current
+     * copy per carrier and delete the rest.
+     */
+    async collapseDuplicateAgreementDocuments(): Promise<number> {
+        const docs = await prisma.carrierDocument.findMany({
+            where: { documentType: "BROKER_CARRIER_AGREEMENT" },
+            orderBy: [{ version: "desc" }, { uploadedAt: "desc" }],
+        });
+        const groups = new Map<string, typeof docs>();
+        for (const doc of docs) {
+            const list = groups.get(doc.carrierId) || [];
+            list.push(doc);
+            groups.set(doc.carrierId, list);
+        }
+        let removed = 0;
+        for (const [carrierId, list] of groups) {
+            const keep = pickAgreementToKeep(list);
+            if (!keep) continue;
+            if (keep.status !== "CURRENT" || keep.version !== 1) {
+                await prisma.carrierDocument.update({
+                    where: { documentId: keep.documentId },
+                    data: { status: "CURRENT", version: 1 },
+                });
+            }
+            if (list.length < 2) continue;
+            removed += await this.keepSingleAgreementPdf(carrierId, keep.documentId);
+        }
+        if (removed) {
+            console.log(
+                `[agreement-pdf] removed ${removed} duplicate signed agreement copy(ies)`
+            );
+        }
+        return removed;
+    }
+
+    /** Save the signed Agreement PDF once. A later signature replaces that file. */
     async archiveSignedAgreementPdf(input: {
         carrierId: string;
         signature: {
@@ -1776,22 +1844,7 @@ export class CarrierService {
             factoringCompanyName?: string | null;
         };
     }) {
-        const prev = await prisma.carrierDocument.findFirst({
-            where: {
-                carrierId: input.carrierId,
-                documentType: "BROKER_CARRIER_AGREEMENT",
-                status: "CURRENT",
-            },
-            orderBy: { version: "desc" },
-        });
-        const version = (prev?.version || 0) + 1;
-        if (prev) {
-            await prisma.carrierDocument.update({
-                where: { documentId: prev.documentId },
-                data: { status: "ARCHIVED" },
-            });
-        }
-
+        const version = 1;
         const stored = await storeCarrierAgreementPdf({
             carrierId: input.carrierId,
             version,
@@ -1839,6 +1892,7 @@ export class CarrierService {
                 version,
             },
         });
+        await this.keepSingleAgreementPdf(input.carrierId, doc.documentId);
         return doc.documentId;
     }
 
@@ -1902,6 +1956,14 @@ export class CarrierService {
                 );
                 continue;
             }
+            const already = await prisma.carrierDocument.findFirst({
+                where: {
+                    carrierId: carrier.carrierId,
+                    documentType: "BROKER_CARRIER_AGREEMENT",
+                },
+                select: { documentId: true },
+            });
+            if (already) continue;
             try {
                 await this.archiveSignedAgreementPdf({
                     carrierId: carrier.carrierId,

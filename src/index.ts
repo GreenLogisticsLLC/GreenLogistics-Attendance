@@ -106,6 +106,7 @@ app.listen(config.port, config.host, async () => {
         console.warn("[shipment] Green OS ID backfill/remigrate skipped:", err);
     }
     try {
+        await carrierService.collapseDuplicateAgreementDocuments();
         await carrierService.regenerateAllSignedAgreementPdfsOnce();
     } catch (err) {
         console.warn("[agreement-pdf] signed PDF regenerate skipped:", err);
