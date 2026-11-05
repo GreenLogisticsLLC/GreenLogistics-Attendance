@@ -21,6 +21,7 @@ import { assignRioClarkToAlenYoung } from "./services/assign-rio-clark.js";
 import { revertFalseAcceptGos1000040 } from "./services/revert-false-accept-gos1000040.js";
 import { wipeRegisteredCarriers } from "./services/wipe-registered-carriers.js";
 import { shortenExistingLoadNumbers } from "./modules/shipment/load-number.js";
+import { startBirthdayScheduler } from "./services/birthday-notify.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -104,6 +105,11 @@ app.listen(config.port, config.host, async () => {
         if (n > 0) console.log(`[shipment] Backfilled ${n} Green OS Shipment ID(s)`);
     } catch (err) {
         console.warn("[shipment] Green OS ID backfill/remigrate skipped:", err);
+    }
+    try {
+        startBirthdayScheduler();
+    } catch (err) {
+        console.warn("[birthday] scheduler skipped:", err);
     }
     try {
         await carrierService.collapseDuplicateAgreementDocuments();

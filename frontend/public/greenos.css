@@ -2358,6 +2358,67 @@ a.crm-open-uship {
     0 0 0 3px rgba(61, 255, 154, 0.18);
 }
 
+.emp-change-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.65rem;
+  padding: 0.35rem 0 0.15rem;
+}
+.emp-change-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--gos-muted);
+}
+.emp-change-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+}
+.gos-congrats {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 10, 8, 0.78);
+}
+.gos-congrats-card {
+  width: min(540px, calc(100vw - 2rem));
+  text-align: center;
+  padding: 2.1rem 1.6rem 1.5rem;
+  border-radius: 20px;
+  color: #f7f3e6;
+  background: radial-gradient(circle at top, #245c3d, #0c1c16 68%);
+  border: 3px solid #f5c542;
+  box-shadow:
+    0 0 0 8px rgba(245, 197, 66, 0.22),
+    0 28px 70px rgba(0, 0, 0, 0.55);
+  animation: gos-congrats-pop 0.45s ease;
+}
+.gos-congrats-kicker {
+  font-size: clamp(2.2rem, 6vw, 3.4rem);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: #f5c542;
+  line-height: 1;
+}
+.gos-congrats-card h2 {
+  margin: 0.55rem 0 0.35rem;
+  font-size: 1.45rem;
+}
+.gos-congrats-names p {
+  margin: 0.2rem 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+@keyframes gos-congrats-pop {
+  from { transform: scale(0.86); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
 .gos-toast-assign .gos-toast-title {
   color: #5dffb0;
   font-size: 1.2rem;

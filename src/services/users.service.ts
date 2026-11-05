@@ -232,6 +232,8 @@ export class UsersService {
                 firstName: u.firstName,
                 lastName: u.lastName,
                 email: u.email,
+                phone: u.phone,
+                birthDate: u.birthDate,
                 role: u.role.roleName,
                 accountingSubRole: u.accountingSubRole || null,
                 isActive: u.isActive,
@@ -718,6 +720,145 @@ export class UsersService {
         } finally {
             endAdminWrite();
         }
+    }
+
+    async updateUserProfile(
+        actor: { userId: string; role: string },
+        userId: string,
+        input: {
+            firstName?: unknown;
+            lastName?: unknown;
+            phone?: unknown;
+            email?: unknown;
+            birthDate?: unknown;
+            role?: unknown;
+            teamLeadId?: unknown;
+            transferTeamToUserId?: unknown;
+            takeOverFromUserId?: unknown;
+            accountingSubRole?: unknown;
+        }
+    ) {
+        if (!canManageUserRoles(actor.role)) {
+            return { ok: false as const, status: 403, message: "Forbidden" };
+        }
+        const firstName = String(input.firstName ?? "").trim();
+        const lastName = String(input.lastName ?? "").trim();
+        if (!firstName || !lastName) {
+            return { ok: false as const, status: 422, message: "Name and last name are required" };
+        }
+        if (firstName.length > 80 || lastName.length > 80) {
+            return { ok: false as const, status: 422, message: "Name is too long" };
+        }
+        const phoneRaw = String(input.phone ?? "").trim();
+        if (phoneRaw.length > 40) {
+            return { ok: false as const, status: 422, message: "Phone number is too long" };
+        }
+        const emailRaw = String(input.email ?? "").trim().toLowerCase();
+        if (emailRaw && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
+            return { ok: false as const, status: 422, message: "Gmail address looks wrong" };
+        }
+        const { parseBirthDate } = await import("./birthday.js");
+        const birth = parseBirthDate(input.birthDate);
+        if (!birth.ok) return { ok: false as const, status: 422, message: birth.message };
+
+        const user = await prisma.user.findUnique({
+            where: { userId },
+            include: { role: true },
+        });
+        if (!user) return { ok: false as const, status: 404, message: "User not found" };
+
+        if (emailRaw) {
+            const taken = await prisma.user.findFirst({
+                where: { email: emailRaw, userId: { not: userId } },
+                select: { userId: true },
+            });
+            if (taken) {
+                return { ok: false as const, status: 422, message: "That Gmail address is already used" };
+            }
+        }
+
+        const nextRole = String(input.role ?? user.role.roleName).trim() || user.role.roleName;
+        const teamLeadId =
+            input.teamLeadId === undefined || input.teamLeadId === null || input.teamLeadId === ""
+                ? null
+                : String(input.teamLeadId);
+        const transferTeamToUserId =
+            input.transferTeamToUserId === undefined ||
+            input.transferTeamToUserId === null ||
+            input.transferTeamToUserId === ""
+                ? null
+                : String(input.transferTeamToUserId);
+        if (nextRole === Roles.Broker && !teamLeadId && !user.teamLeadId && user.role.roleName !== Roles.Broker) {
+            return { ok: false as const, status: 422, message: "Select a Team Lead for this Broker" };
+        }
+        if (nextRole === Roles.Broker && user.role.roleName === Roles.Broker && input.teamLeadId !== undefined && !teamLeadId) {
+            return { ok: false as const, status: 422, message: "Select a Team Lead for this Broker" };
+        }
+        if (user.role.roleName === Roles.TeamLead && nextRole !== Roles.TeamLead && !transferTeamToUserId) {
+            return {
+                ok: false as const,
+                status: 422,
+                message: "Choose who takes this Team Lead's brokers before changing the status",
+            };
+        }
+
+        try {
+            await prisma.user.update({
+                where: { userId },
+                data: {
+                    firstName,
+                    lastName,
+                    phone: phoneRaw || null,
+                    email: emailRaw || null,
+                    birthDate: birth.value,
+                },
+            });
+            if (user.employeeId) {
+                await prisma.employee.update({
+                    where: { employeeId: user.employeeId },
+                    data: { firstName, lastName },
+                });
+            }
+        } catch (err) {
+            console.error("[users] updateUserProfile failed:", err);
+            return { ok: false as const, status: 500, message: "Could not save employee details" };
+        }
+
+        let message = "Saved";
+        if (nextRole !== user.role.roleName) {
+            const roleResult = await this.updateUserRole(actor, userId, nextRole, {
+                transferTeamToUserId,
+                takeOverFromUserId:
+                    input.takeOverFromUserId === undefined ||
+                    input.takeOverFromUserId === null ||
+                    input.takeOverFromUserId === ""
+                        ? null
+                        : String(input.takeOverFromUserId),
+                accountingSubRole:
+                    nextRole === Roles.Accounting
+                        ? String(input.accountingSubRole || "DOCUMENTS")
+                        : null,
+            });
+            if (!roleResult.ok) return roleResult;
+            message = roleResult.data.message || "Saved";
+        }
+
+        if (nextRole === Roles.Broker) {
+            const tlResult = await this.updateBrokerTeamLead(actor, userId, teamLeadId);
+            if (!tlResult.ok) return tlResult;
+        }
+
+        try {
+            const { notifyTodayBirthdays } = await import("./birthday-notify.js");
+            await notifyTodayBirthdays();
+        } catch (err) {
+            console.warn("[birthday] notify after profile save skipped:", err);
+        }
+
+        return {
+            ok: true as const,
+            data: { userId, firstName, lastName, message },
+        };
     }
 }
 

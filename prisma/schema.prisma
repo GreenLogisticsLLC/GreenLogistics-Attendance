@@ -24,6 +24,9 @@ model User {
   firstName              String                 @map("first_name")
   lastName               String                 @map("last_name")
   email                  String?                @unique
+  phone                  String?
+  /** Calendar date YYYY-MM-DD. Owner and Manager are notified on this day. */
+  birthDate              String?                @map("birth_date")
   roleId                 String                 @map("role_id")
   isActive               Boolean                @default(true) @map("is_active")
   availableForAssignment Boolean                @default(true) @map("available_for_assignment")

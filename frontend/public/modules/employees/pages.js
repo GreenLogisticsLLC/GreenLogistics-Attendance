@@ -375,6 +375,7 @@ window.GreenOSModules["employees"] = {
     body.innerHTML =
       "<h2>Platform users</h2>" +
       "<p class=\"gos-muted\">After signup approval, each person has a Green OS account. " +
+      "<strong>Change</strong> edits name, last name, phone, Gmail, birthday, and status. " +
       "Assign Brokers to any <strong>Team Lead</strong> (any employee can be promoted to that role). " +
       "Each Team Lead sees only their brokers. If you remove Team Lead role from someone who has brokers, " +
       "pick who takes the team — brokers and notifications move automatically. Users must sign in again after a role change.</p>" +
@@ -535,8 +536,10 @@ window.GreenOSModules["employees"] = {
               esc(u.role) +
               '">' +
               "<td>" +
-              esc(u.firstName + " " + u.lastName) +
+              esc((u.firstName || "") + " " + (u.lastName || "")) +
               (u.isActive ? "" : ' <span class="emp-badge-off">inactive</span>') +
+              (u.phone ? '<div class="gos-muted">' + esc(u.phone) + "</div>" : "") +
+              (u.birthDate ? '<div class="gos-muted">Birthday ' + esc(u.birthDate) + "</div>" : "") +
               "</td>" +
               "<td>" +
               esc(u.username) +
@@ -561,7 +564,7 @@ window.GreenOSModules["employees"] = {
               "</td>" +
               '<td class="emp-actions">' +
               '<button type="button" class="btn-primary emp-role-save" style="width:auto;padding:0.4rem 0.75rem">Save</button> ' +
-              '<button type="button" class="emp-user-remove" style="width:auto;padding:0.4rem 0.75rem">Remove</button> ' +
+              '<button type="button" class="btn-secondary emp-user-change" style="width:auto;padding:0.4rem 0.75rem">Change</button> ' +
               '<button type="button" class="emp-user-delete" style="width:auto;padding:0.4rem 0.75rem">Delete</button>' +
               "</td>" +
               "</tr>"
@@ -723,41 +726,151 @@ window.GreenOSModules["employees"] = {
           });
         });
 
-        tbody.querySelectorAll(".emp-user-remove").forEach(function (btn) {
-          btn.addEventListener("click", async function () {
-            var tr = btn.closest("tr");
-            if (!tr) return;
-            var userId = tr.getAttribute("data-user-id");
-            if (!userId) return;
-            var name = (tr.cells[0] && tr.cells[0].textContent) || "this user";
-            var ok = window.confirm(
-              "Remove " +
-                name.trim() +
-                " from the team?\n\nThe account stays. You can change the role or Team Lead and press Save."
-            );
-            if (!ok) return;
-            btn.disabled = true;
-            statusEl.textContent = "Removing…";
+        function statusOptionsHtml(selected) {
+          var preferred = ["Owner", "Manager", "Broker", "Accounting", "Team Lead"];
+          var ordered = roles.slice().sort(function (a, b) {
+            var ia = preferred.indexOf(a.roleName);
+            var ib = preferred.indexOf(b.roleName);
+            if (ia < 0) ia = 50;
+            if (ib < 0) ib = 50;
+            if (ia !== ib) return ia - ib;
+            return String(a.roleName).localeCompare(String(b.roleName));
+          });
+          return ordered
+            .map(function (r) {
+              return (
+                '<option value="' +
+                esc(r.roleName) +
+                '"' +
+                (r.roleName === selected ? " selected" : "") +
+                ">" +
+                esc(r.roleName) +
+                "</option>"
+              );
+            })
+            .join("");
+        }
+
+        function openChange(tr) {
+          var open = tbody.querySelector(".emp-change-row");
+          if (open && open.previousElementSibling === tr) {
+            open.remove();
+            return;
+          }
+          if (open) open.remove();
+          var userId = tr.getAttribute("data-user-id");
+          var person = null;
+          for (var i = 0; i < users.length; i++) {
+            if (users[i].userId === userId) person = users[i];
+          }
+          if (!person) return;
+          var row = document.createElement("tr");
+          row.className = "emp-change-row";
+          row.innerHTML =
+            '<td colspan="6">' +
+            '<form class="emp-change-form">' +
+            '<label>Name <input class="emp-ch-first" value="' +
+            esc(person.firstName || "") +
+            '" required></label>' +
+            '<label>Last name <input class="emp-ch-last" value="' +
+            esc(person.lastName || "") +
+            '" required></label>' +
+            '<label>Phone number <input class="emp-ch-phone" type="tel" value="' +
+            esc(person.phone || "") +
+            '"></label>' +
+            '<label>Gmail address <input class="emp-ch-gmail" type="email" value="' +
+            esc(person.email || "") +
+            '"></label>' +
+            '<label>Birthday <input class="emp-ch-bday" type="date" value="' +
+            esc(person.birthDate || "") +
+            '"></label>' +
+            '<label>Status <select class="emp-ch-status">' +
+            statusOptionsHtml(person.role) +
+            "</select></label>" +
+            '<label class="emp-ch-tl-wrap">Team Lead ' +
+            teamLeadOptionsHtml(teamLeads, person.teamLeadId || "", true, person.userId) +
+            "</label>" +
+            '<label class="emp-ch-transfer-wrap">Who takes the team ' +
+            transferOptionsHtml(teamLeads, person.userId) +
+            "</label>" +
+            '<label class="emp-ch-acc-wrap">Accounting <select class="emp-ch-acc">' +
+            '<option value="DOCUMENTS">Accounting Documents</option>' +
+            '<option value="PAYMENTS"' +
+            (person.accountingSubRole === "PAYMENTS" ? " selected" : "") +
+            ">Accounting Payments</option>" +
+            "</select></label>" +
+            '<div class="emp-change-actions">' +
+            '<button type="button" class="btn-primary emp-ch-save" style="width:auto">Save</button>' +
+            '<button type="button" class="btn-secondary emp-ch-cancel" style="width:auto">Cancel</button>' +
+            "</div></form></td>";
+          tr.insertAdjacentElement("afterend", row);
+          var statusSelect = row.querySelector(".emp-ch-status");
+          function syncChangeExtras() {
+            var role = statusSelect ? statusSelect.value : person.role;
+            var tlWrap = row.querySelector(".emp-ch-tl-wrap");
+            var transferWrap = row.querySelector(".emp-ch-transfer-wrap");
+            var accWrap = row.querySelector(".emp-ch-acc-wrap");
+            if (tlWrap) tlWrap.style.display = role === "Broker" ? "" : "none";
+            var showTransfer = person.role === "Team Lead" && role !== "Team Lead";
+            if (transferWrap) transferWrap.style.display = showTransfer ? "" : "none";
+            var transferSelect = row.querySelector(".emp-transfer-team-select");
+            if (transferSelect) transferSelect.style.display = showTransfer ? "block" : "none";
+            if (accWrap) accWrap.style.display = role === "Accounting" ? "" : "none";
+          }
+          statusSelect?.addEventListener("change", syncChangeExtras);
+          syncChangeExtras();
+          row.querySelector(".emp-ch-cancel")?.addEventListener("click", function () {
+            row.remove();
+          });
+          row.querySelector(".emp-ch-save")?.addEventListener("click", async function () {
+            var saveBtn = row.querySelector(".emp-ch-save");
+            var first = (row.querySelector(".emp-ch-first").value || "").trim();
+            var last = (row.querySelector(".emp-ch-last").value || "").trim();
+            if (!first || !last) {
+              statusEl.textContent = "Name and last name are required";
+              statusEl.style.color = "#ef4444";
+              return;
+            }
+            if (saveBtn) saveBtn.disabled = true;
+            statusEl.textContent = "Saving…";
             statusEl.style.color = "";
             try {
-              var data = await api("/users/" + encodeURIComponent(userId) + "/remove", {
-                method: "POST",
-                body: {},
+              var data = await api("/users/" + encodeURIComponent(userId) + "/profile", {
+                method: "PATCH",
+                body: {
+                  firstName: first,
+                  lastName: last,
+                  phone: row.querySelector(".emp-ch-phone").value || "",
+                  email: row.querySelector(".emp-ch-gmail").value || "",
+                  birthDate: row.querySelector(".emp-ch-bday").value || "",
+                  role: statusSelect ? statusSelect.value : person.role,
+                  teamLeadId: (row.querySelector(".emp-team-lead-select") || {}).value || null,
+                  transferTeamToUserId:
+                    (row.querySelector(".emp-transfer-team-select") || {}).value || null,
+                  accountingSubRole: (row.querySelector(".emp-ch-acc") || {}).value || "DOCUMENTS",
+                },
               });
               if (!data.success) {
-                statusEl.textContent = data.message || "Remove failed";
+                statusEl.textContent = data.message || "Save failed";
                 statusEl.style.color = "#ef4444";
-                btn.disabled = false;
+                if (saveBtn) saveBtn.disabled = false;
                 return;
               }
-              statusEl.textContent = data.message || "Removed";
+              statusEl.textContent = data.message || "Saved";
               statusEl.style.color = "#22c55e";
               await loadTable();
             } catch (e) {
               statusEl.textContent = e && e.message ? e.message : "Connection error";
               statusEl.style.color = "#ef4444";
-              btn.disabled = false;
+              if (saveBtn) saveBtn.disabled = false;
             }
+          });
+        }
+
+        tbody.querySelectorAll(".emp-user-change").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            var tr = btn.closest("tr");
+            if (tr) openChange(tr);
           });
         });
 

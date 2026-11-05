@@ -241,6 +241,99 @@
     playEnergizingBell();
   }
 
+  /** Birthday fanfare — major bells, not the shipment alarm. */
+  function playCongratsFanfare() {
+    try {
+      var ctx = unlockAudio();
+      if (!ctx) return;
+      var master = ctx.createGain();
+      master.gain.setValueAtTime(0.95, ctx.currentTime);
+      master.connect(ctx.destination);
+      var start = ctx.currentTime + 0.03;
+      var notes = [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5, 1318.5];
+      for (var i = 0; i < notes.length; i++) {
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        var when = start + i * 0.16;
+        osc.type = i % 2 === 0 ? "triangle" : "sine";
+        osc.frequency.setValueAtTime(notes[i], when);
+        gain.gain.setValueAtTime(0.0001, when);
+        gain.gain.exponentialRampToValueAtTime(0.62, when + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.42);
+        osc.connect(gain);
+        gain.connect(master);
+        osc.start(when);
+        osc.stop(when + 0.46);
+      }
+      var spark = ctx.createOscillator();
+      var sparkGain = ctx.createGain();
+      spark.type = "sine";
+      spark.frequency.setValueAtTime(1568, start + 1.2);
+      spark.frequency.exponentialRampToValueAtTime(2093, start + 1.75);
+      sparkGain.gain.setValueAtTime(0.0001, start + 1.2);
+      sparkGain.gain.exponentialRampToValueAtTime(0.32, start + 1.26);
+      sparkGain.gain.exponentialRampToValueAtTime(0.0001, start + 1.95);
+      spark.connect(sparkGain);
+      sparkGain.connect(master);
+      spark.start(start + 1.2);
+      spark.stop(start + 2);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function yerevanDayKey(date) {
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Yerevan",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(date);
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function showCongrats(data) {
+    data = data || {};
+    if (currentRole() !== "Owner" && currentRole() !== "Manager") return false;
+    var key = data.birthdayKey || data.personName || data.message || "birthday";
+    if (!claimToastOnce("congrats:" + key)) return false;
+    playCongratsFanfare();
+    unread += 1;
+    updateBadge();
+    var name = data.personName || "";
+    if (!name && data.message) {
+      name = String(data.message).replace(/^Happy Birthday,\s*/i, "").replace(/!$/, "");
+    }
+    var host = document.getElementById("gos-congrats");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "gos-congrats";
+      host.className = "gos-congrats";
+      host.innerHTML =
+        '<div class="gos-congrats-card" role="dialog" aria-label="Birthday">' +
+        '<div class="gos-congrats-kicker">CONGRATS</div>' +
+        "<h2>Happy Birthday</h2>" +
+        '<div class="gos-congrats-names"></div>' +
+        '<button type="button" class="btn-primary gos-congrats-close" style="width:auto;margin-top:1rem">Close</button>' +
+        "</div>";
+      document.body.appendChild(host);
+      host.querySelector(".gos-congrats-close").addEventListener("click", function () {
+        host.remove();
+      });
+    }
+    var names = host.querySelector(".gos-congrats-names");
+    if (names && !names.querySelector('[data-key="' + String(key).replace(/"/g, "") + '"]')) {
+      var line = document.createElement("p");
+      line.setAttribute("data-key", key);
+      line.textContent = name || "Employee";
+      names.appendChild(line);
+    }
+    return true;
+  }
+
   /** Open shipment card from toast / notification click. */
   function openShipmentById(shipmentLeadId) {
     if (!shipmentLeadId) return;
@@ -597,10 +690,51 @@
         .catch(function () {});
     }
 
+    if (!window.__gosBirthdayPoll) {
+      window.__gosBirthdayPoll = setInterval(pollBirthdays, 45000);
+      setTimeout(pollBirthdays, 1500);
+    }
+
+    function pollBirthdays() {
+      if (currentRole() !== "Owner" && currentRole() !== "Manager") return;
+      var tokenNow = localStorage.getItem("gl_token");
+      if (!tokenNow) return;
+      fetch("/api/crm/notifications", {
+        headers: { Authorization: "Bearer " + tokenNow },
+      })
+        .then(function (res) {
+          return res.ok ? res.json() : null;
+        })
+        .then(function (body) {
+          var items = body && body.data && body.data.items;
+          if (!items || !items.length) return;
+          var today = yerevanDayKey(new Date());
+          items.forEach(function (item) {
+            if (!item || item.type !== "BIRTHDAY" || item.status !== "UNREAD") return;
+            if (yerevanDayKey(new Date(item.createdAt)) !== today) return;
+            var meta = item.meta || {};
+            showCongrats({
+              birthdayKey: meta.birthdayKey,
+              personName: meta.personName,
+              message: item.message,
+            });
+          });
+        })
+        .catch(function () {});
+    }
+
     if (!es) return;
 
     es.addEventListener("connected", function () {
       console.log("[realtime] SSE connected");
+    });
+
+    es.addEventListener("BIRTHDAY", function (ev) {
+      try {
+        showCongrats(JSON.parse(ev.data));
+      } catch (e) {
+        console.warn("[realtime] bad BIRTHDAY", e);
+      }
     });
 
     es.addEventListener("SHIPMENT_ASSIGNED", function (ev) {

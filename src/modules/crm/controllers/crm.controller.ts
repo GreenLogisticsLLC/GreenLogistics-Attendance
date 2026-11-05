@@ -833,6 +833,16 @@ export async function crmTruckingController(req: AuthRequest, res: Response) {
     );
 }
 
+function safeMeta(raw: string | null | undefined): Record<string, unknown> | null {
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw) as unknown;
+        return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+    } catch {
+        return null;
+    }
+}
+
 export async function crmMyNotificationsController(req: AuthRequest, res: Response) {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
@@ -861,6 +871,7 @@ export async function crmMyNotificationsController(req: AuthRequest, res: Respon
                 shipmentLeadId: n.shipmentLeadId,
                 createdAt: n.createdAt,
                 readAt: n.readAt,
+                meta: safeMeta(n.metaJson),
             })),
         })
     );
