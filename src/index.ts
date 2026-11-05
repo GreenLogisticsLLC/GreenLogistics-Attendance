@@ -75,6 +75,7 @@ app.listen(config.port, config.host, async () => {
     }
     try {
         await assignmentEngine.spreadRioClarkWaitingShipments();
+        await assignmentEngine.restoreRichNightShipments();
     } catch (err) {
         console.warn("[assignment] Rio Clark waiting spread skipped:", err);
     }

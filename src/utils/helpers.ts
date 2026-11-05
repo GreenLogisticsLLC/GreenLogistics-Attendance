@@ -316,6 +316,26 @@ export function dayOffEmployeeIdsFromRows(
 }
 
 /**
+ * The handoff clock, not the email's own timestamp.
+ * A shipment given out at 05:00 Yerevan is a night shipment even when the
+ * uShip mail was received during the 17:00–01:00 office shift.
+ */
+export function assignmentWasAfterHours(
+    input: {
+        assignedAt?: Date | string | null;
+        receivedAt?: Date | string | null;
+        createdAt?: Date | string | null;
+    },
+    timezone: string
+): boolean {
+    const at = input.assignedAt || input.receivedAt || input.createdAt;
+    if (!at) return false;
+    const date = at instanceof Date ? at : new Date(at);
+    if (Number.isNaN(date.getTime())) return false;
+    return isAfterHoursAssignment(date, timezone);
+}
+
+/**
  * After 01:00 until the next 17:00 on the given clock.
  * New shipments then go to every Broker and Team Lead, not only people In Office.
  */

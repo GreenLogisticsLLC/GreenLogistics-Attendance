@@ -17,6 +17,7 @@ export function startAssignmentAcceptanceScheduler(intervalMs = 60_000) {
         running = true;
         try {
             await assignmentEngine.spreadRioClarkWaitingShipments();
+            await assignmentEngine.restoreRichNightShipments();
             await assignmentEngine.processDueAcceptances();
             await assignmentEngine.assignPendingNewLeads(5);
             await assignmentEngine.assignPendingOtherLeads(5);

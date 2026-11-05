@@ -12,7 +12,7 @@ import type { ShipmentLeadStatus } from "../email/models/types.js";
 import { getInOfficeEmployeeIds } from "../../services/attendance-presence.service.js";
 import { arrivedAfterShipmentCutoff, SHIPMENTS_FROM } from "../../services/shipment-cutoff.js";
 import { config } from "../../config/env.js";
-import { ASSIGNMENT_TIMEZONE, dayOffEmployeeIdsFromRows, isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE, chooseAssignmentPool } from "../../utils/helpers.js";
+import { ASSIGNMENT_TIMEZONE, assignmentWasAfterHours, dayOffEmployeeIdsFromRows, isAfterHoursAssignment, nightAcceptanceDeadline, NIGHT_HOLD_UNTIL_OFFICE, chooseAssignmentPool } from "../../utils/helpers.js";
 import { receivesNewShipments } from "./activity-window.js";
 import { queuePlaces, syncQueueOrder, takeNextInQueue } from "./round-robin.js";
 import { arrivalCountsFor, summarizeShipmentArrivals } from "./arrival-counts.js";
@@ -40,10 +40,12 @@ const WAITING_TO_ASSIGN = [
     "AGENT_OPEN",
 ] as const;
 
-function shipmentArrivedAtNight(lead: { receivedAt?: Date | null; createdAt?: Date | null }): boolean {
-    const at = lead.receivedAt || lead.createdAt;
-    if (!at) return false;
-    return isAfterHoursAssignment(at, ASSIGNMENT_TIMEZONE);
+function shipmentArrivedAtNight(lead: {
+    assignedAt?: Date | null;
+    receivedAt?: Date | null;
+    createdAt?: Date | null;
+}): boolean {
+    return assignmentWasAfterHours(lead, ASSIGNMENT_TIMEZONE);
 }
 
 function isHeldUntilOffice(deadline: Date | null | undefined): boolean {
@@ -205,15 +207,17 @@ export class AssignmentEngine {
             return lead;
         }
 
-        const arrivedAtNight = shipmentArrivedAtNight(lead);
+        const now = new Date();
+        // Night is when we hand the shipment out, not when uShip sent the mail.
+        const arrivedAtNight = isAfterHoursAssignment(now, ASSIGNMENT_TIMEZONE);
         let assigneeInOffice = false;
         if (arrivedAtNight && broker.employeeId) {
             const inOfficeIds = await getInOfficeEmployeeIds([broker.employeeId]);
             assigneeInOffice = inOfficeIds.has(broker.employeeId);
         }
         const acceptanceDeadline = nightAcceptanceDeadline({
-            arrivedAt: lead.receivedAt || lead.createdAt,
-            now: new Date(),
+            arrivedAt: now,
+            now,
             assigneeInOffice,
             timezone: ASSIGNMENT_TIMEZONE,
         });
@@ -1315,6 +1319,194 @@ export class AssignmentEngine {
     async listEligibleBrokers(options?: { forceAllLinked?: boolean }): Promise<EligibleBroker[]> {
         const { eligible } = await this.resolveEligibleBrokers(options);
         return eligible;
+    }
+
+    /**
+     * Night of 5 Nov 2026 (01:00–17:00 Yerevan). Shipments handed to Rich were
+     * treated as daytime because the email time fell in office hours, so the
+     * 15-minute timer passed them on. Put unaccepted ones back on his account.
+     */
+    async restoreRichNightShipments(): Promise<void> {
+        const mark = "2026-11-05-rich-night";
+        const existing = await prisma.setting.findUnique({
+            where: {
+                category_settingKey: { category: "ops", settingKey: "rich_night_restore" },
+            },
+        });
+        if (existing?.settingValue?.startsWith(mark)) return;
+
+        const users = await prisma.user.findMany({
+            where: { isActive: true },
+            select: {
+                userId: true,
+                firstName: true,
+                lastName: true,
+                employeeId: true,
+                role: { select: { roleName: true } },
+            },
+        });
+        const richUsers = users.filter((user) => {
+            const name = `${user.firstName} ${user.lastName}`.trim().toLowerCase();
+            return user.firstName.trim().toLowerCase() === "rich" || name.startsWith("rich ");
+        });
+        if (!richUsers.length) {
+            console.warn("[assignment] Rich not found — night restore will retry");
+            return;
+        }
+        const nightStart = new Date("2026-11-04T21:00:00.000Z");
+        const nightEnd = new Date("2026-11-05T13:00:00.000Z");
+        const richIds = richUsers.map((user) => user.userId);
+        const logs = await prisma.assignmentLog.findMany({
+            where: {
+                assignedUserId: { in: richIds },
+                eventType: { in: ["ASSIGNED", "REASSIGNED"] },
+                shipmentLeadId: { not: null },
+                createdAt: { gte: nightStart, lt: nightEnd },
+            },
+            orderBy: { createdAt: "asc" },
+            select: {
+                shipmentLeadId: true,
+                assignedUserId: true,
+                eventType: true,
+                createdAt: true,
+            },
+        });
+        const firstGive = new Map<
+            string,
+            { userId: string; eventType: string; createdAt: Date }
+        >();
+        for (const log of logs) {
+            if (!log.shipmentLeadId || !log.assignedUserId) continue;
+            if (firstGive.has(log.shipmentLeadId)) continue;
+            firstGive.set(log.shipmentLeadId, {
+                userId: log.assignedUserId,
+                eventType: log.eventType,
+                createdAt: log.createdAt,
+            });
+        }
+        const terminal = new Set([
+            "DELETED_FROM_CUSTOMER",
+            "LOST",
+            "ACCEPTED_ANOTHER_COMPANY",
+            "NO_LONGER_NEEDED",
+            "VOIDED",
+            "COMPLETED",
+            "CLOSED",
+            "ROUND_DECLINED",
+        ]);
+        const waiting = new Set([
+            "NEW",
+            "UNASSIGNED",
+            "ASSIGNED",
+            "AWAITING_ACCEPTANCE",
+            "AGENT_OPEN",
+        ]);
+        let restored = 0;
+        let already = 0;
+        let kept = 0;
+        let skipped = 0;
+        for (const [shipmentLeadId, give] of firstGive) {
+            const lead = await prisma.shipmentLead.findUnique({
+                where: { shipmentLeadId },
+                select: {
+                    shipmentLeadId: true,
+                    greenOsShipmentId: true,
+                    shipmentTitle: true,
+                    status: true,
+                    assignedBrokerId: true,
+                    acceptedAt: true,
+                },
+            });
+            if (!lead) {
+                skipped += 1;
+                continue;
+            }
+            const status = String(lead.status || "");
+            if (terminal.has(status)) {
+                skipped += 1;
+                continue;
+            }
+            const holder = lead.assignedBrokerId || "";
+            if (holder === give.userId && (lead.acceptedAt || !waiting.has(status))) {
+                already += 1;
+                continue;
+            }
+            const acceptedBySomeoneElse = Boolean(lead.acceptedAt) && holder !== give.userId;
+            if (acceptedBySomeoneElse || (!waiting.has(status) && holder !== give.userId)) {
+                kept += 1;
+                continue;
+            }
+            const wasAlreadyWaitingHere = holder === give.userId && waiting.has(status);
+            if (wasAlreadyWaitingHere) already += 1;
+            const rich = richUsers.find((user) => user.userId === give.userId);
+            let inOffice = false;
+            if (rich?.employeeId) {
+                const office = await getInOfficeEmployeeIds([rich.employeeId]);
+                inOffice = office.has(rich.employeeId);
+            }
+            const acceptanceDeadline = nightAcceptanceDeadline({
+                arrivedAt: give.createdAt,
+                now: new Date(),
+                assigneeInOffice: inOffice,
+                timezone: ASSIGNMENT_TIMEZONE,
+            });
+            const passed = give.eventType === "REASSIGNED";
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId },
+                data: {
+                    assignedBrokerId: give.userId,
+                    status: "AWAITING_ACCEPTANCE",
+                    assignedAt: give.createdAt,
+                    acceptanceDeadline,
+                    acceptedAt: null,
+                    isReassignment: passed,
+                    wasEverReassigned: passed,
+                },
+            });
+            if (holder !== give.userId || !waiting.has(status)) {
+                restored += 1;
+                const label = rich
+                    ? `${rich.firstName} ${rich.lastName}`.trim()
+                    : "Rich";
+                await this.pipelineLog(
+                    shipmentLeadId,
+                    `Returned to ${label} — night shipment from 5 Nov was passed on before he could accept`
+                );
+                await domainEventEngine.emit({
+                    shipmentLeadId,
+                    eventType: "BROKER_ASSIGNED",
+                    title: `Returned to ${label}`,
+                    message: `Night shipment put back on ${label}`,
+                    actorUserId: give.userId,
+                    timelineStage: "BROKER_ASSIGNED",
+                    payload: { brokerId: give.userId, reason: "RICH_NIGHT_RESTORE" },
+                });
+                sseEmitToUser(give.userId, {
+                    type: "SHIPMENT_ASSIGNED",
+                    shipmentLeadId,
+                    greenOsShipmentId: lead.greenOsShipmentId,
+                    shipmentTitle: lead.shipmentTitle,
+                    at: new Date().toISOString(),
+                });
+            }
+        }
+        const summary = `${mark} restored=${restored} already=${already} kept=${kept} skipped=${skipped} gives=${firstGive.size}`;
+        await prisma.setting.upsert({
+            where: {
+                category_settingKey: { category: "ops", settingKey: "rich_night_restore" },
+            },
+            create: {
+                category: "ops",
+                settingKey: "rich_night_restore",
+                settingValue: summary,
+                description: "Night shipments returned to Rich",
+            },
+            update: {
+                settingValue: summary,
+                description: "Night shipments returned to Rich",
+            },
+        });
+        console.log(`[assignment] ${summary}`);
     }
 
     /**

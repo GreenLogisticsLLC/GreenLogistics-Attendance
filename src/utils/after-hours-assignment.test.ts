@@ -3,6 +3,7 @@ import test from "node:test";
 import {
     ASSIGNMENT_TIMEZONE,
     chooseAssignmentPool,
+    assignmentWasAfterHours,
     isAfterHoursAssignment,
     nightAcceptanceDeadline,
     NIGHT_HOLD_UNTIL_OFFICE,
@@ -34,6 +35,19 @@ test("after 01:00 the whole roster is used, even if somebody is still in office"
 });
 
 const tz = "America/Los_Angeles";
+
+test("night handoff stays a night shipment when the email time is office hours", () => {
+    const emailAtOffice = zonedDateTime("2026-11-04", "18:00", "Asia/Yerevan");
+    const handedAtNight = zonedDateTime("2026-11-05", "05:10", "Asia/Yerevan");
+    assert.equal(
+        assignmentWasAfterHours(
+            { assignedAt: handedAtNight, receivedAt: emailAtOffice },
+            "Asia/Yerevan"
+        ),
+        true
+    );
+    assert.equal(isAfterHoursAssignment(emailAtOffice, "Asia/Yerevan"), false);
+});
 
 test("after 01:00 and before 17:00 is after-hours assignment", () => {
     assert.equal(isAfterHoursAssignment(zonedDateTime("2026-11-03", "00:59", tz), tz), false);

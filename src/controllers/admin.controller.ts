@@ -405,12 +405,24 @@ export async function healthController(_req: Request, res: Response) {
         const emailSchemaOk = await emailTablesExist();
         const webhookUrls = getWebhookUrls(config.port);
         const commit = getDeployedCommit();
+        let richNight: string | null = null;
+        try {
+            const row = await prisma.setting.findUnique({
+                where: {
+                    category_settingKey: { category: "ops", settingKey: "rich_night_restore" },
+                },
+            });
+            richNight = row?.settingValue || null;
+        } catch {
+            richNight = null;
+        }
         const openai = getOpenAiConfig();
         const key = openai.apiKey;
         return res.json({
             status: emailSchemaOk ? "OK" : "DEGRADED",
             version: "1.0.0",
             commit,
+            richNight,
             company: config.companyName,
             openai: {
                 model: openai.model,
