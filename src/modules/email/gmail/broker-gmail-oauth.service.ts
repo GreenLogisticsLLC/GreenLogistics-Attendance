@@ -365,7 +365,7 @@ export class BrokerGmailOAuthService {
         const oauth2 = createOAuthClient();
         return oauth2.generateAuthUrl({
             access_type: "offline",
-            prompt: "consent",
+            prompt: "consent select_account",
             scope: BROKER_GMAIL_SCOPES,
             include_granted_scopes: false,
             state: encodeBrokerOAuthState(userId, brokerId),

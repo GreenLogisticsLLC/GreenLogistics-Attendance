@@ -499,6 +499,21 @@ window.GreenOSModules['administration'] = {
             '">' +
             connectLabel +
             '</button>' +
+          '<button type="button" class="btn-secondary" style="width:auto" data-change-gmail="' +
+            esc(row.userId) +
+            '">Change Gmail</button>' +
+          '<span data-change-box="' +
+            esc(row.userId) +
+            '" style="display:none;gap:0.35rem;align-items:center;flex-wrap:wrap">' +
+          '<input type="email" data-change-input="' +
+            esc(row.userId) +
+            '" value="' +
+            esc(row.gmailAddress || row.email || '') +
+            '" placeholder="new@gmail.com" autocomplete="off" style="padding:0.45rem 0.55rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);min-width:16rem">' +
+          '<button type="button" class="btn-primary" style="width:auto" data-change-save="' +
+            esc(row.userId) +
+            '">Connect this Gmail</button>' +
+          '</span>' +
           (isConnected
             ? '<button type="button" class="btn-secondary" style="width:auto" data-disconnect-user="' +
               esc(row.userId) +
@@ -517,6 +532,33 @@ window.GreenOSModules['administration'] = {
           '</tr>'
         );
       }).join('') || '<tr><td colspan="5">No Broker accounts found</td></tr>';
+
+      tbody.querySelectorAll('[data-change-gmail]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          var id = button.getAttribute('data-change-gmail');
+          var box = tbody.querySelector('[data-change-box="' + id + '"]');
+          if (!box) return;
+          var open = box.style.display !== 'none';
+          box.style.display = open ? 'none' : 'inline-flex';
+          if (!open) {
+            var input = box.querySelector('input');
+            if (input) input.focus();
+          }
+        });
+      });
+      tbody.querySelectorAll('[data-change-save]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          var id = button.getAttribute('data-change-save');
+          var input = tbody.querySelector('[data-change-input="' + id + '"]');
+          var gmail = input ? String(input.value || '').trim() : '';
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gmail)) {
+            alert('Enter the new Gmail address, for example name@gmail.com');
+            if (input) input.focus();
+            return;
+          }
+          connectBroker(id, button, gmail);
+        });
+      });
 
       tbody.querySelectorAll('[data-connect-user]').forEach(function (button) {
         button.addEventListener('click', function () {
