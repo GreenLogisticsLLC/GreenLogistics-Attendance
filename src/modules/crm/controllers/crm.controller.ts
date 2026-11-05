@@ -28,7 +28,27 @@ fs.mkdirSync(path.join(os.tmpdir(), "greenos-uploads"), { recursive: true });
 
 export const crmUploadMiddleware: RequestHandler = uploadTmp.single("file");
 
+function opsViewBrokerId(req: AuthRequest): string | undefined {
+    const raw = typeof req.query.brokerId === "string" ? req.query.brokerId.trim() : "";
+    if (!raw) return undefined;
+    const role = req.user?.role || "";
+    if (role === "Owner" || role === "Manager" || role === "Administrator") return raw;
+    return undefined;
+}
+
 export async function crmDashboardController(req: AuthRequest, res: Response) {
+    const viewAs = opsViewBrokerId(req);
+    if (viewAs) {
+        const data = await crmService.getBrokerWorkspace(viewAs);
+        if (!data) return res.status(404).json(apiResponse(false, "Broker profile not found"));
+        return res.json(
+            apiResponse(true, "Broker personal dashboard", {
+                version: "1.0",
+                scope: "staff",
+                ...data,
+            })
+        );
+    }
     if (isDataScopedRole(req.user?.role || "")) {
         const data = await crmService.getBrokerWorkspace(req.user!.userId);
         if (!data) return res.status(404).json(apiResponse(false, "Broker profile not found"));
@@ -331,7 +351,7 @@ export async function crmMarkBidSubmittedController(req: AuthRequest, res: Respo
 
 /** Unique customers from broker's own shipments. */
 export async function crmMyCustomersController(req: AuthRequest, res: Response) {
-    const brokerId = scopedBrokerId(req);
+    const brokerId = scopedBrokerId(req, opsViewBrokerId(req));
     if (!brokerId && isDataScopedRole(req.user?.role || "")) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));
     }
@@ -400,7 +420,7 @@ export async function crmMyCarriersController(req: AuthRequest, res: Response) {
     if (isDataScopedRole(req.user?.role || "") && !scopedBrokerId(req)) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));
     }
-    const brokerId = scopedBrokerId(req);
+    const brokerId = scopedBrokerId(req, opsViewBrokerId(req));
     const teamLeadId = teamScopeUserId(req);
     let where: Record<string, unknown> = {
         carrierName: { not: null },
@@ -490,7 +510,7 @@ export async function crmOnRoadController(req: AuthRequest, res: Response) {
     if (isDataScopedRole(req.user?.role || "") && !scopedBrokerId(req)) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));
     }
-    const brokerId = scopedBrokerId(req);
+    const brokerId = scopedBrokerId(req, opsViewBrokerId(req));
     const teamLeadId = teamScopeUserId(req);
     // Keep aligned with Trucking board road statuses (incl. IN_TRANSIT / In Road).
     let where: Record<string, unknown> = {
@@ -570,7 +590,7 @@ export async function crmTruckingController(req: AuthRequest, res: Response) {
     if (isDataScopedRole(req.user?.role || "") && !scopedBrokerId(req)) {
         return res.status(401).json(apiResponse(false, "Unauthorized"));
     }
-    const brokerId = scopedBrokerId(req);
+    const brokerId = scopedBrokerId(req, opsViewBrokerId(req));
     const teamLeadId = teamScopeUserId(req);
 
     const leadScope: Record<string, unknown> = {};

@@ -30,9 +30,18 @@ window.GreenOSModules.broker = {
     }
   },
 
-  render(root, subPageId) {
+  render(root, subPageId, opsView) {
     if (!root) return;
     var self = this;
+    if (opsView && opsView.brokerId) {
+      this._opsView = {
+        brokerId: String(opsView.brokerId),
+        name: opsView.name || "Employee",
+        role: opsView.role || "",
+      };
+      this._scopeBrokerId = this._opsView.brokerId;
+      this._personalMine = false;
+    }
     this.stopShipmentsAutoRefresh();
     var children = this.children;
     var active =
@@ -40,7 +49,7 @@ window.GreenOSModules.broker = {
         return c.id === subPageId;
       }) || children[0];
 
-    if (window.GreenOS) {
+    if (!this._opsView && window.GreenOS) {
       window.GreenOS.currentModule = "broker";
       window.GreenOS.currentSub = active.id;
     }
@@ -59,8 +68,22 @@ window.GreenOSModules.broker = {
       })
       .join("");
 
+    var opsBar = "";
+    if (this._opsView) {
+      opsBar =
+        '<div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin:0 0 0.75rem">' +
+        '<button type="button" class="btn-secondary" id="ops-desk-back" style="width:auto">← All brokers</button>' +
+        "<strong>" +
+        this.esc(this._opsView.name) +
+        "</strong>" +
+        '<span class="gos-muted">' +
+        this.esc(this._opsView.role || "") +
+        " — same account they see. You can change everything, pass locked steps, and transfer shipments.</span>" +
+        "</div>";
+    }
     root.innerHTML =
-      '<div class="gos-module-placeholder broker-root">' +
+      '<div class="gos-module-placeholder broker-root" data-module="brokers">' +
+      opsBar +
       '<nav class="gos-subnav">' +
       nav +
       "</nav>" +
@@ -73,9 +96,22 @@ window.GreenOSModules.broker = {
         self.render(root, btn.getAttribute("data-subpage"));
       });
     });
+    root.querySelector("#ops-desk-back")?.addEventListener("click", function () {
+      self._opsView = null;
+      self._scopeBrokerId = "";
+      self._personalMine = false;
+      if (window.GreenOSModules.loads) window.GreenOSModules.loads._listBrokerId = "";
+      if (window.GreenOSModules.dispatch) window.GreenOSModules.dispatch._listBrokerId = "";
+      if (window.GreenOSModules.brokers) {
+        window.GreenOSModules.brokers.render(root);
+      }
+    });
 
     var body = root.querySelector("#broker-body");
-    if (active.id === "shipments") self.renderShipments(body, root, { brokerId: "", mine: false });
+    var scope = this._opsView
+      ? { brokerId: this._opsView.brokerId, mine: false }
+      : { brokerId: "", mine: false };
+    if (active.id === "shipments") self.renderShipments(body, root, scope);
     else if (active.id === "customer-respond") self.renderCustomerRespond(body, root);
     else if (active.id === "loads") self.renderLoads(body, root);
     else if (active.id === "customers") self.renderCustomers(body, root);
@@ -89,8 +125,15 @@ window.GreenOSModules.broker = {
   },
 
   renderLoads(body) {
-    if (window.GreenOSModules.loads && typeof window.GreenOSModules.loads.render === "function") {
-      window.GreenOSModules.loads.render(body, "active-loads");
+    var loads = window.GreenOSModules.loads;
+    var brokerId = this._opsView && this._opsView.brokerId;
+    if (loads && typeof loads.render === "function") {
+      loads._listBrokerId = brokerId || "";
+      loads._keepListBroker = Boolean(brokerId);
+      if (window.GreenOSModules.dispatch) {
+        window.GreenOSModules.dispatch._listBrokerId = brokerId || "";
+      }
+      loads.render(body, "active-loads");
       return;
     }
     body.innerHTML =
@@ -110,7 +153,11 @@ window.GreenOSModules.broker = {
 
   async api(path, options) {
     var token = localStorage.getItem("gl_token");
-    var res = await fetch("/api/crm" + path, {
+    var url = String(path || "");
+    if (this._opsView && this._opsView.brokerId && url.indexOf("brokerId=") < 0) {
+      url += (url.indexOf("?") >= 0 ? "&" : "?") + "brokerId=" + encodeURIComponent(this._opsView.brokerId);
+    }
+    var res = await fetch("/api/crm" + url, {
       ...options,
       headers: {
         "Content-Type": "application/json",
@@ -342,7 +389,10 @@ window.GreenOSModules.broker = {
       "</div></div>" +
       '<div class="table-wrap crm-ship-scroll"><table class="crm-table"><thead><tr>' +
       "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Bid</th><th>Updates</th><th>Bid Submitted</th><th>Received</th>" +
-      '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="10">Loading…</td></tr></tbody></table></div>' +
+      (self._opsView ? "<th>Give to</th>" : "") +
+      '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="' +
+      (self._opsView ? "11" : "10") +
+      '">Loading…</td></tr></tbody></table></div>' +
       '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0.75rem 0 0">' +
       '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +
       '<div style="display:flex;gap:0.5rem;align-items:center">' +
@@ -542,7 +592,7 @@ window.GreenOSModules.broker = {
       var tabLabel = tabLabelFor(tab);
       if (!visibleRows.length) {
         tbody.innerHTML =
-          '<tr><td colspan="10">' +
+          '<tr><td colspan="' + (self._opsView ? "11" : "10") + '">' +
           (query
             ? "No shipments found for ZIP " + esc(query)
             : "No " + tabLabel.toLowerCase() + " loads yet") +
@@ -636,10 +686,46 @@ window.GreenOSModules.broker = {
               : "") +
             "</td><td>" +
             esc(self.receivedAtLabel(s.assignedAt)) +
-            "</td></tr>"
+            "</td>" +
+            (self._opsView
+              ? '<td><select data-give="' +
+                esc(s.shipmentLeadId) +
+                '">' +
+                (self._opsGiveOptions || '<option value="">Choose…</option>') +
+                '</select> <button type="button" class="btn-secondary gos-transfer-btn" data-transfer="' +
+                esc(s.shipmentLeadId) +
+                '">Transfer</button></td>'
+              : "") +
+            "</tr>"
           );
         })
         .join("");
+      tbody.querySelectorAll(".gos-transfer-btn").forEach(function (btn) {
+        btn.addEventListener("click", async function (ev) {
+          ev.stopPropagation();
+          var id = btn.getAttribute("data-transfer");
+          var sel = tbody.querySelector('[data-give="' + id + '"]');
+          var toUserId = sel ? sel.value : "";
+          if (!toUserId) {
+            alert("Choose who should receive this shipment");
+            return;
+          }
+          btn.disabled = true;
+          try {
+            var json = await self.api("/shipments/" + encodeURIComponent(id) + "/reassign", {
+              method: "POST",
+              body: JSON.stringify({ toUserId: toUserId }),
+            });
+            if (!json || json.success === false) {
+              throw new Error((json && json.message) || "Could not transfer");
+            }
+            paint(true);
+          } catch (err) {
+            alert(err.message || err);
+            btn.disabled = false;
+          }
+        });
+      });
       tbody.querySelectorAll(".gos-decline-btn").forEach(function (btn) {
         btn.addEventListener("click", async function (ev) {
           ev.stopPropagation();
@@ -711,6 +797,31 @@ window.GreenOSModules.broker = {
     globalSearch?.addEventListener("input", applyGlobalSearch);
 
     async function paint(force) {
+      if (self._opsView && !self._opsGiveOptions) {
+        try {
+          var staff = await self.api("/brokers");
+          var people = staff && staff.success ? staff.data || [] : [];
+          self._opsGiveOptions =
+            '<option value="">Choose…</option>' +
+            people
+              .filter(function (person) {
+                return person.brokerId && person.brokerId !== self._opsView.brokerId;
+              })
+              .map(function (person) {
+                return (
+                  '<option value="' +
+                  self.esc(person.brokerId) +
+                  '">' +
+                  self.esc(person.name) +
+                  (person.role ? " · " + self.esc(person.role) : "") +
+                  "</option>"
+                );
+              })
+              .join("");
+        } catch (e) {
+          self._opsGiveOptions = '<option value="">Choose…</option>';
+        }
+      }
       var tbody = document.getElementById("broker-ship-body");
       var syncEls = body.querySelectorAll(".broker-ship-sync");
       var prevBtns = body.querySelectorAll(".broker-ship-prev");

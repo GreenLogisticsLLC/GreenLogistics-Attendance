@@ -1560,7 +1560,11 @@ window.GreenOSModules["dispatch"] = {
     self._listPhase = phase || "active";
     body.innerHTML = "<p class=\"gos-muted\">Loading loads…</p>";
     try {
-      var rows = await self.api("/?phase=" + encodeURIComponent(phase));
+      var listUrl = "/?phase=" + encodeURIComponent(phase);
+      if (self._listBrokerId) {
+        listUrl += "&brokerId=" + encodeURIComponent(self._listBrokerId);
+      }
+      var rows = await self.api(listUrl);
       var title = phase === "completed" ? "Completed Loads" : "Active Loads";
       if (!rows || !rows.length) {
         body.innerHTML =

@@ -37,6 +37,11 @@ window.GreenOSModules = window.GreenOSModules || {};
     render: function (root, subPageId) {
       if (!root) return;
       var self = this;
+      if (!self._keepListBroker) self._listBrokerId = "";
+      self._keepListBroker = false;
+      if (window.GreenOSModules.dispatch) {
+        window.GreenOSModules.dispatch._listBrokerId = self._listBrokerId || "";
+      }
       var children = this.children || [];
       var active =
         children.find(function (c) {

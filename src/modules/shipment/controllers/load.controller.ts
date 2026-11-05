@@ -81,9 +81,18 @@ export const loadController = {
                 | "voided"
                 | "all";
             const role = req.user?.role || "";
+            const requestedBroker =
+                typeof req.query.brokerId === "string" ? req.query.brokerId.trim() : "";
+            const ops =
+                role === "Owner" || role === "Manager" || role === "Administrator";
             const data = await loadService.listLoads({
                 phase,
-                brokerId: role === "Broker" ? req.user?.userId : undefined,
+                brokerId:
+                    role === "Broker"
+                        ? req.user?.userId
+                        : ops && requestedBroker
+                          ? requestedBroker
+                          : undefined,
             });
             const safe = canViewLoadProfit(role)
                 ? data

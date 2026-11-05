@@ -50,6 +50,7 @@ window.GreenOSModules.brokers = {
       return;
     }
     var rows = data.data || [];
+    this._rows = rows;
     var esc = this.esc.bind(this);
     body.innerHTML =
       '<section class="gos-dash-hero"><h1>Brokers</h1>' +
@@ -85,118 +86,22 @@ window.GreenOSModules.brokers = {
   },
 
   async openPerson(root, brokerId) {
-    var self = this;
-    var body = root.querySelector("#brokers-body");
-    if (!body || !brokerId) return;
-    self._openId = brokerId;
-    body.innerHTML = "<p class=\"gos-muted\">Loading account…</p>";
-    var [personRes, staffRes] = await Promise.all([
-      this.api("/brokers/" + encodeURIComponent(brokerId)),
-      this.api("/brokers"),
-    ]);
-    if (!personRes.success) {
-      body.innerHTML = "<p>" + this.esc(personRes.message || "Failed") + "</p>";
+    var rows = this._rows || [];
+    var person = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].brokerId === brokerId) person = rows[i];
+    }
+    var desk = window.GreenOSModules.broker;
+    if (!desk || typeof desk.render !== "function") {
+      var body = root.querySelector("#brokers-body");
+      if (body) body.innerHTML = "<p>Employee desk failed to load. Refresh the page.</p>";
       return;
     }
-    var d = personRes.data || {};
-    var broker = d.broker || {};
-    var shipments = d.shipments || [];
-    var staff = (staffRes && staffRes.success && staffRes.data) || [];
-    var esc = this.esc.bind(this);
-    var options = staff
-      .filter(function (s) {
-        return s.brokerId && s.brokerId !== brokerId;
-      })
-      .map(function (s) {
-        return (
-          '<option value="' +
-          esc(s.brokerId) +
-          '">' +
-          esc(s.name) +
-          (s.role ? " · " + esc(s.role) : "") +
-          "</option>"
-        );
-      })
-      .join("");
-    body.innerHTML =
-      '<section class="gos-dash-hero">' +
-      '<button type="button" class="btn-secondary" id="brokers-back" style="width:auto">← All brokers</button>' +
-      "<h1>" +
-      esc(broker.name || "Account") +
-      "</h1>" +
-      "<p>" +
-      esc(broker.role || "") +
-      (broker.teamLeadName ? " · Team lead " + esc(broker.teamLeadName) : "") +
-      " — " +
-      shipments.length +
-      " shipment(s). You can edit loads and move them to the next step without broker locks.</p></section>" +
-      (shipments.length
-        ? '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-          "<th>Shipment</th><th>Lane</th><th>Status</th><th>Give to</th><th></th></tr></thead><tbody>" +
-          shipments
-            .map(function (sh) {
-              return (
-                "<tr><td><strong>" +
-                esc(sh.shipmentTitle || sh.greenOsShipmentId || "Shipment") +
-                "</strong>" +
-                (sh.loadNumber
-                  ? '<div class="gos-muted">' + esc(sh.loadNumber) + "</div>"
-                  : "") +
-                "</td><td>" +
-                esc(sh.pickup || "—") +
-                " → " +
-                esc(sh.delivery || "—") +
-                "</td><td>" +
-                esc(sh.statusLabel || sh.status || "—") +
-                '</td><td><select data-give="' +
-                esc(sh.shipmentLeadId) +
-                '"><option value="">Choose…</option>' +
-                options +
-                "</select></td><td>" +
-                '<button type="button" class="btn-secondary" style="width:auto" data-transfer="' +
-                esc(sh.shipmentLeadId) +
-                '">Transfer</button> ' +
-                '<button type="button" class="btn-primary" style="width:auto" data-load="' +
-                esc(sh.shipmentLeadId) +
-                '">Open load</button></td></tr>'
-              );
-            })
-            .join("") +
-          "</tbody></table></div>"
-        : '<p class="gos-muted">No shipments on this account.</p>');
-    body.querySelector("#brokers-back")?.addEventListener("click", function () {
-      self.renderList(body, root);
-    });
-    body.querySelectorAll("[data-transfer]").forEach(function (btn) {
-      btn.addEventListener("click", async function () {
-        var id = btn.getAttribute("data-transfer");
-        var sel = body.querySelector('[data-give="' + id + '"]');
-        var toUserId = sel ? sel.value : "";
-        if (!toUserId) {
-          alert("Choose who should receive this shipment");
-          return;
-        }
-        btn.disabled = true;
-        var result = await self.api("/shipments/" + encodeURIComponent(id) + "/reassign", {
-          method: "POST",
-          body: { toUserId: toUserId },
-        });
-        btn.disabled = false;
-        if (!result.success) {
-          alert(result.message || "Could not transfer");
-          return;
-        }
-        self.openPerson(root, brokerId);
-      });
-    });
-    body.querySelectorAll("[data-load]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var id = btn.getAttribute("data-load");
-        var nav = window.GreenOSShell || window.GreenOS;
-        if (nav && typeof nav.navigate === "function") {
-          nav.navigate("loads", "active-loads", { detail: { type: "load", id: id } });
-        }
-      });
+    desk._opsGiveOptions = "";
+    desk.render(root, "shipments", {
+      brokerId: brokerId,
+      name: person ? person.name : "Employee",
+      role: person ? person.role : "",
     });
   },
 };
