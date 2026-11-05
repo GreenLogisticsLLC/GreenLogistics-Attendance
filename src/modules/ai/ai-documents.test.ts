@@ -216,30 +216,39 @@ test("POD golden D: uncertain → REVIEW_REQUIRED", () => {
     assert.notEqual(v.overallStatus, "VALID");
 });
 
-test("MC Authority approves when only the MC and DOT digits match GreenOS", () => {
+test("MC Authority approves when the certificate MC, DOT, and name match GreenOS", () => {
     const text = `
-OPERATING AUTHORITY
-MC (1237784)
-DOT (475689)
-Legal name does not matter for this check.
+CERTIFICATE
+MC-3154-C
+U.S. DOT No. 2958246
+GREEN LIGHT CARRIER INC
+NAPERVILLE, IL
 `;
     const fields = extractFieldsForType("MC_AUTHORITY", text);
     const by = Object.fromEntries(fields.map((f) => [f.fieldKey, f.valueNormalized]));
-    assert.equal(by.mcNumber, "1237784");
-    assert.equal(by.dotNumber, "475689");
+    assert.equal(by.mcNumber, "3154");
+    assert.equal(by.dotNumber, "2958246");
+    assert.equal(by.legalName, "GREEN LIGHT CARRIER INC");
     const ok = validateDocument({
         documentType: "MC_AUTHORITY",
         classifyConfidence: 0.9,
         fields,
-        greenOs: { mcNumber: "MC-001237784", dotNumber: "DOT 475689", legalName: "SOME OTHER NAME LLC" },
+        greenOs: { mcNumber: "MC-003154", dotNumber: "DOT 2958246", legalName: "Green Light Carrier Inc" },
     });
     assert.equal(ok.overallStatus, "VALID");
     assert.equal(ok.trafficLight, "GREEN");
+    const wrongName = validateDocument({
+        documentType: "MC_AUTHORITY",
+        classifyConfidence: 0.9,
+        fields,
+        greenOs: { mcNumber: "3154", dotNumber: "2958246", legalName: "SOME OTHER NAME LLC" },
+    });
+    assert.equal(wrongName.trafficLight, "RED");
     const bad = validateDocument({
         documentType: "MC_AUTHORITY",
         classifyConfidence: 0.9,
         fields,
-        greenOs: { mcNumber: "1237784", dotNumber: "1111111" },
+        greenOs: { mcNumber: "3154", dotNumber: "1111111", legalName: "Green Light Carrier Inc" },
     });
     assert.equal(bad.trafficLight, "RED");
 });

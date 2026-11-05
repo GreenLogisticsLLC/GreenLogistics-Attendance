@@ -7,6 +7,7 @@ import { LOAD_DOCS_ROOT } from "../../shipment/services/load-pdf.service.js";
 import { classifyDocumentText, type DocAiType } from "./classify.js";
 import { extractFieldsForType, type ExtractedField } from "./extract.js";
 import type { W9Marks } from "./w9-marks.js";
+import type { McCertificate } from "./mc-certificate.js";
 import { extractDocumentText } from "./text-extract.js";
 import { analyzeSignaturesFromText, analyzeSignatureWithVision, type SignatureResult } from "./signature.js";
 import { validateDocument } from "./validate.js";
@@ -19,6 +20,29 @@ export type ProcessJobResult = {
     trafficLight?: string;
     classifiedDocType?: string;
 };
+
+function mergeMcCertificate(fields: ExtractedField[], cert: McCertificate): ExtractedField[] {
+    const set = (key: string, value: string | null) => {
+        if (!value) return;
+        const next: ExtractedField = {
+            fieldKey: key,
+            valueText: value,
+            valueNormalized: value,
+            confidence: 0.97,
+            page: 1,
+            source: "mc-certificate",
+            method: "layout",
+            fieldStatus: "FIELD_FOUND",
+        };
+        const idx = fields.findIndex((field) => field.fieldKey === key);
+        if (idx >= 0) fields[idx] = next;
+        else fields.push(next);
+    };
+    set("mcNumber", cert.mc);
+    set("dotNumber", cert.dot);
+    set("legalName", cert.name);
+    return fields;
+}
 
 function mergeW9Marks(fields: ExtractedField[], marks: W9Marks): ExtractedField[] {
     const set = (key: string, value: string | null, extra: Partial<ExtractedField> = {}) => {
@@ -254,6 +278,15 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
                 : (classified.documentType as DocAiType);
 
         let fields = extractFieldsForType(documentType, textResult.text);
+        if (documentType === "MC_AUTHORITY" && file.absPath) {
+            try {
+                const { readMcCertificate } = await import("./mc-certificate.js");
+                const cert = await readMcCertificate(file.absPath);
+                fields = mergeMcCertificate(fields, cert);
+            } catch (err) {
+                console.warn("[doc-ai] MC certificate read failed:", err instanceof Error ? err.message : err);
+            }
+        }
         if (documentType === "W9" && file.absPath) {
             try {
                 const { readW9CircledMarks } = await import("./w9-marks.js");

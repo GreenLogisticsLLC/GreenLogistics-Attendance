@@ -8,6 +8,7 @@ import {
     redactTin,
     tinFingerprint,
 } from "./normalize.js";
+import { mcCertificateFromText } from "./mc-certificate.js";
 
 export type ExtractedField = {
     fieldKey: string;
@@ -305,25 +306,14 @@ function extractCoi(t: string): ExtractedField[] {
 }
 
 function extractMcAuthority(t: string): ExtractedField[] {
-    const mc = normalizeMc(
-        pick(t, /\bMC\s*(?:No\.?|Number|#)?\s*[:#-]?\s*\(?\s*([0-9]{4,})/i)
-    );
-    const dot = normalizeDot(
-        pick(
-            t,
-            /\b(?:USDOT|U\.?\s*S\.?\s*DOT|DOT)\s*(?:No\.?|Number|#)?\s*[:#-]?\s*\(?\s*([0-9]{4,})/i
-        )
-    );
-    const cert = pick(t, /\b(MC-\d{4,}-[A-Z])\b/i);
+    const cert = mcCertificateFromText(t);
+    const mc = normalizeMc(cert.mc);
+    const dot = normalizeDot(cert.dot);
     return [
-        field(
-            "legalName",
-            pick(t, /(I\s+GET\s+AROUND\s+TRANSPORTATION\s+LLC)/i) ||
-                pick(t, /\n([A-Z][A-Z0-9 &\-]{5,80}LLC)\s*$/m)
-        ),
-        field("mcNumber", mc, { normalized: mc, confidence: 0.99 }),
-        field("dotNumber", dot, { normalized: dot, confidence: 0.99 }),
-        field("certificateNumber", cert, { confidence: 0.98 }),
+        field("legalName", cert.name, { confidence: cert.name ? 0.95 : 0 }),
+        field("mcNumber", mc, { normalized: mc, confidence: mc ? 0.99 : 0 }),
+        field("dotNumber", dot, { normalized: dot, confidence: dot ? 0.99 : 0 }),
+        field("certificateNumber", pick(t, /\b(MC-\d{4,}-[A-Z])\b/i), { confidence: 0.98 }),
         field("serviceDate", pick(t, /\b(April\s+\d{1,2},\s+20\d{2})\b/i) || pick(t, /\b(\d{2}\/\d{2}\/\d{4})\b/)),
         field(
             "authorityType",

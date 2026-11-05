@@ -775,8 +775,9 @@ function authorityDigits(raw: string | null | undefined): string | null {
 }
 
 /**
- * MC Authority bot check: compare only the MC digits and the DOT digits
- * with the numbers the broker entered in GreenOS.
+ * MC Authority bot check — only the circled certificate box:
+ * MC number, U.S. DOT number, and the carrier name.
+ * All three must match what the employee entered in GreenOS.
  */
 function validateMcAuthorityOnly(input: {
     map: Record<string, string | null>;
@@ -784,6 +785,8 @@ function validateMcAuthorityOnly(input: {
     signatures: SignatureResult[];
     classifyConfidence: number;
     greenOs?: {
+        legalName?: string | null;
+        carrierName?: string | null;
         mcNumber?: string | null;
         dotNumber?: string | null;
         carrierMc?: string | null;
@@ -801,11 +804,15 @@ function validateMcAuthorityOnly(input: {
     const docDot = authorityDigits(map.dotNumber);
     const gosMc = authorityDigits(gos.carrierMc || gos.mcNumber);
     const gosDot = authorityDigits(gos.carrierDot || gos.dotNumber);
+    const docName = map.legalName;
+    const gosName = gos.legalName || gos.carrierName;
 
     const mcMatch = Boolean(docMc && gosMc && docMc === gosMc);
     const dotMatch = Boolean(docDot && gosDot && docDot === gosDot);
     const mcDiff = Boolean(docMc && gosMc && docMc !== gosMc);
     const dotDiff = Boolean(docDot && gosDot && docDot !== gosDot);
+    const nameMatch = Boolean(docName && gosName && namesSoftEqual(docName, gosName));
+    const nameDiff = Boolean(docName && gosName && !namesSoftEqual(docName, gosName));
 
     matches.push({
         id: "MATCH-MC",
@@ -823,25 +830,33 @@ function validateMcAuthorityOnly(input: {
         documentValue: docDot,
         greenOsValue: gosDot,
     });
+    matches.push({
+        id: "MATCH-NAME",
+        ok: nameMatch,
+        status: nameMatch ? "PASS" : nameDiff ? "MISMATCH" : "MISSING",
+        message: nameMatch ? "Carrier name matches" : nameDiff ? "Carrier name does not match" : "Carrier name missing",
+        documentValue: docName,
+        greenOsValue: gosName,
+    });
 
     levels.completeness = {
-        ok: Boolean(docMc && docDot),
-        detail: !docMc ? "missing:MC" : !docDot ? "missing:DOT" : "mc and dot digits",
+        ok: Boolean(docMc && docDot && docName),
+        detail: [!docMc ? "MC" : "", !docDot ? "DOT" : "", !docName ? "name" : ""].filter(Boolean).join(",") || "certificate box",
     };
     levels.greenOsMatch = {
-        ok: mcMatch && dotMatch,
-        detail: mcMatch && dotMatch ? "digits match" : "digits differ",
+        ok: mcMatch && dotMatch && nameMatch,
+        detail: mcMatch && dotMatch && nameMatch ? "mc, dot, and name match" : "does not match",
     };
     levels.signature = { ok: true, detail: "n/a" };
-    levels.businessRules = { ok: true, detail: "digits only" };
+    levels.businessRules = { ok: true, detail: "certificate box only" };
     levels.expiration = { ok: true, detail: "n/a" };
 
-    if (mcMatch && dotMatch) {
+    if (mcMatch && dotMatch && nameMatch) {
         checks.push({
-            id: "MC-DOT-DIGITS",
+            id: "MC-DOT-NAME",
             ok: true,
             status: "PASS",
-            message: "MC and DOT digits match GreenOS",
+            message: "MC, DOT, and carrier name match GreenOS",
         });
         return finish("VALID", "GREEN", false, input.classifyConfidence, {
             documentType: "MC_AUTHORITY",
@@ -855,8 +870,8 @@ function validateMcAuthorityOnly(input: {
         });
     }
 
-    if (mcDiff || dotDiff) {
-        errors.push("MC_DOT_MISMATCH");
+    if (mcDiff || dotDiff || nameDiff) {
+        errors.push("MC_DOT_NAME_MISMATCH");
         return finish("MISMATCH", "RED", true, input.classifyConfidence, {
             documentType: "MC_AUTHORITY",
             levels,
@@ -869,7 +884,7 @@ function validateMcAuthorityOnly(input: {
         });
     }
 
-    errors.push("MISSING_REQUIRED_FIELD:MC,DOT");
+    errors.push("MISSING_REQUIRED_FIELD:MC,DOT,NAME");
     return finish("MISSING_REQUIRED_FIELD", "RED", true, input.classifyConfidence, {
         documentType: "MC_AUTHORITY",
         levels,
