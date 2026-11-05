@@ -1327,7 +1327,7 @@ export class AssignmentEngine {
      * 15-minute timer passed them on. Put unaccepted ones back on his account.
      */
     async restoreRichNightShipments(): Promise<void> {
-        const mark = "2026-11-05-rich-night";
+        const mark = "2026-11-05-rich-night-2";
         const existing = await prisma.setting.findUnique({
             where: {
                 category_settingKey: { category: "ops", settingKey: "rich_night_restore" },
@@ -1392,7 +1392,6 @@ export class AssignmentEngine {
             "VOIDED",
             "COMPLETED",
             "CLOSED",
-            "ROUND_DECLINED",
         ]);
         const waiting = new Set([
             "NEW",
@@ -1427,12 +1426,13 @@ export class AssignmentEngine {
                 continue;
             }
             const holder = lead.assignedBrokerId || "";
-            if (holder === give.userId && (lead.acceptedAt || !waiting.has(status))) {
+            const returnable = waiting.has(status) || status === "ROUND_DECLINED";
+            if (holder === give.userId && (lead.acceptedAt || !returnable)) {
                 already += 1;
                 continue;
             }
             const acceptedBySomeoneElse = Boolean(lead.acceptedAt) && holder !== give.userId;
-            if (acceptedBySomeoneElse || (!waiting.has(status) && holder !== give.userId)) {
+            if (acceptedBySomeoneElse || (!returnable && holder !== give.userId)) {
                 kept += 1;
                 continue;
             }
