@@ -79,6 +79,9 @@ jobs:
           rm -rf node_modules.trash.* 2>/dev/null || true
           wipe_node_modules || true
           rm -f .npm-lock 2>/dev/null || true
+          if ! command -v tesseract >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq tesseract-ocr || echo "WARN: tesseract not installed"
+          fi
           install_deps() {
             if ! npm ci --prefer-offline; then
               echo "WARN: npm ci failed — retrying with npm install"

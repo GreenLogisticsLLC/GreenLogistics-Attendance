@@ -1,6 +1,24 @@
 import fs from "fs";
+import path from "path";
+import { createRequire } from "module";
 import { PNG } from "pngjs";
 import { PDFDocument } from "pdf-lib";
+
+const require = createRequire(import.meta.url);
+
+function pdfjsDir(pkgFile: string): string {
+    const dir = path.dirname(require.resolve(pkgFile));
+    return dir.endsWith(path.sep) ? dir : dir + path.sep;
+}
+
+export function pdfjsOpenOptions(data: Uint8Array) {
+    return {
+        data,
+        disableWorker: true,
+        wasmUrl: pdfjsDir("pdfjs-dist/wasm/jbig2.wasm"),
+        standardFontDataUrl: pdfjsDir("pdfjs-dist/standard_fonts/FoxitFixed.pfb"),
+    };
+}
 
 /**
  * Enrich PDF text for Document AI:
@@ -88,7 +106,10 @@ export async function ocrPdfFirstPageImage(filePath: string): Promise<string> {
 export async function renderPdfFirstEmbeddedImagePng(filePath: string): Promise<Buffer | null> {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const data = new Uint8Array(fs.readFileSync(filePath));
-    const doc = await pdfjs.getDocument({ data, useSystemFonts: true }).promise;
+    const doc = await pdfjs.getDocument({
+        ...pdfjsOpenOptions(data),
+        useSystemFonts: true,
+    }).promise;
     const page = await doc.getPage(1);
     const ops = await page.getOperatorList();
     const OPS = pdfjs.OPS;
@@ -108,11 +129,19 @@ export async function renderPdfFirstEmbeddedImagePng(filePath: string): Promise<
     const img = await new Promise<{
         width: number;
         height: number;
+        kind?: number;
         data: Uint8ClampedArray | Uint8Array;
     } | null>((resolve) => {
         try {
             page.objs.get(imageName!, (v: unknown) => {
-                resolve((v as { width: number; height: number; data: Uint8ClampedArray }) || null);
+                resolve(
+                    (v as {
+                        width: number;
+                        height: number;
+                        kind?: number;
+                        data: Uint8ClampedArray;
+                    }) || null
+                );
             });
         } catch {
             resolve(null);
@@ -120,27 +149,81 @@ export async function renderPdfFirstEmbeddedImagePng(filePath: string): Promise<
     });
     if (!img?.data || !img.width || !img.height) return null;
 
-    // Downscale large scans for faster OCR (keep legibility for titles / EIN / MC).
-    const maxW = 1200;
+    const rgba = imageToRgba(img.data, img.width, img.height, Number(img.kind) || 0);
+    if (!rgba) return null;
+
+    // Downscale large scans for faster OCR (keep legibility for name / EIN / signature).
+    const maxW = 1600;
     const scale = img.width > maxW ? maxW / img.width : 1;
     const tw = Math.max(1, Math.round(img.width * scale));
     const th = Math.max(1, Math.round(img.height * scale));
     const png = new PNG({ width: tw, height: th });
-    const src = img.data;
-    const channels = Math.round(src.length / (img.width * img.height)) || 3;
 
     for (let y = 0; y < th; y++) {
         const sy = Math.min(img.height - 1, Math.floor(y / scale));
         for (let x = 0; x < tw; x++) {
             const sx = Math.min(img.width - 1, Math.floor(x / scale));
-            const si = (sy * img.width + sx) * channels;
+            const si = (sy * img.width + sx) << 2;
             const di = (y * tw + x) << 2;
-            png.data[di] = src[si] ?? 0;
-            png.data[di + 1] = src[si + Math.min(1, channels - 1)] ?? 0;
-            png.data[di + 2] = src[si + Math.min(2, channels - 1)] ?? 0;
+            png.data[di] = rgba[si] ?? 0;
+            png.data[di + 1] = rgba[si + 1] ?? 0;
+            png.data[di + 2] = rgba[si + 2] ?? 0;
             png.data[di + 3] = 255;
         }
     }
 
     return PNG.sync.write(png);
+}
+
+/** pdf.js image kind 1 is packed 1-bit. Other kinds are treated as RGB or gray bytes. */
+function imageToRgba(
+    src: Uint8Array | Uint8ClampedArray,
+    width: number,
+    height: number,
+    kind: number
+): Uint8Array | null {
+    const pixels = width * height;
+    if (!pixels) return null;
+    const out = new Uint8Array(pixels * 4);
+    if (kind === 1 || src.length * 8 < pixels * 2) {
+        let srcPos = 0;
+        const rowBytes = Math.ceil(width / 8);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const byte = src[srcPos + (x >> 3)] ?? 0;
+                const on = (byte >> (7 - (x & 7))) & 1;
+                const di = (y * width + x) << 2;
+                const v = on ? 255 : 0;
+                out[di] = out[di + 1] = out[di + 2] = v;
+                out[di + 3] = 255;
+            }
+            srcPos += rowBytes;
+        }
+        let sum = 0;
+        const step = Math.max(1, Math.floor(pixels / 4000));
+        let samples = 0;
+        for (let i = 0; i < pixels; i += step) {
+            sum += out[i << 2] ?? 0;
+            samples++;
+        }
+        if (samples && sum / samples < 80) {
+            for (let i = 0; i < pixels; i++) {
+                const di = i << 2;
+                out[di] = 255 - (out[di] ?? 0);
+                out[di + 1] = 255 - (out[di + 1] ?? 0);
+                out[di + 2] = 255 - (out[di + 2] ?? 0);
+            }
+        }
+        return out;
+    }
+    const channels = Math.max(1, Math.round(src.length / pixels));
+    for (let i = 0; i < pixels; i++) {
+        const si = i * channels;
+        const di = i << 2;
+        out[di] = src[si] ?? 0;
+        out[di + 1] = src[si + Math.min(1, channels - 1)] ?? 0;
+        out[di + 2] = src[si + Math.min(2, channels - 1)] ?? 0;
+        out[di + 3] = 255;
+    }
+    return out;
 }

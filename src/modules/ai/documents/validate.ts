@@ -117,6 +117,18 @@ export function validateDocument(input: {
         });
     }
 
+    // MC Authority: only the digits after MC and the digits after DOT.
+    // They must match the MC and DOT the broker entered in GreenOS.
+    if (input.documentType === "MC_AUTHORITY") {
+        return validateMcAuthorityOnly({
+            map,
+            levels,
+            signatures,
+            classifyConfidence: input.classifyConfidence,
+            greenOs: input.greenOs,
+        });
+    }
+
     // Broker–Carrier Agreement: only the circled Carrier Profile and signature lines.
     // A dash in DBA, Fax, FED ID, or factoring company is still Approve.
     if (input.documentType === "BROKER_CARRIER_AGREEMENT") {
@@ -755,11 +767,127 @@ function validateAgreementOnly(input: {
     });
 }
 
+function authorityDigits(raw: string | null | undefined): string | null {
+    const digits = String(raw || "")
+        .replace(/\D/g, "")
+        .replace(/^0+/, "");
+    return digits.length >= 4 ? digits : null;
+}
+
 /**
- * W-9 bot check (user-scoped circled sections):
- * 1) Title: "Request for Taxpayer Identification Number and Certification"
- * 2) Part I: Employer identification number (EIN) filled
- * → Approved (GREEN). No signature / name / tax-class noise.
+ * MC Authority bot check: compare only the MC digits and the DOT digits
+ * with the numbers the broker entered in GreenOS.
+ */
+function validateMcAuthorityOnly(input: {
+    map: Record<string, string | null>;
+    levels: ValidationBundle["levels"];
+    signatures: SignatureResult[];
+    classifyConfidence: number;
+    greenOs?: {
+        mcNumber?: string | null;
+        dotNumber?: string | null;
+        carrierMc?: string | null;
+        carrierDot?: string | null;
+    };
+}): ValidationBundle {
+    const map = input.map;
+    const gos = input.greenOs || {};
+    const errors: string[] = [];
+    const checks: RuleCheck[] = [];
+    const matches: RuleCheck[] = [];
+    const levels = { ...input.levels };
+
+    const docMc = authorityDigits(map.mcNumber);
+    const docDot = authorityDigits(map.dotNumber);
+    const gosMc = authorityDigits(gos.carrierMc || gos.mcNumber);
+    const gosDot = authorityDigits(gos.carrierDot || gos.dotNumber);
+
+    const mcMatch = Boolean(docMc && gosMc && docMc === gosMc);
+    const dotMatch = Boolean(docDot && gosDot && docDot === gosDot);
+    const mcDiff = Boolean(docMc && gosMc && docMc !== gosMc);
+    const dotDiff = Boolean(docDot && gosDot && docDot !== gosDot);
+
+    matches.push({
+        id: "MATCH-MC",
+        ok: mcMatch,
+        status: mcMatch ? "PASS" : mcDiff ? "CRITICAL_MISMATCH" : "MISSING",
+        message: mcMatch ? "MC digits match" : mcDiff ? "MC digits do not match" : "MC digits missing",
+        documentValue: docMc,
+        greenOsValue: gosMc,
+    });
+    matches.push({
+        id: "MATCH-DOT",
+        ok: dotMatch,
+        status: dotMatch ? "PASS" : dotDiff ? "CRITICAL_MISMATCH" : "MISSING",
+        message: dotMatch ? "DOT digits match" : dotDiff ? "DOT digits do not match" : "DOT digits missing",
+        documentValue: docDot,
+        greenOsValue: gosDot,
+    });
+
+    levels.completeness = {
+        ok: Boolean(docMc && docDot),
+        detail: !docMc ? "missing:MC" : !docDot ? "missing:DOT" : "mc and dot digits",
+    };
+    levels.greenOsMatch = {
+        ok: mcMatch && dotMatch,
+        detail: mcMatch && dotMatch ? "digits match" : "digits differ",
+    };
+    levels.signature = { ok: true, detail: "n/a" };
+    levels.businessRules = { ok: true, detail: "digits only" };
+    levels.expiration = { ok: true, detail: "n/a" };
+
+    if (mcMatch && dotMatch) {
+        checks.push({
+            id: "MC-DOT-DIGITS",
+            ok: true,
+            status: "PASS",
+            message: "MC and DOT digits match GreenOS",
+        });
+        return finish("VALID", "GREEN", false, input.classifyConfidence, {
+            documentType: "MC_AUTHORITY",
+            levels,
+            checks,
+            matches,
+            warnings: [],
+            errors,
+            signatures: input.signatures,
+            classifyConfidence: input.classifyConfidence,
+        });
+    }
+
+    if (mcDiff || dotDiff) {
+        errors.push("MC_DOT_MISMATCH");
+        return finish("MISMATCH", "RED", true, input.classifyConfidence, {
+            documentType: "MC_AUTHORITY",
+            levels,
+            checks,
+            matches,
+            warnings: [],
+            errors,
+            signatures: input.signatures,
+            classifyConfidence: input.classifyConfidence,
+        });
+    }
+
+    errors.push("MISSING_REQUIRED_FIELD:MC,DOT");
+    return finish("MISSING_REQUIRED_FIELD", "RED", true, input.classifyConfidence, {
+        documentType: "MC_AUTHORITY",
+        levels,
+        checks,
+        matches,
+        warnings: [],
+        errors,
+        signatures: input.signatures,
+        classifyConfidence: input.classifyConfidence,
+    });
+}
+
+/**
+ * W-9 bot check — the three circled marks only:
+ * 1) Line 1 name
+ * 2) Employer identification number
+ * 3) Signature of U.S. person
+ * All three filled → Approved (GREEN).
  */
 function validateW9Only(input: {
     map: Record<string, string | null>;
@@ -774,66 +902,39 @@ function validateW9Only(input: {
     const matches: RuleCheck[] = [];
     const levels = { ...input.levels };
 
-    const titleRaw = String(map.documentTitle || "");
-    const hasTitle =
-        Boolean(titleRaw) &&
-        (/Request\s+for\s+Taxpayer\s+Identification\s+Number\s+and\s+Certification/i.test(titleRaw) ||
-            /\bForm\s+W-?9\b/i.test(titleRaw) ||
-            /\bW-?9\b/i.test(titleRaw));
-
-    const hasEin =
-        Boolean(map.ein) ||
-        String(map.tinType || "").toUpperCase() === "EIN";
+    const hasName = Boolean(map.name && String(map.name).trim().length > 2);
+    const hasEin = Boolean(map.ein) || String(map.tinType || "").toUpperCase() === "EIN";
+    const hasSignature =
+        String(map.signaturePresent || "").toLowerCase() === "yes" ||
+        input.signatures.some((sig) => sig.role === "TAXPAYER" && sig.signaturePresent);
 
     levels.completeness = {
-        ok: hasTitle && hasEin,
+        ok: hasName && hasEin,
         detail: [
-            hasTitle ? "W-9 title found" : "missing:W-9 title",
-            hasEin ? "EIN found" : "missing:Employer identification number",
+            hasName ? "name filled" : "missing:name",
+            hasEin ? "EIN filled" : "missing:Employer identification number",
         ].join("; "),
     };
-    levels.signature = { ok: true, detail: "n/a" };
+    levels.signature = { ok: hasSignature, detail: hasSignature ? "signed" : "missing signature" };
     levels.businessRules = { ok: true, detail: "n/a" };
     levels.expiration = { ok: true, detail: "n/a" };
     levels.greenOsMatch = { ok: true, detail: "n/a" };
 
-    if (!hasTitle) {
-        errors.push("MISSING_REQUIRED_FIELD:documentTitle");
-        checks.push({
-            id: "W9-TITLE",
-            ok: false,
-            status: "MISSING",
-            message:
-                'Document must say "Request for Taxpayer Identification Number and Certification"',
-        });
-    } else {
-        checks.push({
-            id: "W9-TITLE",
-            ok: true,
-            status: "PASS",
-            message: 'Found "Request for Taxpayer Identification Number and Certification"',
-        });
+    const points: Array<[boolean, string, string]> = [
+        [hasName, "W9-NAME", "Line 1 name"],
+        [hasEin, "W9-EIN", "Employer identification number"],
+        [hasSignature, "W9-SIGNATURE", "Signature of U.S. person"],
+    ];
+    for (const [ok, id, label] of points) {
+        if (ok) {
+            checks.push({ id, ok: true, status: "PASS", message: `${label} is filled` });
+        } else {
+            errors.push(`MISSING_REQUIRED_FIELD:${id === "W9-EIN" ? "ein" : id}`);
+            checks.push({ id, ok: false, status: "MISSING", message: `${label} must be filled` });
+        }
     }
 
-    if (!hasEin) {
-        errors.push("MISSING_REQUIRED_FIELD:ein");
-        checks.push({
-            id: "W9-EIN",
-            ok: false,
-            status: "MISSING",
-            message: 'Document must have "Employer identification number" filled',
-        });
-    } else {
-        checks.push({
-            id: "W9-EIN",
-            ok: true,
-            status: "PASS",
-            message: 'Found "Employer identification number"',
-            documentValue: map.ein,
-        });
-    }
-
-    if (!hasTitle || !hasEin) {
+    if (!hasName || !hasEin || !hasSignature) {
         return finish("MISSING_REQUIRED_FIELD", "RED", true, input.classifyConfidence, {
             documentType: "W9",
             levels,

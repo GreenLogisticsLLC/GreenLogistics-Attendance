@@ -88,6 +88,7 @@ Do not return full SSN/EIN — only last 4 digits in tinLast4.`;
                 fieldStatus: tinDisplay ? "FIELD_FOUND" : "FIELD_MISSING",
             },
             field("signatureDate", p.signatureDate ? String(p.signatureDate) : null),
+            field("signaturePresent", p.signaturePresent === true ? "yes" : null),
         ];
     } catch {
         return [];

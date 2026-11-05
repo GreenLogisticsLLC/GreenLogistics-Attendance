@@ -5,7 +5,8 @@ import { prisma } from "../../../config/database.js";
 import { carrierStorageService } from "../../carriers/services/carrier-storage.service.js";
 import { LOAD_DOCS_ROOT } from "../../shipment/services/load-pdf.service.js";
 import { classifyDocumentText, type DocAiType } from "./classify.js";
-import { extractFieldsForType } from "./extract.js";
+import { extractFieldsForType, type ExtractedField } from "./extract.js";
+import type { W9Marks } from "./w9-marks.js";
 import { extractDocumentText } from "./text-extract.js";
 import { analyzeSignaturesFromText, analyzeSignatureWithVision, type SignatureResult } from "./signature.js";
 import { validateDocument } from "./validate.js";
@@ -18,6 +19,37 @@ export type ProcessJobResult = {
     trafficLight?: string;
     classifiedDocType?: string;
 };
+
+function mergeW9Marks(fields: ExtractedField[], marks: W9Marks): ExtractedField[] {
+    const set = (key: string, value: string | null, extra: Partial<ExtractedField> = {}) => {
+        const next: ExtractedField = {
+            fieldKey: key,
+            valueText: value,
+            valueNormalized: value,
+            confidence: value ? 0.94 : 0,
+            page: 1,
+            source: "w9-layout",
+            method: "layout",
+            fieldStatus: value ? "FIELD_FOUND" : "FIELD_MISSING",
+            ...extra,
+        };
+        const idx = fields.findIndex((field) => field.fieldKey === key);
+        if (idx >= 0) {
+            if (value) fields[idx] = { ...fields[idx], ...next };
+        } else if (value) {
+            fields.push(next);
+        }
+    };
+    if (marks.name) set("name", marks.name);
+    if (marks.ein) {
+        const redacted = `******${marks.ein.replace(/\D/g, "").slice(-4)}`;
+        set("ein", redacted, { fieldStatus: "FIELD_FOUND", confidence: 0.96 });
+        set("tinType", "EIN");
+    }
+    if (marks.signed) set("signaturePresent", "yes");
+    if (marks.signatureDate) set("signatureDate", marks.signatureDate);
+    return fields;
+}
 
 function sha256File(abs: string): string {
     const buf = fs.readFileSync(abs);
@@ -216,11 +248,21 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
         const documentType: DocAiType =
             declaredType === "NOA" ||
             declaredType === "W9" ||
-            declaredType === "BROKER_CARRIER_AGREEMENT"
+            declaredType === "BROKER_CARRIER_AGREEMENT" ||
+            declaredType === "MC_AUTHORITY"
                 ? (declaredType as DocAiType)
                 : (classified.documentType as DocAiType);
 
         let fields = extractFieldsForType(documentType, textResult.text);
+        if (documentType === "W9" && file.absPath) {
+            try {
+                const { readW9CircledMarks } = await import("./w9-marks.js");
+                const marks = await readW9CircledMarks(file.absPath);
+                fields = mergeW9Marks(fields, marks);
+            } catch (err) {
+                console.warn("[doc-ai] W-9 circled marks failed:", err instanceof Error ? err.message : err);
+            }
+        }
         let signatures: SignatureResult[] = analyzeSignaturesFromText({
             text: textResult.text,
             documentType,

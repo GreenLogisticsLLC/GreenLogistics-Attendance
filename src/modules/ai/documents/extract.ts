@@ -200,8 +200,12 @@ function extractW9(t: string): ExtractedField[] {
             confidence: hasEinLabel ? 0.99 : 0,
             fieldStatus: hasEinLabel ? "FIELD_FOUND" : "FIELD_MISSING",
         }),
-        field("name", pick(t, /Name[^\n]*\n([A-Z][^\n]{3,80})/i) || pick(t, /(DONTA\s+CRAIG[^\n]*)/i) ||
-            pick(t, /(?:^|\n)(ARSEN\s+KUDANETOV)\b/i)),
+        field(
+            "name",
+            pick(t, /(?:^|\n)\s*(?:1\s+)?Name(?:\s*\([^)\n]*\))?[^\n]*\n\s*([A-Za-z][^\n]{2,80})/i) ||
+                pick(t, /(?:^|\n)\s*(?:1\s+)?Name\s+([A-Za-z][A-Za-z .'-]{2,60})/i) ||
+                pick(t, /\b([A-Z][A-Za-z0-9&.' -]{2,50}\s(?:LLC|INC|CORP))\b/)
+        ),
         field(
             "businessName",
             pick(t, /Business\s+name[^\n]*\n([^\n]+)/i) ||
@@ -232,6 +236,11 @@ function extractW9(t: string): ExtractedField[] {
             fieldStatus: tin ? "FIELD_FOUND" : "FIELD_MISSING",
         }),
         field("signatureDate", pick(t, /\b(\d{2}\/\d{2}\/\d{4})\b/)),
+        field(
+            "signaturePresent",
+            /signature of\s+u\.?s\.?\s*person\s+[A-Za-z]{3,}/i.test(t) ? "yes" : null,
+            { confidence: 0.8 }
+        ),
     ];
 }
 
@@ -296,8 +305,15 @@ function extractCoi(t: string): ExtractedField[] {
 }
 
 function extractMcAuthority(t: string): ExtractedField[] {
-    const mc = normalizeMc(pick(t, /\bMC-([0-9]{4,})-[A-Z]\b/i) || pick(t, /\bMC[#\s-]*([0-9]{4,})/i));
-    const dot = normalizeDot(pick(t, /U\.?S\.?\s*DOT\s*No\.?\s*([0-9]{4,})/i));
+    const mc = normalizeMc(
+        pick(t, /\bMC\s*(?:No\.?|Number|#)?\s*[:#-]?\s*\(?\s*([0-9]{4,})/i)
+    );
+    const dot = normalizeDot(
+        pick(
+            t,
+            /\b(?:USDOT|U\.?\s*S\.?\s*DOT|DOT)\s*(?:No\.?|Number|#)?\s*[:#-]?\s*\(?\s*([0-9]{4,})/i
+        )
+    );
     const cert = pick(t, /\b(MC-\d{4,}-[A-Z])\b/i);
     return [
         field(

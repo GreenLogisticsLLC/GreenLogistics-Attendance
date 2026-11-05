@@ -216,6 +216,34 @@ test("POD golden D: uncertain → REVIEW_REQUIRED", () => {
     assert.notEqual(v.overallStatus, "VALID");
 });
 
+test("MC Authority approves when only the MC and DOT digits match GreenOS", () => {
+    const text = `
+OPERATING AUTHORITY
+MC (1237784)
+DOT (475689)
+Legal name does not matter for this check.
+`;
+    const fields = extractFieldsForType("MC_AUTHORITY", text);
+    const by = Object.fromEntries(fields.map((f) => [f.fieldKey, f.valueNormalized]));
+    assert.equal(by.mcNumber, "1237784");
+    assert.equal(by.dotNumber, "475689");
+    const ok = validateDocument({
+        documentType: "MC_AUTHORITY",
+        classifyConfidence: 0.9,
+        fields,
+        greenOs: { mcNumber: "MC-001237784", dotNumber: "DOT 475689", legalName: "SOME OTHER NAME LLC" },
+    });
+    assert.equal(ok.overallStatus, "VALID");
+    assert.equal(ok.trafficLight, "GREEN");
+    const bad = validateDocument({
+        documentType: "MC_AUTHORITY",
+        classifyConfidence: 0.9,
+        fields,
+        greenOs: { mcNumber: "1237784", dotNumber: "1111111" },
+    });
+    assert.equal(bad.trafficLight, "RED");
+});
+
 test("MC mismatch is CRITICAL_MISMATCH", () => {
     const v = validateDocument({
         documentType: "MC_AUTHORITY",
@@ -298,6 +326,7 @@ Signature of U.S. person Arsen Kudanetov
         fields,
         greenOs: { legalName: "ARSEN TRUCKING LLC" },
     });
+    assert.equal(ok.trafficLight, "GREEN");
     assert.ok(!ok.errors.some((e) => String(e).includes("MISSING_REQUIRED_FIELD:ein")));
 
     const blankEin = `
