@@ -5,12 +5,12 @@ window.GreenOSModules = window.GreenOSModules || {};
 window.GreenOSModules.accounting = {
   children: [
     { id: "dashboard", title: "Dashboard" },
-    { id: "shipments", title: "Shipments" },
-    { id: "document-review", title: "Document Review" },
-    { id: "customer-billing", title: "Customer Billing" },
-    { id: "customer-payments", title: "Customer Payments" },
-    { id: "carrier-payments", title: "Carrier Payments" },
-    { id: "history", title: "Accounting History" },
+    { id: "document-review", title: "Loads for Review" },
+    { id: "customer-billing", title: "Billing (AR)" },
+    { id: "carrier-payments", title: "Carrier Payments (AP)" },
+    { id: "customer-payments", title: "Invoices" },
+    { id: "shipments", title: "All Loads" },
+    { id: "history", title: "Transactions" },
   ],
 
   _selectedId: null,
@@ -1100,6 +1100,272 @@ window.GreenOSModules.accounting = {
     }
   },
 
+  dashMoney(n) {
+    var v = Number(n);
+    if (!Number.isFinite(v)) return "$0.00";
+    return (
+      "$" +
+      v.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    );
+  },
+
+  dashSummaryCard(label, valueHtml, deltaHtml, tone) {
+    return (
+      '<article class="acc-dash-summary-card tone-' +
+      this.esc(tone || "green") +
+      '"><div class="acc-dash-summary-label">' +
+      this.esc(label) +
+      '</div><div class="acc-dash-summary-value">' +
+      valueHtml +
+      "</div>" +
+      (deltaHtml ? '<div class="acc-dash-summary-delta">' + deltaHtml + "</div>" : "") +
+      "</article>"
+    );
+  },
+
+  accountingQueueLabel(r) {
+    if (r.customerPaidAt && r.carrierPaidAt) return { text: "Paid", tone: "paid" };
+    if (r.accountingReadyForCarrierPayment && !r.carrierPaidAt) {
+      return { text: "Ready for Carrier Pay", tone: "carrier" };
+    }
+    if (r.accountingReadyForBilling && !r.customerPaidAt) {
+      return { text: "Ready for Billing", tone: "billing" };
+    }
+    var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
+    if (doc === "NEEDS_CORRECTION" || doc.indexOf("CORRECTION") >= 0) {
+      return { text: "Needs Correction", tone: "review" };
+    }
+    return { text: "In Review", tone: "review" };
+  },
+
+  podPill(r) {
+    var st = String(r.status || "").toUpperCase();
+    var uploaded =
+      st === "POD_UPLOADED" ||
+      st === "CUSTOMER_INVOICE" ||
+      st === "CARRIER_PAYMENT" ||
+      st === "CLOSED" ||
+      st === "COMPLETED";
+    return uploaded
+      ? '<span class="acc-mini-pill is-ok">Uploaded</span>'
+      : '<span class="acc-mini-pill is-warn">Pending</span>';
+  },
+
+  invCustPill(r) {
+    if (r.invoiceNumber) return '<span class="acc-mini-pill is-ok">Ready</span>';
+    if (r.accountingReadyForBilling) return '<span class="acc-mini-pill is-warn">Pending</span>';
+    return '<span class="acc-mini-pill is-muted">—</span>';
+  },
+
+  invCarrPill(r) {
+    if (r.carrierPaidAt) return '<span class="acc-mini-pill is-ok">Ready</span>';
+    if (r.accountingReadyForCarrierPayment) {
+      return '<span class="acc-mini-pill is-warn">Pending</span>';
+    }
+    return '<span class="acc-mini-pill is-muted">—</span>';
+  },
+
+  filterDashboardRows(rows, queue) {
+    var list = rows || [];
+    if (queue === "billing") {
+      return list.filter(function (r) {
+        return r.accountingReadyForBilling && !r.customerPaidAt;
+      });
+    }
+    if (queue === "carrier") {
+      return list.filter(function (r) {
+        return r.accountingReadyForCarrierPayment && !r.carrierPaidAt;
+      });
+    }
+    if (queue === "paid") {
+      return list.filter(function (r) {
+        return Boolean(r.customerPaidAt) && Boolean(r.carrierPaidAt);
+      });
+    }
+    if (queue === "all") return list.slice();
+    return list.filter(function (r) {
+      if (r.accountingClosedAt) return false;
+      var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
+      var docPending =
+        !r.accountingDocStatus || doc === "PENDING" || doc.indexOf("CORRECTION") >= 0;
+      var billingReady = Boolean(r.accountingReadyForBilling) && !r.customerPaidAt;
+      var carrierReady = Boolean(r.accountingReadyForCarrierPayment) && !r.carrierPaidAt;
+      var invoiceOut = Boolean(r.invoiceNumber) && !r.customerPaidAt;
+      return docPending || billingReady || carrierReady || invoiceOut;
+    });
+  },
+
+  dashboardTableHtml(rows) {
+    var self = this;
+    var bodyRows = (rows || [])
+      .slice(0, 12)
+      .map(function (r) {
+        var status = self.accountingQueueLabel(r);
+        return (
+          "<tr>" +
+          '<td class="acc-dash-check"><input type="checkbox" aria-label="Select load"></td>' +
+          "<td>" +
+          self.loadNumberCell(r) +
+          "</td>" +
+          "<td>" +
+          self.esc(r.customerName || "—") +
+          "</td>" +
+          "<td>" +
+          self.esc(r.carrierName || "—") +
+          "</td>" +
+          "<td>" +
+          self.esc(self.money(r.customerRate)) +
+          "</td>" +
+          "<td>" +
+          self.esc(self.money(r.carrierRate)) +
+          "</td>" +
+          "<td>" +
+          self.podPill(r) +
+          "</td>" +
+          "<td>" +
+          self.invCustPill(r) +
+          "</td>" +
+          "<td>" +
+          self.invCarrPill(r) +
+          "</td>" +
+          "<td>" +
+          '<span class="acc-queue-pill tone-' +
+          self.esc(status.tone) +
+          '">' +
+          self.esc(status.text) +
+          "</span></td>" +
+          '<td class="acc-row-actions">' +
+          '<button type="button" class="btn-primary acc-open" data-id="' +
+          self.esc(r.shipmentLeadId) +
+          '">Open</button></td>' +
+          "</tr>"
+        );
+      })
+      .join("");
+    if (!bodyRows) {
+      bodyRows =
+        '<tr><td colspan="11"><p class="gos-muted" style="margin:0.6rem 0">No loads in this queue.</p></td></tr>';
+    }
+    return (
+      '<div class="emp-users-wrap acc-dash-table-wrap"><table class="emp-users-table acc-dash-table">' +
+      "<thead><tr>" +
+      "<th></th><th>Load #</th><th>Customer</th><th>Carrier</th>" +
+      "<th>Customer Rate</th><th>Carrier Rate</th>" +
+      "<th>POD</th><th>Inv. (Cust.)</th><th>Inv. (Carrier)</th>" +
+      "<th>Status</th><th></th>" +
+      "</tr></thead><tbody>" +
+      bodyRows +
+      "</tbody></table></div>"
+    );
+  },
+
+  agingBarHtml(aging) {
+    var total = Math.max(Number(aging && aging.total) || 0, 0.01);
+    var current = Number(aging && aging.current) || 0;
+    var mid = Number(aging && aging.mid) || 0;
+    var old = Number(aging && aging.old) || 0;
+    return (
+      '<div class="acc-aging-bar" aria-hidden="true">' +
+      '<span class="is-current" style="width:' +
+      ((current / total) * 100).toFixed(2) +
+      '%"></span>' +
+      '<span class="is-mid" style="width:' +
+      ((mid / total) * 100).toFixed(2) +
+      '%"></span>' +
+      '<span class="is-old" style="width:' +
+      ((old / total) * 100).toFixed(2) +
+      '%"></span>' +
+      "</div>" +
+      '<div class="acc-aging-legend">' +
+      "<span><i class=\"is-current\"></i>Current (0–30)</span>" +
+      "<span><i class=\"is-mid\"></i>31–60</span>" +
+      "<span><i class=\"is-old\"></i>61+</span>" +
+      "</div>"
+    );
+  },
+
+  trendChartHtml(trend) {
+    var rows = trend || [];
+    var max = 1;
+    rows.forEach(function (w) {
+      max = Math.max(max, Number(w.billed) || 0, Number(w.paid) || 0);
+    });
+    var bars = rows
+      .map(function (w) {
+        var billedH = Math.max(4, Math.round(((Number(w.billed) || 0) / max) * 100));
+        var paidH = Math.max(4, Math.round(((Number(w.paid) || 0) / max) * 100));
+        return (
+          '<div class="acc-trend-col">' +
+          '<div class="acc-trend-bars">' +
+          '<span class="is-billed" style="height:' +
+          billedH +
+          '%" title="Billed ' +
+          this.dashMoney(w.billed) +
+          '"></span>' +
+          '<span class="is-paid" style="height:' +
+          paidH +
+          '%" title="Paid ' +
+          this.dashMoney(w.paid) +
+          '"></span>' +
+          "</div>" +
+          '<div class="acc-trend-label">' +
+          this.esc(w.label || "") +
+          "</div></div>"
+        );
+      }, this)
+      .join("");
+    return (
+      '<div class="acc-trend-chart">' +
+      bars +
+      "</div>" +
+      '<div class="acc-trend-legend"><span><i class="is-billed"></i>Billed (AR)</span>' +
+      '<span><i class="is-paid"></i>Paid (AP)</span></div>'
+    );
+  },
+
+  readinessDonutHtml(ready) {
+    var pct = Math.max(0, Math.min(100, Number(ready && ready.percentComplete) || 0));
+    var missing = Number(ready && ready.missing) || 0;
+    var action = Number(ready && ready.actionRequired) || 0;
+    var complete = Number(ready && ready.complete) || 0;
+    var total = Math.max(complete + missing + action, 1);
+    var missPct = Math.round((missing / total) * 100);
+    var actPct = Math.round((action / total) * 100);
+    var compPct = Math.max(0, 100 - missPct - actPct);
+    var grad =
+      "conic-gradient(#34d399 0 " +
+      compPct +
+      "%, #fbbf24 " +
+      compPct +
+      "% " +
+      (compPct + missPct) +
+      "%, #f87171 " +
+      (compPct + missPct) +
+      "% 100%)";
+    return (
+      '<div class="acc-ready-wrap">' +
+      '<div class="acc-ready-donut" style="background:' +
+      grad +
+      '"><div class="acc-ready-hole"><strong>' +
+      pct +
+      "%</strong><span>Complete</span></div></div>" +
+      '<ul class="acc-ready-legend">' +
+      "<li><i class=\"is-complete\"></i>Complete <strong>" +
+      pct +
+      "%</strong></li>" +
+      "<li><i class=\"is-missing\"></i>Missing Docs <strong>" +
+      missPct +
+      "%</strong></li>" +
+      "<li><i class=\"is-action\"></i>Action Required <strong>" +
+      actPct +
+      "%</strong></li>" +
+      "</ul></div>"
+    );
+  },
+
   async renderDashboard(body) {
     if (!body) return;
     var self = this;
@@ -1107,7 +1373,7 @@ window.GreenOSModules.accounting = {
     try {
       var results = await Promise.all([
         this.api("/dashboard"),
-        this.api("/shipments?filter=pending"),
+        this.api("/shipments?filter=all"),
       ]);
       var res = results[0];
       var listRes = results[1];
@@ -1116,97 +1382,164 @@ window.GreenOSModules.accounting = {
           '<p style="color:#ef4444">' + self.esc(res.message || "Access denied") + "</p>";
         return;
       }
-      var kpis = (res.data && res.data.kpis) || {};
-      var order = [
-        "documentsToReview",
-        "needsCorrection",
-        "readyForBilling",
-        "invoicesOutstanding",
-        "readyForCarrierPayment",
-        "overdueCustomerPayments",
-        "customerPaymentsReceived",
-        "carrierPaymentsCompleted",
-        "accountingClosed",
-      ];
-      var keys = order.filter(function (k) {
-        return Object.prototype.hasOwnProperty.call(kpis, k);
-      });
-      Object.keys(kpis).forEach(function (k) {
-        if (keys.indexOf(k) < 0) keys.push(k);
-      });
-      var cards = keys
-        .map(function (key) {
-          return self.kpiCard(key, kpis[key]);
+      var data = res.data || {};
+      var summary = data.summary || {};
+      var queues = data.queues || {};
+      var tasks = data.tasks || [];
+      var allRows = listRes && listRes.success ? listRes.data || [] : [];
+      self._dashAllRows = allRows;
+      self._dashQueue = self._dashQueue || "review";
+
+      function goTab(tab) {
+        if (!tab) return;
+        if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
+          window.GreenOS.navigate("accounting", tab);
+        } else {
+          self.render(document.getElementById("gos-module-host") || body.parentElement, tab);
+        }
+      }
+
+      function paintQueue(queue) {
+        self._dashQueue = queue || "review";
+        var filtered = self.filterDashboardRows(allRows, self._dashQueue);
+        var host = body.querySelector("#acc-dash-table-host");
+        if (host) host.innerHTML = self.dashboardTableHtml(filtered);
+        body.querySelectorAll("[data-dash-queue]").forEach(function (btn) {
+          btn.classList.toggle(
+            "is-active",
+            btn.getAttribute("data-dash-queue") === self._dashQueue
+          );
+        });
+        self.bindOpenHandlers(body);
+      }
+
+      var summaryHtml =
+        self.dashSummaryCard(
+          "Total Loads",
+          self.esc(String(summary.totalLoads || 0)),
+          "",
+          "green"
+        ) +
+        self.dashSummaryCard(
+          "Ready for Billing",
+          self.esc(String(summary.readyForBilling || 0)),
+          "",
+          "mint"
+        ) +
+        self.dashSummaryCard(
+          "Ready for Carrier Pay",
+          self.esc(String(summary.readyForCarrierPay || 0)),
+          "",
+          "blue"
+        ) +
+        self.dashSummaryCard(
+          "A/R (To Receive)",
+          self.esc(self.dashMoney(summary.arToReceive)),
+          "",
+          "money"
+        ) +
+        self.dashSummaryCard(
+          "A/P (To Pay)",
+          self.esc(self.dashMoney(summary.apToPay)),
+          "",
+          "money"
+        );
+
+      var queueTabs =
+        '<button type="button" class="acc-dash-tab" data-dash-queue="review">Loads for Accounting (' +
+        self.esc(String(queues.forReview || 0)) +
+        ")</button>" +
+        '<button type="button" class="acc-dash-tab" data-dash-queue="billing">Ready for Billing (' +
+        self.esc(String(queues.readyBilling || 0)) +
+        ")</button>" +
+        '<button type="button" class="acc-dash-tab" data-dash-queue="carrier">Ready for Carrier Pay (' +
+        self.esc(String(queues.readyCarrierPay || 0)) +
+        ")</button>" +
+        '<button type="button" class="acc-dash-tab" data-dash-queue="paid">Paid (' +
+        self.esc(String(queues.paid || 0)) +
+        ")</button>" +
+        '<button type="button" class="acc-dash-tab" data-dash-queue="all">All Loads</button>';
+
+      var tasksHtml = tasks
+        .map(function (t) {
+          return (
+            '<button type="button" class="acc-task-row" data-acc-tab="' +
+            self.esc(t.tab || "") +
+            '"><span class="acc-task-check" aria-hidden="true"></span>' +
+            "<span>" +
+            self.esc(t.label || "") +
+            '</span><strong>' +
+            self.esc(String(t.count || 0)) +
+            "</strong></button>"
+          );
         })
         .join("");
 
-      var pendingRows = listRes && listRes.success ? listRes.data || [] : [];
-      var pendingSection;
-      if (!listRes || !listRes.success) {
-        pendingSection =
-          '<p style="color:#ef4444;margin-top:1.25rem">' +
-          self.esc((listRes && listRes.message) || "Could not load pending loads") +
-          "</p>";
-      } else if (!pendingRows.length) {
-        pendingSection =
-          '<p class="gos-muted" style="margin-top:1.25rem">No loads waiting for accounting confirmation.</p>';
-      } else {
-        var pendingFilters = self.getTableFilters();
-        var pendingFiltered = pendingRows.filter(function (r) {
-          return self.rowMatchesFilters(r, pendingFilters);
-        });
-        var pendingActive =
-          pendingFilters.load ||
-          pendingFilters.pickupDay ||
-          pendingFilters.deliveryDay ||
-          pendingFilters.broker;
-        pendingSection =
-          '<div class="acc-pending-section">' +
-          '<div class="acc-pending-head">' +
-          "<h3>Loads waiting for accounting confirmation</h3>" +
-          '<span class="acc-pending-count" id="acc-pending-count">' +
-          (pendingActive
-            ? pendingFiltered.length +
-              " of " +
-              pendingRows.length +
-              " load" +
-              (pendingRows.length === 1 ? "" : "s")
-            : pendingRows.length +
-              " load" +
-              (pendingRows.length === 1 ? "" : "s")) +
-          "</span>" +
-          "</div>" +
-          self.shipmentsTableHtml(pendingRows, { showQueue: true, allRows: pendingRows }) +
-          "</div>";
-      }
-
       body.innerHTML =
-        '<div class="acc-kpi-grid">' +
-        cards +
+        '<section class="acc-dash">' +
+        '<header class="acc-dash-head">' +
+        "<div><h2>Accounting Dashboard</h2>" +
+        '<p class="gos-muted">Financial operations, billing, and carrier payments for Green Logistics.</p></div>' +
+        '<div class="acc-dash-range">Last 30 Days</div>' +
+        "</header>" +
+        '<div class="acc-dash-summary">' +
+        summaryHtml +
         "</div>" +
-        pendingSection +
-        '<div id="acc-detail" style="margin-top:1.25rem"></div>';
+        '<div class="acc-dash-main">' +
+        '<div class="acc-dash-board">' +
+        '<div class="acc-dash-board-top">' +
+        '<div class="acc-dash-tabs">' +
+        queueTabs +
+        "</div></div>" +
+        '<div id="acc-dash-table-host"></div>' +
+        "</div>" +
+        '<aside class="acc-dash-tasks"><h3>Accounting Tasks</h3>' +
+        '<div class="acc-task-list">' +
+        (tasksHtml || '<p class="gos-muted">No open tasks.</p>') +
+        "</div></aside>" +
+        "</div>" +
+        '<div class="acc-dash-widgets">' +
+        '<section class="acc-dash-widget"><h3>Accounts Receivable (A/R)</h3>' +
+        '<div class="acc-dash-widget-value">' +
+        self.esc(self.dashMoney((data.arAging && data.arAging.total) || summary.arToReceive)) +
+        "</div>" +
+        self.agingBarHtml(data.arAging || {}) +
+        "</section>" +
+        '<section class="acc-dash-widget"><h3>Accounts Payable (A/P)</h3>' +
+        '<div class="acc-dash-widget-value">' +
+        self.esc(self.dashMoney((data.apAging && data.apAging.total) || summary.apToPay)) +
+        "</div>" +
+        self.agingBarHtml(data.apAging || {}) +
+        "</section>" +
+        '<section class="acc-dash-widget"><h3>Billing &amp; Payments Trend</h3>' +
+        self.trendChartHtml(data.trend || []) +
+        "</section>" +
+        '<section class="acc-dash-widget"><h3>Document Readiness</h3>' +
+        self.readinessDonutHtml(data.documentReadiness || {}) +
+        "</section>" +
+        "</div>" +
+        '<div id="acc-detail" style="margin-top:1.25rem"></div>' +
+        "</section>";
 
-      body.querySelectorAll("[data-acc-tab]").forEach(function (btn) {
+      paintQueue(self._dashQueue);
+      body.querySelectorAll("[data-dash-queue]").forEach(function (btn) {
         btn.addEventListener("click", function () {
-          var tab = btn.getAttribute("data-acc-tab");
-          if (!tab) return;
-          if (window.GreenOS && typeof window.GreenOS.navigate === "function") {
-            window.GreenOS.navigate("accounting", tab);
-          } else {
-            self.render(document.getElementById("gos-module-host") || body.parentElement, tab);
-          }
+          paintQueue(btn.getAttribute("data-dash-queue"));
         });
       });
-      if (pendingRows.length) {
-        self.bindTableFilters(body, pendingRows, {
-          showQueue: true,
-          countEl: body.querySelector("#acc-pending-count"),
+      body.querySelectorAll("[data-acc-tab]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          goTab(btn.getAttribute("data-acc-tab"));
         });
-      }
-      self.bindOpenHandlers(body);
-      if (self._selectedId) {
-        self.openShipment(body.querySelector("#acc-detail"), self._selectedId);
+      });
+      if (!listRes || !listRes.success) {
+        var host = body.querySelector("#acc-dash-table-host");
+        if (host) {
+          host.innerHTML =
+            '<p style="color:#ef4444">' +
+            self.esc((listRes && listRes.message) || "Could not load loads") +
+            "</p>";
+        }
       }
     } catch (err) {
       body.innerHTML =

@@ -89,19 +89,7 @@ export class AccountingService {
         const rows = await prisma.shipmentLead.findMany({
             where: {
                 loadNumber: { not: null },
-                status: {
-                    in: [
-                        "DELIVERED",
-                        "POD_UPLOADED",
-                        "CUSTOMER_INVOICE",
-                        "CARRIER_PAYMENT",
-                        "CLOSED",
-                        "IN_TRANSIT",
-                        "PICKUP",
-                        "CARRIER_ACCEPTED",
-                        "RATE_CON_GENERATED",
-                    ],
-                },
+                status: { not: "VOIDED" },
             },
             select: {
                 shipmentLeadId: true,
@@ -113,38 +101,167 @@ export class AccountingService {
                 customerPaidAt: true,
                 carrierPaidAt: true,
                 invoiceNumber: true,
+                invoiceDate: true,
                 invoiceDueDate: true,
                 accountingClosedAt: true,
                 paymentStatus: true,
+                customerRate: true,
+                carrierRate: true,
+                accessorialCharges: true,
+                customerPaymentMethod: true,
+                waiveCustomerPaymentFee: true,
+                updatedAt: true,
             },
         });
 
         const now = Date.now();
-        const docsPending = rows.filter(
+        const dayMs = 24 * 60 * 60 * 1000;
+        const enriched = rows.map((r) => {
+            const payment = customerPaymentQuote({
+                customerRate: r.customerRate,
+                accessorialCharges: r.accessorialCharges,
+                method: r.customerPaymentMethod,
+                waiveFee: r.waiveCustomerPaymentFee,
+            });
+            const customerTotal = payment.total || 0;
+            const carrierTotal = money(r.carrierRate) || 0;
+            return {
+                ...r,
+                customerTotal,
+                carrierTotal,
+                outstandingCustomer: r.customerPaidAt ? 0 : customerTotal,
+                outstandingCarrier: r.carrierPaidAt ? 0 : carrierTotal,
+            };
+        });
+
+        const docsPending = enriched.filter(
             (r) =>
                 !r.accountingDocStatus ||
                 r.accountingDocStatus === AccountingDocStatus.Pending ||
                 r.accountingDocStatus === AccountingDocStatus.NeedsCorrection
         ).length;
-        const needsCorrection = rows.filter(
+        const needsCorrection = enriched.filter(
             (r) => r.accountingDocStatus === AccountingDocStatus.NeedsCorrection
         ).length;
-        const readyBilling = rows.filter(
+        const readyBilling = enriched.filter(
             (r) => r.accountingReadyForBilling && !r.invoiceNumber && !r.customerPaidAt
         ).length;
-        const invoicesOutstanding = rows.filter(
+        const invoicesOutstanding = enriched.filter(
             (r) => r.invoiceNumber && !r.customerPaidAt
         ).length;
-        const customerPaid = rows.filter((r) => Boolean(r.customerPaidAt)).length;
-        const readyCarrierPay = rows.filter(
+        const customerPaid = enriched.filter((r) => Boolean(r.customerPaidAt)).length;
+        const readyCarrierPay = enriched.filter(
             (r) => r.accountingReadyForCarrierPayment && !r.carrierPaidAt
         ).length;
-        const carrierPaid = rows.filter((r) => Boolean(r.carrierPaidAt)).length;
-        const overdue = rows.filter((r) => {
+        const carrierPaid = enriched.filter((r) => Boolean(r.carrierPaidAt)).length;
+        const overdue = enriched.filter((r) => {
             if (!r.invoiceDueDate || r.customerPaidAt) return false;
             return new Date(r.invoiceDueDate).getTime() < now;
         }).length;
-        const closed = rows.filter((r) => Boolean(r.accountingClosedAt)).length;
+        const closed = enriched.filter((r) => Boolean(r.accountingClosedAt)).length;
+        const forReview = enriched.filter((r) => {
+            if (r.accountingClosedAt) return false;
+            const docPending =
+                !r.accountingDocStatus ||
+                r.accountingDocStatus === AccountingDocStatus.Pending ||
+                r.accountingDocStatus === AccountingDocStatus.NeedsCorrection;
+            const billingReady = Boolean(r.accountingReadyForBilling) && !r.customerPaidAt;
+            const carrierReady =
+                Boolean(r.accountingReadyForCarrierPayment) && !r.carrierPaidAt;
+            const invoiceOut = Boolean(r.invoiceNumber) && !r.customerPaidAt;
+            return docPending || billingReady || carrierReady || invoiceOut;
+        }).length;
+        const paidBoth = enriched.filter(
+            (r) => Boolean(r.customerPaidAt) && Boolean(r.carrierPaidAt)
+        ).length;
+
+        const arToReceive = enriched.reduce((sum, r) => sum + (r.outstandingCustomer || 0), 0);
+        const apToPay = enriched.reduce((sum, r) => sum + (r.outstandingCarrier || 0), 0);
+
+        function ageBucket(
+            amount: number,
+            anchor: Date | string | null | undefined,
+            buckets: { current: number; mid: number; old: number }
+        ) {
+            if (!amount) return;
+            const t = anchor ? new Date(anchor).getTime() : NaN;
+            const ageDays = Number.isFinite(t) ? Math.max(0, (now - t) / dayMs) : 0;
+            if (ageDays <= 30) buckets.current += amount;
+            else if (ageDays <= 60) buckets.mid += amount;
+            else buckets.old += amount;
+        }
+
+        const arAging = { current: 0, mid: 0, old: 0 };
+        const apAging = { current: 0, mid: 0, old: 0 };
+        for (const r of enriched) {
+            ageBucket(
+                r.outstandingCustomer || 0,
+                r.invoiceDueDate || r.invoiceDate || r.updatedAt,
+                arAging
+            );
+            ageBucket(r.outstandingCarrier || 0, r.updatedAt, apAging);
+        }
+
+        const weeks: Array<{
+            key: string;
+            label: string;
+            start: number;
+            end: number;
+            billed: number;
+            paid: number;
+        }> = [];
+        const startOfWeek = (d: Date) => {
+            const x = new Date(d);
+            const day = x.getUTCDay();
+            const diff = (day + 6) % 7;
+            x.setUTCDate(x.getUTCDate() - diff);
+            x.setUTCHours(0, 0, 0, 0);
+            return x;
+        };
+        let cursor = startOfWeek(new Date());
+        for (let i = 0; i < 5; i++) {
+            const start = new Date(cursor);
+            start.setUTCDate(start.getUTCDate() - (4 - i) * 7);
+            const end = new Date(start);
+            end.setUTCDate(end.getUTCDate() + 7);
+            const label = start.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                timeZone: "UTC",
+            });
+            weeks.push({
+                key: start.toISOString().slice(0, 10),
+                label,
+                start: start.getTime(),
+                end: end.getTime(),
+                billed: 0,
+                paid: 0,
+            });
+        }
+        for (const r of enriched) {
+            if (r.invoiceDate) {
+                const t = new Date(r.invoiceDate).getTime();
+                const w = weeks.find((x) => t >= x.start && t < x.end);
+                if (w) w.billed += r.customerTotal || 0;
+            }
+            if (r.carrierPaidAt) {
+                const t = new Date(r.carrierPaidAt).getTime();
+                const w = weeks.find((x) => t >= x.start && t < x.end);
+                if (w) w.paid += r.carrierTotal || 0;
+            }
+        }
+
+        const docComplete = enriched.filter(
+            (r) => r.accountingDocStatus === AccountingDocStatus.Verified
+        ).length;
+        const docMissing = enriched.filter(
+            (r) =>
+                !r.accountingDocStatus ||
+                r.accountingDocStatus === AccountingDocStatus.Pending
+        ).length;
+        const docAction = needsCorrection;
+        const docTotal = Math.max(enriched.length, 1);
+        const percentComplete = Math.round((docComplete / docTotal) * 100);
 
         const sub = this.sub(actor);
         const kpis =
@@ -182,6 +299,75 @@ export class AccountingService {
                 carrierPaymentsCompleted: carrierPaid,
                 overdueCustomerPayments: overdue,
                 accountingClosed: closed,
+            },
+            summary: {
+                totalLoads: enriched.length,
+                readyForBilling: readyBilling,
+                readyForCarrierPay: readyCarrierPay,
+                arToReceive: Math.round(arToReceive * 100) / 100,
+                apToPay: Math.round(apToPay * 100) / 100,
+            },
+            queues: {
+                forReview,
+                readyBilling,
+                readyCarrierPay,
+                paid: paidBoth,
+                all: enriched.length,
+            },
+            tasks: [
+                {
+                    id: "verify-docs",
+                    label: "Verify Documents",
+                    count: docsPending,
+                    tab: "document-review",
+                },
+                {
+                    id: "send-invoice",
+                    label: "Create / Send Customer Invoice",
+                    count: readyBilling,
+                    tab: "customer-billing",
+                },
+                {
+                    id: "carrier-pay",
+                    label: "Process Carrier Payments",
+                    count: readyCarrierPay,
+                    tab: "carrier-payments",
+                },
+                {
+                    id: "missing-docs",
+                    label: "Follow Up (Missing Docs)",
+                    count: needsCorrection,
+                    tab: "document-review",
+                },
+                {
+                    id: "overdue",
+                    label: "Overdue Invoices",
+                    count: overdue,
+                    tab: "customer-payments",
+                },
+            ],
+            arAging: {
+                total: Math.round(arToReceive * 100) / 100,
+                current: Math.round(arAging.current * 100) / 100,
+                mid: Math.round(arAging.mid * 100) / 100,
+                old: Math.round(arAging.old * 100) / 100,
+            },
+            apAging: {
+                total: Math.round(apToPay * 100) / 100,
+                current: Math.round(apAging.current * 100) / 100,
+                mid: Math.round(apAging.mid * 100) / 100,
+                old: Math.round(apAging.old * 100) / 100,
+            },
+            trend: weeks.map((w) => ({
+                label: w.label,
+                billed: Math.round(w.billed * 100) / 100,
+                paid: Math.round(w.paid * 100) / 100,
+            })),
+            documentReadiness: {
+                percentComplete,
+                complete: docComplete,
+                missing: docMissing,
+                actionRequired: docAction,
             },
         };
     }

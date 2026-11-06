@@ -3865,6 +3865,347 @@ tr.crm-row.load-row-no-carrier td:first-child {
   }
 }
 
+/* Accounting Dashboard — summary / queues / widgets */
+.acc-dash {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.acc-dash-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.acc-dash-head h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.45rem;
+}
+.acc-dash-head p {
+  margin: 0;
+}
+.acc-dash-range {
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--gos-border);
+  background: color-mix(in srgb, var(--gos-surface2) 80%, transparent);
+  color: var(--gos-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.acc-dash-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.acc-dash-summary-card {
+  border: 1px solid color-mix(in srgb, var(--gos-accent) 22%, var(--gos-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, #071018 88%, #10281c);
+  padding: 0.9rem 1rem;
+  min-height: 5.5rem;
+}
+.acc-dash-summary-card.tone-mint {
+  border-color: color-mix(in srgb, #34d399 35%, var(--gos-border));
+}
+.acc-dash-summary-card.tone-blue {
+  border-color: color-mix(in srgb, var(--gos-info) 40%, var(--gos-border));
+}
+.acc-dash-summary-card.tone-money {
+  border-color: color-mix(in srgb, #86efac 35%, var(--gos-border));
+}
+.acc-dash-summary-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gos-muted);
+  font-weight: 700;
+}
+.acc-dash-summary-value {
+  margin-top: 0.45rem;
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: #86efac;
+  line-height: 1.15;
+}
+.acc-dash-summary-delta {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  color: #4ade80;
+  font-weight: 700;
+}
+.acc-dash-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 0.85rem;
+  align-items: start;
+}
+.acc-dash-board,
+.acc-dash-tasks,
+.acc-dash-widget {
+  border: 1px solid color-mix(in srgb, var(--gos-accent) 22%, var(--gos-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, #071018 90%, #10281c);
+  padding: 0.85rem;
+}
+.acc-dash-board-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+.acc-dash-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.acc-dash-tab {
+  appearance: none;
+  border: 1px solid var(--gos-border);
+  background: transparent;
+  color: var(--gos-muted);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.acc-dash-tab.is-active {
+  color: #052e1a;
+  background: #34d399;
+  border-color: #34d399;
+}
+.acc-dash-tasks h3,
+.acc-dash-widget h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+.acc-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.acc-task-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.55rem;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--gos-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gos-surface) 70%, transparent);
+  color: var(--gos-text);
+  padding: 0.55rem 0.65rem;
+  font: inherit;
+  cursor: pointer;
+}
+.acc-task-row:hover {
+  border-color: color-mix(in srgb, var(--gos-accent) 45%, var(--gos-border));
+}
+.acc-task-row strong {
+  color: #86efac;
+  font-size: 0.95rem;
+}
+.acc-task-check {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 4px;
+  border: 1.5px solid color-mix(in srgb, var(--gos-accent) 55%, var(--gos-border));
+  background: color-mix(in srgb, var(--gos-accent) 12%, transparent);
+}
+.acc-dash-table .acc-dash-check {
+  width: 2rem;
+}
+.acc-mini-pill,
+.acc-queue-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.acc-mini-pill.is-ok {
+  color: #86efac;
+  background: color-mix(in srgb, #22c55e 18%, transparent);
+}
+.acc-mini-pill.is-warn {
+  color: #fbbf24;
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+}
+.acc-mini-pill.is-muted {
+  color: var(--gos-muted);
+  background: color-mix(in srgb, var(--gos-muted) 12%, transparent);
+}
+.acc-queue-pill.tone-review {
+  color: #93c5fd;
+  background: color-mix(in srgb, #3b82f6 22%, transparent);
+}
+.acc-queue-pill.tone-billing {
+  color: #c4b5fd;
+  background: color-mix(in srgb, #8b5cf6 22%, transparent);
+}
+.acc-queue-pill.tone-carrier {
+  color: #86efac;
+  background: color-mix(in srgb, #22c55e 18%, transparent);
+}
+.acc-queue-pill.tone-paid {
+  color: #a7f3d0;
+  background: color-mix(in srgb, #10b981 18%, transparent);
+}
+.acc-dash-widgets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+.acc-dash-widget-value {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #86efac;
+  margin-bottom: 0.7rem;
+}
+.acc-aging-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--gos-muted) 18%, transparent);
+  margin-bottom: 0.55rem;
+}
+.acc-aging-bar > span { display: block; min-width: 0; }
+.acc-aging-bar .is-current,
+.acc-aging-legend i.is-current { background: #34d399; }
+.acc-aging-bar .is-mid,
+.acc-aging-legend i.is-mid { background: #fbbf24; }
+.acc-aging-bar .is-old,
+.acc-aging-legend i.is-old { background: #f87171; }
+.acc-aging-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.85rem;
+  font-size: 0.72rem;
+  color: var(--gos-muted);
+}
+.acc-aging-legend i,
+.acc-trend-legend i,
+.acc-ready-legend i {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  margin-right: 0.3rem;
+  vertical-align: middle;
+}
+.acc-trend-chart {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.45rem;
+  align-items: end;
+  min-height: 8.5rem;
+  margin-bottom: 0.55rem;
+}
+.acc-trend-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 8.5rem;
+  justify-content: flex-end;
+}
+.acc-trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.2rem;
+  height: 7rem;
+  width: 100%;
+  justify-content: center;
+}
+.acc-trend-bars span {
+  width: 0.55rem;
+  border-radius: 4px 4px 0 0;
+  display: block;
+}
+.acc-trend-bars .is-billed,
+.acc-trend-legend i.is-billed { background: #34d399; }
+.acc-trend-bars .is-paid,
+.acc-trend-legend i.is-paid { background: #a78bfa; }
+.acc-trend-label {
+  font-size: 0.68rem;
+  color: var(--gos-muted);
+}
+.acc-trend-legend {
+  display: flex;
+  gap: 0.85rem;
+  font-size: 0.72rem;
+  color: var(--gos-muted);
+}
+.acc-ready-wrap {
+  display: flex;
+  gap: 0.85rem;
+  align-items: center;
+}
+.acc-ready-donut {
+  width: 7.2rem;
+  height: 7.2rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.acc-ready-hole {
+  width: 4.6rem;
+  height: 4.6rem;
+  border-radius: 50%;
+  background: #071018;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+}
+.acc-ready-hole strong {
+  font-size: 1.15rem;
+  color: #86efac;
+}
+.acc-ready-hole span {
+  font-size: 0.68rem;
+  color: var(--gos-muted);
+}
+.acc-ready-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--gos-muted);
+}
+.acc-ready-legend strong { color: var(--gos-text); }
+.acc-ready-legend i.is-complete { background: #34d399; }
+.acc-ready-legend i.is-missing { background: #fbbf24; }
+.acc-ready-legend i.is-action { background: #f87171; }
+@media (max-width: 1200px) {
+  .acc-dash-summary,
+  .acc-dash-widgets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .acc-dash-main {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 720px) {
+  .acc-dash-summary,
+  .acc-dash-widgets {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Accounting Team — bright pending queue KPIs */
 .acc-kpi-grid {
   display: grid;
