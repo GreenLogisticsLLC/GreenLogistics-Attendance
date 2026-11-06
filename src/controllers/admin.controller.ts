@@ -276,6 +276,21 @@ export async function deactivateEmployeeController(req: AuthRequest, res: Respon
     return res.json(apiResponse(true, "Employee deactivated", { employee, syncReport }));
 }
 
+export async function markEmployeeInOfficeController(req: AuthRequest, res: Response) {
+    const employeeId = String(req.params.employeeId);
+    try {
+        const result = await attendanceService.markEmployeeInOffice(employeeId);
+        return res.json(
+            apiResponse(true, result.message, {
+                currentStatus: result.currentStatus,
+            })
+        );
+    } catch (error) {
+        console.error("Mark In Office failed:", error);
+        return res.status(500).json(apiResponse(false, "Failed to set employee In Office"));
+    }
+}
+
 export async function markEmployeeLeftController(req: AuthRequest, res: Response) {
     const employeeId = String(req.params.employeeId);
     try {

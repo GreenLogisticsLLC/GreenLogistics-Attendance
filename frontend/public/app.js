@@ -625,8 +625,15 @@ function renderTable(employees) {
         const lateClass = emp.late ? " late-row" : "";
         const nameClass = emp.late ? "late-yes" : "";
         const inside = emp.currentStatus === "INSIDE_OFFICE";
+        // Actions (Status column is the live attendance state). Set In Office always
+        // adds the broker to New/Other even when the badge already says In Office.
         const officeBtn = canSet
-            ? `<td><button type="button" class="btn-secondary office-presence-btn" data-id="${emp.employeeId}" data-next="${inside ? "out" : "in"}" style="width:auto;padding:0.35rem 0.6rem">${inside ? "Out of Office" : "In Office"}</button></td>`
+            ? `<td style="white-space:nowrap">` +
+              `<button type="button" class="btn-secondary office-presence-btn" data-id="${emp.employeeId}" data-next="in" title="Set In Office and add to the shipment queue" style="width:auto;padding:0.35rem 0.6rem;margin-right:0.35rem">Set In Office</button>` +
+              (inside
+                  ? `<button type="button" class="btn-secondary office-presence-btn" data-id="${emp.employeeId}" data-next="out" title="Remove from office and shipment queue" style="width:auto;padding:0.35rem 0.6rem">Mark Out</button>`
+                  : "") +
+              `</td>`
             : `<td style="display:none"></td>`;
         return `
         <tr class="${lateClass.trim()}" data-id="${emp.employeeId}" data-status="${emp.currentStatus}" data-late="${emp.late ? "1" : "0"}">
@@ -659,7 +666,7 @@ function renderTable(employees) {
                 const path =
                     next === "out"
                         ? `/employees/${encodeURIComponent(id)}/mark-left`
-                        : `/employees/${encodeURIComponent(id)}/test-scan`;
+                        : `/employees/${encodeURIComponent(id)}/mark-in-office`;
                 const data = await apiFetch(path, { method: "POST", body: "{}" });
                 if (!data.success) {
                     alert(data.message || "Could not update office status");

@@ -27,6 +27,7 @@ import {
     updateEmployeeController,
     deleteEmployeeController,
     deactivateEmployeeController,
+    markEmployeeInOfficeController,
     markEmployeeLeftController,
     testEmployeeScanController,
     syncEmployeeController,
@@ -217,6 +218,12 @@ apiRouter.post(
     authMiddleware,
     requireRole("Administrator", "Owner", "Manager"),
     testEmployeeScanController
+);
+apiRouter.post(
+    "/v1/employees/:employeeId/mark-in-office",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager"),
+    markEmployeeInOfficeController
 );
 apiRouter.post(
     "/v1/employees/:employeeId/mark-left",
