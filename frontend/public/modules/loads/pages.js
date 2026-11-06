@@ -15,6 +15,22 @@ window.GreenOSModules = window.GreenOSModules || {};
     ],
 
     openById: function (shipmentLeadId, tab) {
+      var nav = window.GreenOSShell || window.GreenOS;
+      var role =
+        (nav && nav.role && nav.role()) ||
+        (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
+        "";
+      // Accounting has no Loads module — open the Accounting load profile instead.
+      if (role === "Accounting") {
+        if (
+          window.GreenOSModules &&
+          window.GreenOSModules.accounting &&
+          typeof window.GreenOSModules.accounting.openById === "function"
+        ) {
+          window.GreenOSModules.accounting.openById(shipmentLeadId);
+        }
+        return;
+      }
       try {
         sessionStorage.setItem("gos_open_load_id", shipmentLeadId);
         sessionStorage.setItem("gos_viewing_load_id", shipmentLeadId);
@@ -22,11 +38,6 @@ window.GreenOSModules = window.GreenOSModules || {};
       } catch (e) {}
       this._loadId = shipmentLeadId;
       if (tab) this._tab = tab;
-      var nav = window.GreenOSShell || window.GreenOS;
-      var role =
-        (nav && nav.role && nav.role()) ||
-        (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
-        "";
       if (nav && typeof nav.navigate === "function") {
         var detail = { type: "load", id: shipmentLeadId, tab: tab || "general" };
         if (role === "Broker") nav.navigate("broker", "loads", { detail: detail });
@@ -127,6 +138,21 @@ window.GreenOSModules = window.GreenOSModules || {};
   });
 
   window.GreenOSOpenLoad = function (id, tab) {
+    var role =
+      (window.GreenOSShell &&
+        window.GreenOSShell.role &&
+        window.GreenOSShell.role()) ||
+      (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
+      "";
+    if (
+      role === "Accounting" &&
+      window.GreenOSModules &&
+      window.GreenOSModules.accounting &&
+      typeof window.GreenOSModules.accounting.openById === "function"
+    ) {
+      window.GreenOSModules.accounting.openById(id);
+      return;
+    }
     window.GreenOSModules.loads.openById(id, tab);
   };
 })();

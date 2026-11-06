@@ -2222,6 +2222,21 @@ window.GreenOSModules.crm = {
       modal.querySelector("#crm-open-load")?.addEventListener("click", function () {
         modal.classList.add("hidden");
         modal.innerHTML = "";
+        var role =
+          (window.GreenOSShell &&
+            window.GreenOSShell.role &&
+            window.GreenOSShell.role()) ||
+          (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
+          "";
+        if (
+          role === "Accounting" &&
+          window.GreenOSModules &&
+          window.GreenOSModules.accounting &&
+          typeof window.GreenOSModules.accounting.openById === "function"
+        ) {
+          window.GreenOSModules.accounting.openById(id);
+          return;
+        }
         if (typeof window.GreenOSOpenLoad === "function") {
           window.GreenOSOpenLoad(id, "general");
         } else {

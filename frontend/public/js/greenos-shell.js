@@ -867,7 +867,9 @@
       }
       if (type === "LOAD" || (meta.hasLoad && meta.shipmentLeadId)) {
         const id = meta.shipmentLeadId || item.id;
-        if (this.canAccessModule("dispatch")) {
+        if (role === "Accounting") {
+          this.openAccountingLoad(id);
+        } else if (this.canAccessModule("dispatch")) {
           this.navigate("dispatch", "active-loads", {
             detail: { type: "load", id: id },
           });
@@ -895,10 +897,14 @@
         }
         if (meta.shipmentLeadId) {
           if (meta.hasLoad) {
-            const mod = this.canAccessModule("dispatch") ? "dispatch" : "loads";
-            this.navigate(mod, "active-loads", {
-              detail: { type: "load", id: meta.shipmentLeadId },
-            });
+            if (role === "Accounting") {
+              this.openAccountingLoad(meta.shipmentLeadId);
+            } else {
+              const mod = this.canAccessModule("dispatch") ? "dispatch" : "loads";
+              this.navigate(mod, "active-loads", {
+                detail: { type: "load", id: meta.shipmentLeadId },
+              });
+            }
           } else {
             this.openGlobalSearchShipment(meta.shipmentLeadId);
           }
@@ -930,9 +936,26 @@
       }
     },
 
+    openAccountingLoad(shipmentLeadId) {
+      if (!shipmentLeadId) return;
+      if (
+        window.GreenOSModules &&
+        window.GreenOSModules.accounting &&
+        typeof window.GreenOSModules.accounting.openById === "function"
+      ) {
+        window.GreenOSModules.accounting.openById(shipmentLeadId);
+        return;
+      }
+      this.navigate("accounting");
+    },
+
     openGlobalSearchShipment(shipmentLeadId) {
       if (!shipmentLeadId) return;
       const role = this.role();
+      if (role === "Accounting") {
+        this.openAccountingLoad(shipmentLeadId);
+        return;
+      }
       if (role === "Broker") this.navigate("broker", "shipments");
       else if (this.canAccessModule("crm")) this.navigate("crm", "shipments");
       else if (this.canAccessModule("shipments")) this.navigate("shipments");
