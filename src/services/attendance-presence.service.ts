@@ -74,33 +74,27 @@ export async function getEmployeePresenceSessionsMap(
     return result;
 }
 
+/**
+ * True when the Live Board would show this presence session as In Office.
+ * Do not apply a second "stale after overnight OT" filter here — that disagreed
+ * with the board during the Yerevan 17:00–01:00 shift whenever TIMEZONE was
+ * America/Los_Angeles (YE evening = LA morning carry-over after 04:00 OT end),
+ * so people like Alen showed In Office but sat in "Not in the queue".
+ */
+export function presenceSessionIsInOffice(
+    session: { currentStatus?: string | null } | null | undefined
+): boolean {
+    return session?.currentStatus === "INSIDE_OFFICE";
+}
+
 export async function getInOfficeEmployeeIds(employeeIds: string[]): Promise<Set<string>> {
     const sessions = await getEmployeePresenceSessionsMap(employeeIds);
     const inOffice = new Set<string>();
-    const now = new Date();
 
     for (const [employeeId, session] of sessions) {
-        if (session?.currentStatus !== "INSIDE_OFFICE") continue;
-
-        // Always derive the shift window from workDate + configured timezone.
-        // Do not trust session.scheduledStart/End — they may have been written
-        // under a wrong TIMEZONE (e.g. Asia/Yerevan) and would open Instant Alerts early.
-        const bounds = getAttendanceDayBounds(session.workDate, config.timezone);
-        const overnightOtEnd = new Date(bounds.scheduledEnd.getTime() + 2 * 60 * 60 * 1000);
-
-        const lastActivityAt = session.lastActivity
-            ? new Date(session.lastActivity).getTime()
-            : 0;
-        const freshCheckIn =
-            lastActivityAt > 0 && now.getTime() - lastActivityAt < 12 * 60 * 60 * 1000;
-
-        // After overnight OT ends, drop stuck INSIDE without recent activity.
-        // During the workday (including morning before 17:00), Live Board INSIDE_OFFICE
-        // must match Instant Alert eligibility — otherwise the only In Office broker
-        // (e.g. Lia) never receives shipments.
-        if (now > overnightOtEnd && !freshCheckIn) continue;
-
-        inOffice.add(employeeId);
+        if (presenceSessionIsInOffice(session)) {
+            inOffice.add(employeeId);
+        }
     }
     return inOffice;
 }
