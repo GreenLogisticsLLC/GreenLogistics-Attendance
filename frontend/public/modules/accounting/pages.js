@@ -1719,14 +1719,14 @@ window.GreenOSModules.accounting = {
         self.esc(self.formatDay(lane.deliveryDay)) +
         "</strong></span></div>" +
         "</div>" +
-        '<div class="acc-profile-nav">' +
-        '<button type="button" class="btn-secondary" id="acc-prev-load"' +
+        '<div class="acc-profile-nav" aria-label="Load navigation">' +
+        '<button type="button" class="btn-secondary" id="acc-prev-load" title="Previous Load"' +
         (neighbors.prev ? "" : " disabled") +
-        ">Previous Load</button>" +
-        '<button type="button" class="btn-secondary" id="acc-next-load"' +
+        ">Prev</button>" +
+        '<button type="button" class="btn-secondary" id="acc-next-load" title="Next Load"' +
         (neighbors.next ? "" : " disabled") +
-        ">Next Load</button>" +
-        '<button type="button" class="btn-secondary" id="acc-profile-close">Close</button>' +
+        ">Next</button>" +
+        '<button type="button" class="btn-secondary" id="acc-profile-close" title="Close">Close</button>' +
         "</div></div>" +
         '<div class="acc-broker-bar">' +
         '<div class="acc-quick-item acc-quick-broker"><span class="acc-quick-label">Broker</span><strong>' +
