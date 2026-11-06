@@ -812,7 +812,10 @@ export class LoadDocumentsService {
         return updated;
     }
 
-    /** Store an uploaded Customer Paid / Carrier Paid proof on the Load. */
+    /**
+     * Store an uploaded Accounting file on the Load:
+     * payment proofs, customer invoice, or carrier invoice.
+     */
     async uploadProof(input: {
         shipmentLeadId: string;
         docType: string;
@@ -822,10 +825,19 @@ export class LoadDocumentsService {
         tempPath: string;
     }) {
         const docType = assertDocType(input.docType);
-        if (docType !== "CUSTOMER_PAID_PROOF" && docType !== "CARRIER_PAID_PROOF") {
-            throw Object.assign(new Error("This upload is only for payment proof documents"), {
-                status: 422,
-            });
+        const allowedUpload = new Set([
+            "CUSTOMER_PAID_PROOF",
+            "CARRIER_PAID_PROOF",
+            "CUSTOMER_INVOICE",
+            "CARRIER_INVOICE",
+        ]);
+        if (!allowedUpload.has(docType)) {
+            throw Object.assign(
+                new Error(
+                    "This upload is only for invoices or payment proof documents"
+                ),
+                { status: 422 }
+            );
         }
         const lead = await prisma.shipmentLead.findUnique({
             where: { shipmentLeadId: input.shipmentLeadId },
@@ -885,9 +897,20 @@ export class LoadDocumentsService {
             },
         });
 
+        const eventType =
+            docType === "CUSTOMER_INVOICE"
+                ? "CUSTOMER_INVOICE_GENERATED"
+                : docType === "CARRIER_INVOICE"
+                  ? "CARRIER_INVOICE_GENERATED"
+                  : "DOCUMENT_GENERATED";
+        const timelineStage =
+            docType === "CUSTOMER_INVOICE"
+                ? "CUSTOMER_INVOICE_GENERATED"
+                : "LOAD_CREATED";
+
         await domainEventEngine.emit({
             shipmentLeadId: input.shipmentLeadId,
-            eventType: "DOCUMENT_GENERATED",
+            eventType,
             title: `${title} uploaded`,
             message: `${title} saved on Load ${lead.loadNumber}`,
             actorUserId: input.actorUserId,
@@ -897,7 +920,7 @@ export class LoadDocumentsService {
                 version,
                 fileName,
             },
-            timelineStage: "LOAD_CREATED",
+            timelineStage,
         });
         return row;
     }
