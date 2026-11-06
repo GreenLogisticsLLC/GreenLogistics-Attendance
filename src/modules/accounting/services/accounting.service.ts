@@ -418,6 +418,11 @@ export class AccountingService {
         const customerInvoice = documents.find(
             (doc) => String(doc.docType || "").toUpperCase() === "CUSTOMER_INVOICE"
         );
+        const customerAgreement = documents.find(
+            (doc) =>
+                String(doc.docType || "").toUpperCase() === "CUSTOMER_AGREEMENT" &&
+                Boolean(doc.openUrl)
+        );
         const carrierInvoice = documents.find(
             (doc) => String(doc.docType || "").toUpperCase() === "CARRIER_INVOICE"
         );
@@ -479,6 +484,7 @@ export class AccountingService {
                 paymentStatus: s.paymentStatus || (s.customerPaidAt ? "PAID" : "UNPAID"),
                 paidAt: s.customerPaidAt,
                 invoiceDoc: customerInvoice || null,
+                agreementDoc: customerAgreement || null,
             },
             carrier: {
                 name: s.carrierName,

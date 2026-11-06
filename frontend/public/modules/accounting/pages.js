@@ -674,15 +674,24 @@ window.GreenOSModules.accounting = {
   },
 
   /** All broker + carrier documents for this load (API already merged). */
-  profileDocumentsHtml(docs) {
+  isCustomerDoc(doc) {
+    var t = String((doc && doc.docType) || "").toUpperCase();
+    return t === "CUSTOMER_AGREEMENT" || t === "CUSTOMER_INVOICE" || t === "CUSTOMER_PAID_PROOF";
+  },
+
+  profileDocumentsHtml(docs, emptyText) {
     var self = this;
     var rows = docs || [];
     if (!rows.length) {
-      return '<li class="gos-muted" style="padding:0.4rem 0">No documents uploaded for this load yet.</li>';
+      return (
+        '<li class="gos-muted" style="padding:0.4rem 0">' +
+        self.esc(emptyText || "No documents uploaded for this load yet.") +
+        "</li>"
+      );
     }
     return rows
       .map(function (doc) {
-        var ready = self.docReady(doc);
+        var ready = self.docReady(doc) && Boolean(doc.openUrl);
         var label = doc.label || doc.docType || "Document";
         var who = doc.uploadedBy || (doc.source === "carrier" ? "Carrier" : "Broker");
         var actions = "";
@@ -695,6 +704,14 @@ window.GreenOSModules.accounting = {
             '" data-mime="' +
             self.esc(doc.mimeType || "application/pdf") +
             '" title="View">View</button>';
+          actions +=
+            '<button type="button" class="acc-doc-icon acc-doc-file" data-url="' +
+            self.esc(doc.openUrl) +
+            '" data-name="' +
+            self.esc(doc.fileName || label) +
+            '" data-mime="' +
+            self.esc(doc.mimeType || "application/pdf") +
+            '" data-download="1" title="Download">Download</button>';
         }
         if (doc.source === "load") {
           actions +=
@@ -1228,7 +1245,7 @@ window.GreenOSModules.accounting = {
     }
   },
 
-  async openDocumentFile(url, filename, mime) {
+  async openDocumentFile(url, filename, mime, asDownload) {
     if (!url) return;
     var token = "";
     try {
@@ -1249,7 +1266,7 @@ window.GreenOSModules.accounting = {
       }
       var type = headerType;
       var hinted = String(mime || "").toLowerCase();
-      var name = String(filename || "");
+      var name = String(filename || "document.pdf");
       if (!type || type === "application/octet-stream") type = hinted || "application/pdf";
       if (hinted.indexOf("pdf") >= 0 || /\.pdf$/i.test(name) || type === "application/pdf" || type === "application/x-pdf") {
         type = "application/pdf";
@@ -1257,6 +1274,18 @@ window.GreenOSModules.accounting = {
       var bytes = await res.arrayBuffer();
       var blob = new Blob([bytes], { type: type || "application/pdf" });
       var obj = URL.createObjectURL(blob);
+      if (asDownload) {
+        var a = document.createElement("a");
+        a.href = obj;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () {
+          URL.revokeObjectURL(obj);
+        }, 1500);
+        return;
+      }
       var opened = window.open(obj, "_blank", "noopener");
       if (!opened) alert("Allow pop-ups to view the PDF.");
     } catch (err) {
@@ -1287,12 +1316,29 @@ window.GreenOSModules.accounting = {
       var loadNo = ident.loadNumber || id;
       var neighbors = self.neighborLoadIds(id);
       var allDocs = d.documents || [];
-      var readyCount = allDocs.filter(function (doc) {
-        return self.docReady(doc);
+      var customerDocs = allDocs.filter(function (doc) {
+        return self.isCustomerDoc(doc);
+      });
+      var carrierDocs = allDocs.filter(function (doc) {
+        return !self.isCustomerDoc(doc);
+      });
+      var custReady = customerDocs.filter(function (doc) {
+        return self.docReady(doc) && doc.openUrl;
       }).length;
-      var docsHtml = self.profileDocumentsHtml(allDocs);
+      var carrierReady = carrierDocs.filter(function (doc) {
+        return self.docReady(doc) && doc.openUrl;
+      }).length;
+      var customerDocsHtml = self.profileDocumentsHtml(
+        customerDocs,
+        "No customer documents yet."
+      );
+      var docsHtml = self.profileDocumentsHtml(
+        carrierDocs,
+        "No carrier / load documents yet."
+      );
 
       var custInvoice = cust.invoiceDoc;
+      var custAgreement = cust.agreementDoc;
       var carrInvoice = carr.invoiceDoc;
       var custPayStatus = String(cust.paymentStatus || "UNPAID").toUpperCase();
       var carrPayStatus = String(carr.paymentStatus || "UNPAID").toUpperCase();
@@ -1304,12 +1350,6 @@ window.GreenOSModules.accounting = {
         Number.isFinite(custRateNum) && Number.isFinite(carrRateNum)
           ? custRateNum - carrRateNum
           : null;
-      var docTone =
-        String(acc.docStatus || "").toUpperCase() === "VERIFIED"
-          ? "ok"
-          : String(acc.docStatus || "").toUpperCase().indexOf("CORRECTION") >= 0
-            ? "bad"
-            : "warn";
 
       var toolbar = "";
       toolbar +=
@@ -1320,6 +1360,21 @@ window.GreenOSModules.accounting = {
       }
       toolbar +=
         '<button type="button" class="btn-secondary" data-act="note">Add Accounting Note</button>';
+
+      var agreementActions = "";
+      if (custAgreement && custAgreement.openUrl) {
+        agreementActions =
+          '<button type="button" class="btn-secondary acc-doc-file" data-url="' +
+          self.esc(custAgreement.openUrl) +
+          '" data-name="' +
+          self.esc(custAgreement.fileName || "customer-agreement.pdf") +
+          '" data-mime="' +
+          self.esc(custAgreement.mimeType || "application/pdf") +
+          '" data-download="1">Download agreement</button>';
+      } else {
+        agreementActions =
+          '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="CUSTOMER_AGREEMENT">Upload agreement</button>';
+      }
 
       host.innerHTML =
         '<div class="acc-profile">' +
@@ -1348,31 +1403,32 @@ window.GreenOSModules.accounting = {
         ">Next Load</button>" +
         '<button type="button" class="btn-secondary" id="acc-profile-close">Close</button>' +
         "</div></div>" +
-        '<div class="acc-quick-bar">' +
+        '<div class="acc-broker-bar">' +
         '<div class="acc-quick-item acc-quick-broker"><span class="acc-quick-label">Broker</span><strong>' +
         self.esc(ident.brokerName || "—") +
         '</strong><div class="acc-profit-block"><span class="acc-profit-label">PROFIT</span><span class="acc-profit-value">' +
         self.esc(self.money(brokerProfit)) +
-        "</span></div></div>" +
-        '<div class="acc-quick-item acc-quick-cust-pay"><span class="acc-quick-label">Customer Payment Status</span>' +
+        "</span></div></div></div>" +
+        '<div class="acc-status-grid">' +
+        '<section class="acc-card acc-status-card acc-status-cust-pay"><h3>Customer Payment Status</h3>' +
         self.pill(custPayStatus, custPayTone) +
         '<div class="acc-carrier-pay-meta">Outstanding: <strong>' +
         self.money(cust.outstanding) +
         "</strong></div>" +
         '<div class="acc-carrier-pay-meta">Received: <strong>' +
         self.money(cust.amountReceived) +
-        "</strong></div></div>" +
-        '<div class="acc-quick-item acc-quick-pod"><span class="acc-quick-label">POD Status</span>' +
+        "</strong></div></section>" +
+        '<section class="acc-card acc-status-card acc-status-pod"><h3>POD Status</h3>' +
         self.pill(String(pod.status || "PENDING").toUpperCase(), pod.document ? "ok" : "warn") +
-        '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="POD">Upload POD</button></div>' +
-        '<div class="acc-quick-item acc-quick-carrier-pay"><span class="acc-quick-label">Carrier Payment Status</span>' +
+        '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="POD">Upload POD</button></section>' +
+        '<section class="acc-card acc-status-card acc-status-carrier-pay"><h3>Carrier Payment Status</h3>' +
         self.pill(carrPayStatus, carrPayTone) +
         '<div class="acc-carrier-pay-meta">Outstanding: <strong>' +
         self.money(carr.outstanding) +
         "</strong></div>" +
         '<div class="acc-carrier-pay-meta">Paid: <strong>' +
         self.money(carr.amountPaid) +
-        "</strong></div></div>" +
+        "</strong></div></section>" +
         "</div>" +
         '<div class="acc-profile-grid">' +
         '<section class="acc-card"><h3>Customer</h3><div class="acc-card-name">' +
@@ -1400,7 +1456,10 @@ window.GreenOSModules.accounting = {
         "</strong></div>" +
         '<div class="acc-kv"><span>Outstanding</span><strong>' +
         self.money(cust.outstanding) +
-        "</strong></div></section>" +
+        "</strong></div>" +
+        '<div class="acc-agreement-row">' +
+        agreementActions +
+        "</div></section>" +
         '<section class="acc-card"><h3>Carrier</h3><div class="acc-card-name">' +
         self.esc(carr.name || "—") +
         '</div><div class="acc-kv"><span>Rate</span><strong>' +
@@ -1418,36 +1477,20 @@ window.GreenOSModules.accounting = {
         '<div class="acc-kv"><span>Status</span>' +
         self.pill(String(carr.paymentStatus || "UNPAID").toUpperCase(), carr.paymentStatus === "PAID" ? "ok" : "muted") +
         "</div></section>" +
-        '<section class="acc-card"><div class="acc-card-head"><h3>Documents</h3><span class="gos-muted">' +
-        readyCount +
+        '<section class="acc-card"><div class="acc-card-head"><h3>Customer Documents</h3><span class="gos-muted">' +
+        custReady +
         "/" +
-        allDocs.length +
+        customerDocs.length +
+        "</span></div><ul class=\"acc-doc-list\">" +
+        customerDocsHtml +
+        "</ul></section>" +
+        '<section class="acc-card"><div class="acc-card-head"><h3>Documents</h3><span class="gos-muted">' +
+        carrierReady +
+        "/" +
+        carrierDocs.length +
         " on this load</span></div><ul class=\"acc-doc-list\">" +
         docsHtml +
-        "</ul></section>" +
-        '<section class="acc-card"><h3>Accounting</h3>' +
-        '<div class="acc-kv"><span>Doc Status</span>' +
-        self.pill(String(acc.docStatus || "PENDING").toUpperCase(), docTone) +
-        "</div>" +
-        '<div class="acc-kv"><span>Financial Verified</span><strong>' +
-        self.yesNo(acc.financialVerified) +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Ready for Billing</span><strong>' +
-        self.yesNo(acc.readyForBilling) +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Ready Carrier Pay</span><strong>' +
-        self.yesNo(acc.readyForCarrierPayment) +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Can Pay Carrier</span>' +
-        (acc.canPayCarrier
-          ? self.pill("Yes", "ok")
-          : self.pill("Blocked", "bad")) +
-        "</div>" +
-        '<label class="acc-notes-label">Notes<textarea id="acc-notes-box" rows="4" placeholder="Add accounting notes…">' +
-        self.esc(acc.notes || "") +
-        "</textarea></label>" +
-        '<button type="button" class="btn-secondary" id="acc-save-notes" style="width:auto;margin-top:0.45rem">Save notes</button>' +
-        "</section></div>" +
+        "</ul></section></div>" +
         '<div class="acc-invoice-grid">' +
         '<section class="acc-card acc-drop-card"><h3>Customer Invoice (For Billing)</h3>' +
         (custInvoice && custInvoice.openUrl
@@ -1710,7 +1753,8 @@ window.GreenOSModules.accounting = {
           self.openDocumentFile(
             btn.getAttribute("data-url"),
             btn.getAttribute("data-name"),
-            btn.getAttribute("data-mime")
+            btn.getAttribute("data-mime"),
+            btn.getAttribute("data-download") === "1"
           );
         });
       });

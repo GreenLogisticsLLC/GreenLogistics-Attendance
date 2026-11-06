@@ -10,6 +10,7 @@ const LABEL: Record<string, string> = {
     W9: "W-9",
     INSURANCE: "Insurance",
     COI: "Certificate of Insurance",
+    CUSTOMER_AGREEMENT: "Customer Agreement",
     CUSTOMER_INVOICE: "Customer Invoice",
     CARRIER_INVOICE: "Carrier Invoice",
     LOR: "Letter of Release",
@@ -19,6 +20,7 @@ const LABEL: Record<string, string> = {
 };
 
 const ORDER = [
+    "CUSTOMER_AGREEMENT",
     "RATE_CONFIRMATION",
     "BOL",
     "POD",
@@ -35,6 +37,13 @@ const ORDER = [
     "OTHER",
     "ATTACHMENT",
 ];
+
+/** Docs shown under Customer Documents in Accounting. */
+export const CUSTOMER_DOC_TYPES = new Set([
+    "CUSTOMER_AGREEMENT",
+    "CUSTOMER_INVOICE",
+    "CUSTOMER_PAID_PROOF",
+]);
 
 /** Generated load sheets that are not part of the carrier packet. */
 const HIDDEN_LOAD_TYPES = new Set(["DISPATCH_SHEET", "LOAD_SUMMARY"]);
@@ -155,7 +164,28 @@ export function buildAccountingDocuments(input: {
         });
     }
 
+    const hasCustomerAgreement = loadRows.some(
+        (row) => String(row.docType || "").toUpperCase() === "CUSTOMER_AGREEMENT"
+    );
+    if (!hasCustomerAgreement) {
+        loadRows.push({
+            documentId: "",
+            source: "load",
+            uploadedBy: "Broker",
+            docType: "CUSTOMER_AGREEMENT",
+            label: accountingDocLabel("CUSTOMER_AGREEMENT"),
+            status: "",
+            fileName: null,
+            mimeType: "application/pdf",
+            openUrl: null,
+        });
+    }
+
     return [...loadRows, ...carrierRows].sort(
         (a, b) => rank(a.docType) - rank(b.docType) || a.label.localeCompare(b.label)
     );
+}
+
+export function isCustomerAccountingDoc(docType: string): boolean {
+    return CUSTOMER_DOC_TYPES.has(String(docType || "").toUpperCase());
 }

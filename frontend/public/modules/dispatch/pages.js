@@ -2418,6 +2418,32 @@ window.GreenOSModules["dispatch"] = {
         self.customerPaymentOptions(p.customerPayment && p.customerPayment.method) +
         "</select></label>" +
         "</div>" +
+        (function () {
+          var docs = data.documents || [];
+          var agreement = null;
+          for (var i = 0; i < docs.length; i++) {
+            if (String(docs[i].docType || "").toUpperCase() === "CUSTOMER_AGREEMENT") {
+              agreement = docs[i];
+              break;
+            }
+          }
+          var actions =
+            '<button type="button" class="btn-secondary" id="ld-upload-customer-agreement">' +
+            (agreement && agreement.fileUrl ? "Replace agreement" : "Upload agreement") +
+            "</button>";
+          if (agreement && agreement.fileUrl) {
+            actions =
+              '<button type="button" class="btn-secondary" id="ld-download-customer-agreement">Download agreement</button>' +
+              actions;
+          }
+          return (
+            "<h3>Customer agreement</h3>" +
+            '<p class="gos-muted">Same as carrier packet — Accounting sees this agreement on the load.</p>' +
+            '<div class="load-doc-actions" style="margin-bottom:1rem">' +
+            actions +
+            "</div>"
+          );
+        })() +
         moneyPanel +
         "<h3>Emails — Broker Gmail / Customer / Carrier</h3>" +
         '<p class="gos-muted">These emails go on Rate Con and BOL. Fill them as soon as the Load is created.</p>' +
@@ -2497,6 +2523,33 @@ window.GreenOSModules["dispatch"] = {
           updateProfitView();
         });
         main.querySelector("#ld-carr-price")?.addEventListener("input", updateProfitView);
+      }
+
+      var uploadAgreementBtn = main.querySelector("#ld-upload-customer-agreement");
+      if (uploadAgreementBtn) {
+        uploadAgreementBtn.addEventListener("click", function () {
+          self.uploadCustomerAgreement(main, id, "general");
+        });
+      }
+      var downloadAgreementBtn = main.querySelector("#ld-download-customer-agreement");
+      if (downloadAgreementBtn) {
+        downloadAgreementBtn.addEventListener("click", function () {
+          var docs = data.documents || [];
+          var agreement = null;
+          for (var i = 0; i < docs.length; i++) {
+            if (String(docs[i].docType || "").toUpperCase() === "CUSTOMER_AGREEMENT") {
+              agreement = docs[i];
+              break;
+            }
+          }
+          if (!agreement || !agreement.fileUrl) {
+            alert("Customer agreement is not uploaded yet");
+            return;
+          }
+          self.openPdf(agreement.fileUrl, false).catch(function (err) {
+            alert(err.message || err);
+          });
+        });
       }
 
       main.querySelector("#ld-save-general")?.addEventListener("click", async function () {
@@ -3352,12 +3405,62 @@ window.GreenOSModules["dispatch"] = {
     }
   },
 
+  uploadCustomerAgreement(host, loadId, tab) {
+    var self = this;
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".pdf,image/*";
+    input.style.display = "none";
+    document.body.appendChild(input);
+    input.addEventListener("change", async function () {
+      var file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      try {
+        var token = self.authToken();
+        var form = new FormData();
+        form.append("file", file);
+        if (token) form.append("sessionToken", token);
+        var headers = { Accept: "application/json" };
+        if (token) {
+          headers.Authorization = "Bearer " + token;
+          headers["X-GreenOS-Token"] = token;
+        }
+        var res = await fetch(
+          "/api/loads/" + encodeURIComponent(loadId) + "/documents/CUSTOMER_AGREEMENT/upload",
+          { method: "POST", cache: "no-store", headers: headers, body: form }
+        );
+        var json = await res.json().catch(function () {
+          return { success: false, message: "Bad response" };
+        });
+        if (!res.ok || json.success === false) {
+          throw new Error(json.message || "Upload failed (" + res.status + ")");
+        }
+        await self.openLoad(
+          host.closest(".load-tms-body") || host,
+          loadId,
+          tab || "documents"
+        );
+      } catch (err) {
+        alert(err.message || "Could not upload customer agreement");
+      }
+    });
+    input.click();
+  },
+
   renderDocumentsTab(main, data) {
     var self = this;
     var id = data.identity.shipmentLeadId;
     var c = data.carrier || {};
     var docs = data.documents || [];
     var pipeline = [
+      {
+        type: "CUSTOMER_AGREEMENT",
+        label: "Customer Agreement",
+        createLabel: "Upload",
+        hint: "Upload signed customer agreement for Accounting",
+        uploadOnly: true,
+      },
       {
         type: "RATE_CONFIRMATION",
         label: "Rate Confirmation",
@@ -3439,8 +3542,10 @@ window.GreenOSModules["dispatch"] = {
                 self.esc(dl) +
                 '">Download</button>'
               : "") +
-            (slot.type === "POD"
-              ? '<button type="button" class="btn-secondary load-gen-doc" data-type="POD">Replace / Upload</button>'
+            (slot.type === "POD" || slot.uploadOnly
+              ? '<button type="button" class="btn-secondary load-gen-doc" data-type="' +
+                self.esc(slot.type) +
+                '">Replace / Upload</button>'
               : '<button type="button" class="btn-secondary load-edit-doc" data-type="' +
                 self.esc(slot.type) +
                 '">Edit</button>' +
@@ -3453,7 +3558,7 @@ window.GreenOSModules["dispatch"] = {
             '<button type="button" class="btn-secondary load-hist-doc" data-type="' +
             self.esc(slot.type) +
             '">History</button>' +
-            (d.documentId
+            (d.documentId && !slot.uploadOnly
               ? '<button type="button" class="btn-secondary load-sent-doc" data-id="' +
                 self.esc(d.documentId) +
                 '">Email / Sent</button>'
@@ -3532,6 +3637,10 @@ window.GreenOSModules["dispatch"] = {
           }
           self.showPodWizard(main, id, data, "GENERATED");
           self.focusPodUploadSection(main);
+          return;
+        }
+        if (docType === "CUSTOMER_AGREEMENT") {
+          self.uploadCustomerAgreement(main, id);
           return;
         }
         if (isLocked) {
