@@ -4089,6 +4089,54 @@ button.acc-doc-file {
   padding: 0.2rem 0.55rem;
 }
 
+.acc-table-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 0.75rem;
+  align-items: flex-end;
+  margin: 0 0 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--gos-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gos-surface2) 88%, transparent);
+}
+
+.acc-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 8.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--gos-muted);
+}
+
+.acc-filter-field input {
+  min-width: 9.5rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--gos-border);
+  background: var(--gos-surface);
+  color: var(--gos-text);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.acc-filter-field input:focus {
+  outline: none;
+  border-color: var(--gos-accent);
+  box-shadow: 0 0 0 3px var(--gos-accent-soft);
+}
+
+.acc-filter-clear {
+  margin-left: auto;
+}
+
 button.acc-load-link {
   appearance: none;
   background: none;

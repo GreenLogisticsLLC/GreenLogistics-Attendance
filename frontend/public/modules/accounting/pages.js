@@ -137,6 +137,151 @@ window.GreenOSModules.accounting = {
     return "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
 
+  /** Calendar day for accounting tables (DD.MM.YYYY). */
+  formatDay(iso) {
+    if (!iso) return "—";
+    try {
+      var d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "—";
+      return d.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+    } catch (e) {
+      return "—";
+    }
+  },
+
+  /** YYYY-MM-DD for date-input filter matching. */
+  dayKey(iso) {
+    if (!iso) return "";
+    try {
+      var d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "";
+      var y = d.getFullYear();
+      var m = String(d.getMonth() + 1).padStart(2, "0");
+      var day = String(d.getDate()).padStart(2, "0");
+      return y + "-" + m + "-" + day;
+    } catch (e) {
+      return "";
+    }
+  },
+
+  getTableFilters() {
+    return this._tableFilters || { load: "", pickupDay: "", deliveryDay: "", broker: "" };
+  },
+
+  setTableFilters(next) {
+    this._tableFilters = Object.assign(
+      { load: "", pickupDay: "", deliveryDay: "", broker: "" },
+      next || {}
+    );
+  },
+
+  rowMatchesFilters(r, filters) {
+    var f = filters || this.getTableFilters();
+    var loadQ = String(f.load || "").trim().toLowerCase();
+    if (loadQ) {
+      var loadHay = String(r.loadNumber || r.greenOsShipmentId || "").toLowerCase();
+      if (loadHay.indexOf(loadQ) < 0) return false;
+    }
+    var pickupQ = String(f.pickupDay || "").trim();
+    if (pickupQ && this.dayKey(r.pickupDay) !== pickupQ) return false;
+    var deliveryQ = String(f.deliveryDay || "").trim();
+    if (deliveryQ && this.dayKey(r.deliveryDay) !== deliveryQ) return false;
+    var brokerQ = String(f.broker || "").trim().toLowerCase();
+    if (brokerQ) {
+      var brokerHay = String(r.brokerName || "").toLowerCase();
+      if (brokerHay.indexOf(brokerQ) < 0) return false;
+    }
+    return true;
+  },
+
+  filterBarHtml() {
+    var f = this.getTableFilters();
+    return (
+      '<div class="acc-table-filters" role="search" aria-label="Filter loads">' +
+      '<label class="acc-filter-field">Load' +
+      '<input type="search" data-acc-filter="load" value="' +
+      this.esc(f.load || "") +
+      '" placeholder="GL…" autocomplete="off"></label>' +
+      '<label class="acc-filter-field">Pickup day' +
+      '<input type="date" data-acc-filter="pickupDay" value="' +
+      this.esc(f.pickupDay || "") +
+      '"></label>' +
+      '<label class="acc-filter-field">Delivery day' +
+      '<input type="date" data-acc-filter="deliveryDay" value="' +
+      this.esc(f.deliveryDay || "") +
+      '"></label>' +
+      '<label class="acc-filter-field">Broker' +
+      '<input type="search" data-acc-filter="broker" value="' +
+      this.esc(f.broker || "") +
+      '" placeholder="Name…" autocomplete="off"></label>' +
+      '<button type="button" class="btn-secondary acc-filter-clear" style="width:auto">Clear</button>' +
+      "</div>"
+    );
+  },
+
+  bindTableFilters(body, allRows, opts) {
+    var self = this;
+    if (!body) return;
+    var options = opts || {};
+    var showQueue = !!options.showQueue;
+    var countEl = options.countEl || null;
+    var totalCount = allRows ? allRows.length : 0;
+
+    function readFilters() {
+      var next = { load: "", pickupDay: "", deliveryDay: "", broker: "" };
+      body.querySelectorAll("[data-acc-filter]").forEach(function (input) {
+        var key = input.getAttribute("data-acc-filter");
+        if (key && Object.prototype.hasOwnProperty.call(next, key)) {
+          next[key] = input.value || "";
+        }
+      });
+      return next;
+    }
+
+    function apply() {
+      self.setTableFilters(readFilters());
+      var filters = self.getTableFilters();
+      var filtered = (allRows || []).filter(function (r) {
+        return self.rowMatchesFilters(r, filters);
+      });
+      var host = body.querySelector("[data-acc-table-host]");
+      if (host) {
+        host.innerHTML = self.shipmentsTableHtml(filtered, {
+          showQueue: showQueue,
+          skipFilterBar: true,
+          allRows: allRows,
+        });
+        self.bindOpenHandlers(body);
+      }
+      if (countEl) {
+        var active =
+          filters.load || filters.pickupDay || filters.deliveryDay || filters.broker;
+        countEl.textContent = active
+          ? filtered.length + " of " + totalCount + " load" + (totalCount === 1 ? "" : "s")
+          : totalCount + " load" + (totalCount === 1 ? "" : "s");
+      }
+    }
+
+    body.querySelectorAll("[data-acc-filter]").forEach(function (input) {
+      input.addEventListener("input", apply);
+      input.addEventListener("change", apply);
+      input.addEventListener("keyup", apply);
+    });
+    var clearBtn = body.querySelector(".acc-filter-clear");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", function () {
+        body.querySelectorAll("[data-acc-filter]").forEach(function (input) {
+          input.value = "";
+        });
+        apply();
+      });
+    }
+  },
+
   /** Customer rate beside carrier rate. A +3% method adds that fee under the rate. */
   paymentsCell(r) {
     var accessorials = Number(r.accessorialCharges);
@@ -626,12 +771,21 @@ window.GreenOSModules.accounting = {
     var self = this;
     var options = opts || {};
     var showQueue = !!options.showQueue;
-    self._tableRows = rows || [];
+    var skipFilterBar = !!options.skipFilterBar;
+    var sourceRows = options.allRows || rows || [];
+    self._tableRows = sourceRows;
+    var displayRows = rows || [];
+    if (!skipFilterBar) {
+      displayRows = sourceRows.filter(function (r) {
+        return self.rowMatchesFilters(r);
+      });
+    }
     var head =
       "<th>Load</th><th>Customer</th><th>Carrier</th>" +
+      "<th>Pickup day</th><th>Delivery day</th>" +
       (showQueue ? "<th>Waiting for</th>" : "<th>Doc status</th><th>Ready</th>") +
       "<th>Broker</th><th>Payments</th><th></th>";
-    var body = rows
+    var bodyRows = displayRows
       .map(function (r) {
         var urgency = self.rowUrgencyClass(r);
         var mid;
@@ -666,6 +820,12 @@ window.GreenOSModules.accounting = {
           "<td>" +
           self.esc(r.carrierName || "—") +
           "</td>" +
+          "<td>" +
+          self.esc(self.formatDay(r.pickupDay)) +
+          "</td>" +
+          "<td>" +
+          self.esc(self.formatDay(r.deliveryDay)) +
+          "</td>" +
           mid +
           "<td>" +
           self.esc(r.brokerName || "—") +
@@ -691,12 +851,25 @@ window.GreenOSModules.accounting = {
         );
       })
       .join("");
-    return (
-      '<div class="emp-users-wrap"><table class="emp-users-table"><thead><tr>' +
+    if (!bodyRows) {
+      var colCount = showQueue ? 9 : 10;
+      bodyRows =
+        '<tr class="acc-filter-empty"><td colspan="' +
+        colCount +
+        '"><p class="gos-muted" style="margin:0.5rem 0">No loads match these filters.</p></td></tr>';
+    }
+    var tableOnly =
+      '<table class="emp-users-table"><thead><tr>' +
       head +
       "</tr></thead><tbody>" +
-      body +
-      "</tbody></table></div>"
+      bodyRows +
+      "</tbody></table>";
+    if (skipFilterBar) return tableOnly;
+    return (
+      self.filterBarHtml() +
+      '<div class="emp-users-wrap" data-acc-table-host>' +
+      tableOnly +
+      "</div>"
     );
   },
 
@@ -815,17 +988,32 @@ window.GreenOSModules.accounting = {
         pendingSection =
           '<p class="gos-muted" style="margin-top:1.25rem">No loads waiting for accounting confirmation.</p>';
       } else {
+        var pendingFilters = self.getTableFilters();
+        var pendingFiltered = pendingRows.filter(function (r) {
+          return self.rowMatchesFilters(r, pendingFilters);
+        });
+        var pendingActive =
+          pendingFilters.load ||
+          pendingFilters.pickupDay ||
+          pendingFilters.deliveryDay ||
+          pendingFilters.broker;
         pendingSection =
           '<div class="acc-pending-section">' +
           '<div class="acc-pending-head">' +
           "<h3>Loads waiting for accounting confirmation</h3>" +
-          '<span class="acc-pending-count">' +
-          pendingRows.length +
-          " load" +
-          (pendingRows.length === 1 ? "" : "s") +
+          '<span class="acc-pending-count" id="acc-pending-count">' +
+          (pendingActive
+            ? pendingFiltered.length +
+              " of " +
+              pendingRows.length +
+              " load" +
+              (pendingRows.length === 1 ? "" : "s")
+            : pendingRows.length +
+              " load" +
+              (pendingRows.length === 1 ? "" : "s")) +
           "</span>" +
           "</div>" +
-          self.shipmentsTableHtml(pendingRows, { showQueue: true }) +
+          self.shipmentsTableHtml(pendingRows, { showQueue: true, allRows: pendingRows }) +
           "</div>";
       }
 
@@ -847,6 +1035,12 @@ window.GreenOSModules.accounting = {
           }
         });
       });
+      if (pendingRows.length) {
+        self.bindTableFilters(body, pendingRows, {
+          showQueue: true,
+          countEl: body.querySelector("#acc-pending-count"),
+        });
+      }
       self.bindOpenHandlers(body);
       if (self._selectedId) {
         self.openShipment(body.querySelector("#acc-detail"), self._selectedId);
@@ -875,8 +1069,9 @@ window.GreenOSModules.accounting = {
         return;
       }
       body.innerHTML =
-        self.shipmentsTableHtml(rows, { showQueue: false }) +
+        self.shipmentsTableHtml(rows, { showQueue: false, allRows: rows }) +
         '<div id="acc-detail" style="margin-top:1.25rem"></div>';
+      self.bindTableFilters(body, rows, { showQueue: false });
       self.bindOpenHandlers(body);
       if (self._selectedId) {
         self.openShipment(body.querySelector("#acc-detail"), self._selectedId);
