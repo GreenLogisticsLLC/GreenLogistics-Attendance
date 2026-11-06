@@ -211,6 +211,7 @@ window.GreenOSModules.customers = {
   customerFormHtml(c) {
     var self = this;
     c = c || {};
+    var sendLoad = c.sendLoadNumber ? " checked" : "";
     return (
       '<div class="load-form-grid">' +
       '<label>Company name * <input id="cu-company" value="' + self.esc(c.companyName || "") + '"></label>' +
@@ -227,6 +228,14 @@ window.GreenOSModules.customers = {
       '<input id="cu-addr" value="' + self.esc(c.billingAddress || "") + '">' +
       "</label>" +
       '<label class="full">Notes <textarea id="cu-notes" rows="3">' + self.esc(c.notes || "") + "</textarea></label>" +
+      '<div class="full cu-options">' +
+      '<label class="cu-check"><input type="checkbox" id="cu-send-load"' +
+      sendLoad +
+      "> Send load number" +
+      '<span class="gos-muted"> — email the GL# from your Gmail when you Create Load</span></label>' +
+      '<label class="cu-check"><input type="checkbox" id="cu-create-after"> Create load after save' +
+      '<span class="gos-muted"> — open Create Load right after this customer is saved</span></label>' +
+      "</div>" +
       "</div>"
     );
   },
@@ -254,6 +263,8 @@ window.GreenOSModules.customers = {
       zip: (root.querySelector("#cu-zip").value || "").trim() || null,
       billingAddress: (root.querySelector("#cu-addr").value || "").trim() || null,
       notes: (root.querySelector("#cu-notes").value || "").trim() || null,
+      sendLoadNumber: Boolean(root.querySelector("#cu-send-load")?.checked),
+      createLoadAfterSave: Boolean(root.querySelector("#cu-create-after")?.checked),
     };
   },
 
@@ -294,6 +305,12 @@ window.GreenOSModules.customers = {
         alert("Company name is required.");
         return;
       }
+      if (payload.sendLoadNumber && !payload.email) {
+        alert("Email is required when Send load number is checked.");
+        return;
+      }
+      var createAfter = payload.createLoadAfterSave;
+      delete payload.createLoadAfterSave;
       try {
         var saved = existing && existing.customerId
           ? await self.api("/" + encodeURIComponent(existing.customerId), {
@@ -302,7 +319,11 @@ window.GreenOSModules.customers = {
             })
           : await self.api("/", { method: "POST", body: JSON.stringify(payload) });
         self._customerId = saved.customerId;
-        self.renderDetail(body, root, saved.customerId);
+        if (createAfter) {
+          self.renderCreateLoad(body, root, saved);
+        } else {
+          self.renderDetail(body, root, saved.customerId);
+        }
       } catch (err) {
         alert(err.message || err);
       }
@@ -424,6 +445,10 @@ window.GreenOSModules.customers = {
       '<label>Miles <input id="cl-miles" type="number" min="0"></label>' +
       '<label>Customer rate $ <input id="cl-rate" inputmode="decimal" placeholder="0.00"></label>' +
       '<label class="full">Special instructions <textarea id="cl-notes" rows="3"></textarea></label>' +
+      '<label class="full cu-check"><input type="checkbox" id="cl-send-load"' +
+      (c.sendLoadNumber ? " checked" : "") +
+      "> Send load number" +
+      '<span class="gos-muted"> — email this GL# from your connected Gmail to the customer</span></label>' +
       "</div>" +
       '<div class="load-actions"><button type="button" class="btn-primary" id="cl-save">Create Load</button>' +
       '<button type="button" class="btn-secondary" id="cl-cancel">Cancel</button></div></div>';
@@ -446,11 +471,18 @@ window.GreenOSModules.customers = {
       var btn = body.querySelector("#cl-save");
       try {
         if (btn) btn.disabled = true;
+        var customerEmail = (body.querySelector("#cl-email").value || "").trim() || null;
+        var sendLoadNumber = Boolean(body.querySelector("#cl-send-load")?.checked);
+        if (sendLoadNumber && !customerEmail) {
+          alert("Customer email is required to send the load number.");
+          if (btn) btn.disabled = false;
+          return;
+        }
         var result = await self.api("/" + encodeURIComponent(c.customerId) + "/loads", {
           method: "POST",
           body: JSON.stringify({
             customerName: (body.querySelector("#cl-cust").value || "").trim(),
-            customerEmail: (body.querySelector("#cl-email").value || "").trim() || null,
+            customerEmail: customerEmail,
             customerPhone: (body.querySelector("#cl-phone").value || "").trim() || null,
             shipmentTitle: (body.querySelector("#cl-title").value || "").trim() || null,
             commodity: (body.querySelector("#cl-title").value || "").trim() || null,
@@ -468,9 +500,25 @@ window.GreenOSModules.customers = {
             miles: body.querySelector("#cl-miles").value || null,
             customerRate: body.querySelector("#cl-rate").value || null,
             specialInstructions: (body.querySelector("#cl-notes").value || "").trim() || null,
+            sendLoadNumber: sendLoadNumber,
           }),
         });
-        alert("Load " + (result.loadNumber || "") + " created.");
+        var msg = "Load " + (result.loadNumber || "") + " created.";
+        if (result.loadNumberEmail) {
+          if (result.loadNumberEmail.sent) {
+            msg +=
+              "\nLoad number emailed to " +
+              (result.loadNumberEmail.to || customerEmail) +
+              " from " +
+              (result.loadNumberEmail.from || "your Gmail") +
+              ".";
+          } else if (sendLoadNumber) {
+            msg +=
+              "\nLoad number email was not sent: " +
+              (result.loadNumberEmail.error || "unknown error");
+          }
+        }
+        alert(msg);
         if (typeof window.GreenOSOpenLoad === "function") {
           window.GreenOSOpenLoad(result.shipmentLeadId, "general");
         } else {

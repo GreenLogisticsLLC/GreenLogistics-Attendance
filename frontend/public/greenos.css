@@ -3236,6 +3236,28 @@ tr.crm-row.load-row-no-carrier td:first-child {
 .load-form-grid .cu-same-addr-btn:hover {
   color: var(--gos-text, #0f172a);
 }
+.load-form-grid .cu-options {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+}
+.load-form-grid .cu-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.load-form-grid .cu-check input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--gos-accent, #12d48a);
+}
+.load-form-grid .cu-check .gos-muted {
+  font-weight: 400;
+  font-size: 0.85em;
+}
 .load-form-grid input, .load-form-grid textarea, .load-form-grid select {
   background: var(--gos-surface2);
   border: 1px solid var(--gos-border);
