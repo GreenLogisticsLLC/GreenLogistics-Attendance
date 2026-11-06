@@ -1078,33 +1078,51 @@ export class AssignmentEngine {
     /**
      * Attendance card ENTRY → In Office → join end of assignment queue.
      * Attendance card EXIT → Out of Office → leave queue immediately.
+     * Owner/Manager "Set In Office" passes ownerOverride so day-off and idle
+     * GreenOS clicks do not keep the broker out of New / Other.
      */
-    async onBrokerEnteredOffice(employeeId: string) {
+    async onBrokerEnteredOffice(
+        employeeId: string,
+        options?: { ownerOverride?: boolean }
+    ) {
         const user = await this.findBrokerUserByEmployeeId(employeeId);
         if (!user) return null;
 
-        if ((await this.dayOffEmployeeIds([employeeId])).has(employeeId)) {
+        const ownerOverride = options?.ownerOverride === true;
+        if (!ownerOverride && (await this.dayOffEmployeeIds([employeeId])).has(employeeId)) {
             console.info(
                 `[assignment] ${displayName(user)} arrived after 17:00 Yerevan — Day off, not added to New or Other`
             );
             return null;
         }
 
+        if (ownerOverride) {
+            await this.setOwnerInOfficeOverride(employeeId, true);
+            await prisma.user
+                .update({
+                    where: { userId: user.userId },
+                    data: { greenOsActivityAt: new Date() },
+                })
+                .catch(() => undefined);
+        }
+
         const joinedNew = await this.joinQueue(QUEUE_NEW, user.userId);
         await this.joinQueue(QUEUE_OTHER, user.userId);
-        if (joinedNew.joined) {
+        if (joinedNew.joined || ownerOverride) {
             await this.assignmentLog({
                 assignedUserId: user.userId,
                 assignedEmployeeId: employeeId,
                 eventType: "QUEUE_JOIN",
-                message: `${displayName(user)} In Office → added to New and Other queues (New position ${joinedNew.orderedUserIds.length})`,
+                message: ownerOverride
+                    ? `${displayName(user)} set In Office by Owner/Manager → New and Other queues (New position ${joinedNew.orderedUserIds.length})`
+                    : `${displayName(user)} In Office → added to New and Other queues (New position ${joinedNew.orderedUserIds.length})`,
                 queueSnapshot: JSON.stringify({
                     order: joinedNew.orderedUserIds,
                     nextIndex: joinedNew.nextIndex,
                 }),
             });
             console.log(
-                `[assignment] QUEUE_JOIN ${displayName(user)} — New queue size ${joinedNew.orderedUserIds.length}`
+                `[assignment] QUEUE_JOIN ${displayName(user)}${ownerOverride ? " (owner override)" : ""} — New queue size ${joinedNew.orderedUserIds.length}`
             );
         }
 
@@ -1253,6 +1271,8 @@ export class AssignmentEngine {
     async onBrokerLeftOffice(employeeId: string) {
         const user = await this.findBrokerUserByEmployeeId(employeeId);
         if (!user) return null;
+
+        await this.setOwnerInOfficeOverride(employeeId, false);
 
         const left = await this.leaveQueue(QUEUE_NEW, user.userId);
         await this.leaveQueue(QUEUE_OTHER, user.userId);
@@ -1689,16 +1709,20 @@ export class AssignmentEngine {
 
         const now = new Date();
         const afterHours = isAfterHoursAssignment(now, ASSIGNMENT_TIMEZONE);
+        const ownerOverrides = await this.ownerInOfficeOverrides();
 
         for (const user of users) {
+            const employeeId = this.resolveEmployeeIdSync(user, activeEmployees);
+            const override =
+                Boolean(employeeId) && ownerOverrides.has(employeeId as string);
             if (
                 !options?.forceAllLinked &&
                 !afterHours &&
+                !override &&
                 !receivesNewShipments(user.role.roleName, user.greenOsActivityAt, now)
             ) {
                 continue;
             }
-            const employeeId = this.resolveEmployeeIdSync(user, activeEmployees);
             if (!employeeId) continue;
 
             if (employeeId && !user.employeeId) {
@@ -1766,7 +1790,10 @@ export class AssignmentEngine {
 
         if (pool === "in_office") {
             const dayOff = await this.dayOffEmployeeIds(inOffice.map((entry) => entry.employeeId));
-            const working = inOffice.filter((entry) => !dayOff.has(entry.employeeId));
+            const working = inOffice.filter(
+                (entry) =>
+                    ownerOverrides.has(entry.employeeId) || !dayOff.has(entry.employeeId)
+            );
             if (working.length) {
                 return {
                     eligible: sortBrokersForRoundRobin(working),
@@ -1828,6 +1855,65 @@ export class AssignmentEngine {
             select: { employeeId: true, firstEntry: true },
         });
         return new Set(dayOffEmployeeIdsFromRows(rows, now));
+    }
+
+    /** Owner/Manager Set In Office — stay eligible until Mark Out, even on a day off. */
+    private async ownerInOfficeOverrides(): Promise<Set<string>> {
+        const row = await prisma.setting.findUnique({
+            where: {
+                category_settingKey: {
+                    category: "assignment",
+                    settingKey: "owner_in_office_overrides",
+                },
+            },
+        });
+        if (!row?.settingValue) return new Set();
+        try {
+            const parsed = JSON.parse(row.settingValue) as Record<string, string>;
+            return new Set(Object.keys(parsed || {}));
+        } catch {
+            return new Set();
+        }
+    }
+
+    private async setOwnerInOfficeOverride(employeeId: string, enabled: boolean) {
+        if (!employeeId) return;
+        const key = {
+            category_settingKey: {
+                category: "assignment" as const,
+                settingKey: "owner_in_office_overrides",
+            },
+        };
+        const row = await prisma.setting.findUnique({ where: key });
+        let map: Record<string, string> = {};
+        if (row?.settingValue) {
+            try {
+                map = JSON.parse(row.settingValue) as Record<string, string>;
+            } catch {
+                map = {};
+            }
+        }
+        if (enabled) map[employeeId] = new Date().toISOString();
+        else delete map[employeeId];
+        const value = JSON.stringify(map);
+        if (row) {
+            await prisma.setting.update({
+                where: key,
+                data: {
+                    settingValue: value,
+                    description: "Owner/Manager forced In Office for the shipment queue",
+                },
+            });
+        } else {
+            await prisma.setting.create({
+                data: {
+                    category: "assignment",
+                    settingKey: "owner_in_office_overrides",
+                    settingValue: value,
+                    description: "Owner/Manager forced In Office for the shipment queue",
+                },
+            });
+        }
     }
 
     private resolveEmployeeIdSync(

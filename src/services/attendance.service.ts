@@ -217,7 +217,11 @@ export class AttendanceService {
         // Attendance is the heart of Assignment: In Office ↔ queue join, Out of Office ↔ leave.
         try {
             if (direction === "ENTRY") {
-                await assignmentEngine.onBrokerEnteredOffice(employee.employeeId);
+                const ownerOverride =
+                    input.source === "MANUAL" || input.source === "MANUAL_TEST";
+                await assignmentEngine.onBrokerEnteredOffice(employee.employeeId, {
+                    ownerOverride,
+                });
             } else {
                 await assignmentEngine.onBrokerLeftOffice(employee.employeeId);
             }
@@ -226,6 +230,47 @@ export class AttendanceService {
         }
 
         return { event, session: updatedSession, duplicate: false, direction };
+    }
+
+    /**
+     * Owner/Manager Set In Office from the main Live Board.
+     * Always puts the linked Broker/Team Lead on New + Other queues and lets
+     * them receive shipments (overrides day-off / idle GreenOS click gate).
+     */
+    async markEmployeeInOffice(employeeId: string) {
+        const employee = await employeeRepository.findById(employeeId);
+        if (!employee) {
+            throw new Error("Employee not found");
+        }
+
+        const now = new Date();
+        const { session } = await this.findSessionForEvent(employeeId, now);
+        let currentStatus = session?.currentStatus || "SCHEDULED";
+
+        if (!session || session.currentStatus !== "INSIDE_OFFICE") {
+            const webhookId = `manual|${employeeId}|${now.toISOString()}|enter`;
+            const result = await this.processEvent({
+                employeeId,
+                eventTime: now,
+                direction: "ENTRY",
+                deviceId: "manual",
+                webhookId,
+                source: "MANUAL",
+            });
+            currentStatus = result.session.currentStatus;
+        } else {
+            // Already In Office on the board — still force queue + override.
+            await assignmentEngine.onBrokerEnteredOffice(employeeId, {
+                ownerOverride: true,
+            });
+            currentStatus = "INSIDE_OFFICE";
+        }
+
+        return {
+            updated: true,
+            message: "Employee set In Office and added to the shipment queue",
+            currentStatus,
+        };
     }
 
     async markEmployeeLeft(employeeId: string) {
