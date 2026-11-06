@@ -825,6 +825,8 @@ model DirectCustomer {
   state             String?
   zip               String?
   notes             String?
+  /// When true, Create Load emails the customer the GL# from the broker's Gmail.
+  sendLoadNumber    Boolean        @default(false) @map("send_load_number")
   createdByUserId   String         @map("created_by_user_id")
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")

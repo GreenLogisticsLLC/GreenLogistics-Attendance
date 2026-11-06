@@ -3,6 +3,8 @@ import { isDataScopedRole, isTeamScopedRole, Roles } from "../../../auth/roles.j
 import { allocateGreenOsShipmentId } from "../../shipment/shipment.id.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
+import { brokerGmailOAuthService } from "../../email/gmail/broker-gmail-oauth.service.js";
+import { buildCustomerLoadNumberEmail } from "../customer-load-number-email.js";
 
 type Actor = { userId: string; role: string };
 
@@ -10,6 +12,12 @@ function str(v: unknown): string | null {
     if (v == null) return null;
     const s = String(v).trim();
     return s || null;
+}
+
+function bool(v: unknown, fallback = false): boolean {
+    if (v === true || v === 1 || v === "1" || v === "true") return true;
+    if (v === false || v === 0 || v === "0" || v === "false") return false;
+    return fallback;
 }
 
 function num(v: unknown): number | null {
@@ -122,6 +130,7 @@ export class CustomerService {
                 state: str(body.state),
                 zip: str(body.zip),
                 notes: str(body.notes),
+                sendLoadNumber: bool(body.sendLoadNumber, false),
                 createdByUserId: actor.userId,
             },
         });
@@ -137,6 +146,9 @@ export class CustomerService {
         }
         for (const key of ["contactName", "email", "phone", "billingAddress", "city", "state", "zip", "notes"]) {
             if (body[key] !== undefined) data[key] = str(body[key]);
+        }
+        if (body.sendLoadNumber !== undefined) {
+            data.sendLoadNumber = bool(body.sendLoadNumber, false);
         }
         return prisma.directCustomer.update({ where: { customerId }, data });
     }
@@ -240,13 +252,79 @@ export class CustomerService {
             actorUserId: actor.userId,
         });
 
+        const sendLoadNumber =
+            body.sendLoadNumber !== undefined
+                ? bool(body.sendLoadNumber, false)
+                : Boolean(customer.sendLoadNumber);
+        const toEmail = str(body.customerEmail) || customer.email;
+        let loadNumberEmail: { sent: boolean; to?: string; from?: string; error?: string } = {
+            sent: false,
+        };
+        if (sendLoadNumber) {
+            loadNumberEmail = await this.sendLoadNumberEmail({
+                brokerUserId: brokerId || actor.userId,
+                toEmail,
+                loadNumber: loaded.loadNumber,
+                shipmentLeadId: loaded.shipmentLeadId,
+            });
+            if (sendLoadNumber !== Boolean(customer.sendLoadNumber)) {
+                await prisma.directCustomer
+                    .update({
+                        where: { customerId: customer.customerId },
+                        data: { sendLoadNumber },
+                    })
+                    .catch(() => undefined);
+            }
+        }
+
         return {
             customer,
             shipmentLeadId: loaded.shipmentLeadId,
             loadNumber: loaded.loadNumber,
             greenOsShipmentId: loaded.greenOsShipmentId || greenOsShipmentId,
             status: loaded.status,
+            loadNumberEmail,
         };
+    }
+
+    private async sendLoadNumberEmail(input: {
+        brokerUserId: string;
+        toEmail: string | null;
+        loadNumber: string | null | undefined;
+        shipmentLeadId: string;
+    }): Promise<{ sent: boolean; to?: string; from?: string; error?: string }> {
+        const to = str(input.toEmail);
+        if (!to) {
+            return { sent: false, error: "Customer email is required to send the load number" };
+        }
+        const loadNumber = str(input.loadNumber);
+        if (!loadNumber) {
+            return { sent: false, error: "Load number was not generated" };
+        }
+        try {
+            const mail = buildCustomerLoadNumberEmail({ loadNumber });
+            const sent = await brokerGmailOAuthService.sendMailAsBroker(input.brokerUserId, {
+                to,
+                subject: mail.subject,
+                text: mail.text,
+                html: mail.html,
+            });
+            await domainEventEngine
+                .emit({
+                    shipmentLeadId: input.shipmentLeadId,
+                    eventType: "CUSTOMER_LOAD_NUMBER_EMAILED",
+                    title: "Load number emailed to customer",
+                    message: `Load ${loadNumber} sent to ${to} from ${sent.from}`,
+                    actorUserId: input.brokerUserId,
+                    payload: { to, from: sent.from, loadNumber },
+                })
+                .catch(() => undefined);
+            return { sent: true, to, from: sent.from };
+        } catch (err) {
+            const error = err instanceof Error ? err.message : String(err);
+            console.warn("[customers] send load number email failed:", error);
+            return { sent: false, to, error };
+        }
     }
 }
 
