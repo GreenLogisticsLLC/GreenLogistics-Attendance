@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
     ASSIGNMENT_TIMEZONE,
+    arrivedSince,
     chooseAssignmentPool,
     assignmentWasAfterHours,
     isAfterHoursAssignment,
     nightAcceptanceDeadline,
     NIGHT_HOLD_UNTIL_OFFICE,
+    startOfShipmentDay,
     zonedDateTime,
 } from "./helpers.js";
 
@@ -85,4 +87,37 @@ test("night shipment waits for office check-in, then 30 minutes", () => {
         timezone: tz,
     });
     assert.equal(day.getTime() - now.getTime(), 15 * 60_000);
+});
+
+test("shipment day starts at 01:00 Yerevan, not midnight UTC or LA", () => {
+    const afternoon = zonedDateTime("2026-11-06", "15:35", ASSIGNMENT_TIMEZONE);
+    const start = startOfShipmentDay(afternoon, ASSIGNMENT_TIMEZONE);
+    assert.equal(start.toISOString(), zonedDateTime("2026-11-06", "01:00", ASSIGNMENT_TIMEZONE).toISOString());
+
+    const justBefore = zonedDateTime("2026-11-06", "00:59", ASSIGNMENT_TIMEZONE);
+    assert.equal(
+        startOfShipmentDay(justBefore, ASSIGNMENT_TIMEZONE).toISOString(),
+        zonedDateTime("2026-11-05", "01:00", ASSIGNMENT_TIMEZONE).toISOString()
+    );
+
+    const exactlyOne = zonedDateTime("2026-11-06", "01:00", ASSIGNMENT_TIMEZONE);
+    assert.equal(
+        startOfShipmentDay(exactlyOne, ASSIGNMENT_TIMEZONE).toISOString(),
+        zonedDateTime("2026-11-06", "01:00", ASSIGNMENT_TIMEZONE).toISOString()
+    );
+
+    // Old bug used server-local midnight (UTC on Contabo) → 04:00 Yerevan and undercounted.
+    const utcMidnight = new Date("2026-11-06T00:00:00.000Z");
+    assert.ok(start.getTime() < utcMidnight.getTime());
+    assert.equal(start.toISOString(), "2026-11-05T21:00:00.000Z");
+});
+
+test("arrivedSince prefers receivedAt and falls back to createdAt", () => {
+    const since = zonedDateTime("2026-11-06", "01:00", ASSIGNMENT_TIMEZONE);
+    assert.deepEqual(arrivedSince(since), {
+        OR: [
+            { receivedAt: { gte: since } },
+            { AND: [{ receivedAt: null }, { createdAt: { gte: since } }] },
+        ],
+    });
 });

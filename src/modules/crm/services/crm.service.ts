@@ -34,6 +34,13 @@ import {
 } from "../../email/parsers/uship/listing-url.js";
 import { gmailListener } from "../../email/gmail/gmail.listener.js";
 import { brokerGmailSyncService } from "../../email/gmail/broker-gmail-sync.service.js";
+import {
+    ASSIGNMENT_TIMEZONE,
+    arrivedSince,
+    chooseAssignmentPool,
+    isAfterHoursAssignment,
+    startOfShipmentDay,
+} from "../../../utils/helpers.js";
 
 async function actorRoleName(userId: string): Promise<string> {
     const user = await prisma.user.findUnique({
@@ -41,20 +48,6 @@ async function actorRoleName(userId: string): Promise<string> {
         select: { role: { select: { roleName: true } } },
     });
     return user?.role?.roleName || "";
-}
-
-function startOfToday(timezone: string): Date {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: timezone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-    }).formatToParts(new Date());
-    const y = parts.find((p) => p.type === "year")?.value;
-    const m = parts.find((p) => p.type === "month")?.value;
-    const d = parts.find((p) => p.type === "day")?.value;
-    // Approximate midnight local as UTC date string — good enough for KPI buckets
-    return new Date(`${y}-${m}-${d}T00:00:00`);
 }
 
 function place(city?: string | null, state?: string | null, zip?: string | null) {
@@ -316,7 +309,9 @@ async function listHandoffBoard(options: {
 
 export class CrmService {
     async getDashboard(options?: { teamLeadId?: string; shell?: boolean }) {
-        const todayStart = startOfToday(config.timezone);
+        // Shipment "today" starts at 01:00 Yerevan — same clock as After 01:00 mode.
+        const todayStart = startOfShipmentDay();
+        const arrivedToday = arrivedSince(todayStart);
         const teamBrokerIds = options?.teamLeadId
             ? await listTeamBrokerIds(options.teamLeadId)
             : null;
@@ -325,7 +320,8 @@ export class CrmService {
                 ? { assignedBrokerId: { in: teamBrokerIds } }
                 : {};
         const { assignmentEngine } = await import("../../assignment/assignment.engine.js");
-        const { eligible } = await assignmentEngine.resolveEligibleBrokers();
+        const { eligible, mode: liveAssignmentMode } =
+            await assignmentEngine.resolveEligibleBrokers();
         const eligibleIds = eligible.map((broker) => broker.userId);
         const unassignedWhere = unassignedShipmentWhere(eligibleIds, teamBrokerIds);
         const awaitingWhere = {
@@ -344,15 +340,19 @@ export class CrmService {
         const countQueries = Promise.all([
             prisma.shipmentLead.count({
                 where: {
-                    createdAt: { gte: todayStart },
-                    ...(teamBrokerIds
-                        ? {
-                              OR: [
-                                  { assignedBrokerId: { in: teamBrokerIds } },
-                                  unassignedWhere,
-                              ],
-                          }
-                        : {}),
+                    AND: [
+                        arrivedToday,
+                        ...(teamBrokerIds
+                            ? [
+                                  {
+                                      OR: [
+                                          { assignedBrokerId: { in: teamBrokerIds } },
+                                          unassignedWhere,
+                                      ],
+                                  },
+                              ]
+                            : []),
+                    ],
                 },
             }),
             prisma.shipmentLead.count({ where: unassignedWhere }),
@@ -366,16 +366,27 @@ export class CrmService {
                 where: {
                     ...teamAssigned,
                     OR: [
-                        { quoteSentAt: { not: null } },
-                        { status: { in: ["BID_SUBMITTED", "QUOTE_SENT"] } },
+                        { quoteSentAt: { gte: todayStart } },
+                        {
+                            status: { in: ["BID_SUBMITTED", "QUOTE_SENT"] },
+                            updatedAt: { gte: todayStart },
+                        },
                     ],
                 },
             }),
             prisma.shipmentLead.count({
-                where: { status: "WON", ...teamAssigned },
+                where: {
+                    status: "WON",
+                    updatedAt: { gte: todayStart },
+                    ...teamAssigned,
+                },
             }),
             prisma.shipmentLead.count({
-                where: { status: { in: ["LOST", "ACCEPTED_ANOTHER_COMPANY"] }, ...teamAssigned },
+                where: {
+                    status: { in: ["LOST", "ACCEPTED_ANOTHER_COMPANY"] },
+                    updatedAt: { gte: todayStart },
+                    ...teamAssigned,
+                },
             }),
             prisma.shipmentLead.count({
                 where: { status: { in: [...ACTIVE_STATUSES] }, ...teamAssigned },
@@ -485,14 +496,17 @@ export class CrmService {
             0
         );
         const shipmentsToAllAssignedBrokers = brokers
-            .filter((b) => b.role === "Broker")
+            .filter((b) => b.role === "Broker" || b.role === "Team Lead")
             .reduce((sum, b) => sum + (b.currentShipments || 0), 0);
-        const assignmentMode =
-            presentBrokers.length > 0 ? "in_office" : "none";
-        // Owner "Active Loads": shipments currently with checked-in brokers.
-        // If nobody is In Office, show 0 (new mail parks UNASSIGNED).
+        // Prefer the live queue mode (After 01:00 / In Office / waiting).
+        const assignmentMode = liveAssignmentMode;
+        // In Office hours: loads with checked-in brokers. After 01:00: loads on the night queue.
         const ownerActiveLoads =
-            presentBrokers.length > 0 ? shipmentsToPresentBrokers : 0;
+            assignmentMode === "after_hours"
+                ? shipmentsToAllAssignedBrokers
+                : assignmentMode === "in_office"
+                  ? shipmentsToPresentBrokers
+                  : 0;
 
         return {
             version: "1.0",
@@ -1104,9 +1118,11 @@ export class CrmService {
                 role: { select: { roleName: true } },
             },
         });
-        // Prefer Brokers for presence stats; fall back to other assignment-eligible roles.
-        const brokerOnly = brokers.filter((b) => b.role.roleName === "Broker");
-        const pool = brokerOnly.length ? brokerOnly : brokers;
+        // Queue roster is Brokers + Team Leads (same as assignment after 01:00).
+        const queuePool = brokers.filter(
+            (b) => b.role.roleName === "Broker" || b.role.roleName === "Team Lead"
+        );
+        const pool = queuePool.length ? queuePool : brokers;
         const poolIds = pool.map((b) => b.userId);
         const employeeIds = pool
             .map((b) => b.employeeId)
@@ -1128,27 +1144,34 @@ export class CrmService {
             activeCounts.map((row) => [row.assignedBrokerId, row._count._all])
         );
         const presentBrokers = pool.filter(
-            (b) =>
-                b.role.roleName === "Broker" &&
-                b.employeeId &&
-                inOfficeIds.has(b.employeeId)
+            (b) => b.employeeId && inOfficeIds.has(b.employeeId)
         );
         const shipmentsToPresentBrokers = presentBrokers.reduce(
             (sum, b) => sum + (activeByBroker.get(b.userId) || 0),
             0
         );
-        const shipmentsToAllAssignedBrokers = pool
-            .filter((b) => b.role.roleName === "Broker")
-            .reduce((sum, b) => sum + (activeByBroker.get(b.userId) || 0), 0);
+        const shipmentsToAllAssignedBrokers = pool.reduce(
+            (sum, b) => sum + (activeByBroker.get(b.userId) || 0),
+            0
+        );
+        const afterHours = isAfterHoursAssignment(new Date(), ASSIGNMENT_TIMEZONE);
+        const assignmentMode = chooseAssignmentPool({
+            afterHours,
+            linkedCount: pool.length,
+            inOfficeCount: presentBrokers.length,
+        });
+        const ownerActiveLoads =
+            assignmentMode === "after_hours"
+                ? shipmentsToAllAssignedBrokers
+                : assignmentMode === "in_office"
+                  ? shipmentsToPresentBrokers
+                  : 0;
 
         return {
-            presentBrokerCount: presentBrokers.length,
-            assignmentMode:
-                presentBrokers.length > 0
-                    ? ("in_office" as const)
-                    : ("none" as const),
-            ownerActiveLoads:
-                presentBrokers.length > 0 ? shipmentsToPresentBrokers : 0,
+            presentBrokerCount: presentBrokers.filter((b) => b.role.roleName === "Broker")
+                .length,
+            assignmentMode,
+            ownerActiveLoads,
             shipmentsToPresentBrokers,
         };
     }

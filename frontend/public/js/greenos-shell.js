@@ -1340,9 +1340,15 @@
 
         const kpiHost = root.querySelector("#gos-cc-kpis");
         if (kpiHost) {
+          const activeDelta =
+            mode === "after_hours"
+              ? "With brokers on the night queue"
+              : mode === "none"
+                ? "Waiting for check-in"
+                : "With In Office brokers";
           const cards = [
-            { label: "Active Loads", value: activeLoads, delta: "With In Office brokers", tone: "tone-blue" },
-            { label: "New Today", value: kpis.newShipmentsToday != null ? kpis.newShipmentsToday : "—", delta: "Imported / created", tone: "tone-green" },
+            { label: "Active Loads", value: activeLoads, delta: activeDelta, tone: "tone-blue" },
+            { label: "New Today", value: kpis.newShipmentsToday != null ? kpis.newShipmentsToday : "—", delta: "Since 01:00 Yerevan", tone: "tone-green" },
             { label: "Unassigned", value: kpis.unassigned != null ? kpis.unassigned : "—", delta: "Waiting for broker", tone: "tone-warn" },
             { label: "In Office", value: present, delta: "People checked in", tone: "tone-green" },
             { label: "Awaiting Accept", value: kpis.awaitingAcceptance != null ? kpis.awaitingAcceptance : "—", delta: "Not accepted yet", tone: "tone-purple" },
@@ -1364,13 +1370,13 @@
         const chartHost = root.querySelector("#gos-cc-chart");
         if (chartHost) {
           const series = [
-            Number(kpis.newShipmentsToday) || 2,
-            Number(kpis.quotesSent) || 4,
-            Number(kpis.awaitingAcceptance) || 3,
-            Number(kpis.working) || 5,
-            Number(activeLoads) || 6,
-            Number(kpis.won) || 4,
-            Number(present) || 5,
+            Number(kpis.newShipmentsToday) || 0,
+            Number(kpis.quotesSent) || 0,
+            Number(kpis.awaitingAcceptance) || 0,
+            Number(kpis.working) || 0,
+            Number(activeLoads) || 0,
+            Number(kpis.won) || 0,
+            Number(present) || 0,
           ];
           chartHost.innerHTML = sparkline(series, "#12d48a");
         }

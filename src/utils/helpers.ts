@@ -347,6 +347,34 @@ export function isAfterHoursAssignment(date: Date, timezone: string): boolean {
     return minutes >= workEnd && minutes < workStart;
 }
 
+/**
+ * Dashboard "today" for shipments: 01:00 Asia/Yerevan → next 01:00.
+ * Before 01:00 still belongs to the previous shipment day.
+ */
+export function startOfShipmentDay(
+    now: Date = new Date(),
+    timezone: string = ASSIGNMENT_TIMEZONE
+): Date {
+    const local = zonedParts(now, timezone);
+    const ymd = [
+        String(local.year).padStart(4, "0"),
+        String(local.month).padStart(2, "0"),
+        String(local.day).padStart(2, "0"),
+    ].join("-");
+    const day = local.hour < 1 ? addDaysToDateString(ymd, -1) : ymd;
+    return zonedDateTime(day, "01:00", timezone);
+}
+
+/** Prisma filter: email arrival time, or createdAt when receivedAt is missing. */
+export function arrivedSince(since: Date) {
+    return {
+        OR: [
+            { receivedAt: { gte: since } },
+            { AND: [{ receivedAt: null }, { createdAt: { gte: since } }] },
+        ],
+    };
+}
+
 /** After 01:00 the whole Broker and Team Lead roster is in the circle. */
 export function chooseAssignmentPool(input: {
     afterHours: boolean;

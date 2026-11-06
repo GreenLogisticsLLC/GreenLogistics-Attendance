@@ -315,12 +315,12 @@ window.GreenOSModules.crm = {
         "</section>" +
         '<div class="gos-card-grid crm-kpi-grid">' +
         this.kpiCard("Unassigned", k.unassigned || 0, "accent-warn") +
-        this.kpiCard("New Today", k.newShipmentsToday, "accent-green") +
+        this.kpiCard("New Today (from 01:00)", k.newShipmentsToday, "accent-green") +
         this.kpiCard("Awaiting Agent", k.awaitingAcceptance, "accent-warn") +
         this.kpiCard("Agent Working", k.working || 0, "accent-green") +
-        this.kpiCard("Bids", k.quotesSent || 0, "accent-blue") +
-        this.kpiCard("Won", k.won, "accent-green") +
-        this.kpiCard("Lost", k.lost, "accent-warn") +
+        this.kpiCard("Bids Today", k.quotesSent || 0, "accent-blue") +
+        this.kpiCard("Won Today", k.won, "accent-green") +
+        this.kpiCard("Lost Today", k.lost, "accent-warn") +
         this.kpiCard("Active Shipments", k.activeShipments, "accent-purple") +
         this.kpiCard(
           "Avg Response",
