@@ -1172,21 +1172,22 @@
         `</article>` +
         `</section>` +
         `<section class="gos-cc-bottom">` +
-        `<article class="gos-panel">` +
-        `<div class="gos-panel-head"><h3>Recent shipments</h3></div>` +
-        `<div style="overflow:auto">` +
+        `<article class="gos-panel gos-cc-ship-panel">` +
+        `<div class="gos-panel-head"><h3>New Shipment</h3>` +
+        `<span class="gos-chip is-on" id="gos-cc-new-count">0</span></div>` +
+        `<div class="gos-cc-ship-scroll">` +
         `<table class="gos-table"><thead><tr>` +
         `<th>ID</th><th>Title</th><th>Broker</th><th>Status</th>` +
-        `</tr></thead><tbody id="gos-cc-recent"><tr><td colspan="4" class="gos-muted">Loading…</td></tr></tbody></table>` +
+        `</tr></thead><tbody id="gos-cc-new"><tr><td colspan="4" class="gos-muted">Loading…</td></tr></tbody></table>` +
         `</div></article>` +
-        `<article class="gos-panel">` +
-        `<div class="gos-panel-head"><h3>AI insights</h3></div>` +
-        `<div id="gos-cc-insights"></div>` +
-        `</article>` +
-        `<article class="gos-panel">` +
-        `<div class="gos-panel-head"><h3>Activity feed</h3></div>` +
-        `<ul class="gos-feed" id="gos-cc-feed"><li class="gos-muted">Loading…</li></ul>` +
-        `</article>` +
+        `<article class="gos-panel gos-cc-ship-panel">` +
+        `<div class="gos-panel-head"><h3>Other Shipment</h3>` +
+        `<span class="gos-chip is-on" id="gos-cc-other-count">0</span></div>` +
+        `<div class="gos-cc-ship-scroll">` +
+        `<table class="gos-table"><thead><tr>` +
+        `<th>ID</th><th>Title</th><th>Broker</th><th>Status</th>` +
+        `</tr></thead><tbody id="gos-cc-other"><tr><td colspan="4" class="gos-muted">Loading…</td></tr></tbody></table>` +
+        `</div></article>` +
         `</section>` +
         `</div>`;
 
@@ -1197,7 +1198,7 @@
     loadDashboardMetrics(root) {
       if (!root) return;
       const self = this;
-      const state = { crm: null, att: null, queue: null };
+      const state = { crm: null, att: null, queue: null, newShip: null, otherShip: null };
 
       function initials(name) {
         const parts = String(name || "")
@@ -1428,92 +1429,67 @@
           }
         }
 
-        const recentHost = root.querySelector("#gos-cc-recent");
-        const recent =
-          (state.crm && state.crm.success && state.crm.data && state.crm.data.recentlyAssigned) ||
-          [];
-        if (recentHost) {
-          if (!recent.length) {
-            recentHost.innerHTML =
-              '<tr><td colspan="4" class="gos-muted">No recent assignments</td></tr>';
-          } else {
-            recentHost.innerHTML = recent
-              .slice(0, 8)
-              .map(function (r) {
-                const id = r.greenOsShipmentId || r.shipmentLeadId || "—";
-                const title = r.shipmentTitle || "Shipment";
-                const who = r.brokerName || r.assignedBrokerName || "—";
-                const st = r.status || r.leadStatus || "Assigned";
-                return (
-                  `<tr><td>${self.escapeHtml(String(id))}</td>` +
-                  `<td>${self.escapeHtml(String(title))}</td>` +
-                  `<td>${self.escapeHtml(String(who))}</td>` +
-                  `<td><span class="gos-badge ${badgeClass(st)}">${self.escapeHtml(
-                    String(st)
-                  )}</span></td></tr>`
-                );
-              })
-              .join("");
-          }
+        function shipmentRows(payload) {
+          if (!payload || !payload.success) return [];
+          const data = payload.data || {};
+          if (Array.isArray(data.items)) return data.items;
+          if (Array.isArray(data)) return data;
+          return [];
         }
 
-        const feedHost = root.querySelector("#gos-cc-feed");
-        if (feedHost) {
-          if (!recent.length) {
-            feedHost.innerHTML = '<li class="gos-muted">No recent activity</li>';
-          } else {
-            feedHost.innerHTML = recent
-              .slice(0, 8)
-              .map(function (r) {
-                const title = r.shipmentTitle || r.greenOsShipmentId || "Shipment";
-                const who = r.brokerName || r.assignedBrokerName || "broker";
-                return (
-                  `<li><span class="mark"></span><div class="body"><strong>${self.escapeHtml(
-                    String(title)
-                  )} → ${self.escapeHtml(String(who))}</strong>` +
-                  `<span>Recently assigned</span></div></li>`
-                );
-              })
-              .join("");
-          }
+        function withEmployee(rows) {
+          return rows.filter(function (r) {
+            if (r.assignedBrokerId) return true;
+            const who = String(r.brokerName || r.assignedBrokerName || "")
+              .trim()
+              .toLowerCase();
+            return Boolean(who) && who !== "—" && who !== "unassigned";
+          });
         }
 
-        const insights = root.querySelector("#gos-cc-insights");
-        if (insights) {
-          const tips = [];
-          if (mode === "none") {
-            tips.push({
-              t: "No brokers In Office",
-              d: "New Instant Alerts stay Unassigned until someone checks in.",
-            });
-          } else {
-            tips.push({
-              t: "In Office routing on",
-              d: "Round-robin is limited to checked-in brokers only.",
-            });
+        function fillShipTable(hostId, countId, rows, emptyLabel) {
+          const host = root.querySelector(hostId);
+          const countEl = root.querySelector(countId);
+          const list = withEmployee(rows);
+          if (countEl) countEl.textContent = String(list.length);
+          if (!host) return;
+          if (!list.length) {
+            host.innerHTML =
+              '<tr><td colspan="4" class="gos-muted">' +
+              self.escapeHtml(emptyLabel) +
+              "</td></tr>";
+            return;
           }
-          if (Number(kpis.unassigned) > 0) {
-            tips.push({
-              t: `${kpis.unassigned} unassigned lead(s)`,
-              d: "Open CRM or Drain Pending once brokers are In Office.",
-            });
-          }
-          if (Number(present) > 0) {
-            tips.push({
-              t: `${present} people In Office`,
-              d: "Attendance presence is feeding assignment eligibility.",
-            });
-          }
-          insights.innerHTML = tips
-            .map(function (x) {
+          host.innerHTML = list
+            .map(function (r) {
+              const id = r.greenOsShipmentId || r.shipmentLeadId || "—";
+              const title = r.shipmentTitle || "Shipment";
+              const who = r.brokerName || r.assignedBrokerName || "—";
+              const st = r.statusLabel || r.status || r.leadStatus || "Assigned";
               return (
-                `<div class="gos-insight"><strong>${self.escapeHtml(
-                  x.t
-                )}</strong><p>${self.escapeHtml(x.d)}</p></div>`
+                `<tr><td>${self.escapeHtml(String(id))}</td>` +
+                `<td>${self.escapeHtml(String(title))}</td>` +
+                `<td>${self.escapeHtml(String(who))}</td>` +
+                `<td><span class="gos-badge ${badgeClass(st)}">${self.escapeHtml(
+                  String(st)
+                )}</span></td></tr>`
               );
             })
             .join("");
         }
+
+        fillShipTable(
+          "#gos-cc-new",
+          "#gos-cc-new-count",
+          shipmentRows(state.newShip),
+          "No New Shipments with employees"
+        );
+        fillShipTable(
+          "#gos-cc-other",
+          "#gos-cc-other-count",
+          shipmentRows(state.otherShip),
+          "No Other Shipments with employees"
+        );
 
         const queueMini = root.querySelector("#gos-cc-queue-mini");
         if (queueMini && queueData) {
@@ -1561,6 +1537,26 @@
         })
         .catch(function () {
           state.queue = { success: false };
+          renderAll();
+        });
+
+      this.shellApi("/api/crm/shipments?assignmentKind=new&lite=1&pageSize=80")
+        .then(function (res) {
+          state.newShip = res;
+          renderAll();
+        })
+        .catch(function () {
+          state.newShip = { success: false };
+          renderAll();
+        });
+
+      this.shellApi("/api/crm/shipments?assignmentKind=other&lite=1&pageSize=80")
+        .then(function (res) {
+          state.otherShip = res;
+          renderAll();
+        })
+        .catch(function () {
+          state.otherShip = { success: false };
           renderAll();
         });
     },

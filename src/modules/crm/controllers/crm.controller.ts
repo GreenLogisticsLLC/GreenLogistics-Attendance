@@ -107,6 +107,10 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
     const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
     const pageSize =
         Number.isFinite(pageSizeRaw) && pageSizeRaw > 0 ? Math.floor(pageSizeRaw) : 50;
+    const liteQuery =
+        req.query.lite === "1" ||
+        req.query.lite === "true" ||
+        req.query.lite === "yes";
     const data = await crmService.listShipments({
         brokerId,
         status,
@@ -115,7 +119,7 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
         page,
         pageSize,
         teamLeadId: !brokerId && teamLeadId ? teamLeadId : undefined,
-        lite: req.user?.role === "Broker" || mine,
+        lite: req.user?.role === "Broker" || mine || liteQuery,
     });
     return res.json(apiResponse(true, "Shipments loaded", data));
 }

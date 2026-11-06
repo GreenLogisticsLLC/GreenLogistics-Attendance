@@ -587,8 +587,33 @@ html[data-theme="light"] .gos-sidebar {
 
 .gos-cc-bottom {
   display: grid;
-  grid-template-columns: 1.5fr 0.85fr 0.85fr;
+  grid-template-columns: 1fr 1fr;
   gap: 0.85rem;
+  align-items: stretch;
+}
+
+.gos-cc-ship-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.gos-cc-ship-scroll {
+  overflow: auto;
+  max-height: min(420px, 52vh);
+  -webkit-overflow-scrolling: touch;
+  padding-right: 0.15rem;
+}
+
+.gos-cc-ship-scroll .gos-table {
+  margin: 0;
+}
+
+.gos-cc-ship-scroll .gos-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--gos-surface);
+  z-index: 1;
 }
 
 .gos-table {
