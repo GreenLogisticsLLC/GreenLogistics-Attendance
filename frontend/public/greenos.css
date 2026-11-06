@@ -4222,18 +4222,22 @@ tr.acc-row-carrier-pay button.acc-load-link {
   margin: 0;
   font-size: 1.45rem;
 }
-.acc-profile-meta,
-.acc-profile-days,
+.acc-profile-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.85rem;
+  align-items: center;
+  margin-top: 0.45rem;
+  color: var(--gos-muted);
+  font-size: 0.86rem;
+}
 .acc-profile-nav {
   display: flex;
   flex-direction: column;
-  flex-wrap: nowrap;
   gap: 0.45rem;
   align-items: stretch;
   margin-top: 0;
   min-width: 9.5rem;
-  color: var(--gos-muted);
-  font-size: 0.86rem;
 }
 .acc-profile-nav .btn-secondary {
   width: 100%;
