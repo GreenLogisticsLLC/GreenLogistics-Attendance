@@ -4245,6 +4245,53 @@ tr.acc-row-carrier-pay button.acc-load-link {
 .acc-quick-broker {
   min-width: 11rem;
 }
+.acc-broker-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.8rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--gos-accent) 22%, var(--gos-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--gos-surface2) 80%, transparent);
+}
+.acc-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+.acc-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+}
+.acc-status-card h3 {
+  margin: 0 0 0.2rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gos-muted);
+  font-weight: 700;
+}
+.acc-status-cust-pay {
+  border-color: color-mix(in srgb, var(--gos-warn) 40%, var(--gos-border));
+  background: color-mix(in srgb, var(--gos-warn) 10%, #071018);
+}
+.acc-status-pod {
+  border-color: color-mix(in srgb, var(--gos-accent) 30%, var(--gos-border));
+}
+.acc-status-carrier-pay {
+  border-color: color-mix(in srgb, var(--gos-info) 35%, var(--gos-border));
+  background: color-mix(in srgb, var(--gos-info) 10%, #071018);
+}
+.acc-agreement-row {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
 .acc-quick-cust-pay,
 .acc-quick-pod {
   min-width: 12rem;
@@ -4584,7 +4631,8 @@ tr.acc-row-carrier-pay button.acc-load-link {
 }
 @media (max-width: 900px) {
   .acc-profile-grid,
-  .acc-invoice-grid {
+  .acc-invoice-grid,
+  .acc-status-grid {
     grid-template-columns: 1fr;
   }
 }

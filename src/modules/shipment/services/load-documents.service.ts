@@ -830,11 +830,12 @@ export class LoadDocumentsService {
             "CARRIER_PAID_PROOF",
             "CUSTOMER_INVOICE",
             "CARRIER_INVOICE",
+            "CUSTOMER_AGREEMENT",
         ]);
         if (!allowedUpload.has(docType)) {
             throw Object.assign(
                 new Error(
-                    "This upload is only for invoices or payment proof documents"
+                    "This upload is only for customer agreement, invoices, or payment proof documents"
                 ),
                 { status: 422 }
             );

@@ -402,10 +402,26 @@ export const loadController = {
             const docType = String(req.params.docType || "");
             const access = await accessOr404(req, res, id);
             if (!access.ok) return;
-            if (!canViewLoadProfit(req.user?.role || "")) {
+            const role = req.user?.role || "";
+            const upperDoc = String(docType || "").toUpperCase();
+            const isCustomerAgreement = upperDoc === "CUSTOMER_AGREEMENT";
+            const canUploadCustomerAgreement =
+                isCustomerAgreement &&
+                [
+                    "Broker",
+                    "Team Lead",
+                    "Dispatcher",
+                    "Manager",
+                    "Owner",
+                    "Accounting",
+                    "Administrator",
+                ].includes(role);
+            if (!canViewLoadProfit(role) && !canUploadCustomerAgreement) {
                 return res.status(403).json({
                     success: false,
-                    message: "Only Accounting and Owner can upload invoices or payment documents",
+                    message: isCustomerAgreement
+                        ? "You cannot upload the customer agreement"
+                        : "Only Accounting and Owner can upload invoices or payment documents",
                 });
             }
             const file = req.file;
