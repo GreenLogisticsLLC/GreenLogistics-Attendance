@@ -4662,12 +4662,6 @@ tr.acc-row-carrier-pay button.acc-load-link {
   border-color: color-mix(in srgb, var(--gos-info) 35%, var(--gos-border));
   background: color-mix(in srgb, var(--gos-info) 10%, #071018);
 }
-.acc-agreement-row {
-  margin-top: 0.75rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
 .acc-quick-cust-pay,
 .acc-quick-pod {
   min-width: 12rem;

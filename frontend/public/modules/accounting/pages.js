@@ -1663,7 +1663,6 @@ window.GreenOSModules.accounting = {
       );
 
       var custInvoice = cust.invoiceDoc;
-      var custAgreement = cust.agreementDoc;
       var carrInvoice = carr.invoiceDoc;
       var custPayStatus = String(cust.paymentStatus || "UNPAID").toUpperCase();
       var carrPayStatus = String(carr.paymentStatus || "UNPAID").toUpperCase();
@@ -1685,21 +1684,6 @@ window.GreenOSModules.accounting = {
       }
       toolbar +=
         '<button type="button" class="btn-secondary" data-act="note">Add Accounting Note</button>';
-
-      var agreementActions = "";
-      if (custAgreement && custAgreement.openUrl) {
-        agreementActions =
-          '<button type="button" class="btn-secondary acc-doc-file" data-url="' +
-          self.esc(custAgreement.openUrl) +
-          '" data-name="' +
-          self.esc(custAgreement.fileName || "customer-agreement.pdf") +
-          '" data-mime="' +
-          self.esc(custAgreement.mimeType || "application/pdf") +
-          '" data-download="1">Download agreement</button>';
-      } else {
-        agreementActions =
-          '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="CUSTOMER_AGREEMENT">Upload agreement</button>';
-      }
 
       host.innerHTML =
         '<div class="acc-profile">' +
@@ -1781,10 +1765,7 @@ window.GreenOSModules.accounting = {
         "</strong></div>" +
         '<div class="acc-kv"><span>Outstanding</span><strong>' +
         self.money(cust.outstanding) +
-        "</strong></div>" +
-        '<div class="acc-agreement-row">' +
-        agreementActions +
-        "</div></section>" +
+        "</strong></div></section>" +
         '<section class="acc-card"><h3>Carrier</h3><div class="acc-card-name">' +
         self.esc(carr.name || "—") +
         '</div><div class="acc-kv"><span>Rate</span><strong>' +
