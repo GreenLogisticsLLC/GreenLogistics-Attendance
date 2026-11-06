@@ -201,8 +201,14 @@ export class AccountingService {
                 carrierName: true,
                 pickupCity: true,
                 pickupState: true,
+                pickupFrom: true,
+                pickupTo: true,
+                opsPickupAt: true,
                 deliveryCity: true,
                 deliveryState: true,
+                deliveryFrom: true,
+                deliveryTo: true,
+                opsDeliveryAt: true,
                 customerRate: true,
                 carrierRate: true,
                 customerPaymentMethod: true,
@@ -248,8 +254,12 @@ export class AccountingService {
                 waiveFee: r.waiveCustomerPaymentFee,
             });
             const customerOwes = payment.total;
+            const pickupDay = r.opsPickupAt || r.pickupFrom || r.pickupTo || null;
+            const deliveryDay = r.opsDeliveryAt || r.deliveryFrom || r.deliveryTo || null;
             return {
                 ...r,
+                pickupDay,
+                deliveryDay,
                 brokerName: r.assignedBrokerId
                     ? brokerName.get(r.assignedBrokerId) || "—"
                     : "—",
