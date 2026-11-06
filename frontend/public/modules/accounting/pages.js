@@ -605,6 +605,30 @@ window.GreenOSModules.accounting = {
     self.bindLoadManageHandlers(body);
   },
 
+  openById(shipmentLeadId) {
+    if (!shipmentLeadId) return;
+    var self = this;
+    try {
+      sessionStorage.setItem("gos_open_accounting_load_id", shipmentLeadId);
+    } catch (e) {}
+    self._pendingOpenId = shipmentLeadId;
+    var nav = window.GreenOSShell || window.GreenOS;
+    var onAccounting =
+      (nav && nav.currentModule === "accounting") ||
+      Boolean(document.querySelector('[data-module="accounting"]'));
+    if (onAccounting) {
+      self.openShipmentModal(shipmentLeadId);
+      try {
+        sessionStorage.removeItem("gos_open_accounting_load_id");
+      } catch (e2) {}
+      self._pendingOpenId = null;
+      return;
+    }
+    if (nav && typeof nav.navigate === "function") {
+      nav.navigate("accounting", self._subPageId || "dashboard");
+    }
+  },
+
   openShipmentModal(id) {
     var self = this;
     var existing = document.getElementById("acc-modal");
@@ -1097,6 +1121,18 @@ window.GreenOSModules.accounting = {
       this.renderDashboard(body);
     } else {
       this.renderList(body, active.id);
+    }
+
+    var openId = self._pendingOpenId || null;
+    try {
+      if (!openId) openId = sessionStorage.getItem("gos_open_accounting_load_id");
+      if (openId) sessionStorage.removeItem("gos_open_accounting_load_id");
+    } catch (e) {}
+    self._pendingOpenId = null;
+    if (openId) {
+      setTimeout(function () {
+        self.openShipmentModal(openId);
+      }, 0);
     }
   },
 
