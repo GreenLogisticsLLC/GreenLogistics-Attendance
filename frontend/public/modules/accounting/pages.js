@@ -611,34 +611,141 @@ window.GreenOSModules.accounting = {
     if (existing) existing.remove();
     var modal = document.createElement("div");
     modal.id = "acc-modal";
-    modal.className = "crm-modal";
+    modal.className = "crm-modal acc-profile-modal";
     modal.innerHTML =
-      '<div class="crm-modal-card acc-open-card" style="width:min(1100px,100%)">' +
-      '<div class="crm-modal-head"><strong>Load</strong>' +
-      '<button type="button" class="btn-secondary" id="acc-modal-close" style="width:auto">Close</button></div>' +
-      '<div id="acc-detail"></div></div>';
+      '<div class="crm-modal-card acc-profile-card">' +
+      '<div id="acc-detail" class="acc-profile-host"></div></div>';
     document.body.appendChild(modal);
     function close() {
       if (modal.parentNode) modal.remove();
+      document.removeEventListener("keydown", onKey);
     }
     modal.addEventListener("click", function (ev) {
       if (ev.target === modal) close();
     });
-    var closeBtn = modal.querySelector("#acc-modal-close");
-    if (closeBtn) closeBtn.addEventListener("click", close);
     function onKey(ev) {
-      if (ev.key === "Escape") {
-        close();
-        document.removeEventListener("keydown", onKey);
-      }
+      if (ev.key === "Escape") close();
     }
     document.addEventListener("keydown", onKey);
+    self._closeProfile = close;
     if (!id) {
       modal.querySelector("#acc-detail").innerHTML =
         '<p style="color:#ef4444">This load has no id, so it cannot be opened.</p>';
       return;
     }
     self.openShipment(modal.querySelector("#acc-detail"), id);
+  },
+
+  statusBadgeText(status) {
+    return String(status || "—")
+      .replace(/_/g, " ")
+      .trim();
+  },
+
+  formatDateTime(iso) {
+    if (!iso) return "—";
+    try {
+      var d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "—";
+      return d.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch (e) {
+      return "—";
+    }
+  },
+
+  profileDocSlots() {
+    return [
+      { type: "RATE_CONFIRMATION", label: "Rate Confirmation (RC)" },
+      { type: "BOL", label: "BOL" },
+      { type: "BROKER_CARRIER_AGREEMENT", label: "Broker-Carrier Agreement" },
+      { type: "MC_AUTHORITY", label: "MC Authority" },
+      { type: "NOA", label: "NOA / VOID CHECK / OTHER" },
+      { type: "W9", label: "W-9" },
+      { type: "INSURANCE", label: "Insurance" },
+      { type: "OTHER", label: "Other" },
+    ];
+  },
+
+  findDoc(docs, docType) {
+    var want = String(docType || "").toUpperCase();
+    return (docs || []).find(function (d) {
+      return String(d.docType || "").toUpperCase() === want;
+    });
+  },
+
+  docReady(doc) {
+    if (!doc) return false;
+    if (doc.openUrl) return true;
+    var st = String(doc.status || "").toUpperCase();
+    return st === "READY" || st === "UPLOADED" || st === "CURRENT" || st === "VERIFIED";
+  },
+
+  yesNo(v) {
+    return v ? "Yes" : "No";
+  },
+
+  pill(text, tone) {
+    return (
+      '<span class="acc-pill tone-' +
+      this.esc(tone || "muted") +
+      '">' +
+      this.esc(text) +
+      "</span>"
+    );
+  },
+
+  neighborLoadIds(id) {
+    var rows = this._tableRows || [];
+    var idx = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].shipmentLeadId === id) {
+        idx = i;
+        break;
+      }
+    }
+    return {
+      prev: idx > 0 ? rows[idx - 1].shipmentLeadId : null,
+      next: idx >= 0 && idx < rows.length - 1 ? rows[idx + 1].shipmentLeadId : null,
+    };
+  },
+
+  async uploadLoadDoc(id, docType, file) {
+    var token = "";
+    try {
+      token = localStorage.getItem("gl_token") || sessionStorage.getItem("gl_token") || "";
+    } catch (e) {}
+    if (!token && window.GreenOSToken) token = window.GreenOSToken;
+    var form = new FormData();
+    form.append("file", file);
+    if (token) form.append("sessionToken", token);
+    var headers = { Accept: "application/json" };
+    if (token) {
+      headers.Authorization = "Bearer " + token;
+      headers["X-GreenOS-Token"] = token;
+    }
+    var path =
+      docType === "POD"
+        ? "/" + encodeURIComponent(id) + "/documents/POD/upload"
+        : "/" + encodeURIComponent(id) + "/documents/" + encodeURIComponent(docType) + "/upload";
+    var res = await fetch("/api/loads" + path, {
+      method: "POST",
+      cache: "no-store",
+      headers: headers,
+      body: form,
+    });
+    var json = await res.json().catch(function () {
+      return { success: false, message: "Bad response" };
+    });
+    if (!res.ok || json.success === false) {
+      throw new Error(json.message || "Upload failed (" + res.status + ")");
+    }
+    return json;
   },
 
   refreshLoads(body) {
@@ -1135,191 +1242,377 @@ window.GreenOSModules.accounting = {
       var acc = d.accounting || {};
       var cust = d.customer || {};
       var carr = d.carrier || {};
-      var docs = (d.documents || [])
-        .map(function (doc) {
-          var name = doc.fileName || doc.label || "document.pdf";
-          var mime = doc.mimeType || "application/pdf";
-          var file = doc.openUrl
-            ? ' <button type="button" class="acc-doc-file" data-url="' +
+      var lane = d.lane || {};
+      var ident = d.identity || {};
+      var pod = d.pod || {};
+      var loadNo = ident.loadNumber || id;
+      var neighbors = self.neighborLoadIds(id);
+      var slots = self.profileDocSlots();
+      var readyCount = 0;
+      var docsHtml = slots
+        .map(function (slot) {
+          var doc = self.findDoc(d.documents, slot.type);
+          var ready = self.docReady(doc);
+          if (ready) readyCount += 1;
+          var actions = "";
+          if (ready && doc && doc.openUrl) {
+            actions +=
+              '<button type="button" class="acc-doc-icon acc-doc-file" data-url="' +
               self.esc(doc.openUrl) +
               '" data-name="' +
-              self.esc(name) +
+              self.esc(doc.fileName || slot.label) +
               '" data-mime="' +
-              self.esc(mime) +
-              '" title="Open ' +
-              self.esc(name) +
-              '">file</button>'
-            : "";
+              self.esc(doc.mimeType || "application/pdf") +
+              '" title="View">View</button>';
+          }
+          actions +=
+            '<button type="button" class="acc-doc-upload-btn" data-doc-type="' +
+            self.esc(slot.type) +
+            '">' +
+            (ready ? "Replace" : "Upload") +
+            "</button>";
           return (
-            "<li>" +
-            self.esc(doc.label || doc.docType) +
-            " — " +
-            self.esc(doc.status || "") +
-            file +
-            "</li>"
+            '<li class="acc-doc-row">' +
+            '<span class="acc-doc-dot' +
+            (ready ? " is-ready" : "") +
+            '"></span>' +
+            '<span class="acc-doc-name">' +
+            self.esc(slot.label) +
+            "</span>" +
+            (ready
+              ? self.pill(String(doc.status || "READY").toUpperCase(), "ok")
+              : '<span class="acc-doc-empty"></span>') +
+            '<span class="acc-doc-actions">' +
+            actions +
+            "</span></li>"
           );
         })
         .join("");
 
-      var actions = "";
+      var custInvoice = cust.invoiceDoc;
+      var carrInvoice = carr.invoiceDoc;
+      var payStatus = String(
+        cust.paymentStatus || carr.paymentStatus || "UNPAID"
+      ).toUpperCase();
+      var payTone = payStatus === "PAID" ? "ok" : "warn";
+      var docTone =
+        String(acc.docStatus || "").toUpperCase() === "VERIFIED"
+          ? "ok"
+          : String(acc.docStatus || "").toUpperCase().indexOf("CORRECTION") >= 0
+            ? "bad"
+            : "warn";
+
+      var toolbar = "";
+      toolbar +=
+        '<button type="button" class="btn-primary" id="acc-save-pay">Save Rate and Payment</button>';
       if (perms.canVerifyDocuments) {
-        actions +=
-          '<button type="button" class="btn-primary" data-act="verify-docs" style="width:auto">Verify documents</button> ';
-        actions +=
-          '<button type="button" data-act="reject-docs" style="width:auto">Reject / request correction</button> ';
+        toolbar +=
+          '<button type="button" class="btn-secondary" data-act="verify-docs">Verify Documents</button>' +
+          '<button type="button" class="btn-secondary" data-act="reject-docs">Reject / Request Correction</button>';
       }
       if (perms.canVerifyFinancials) {
-        actions +=
-          '<button type="button" class="btn-primary" data-act="verify-fin" style="width:auto">Confirm amounts</button> ';
-        actions +=
-          '<button type="button" data-act="ready-bill" style="width:auto">Ready for Billing</button> ';
-        actions +=
-          '<button type="button" data-act="ready-pay" style="width:auto">Ready for Carrier Payment</button> ';
+        toolbar +=
+          '<button type="button" class="btn-primary" data-act="verify-fin">Confirm Amounts</button>' +
+          '<button type="button" class="btn-secondary" data-act="ready-bill">Ready for Billing</button>' +
+          '<button type="button" class="btn-secondary" data-act="ready-pay">Ready for Carrier Payment</button>';
       }
       if (perms.canCreateInvoice) {
-        actions +=
-          '<button type="button" class="btn-primary" data-act="invoice" style="width:auto">Create invoice</button> ';
-        actions +=
-          '<button type="button" data-act="send-invoice" style="width:auto">Mark invoice sent</button> ';
+        toolbar +=
+          '<button type="button" class="btn-secondary" data-act="invoice">Create Invoice</button>' +
+          '<button type="button" class="btn-secondary" data-act="send-invoice">Mark Invoice Sent</button>';
       }
       if (perms.canRecordCustomerPayment) {
-        actions +=
-          '<button type="button" class="btn-primary" data-act="cust-pay" style="width:auto">Record customer payment</button> ';
+        toolbar +=
+          '<button type="button" class="btn-secondary" data-act="cust-pay">Record Customer Payment</button>';
       }
       if (perms.canExecuteCarrierPayment) {
-        actions +=
-          '<button type="button" class="btn-primary" data-act="carr-pay" style="width:auto"' +
-          (acc.canPayCarrier ? "" : " disabled title=\"Blocked until Documents verification\"") +
-          ">Execute carrier payment</button> ";
+        toolbar +=
+          '<button type="button" class="btn-secondary" data-act="carr-pay"' +
+          (acc.canPayCarrier
+            ? ""
+            : ' disabled title="Blocked until Documents verification"') +
+          ">Execute Carrier Payment</button>";
       }
-      actions +=
-        '<button type="button" data-act="note" style="width:auto">Add accounting note</button>';
+      toolbar +=
+        '<button type="button" class="btn-secondary" data-act="note">Add Accounting Note</button>';
 
       host.innerHTML =
-        '<div style="padding:1rem;border:1px solid rgba(255,255,255,0.1);border-radius:12px;background:rgba(0,0,0,0.2)">' +
-        "<h3 style=\"margin-top:0\">" +
-        self.esc((d.identity && d.identity.loadNumber) || id) +
-        " — " +
-        self.esc((d.identity && d.identity.status) || "") +
-        "</h3>" +
-        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem">' +
-        "<div><h4>Customer</h4>" +
+        '<div class="acc-profile">' +
+        '<div class="acc-profile-crumb">' +
+        '<button type="button" class="acc-linkish" id="acc-profile-back">Accounting</button>' +
+        "<span>/</span><span>Loads</span><span>/</span><strong>" +
+        self.esc(loadNo) +
+        "</strong></div>" +
+        '<div class="acc-profile-top">' +
         "<div>" +
+        '<div class="acc-profile-title">' +
+        "<h2>" +
+        self.esc(loadNo) +
+        "</h2>" +
+        self.pill(self.statusBadgeText(ident.status), "ok") +
+        "</div>" +
+        '<div class="acc-profile-meta">' +
+        "<span>Load ID: " +
+        self.esc(loadNo) +
+        "</span>" +
+        "<span>Created: " +
+        self.esc(self.formatDateTime(ident.createdAt)) +
+        "</span>" +
+        self.pill(payStatus, payTone) +
+        "</div>" +
+        '<div class="acc-profile-days">' +
+        "<span>Pickup day: <strong>" +
+        self.esc(self.formatDay(lane.pickupDay)) +
+        "</strong></span>" +
+        "<span>Delivery day: <strong>" +
+        self.esc(self.formatDay(lane.deliveryDay)) +
+        "</strong></span></div>" +
+        "</div>" +
+        '<div class="acc-profile-nav">' +
+        '<button type="button" class="btn-secondary" id="acc-prev-load"' +
+        (neighbors.prev ? "" : " disabled") +
+        ">Previous Load</button>" +
+        '<button type="button" class="btn-secondary" id="acc-next-load"' +
+        (neighbors.next ? "" : " disabled") +
+        ">Next Load</button>" +
+        '<button type="button" class="btn-secondary" id="acc-profile-close">Close</button>' +
+        "</div></div>" +
+        '<div class="acc-quick-bar">' +
+        '<div class="acc-quick-item"><span class="acc-quick-label">Broker</span><strong>' +
+        self.esc(ident.brokerName || "—") +
+        "</strong></div>" +
+        '<div class="acc-quick-item"><span class="acc-quick-label">POD Status</span>' +
+        self.pill(String(pod.status || "PENDING").toUpperCase(), pod.document ? "ok" : "warn") +
+        '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="POD">Upload POD</button></div>' +
+        '<div class="acc-quick-item"><span class="acc-quick-label">Carrier Choose Payment Option</span>' +
+        '<select id="acc-carrier-pay-opt" disabled title="Carrier payout method is set when paying the carrier">' +
+        '<option>ACH (Bank Transfer)</option><option>Wire</option><option>Zelle</option><option>Check</option>' +
+        "</select></div>" +
+        '<div class="acc-quick-item"><span class="acc-quick-label">Carrier Rate</span>' +
+        '<div class="acc-carrier-rate-edit"><input id="acc-carrier-rate" inputmode="decimal" value="' +
+        self.esc(carr.rate == null ? "" : carr.rate) +
+        '"><button type="button" class="btn-secondary" id="acc-save-carrier-rate" title="Save carrier rate">Save</button></div>' +
+        "</div></div>" +
+        '<div class="acc-profile-grid">' +
+        '<section class="acc-card"><h3>Customer</h3><div class="acc-card-name">' +
         self.esc(cust.name || "—") +
-        "</div>" +
-        "<div>Rate: " +
+        '</div><div class="acc-kv"><span>Rate</span><strong>' +
         self.money(cust.rate) +
-        "</div>" +
-        "<div>Payment: " +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Payment Terms</span><strong>' +
         self.esc(cust.paymentLabel || "—") +
-        "</div>" +
-        (cust.paymentFee
-          ? "<div>+3%: " + self.money(cust.paymentFee) + "</div>"
-          : "") +
-        "<div>Accessorials: " +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>3% Fee</span><strong>' +
+        self.money(cust.paymentFee || 0) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Accessories</span><strong>' +
         self.money(cust.accessorials) +
-        "</div>" +
-        "<div>Total: " +
+        "</strong></div>" +
+        '<div class="acc-kv acc-kv-total"><span>Total (Customer)</span><strong>' +
         self.money(cust.total) +
-        "</div>" +
-        "<div>Invoice: " +
-        self.esc(cust.invoiceNumber || "—") +
-        "</div>" +
-        "<div>Received: " +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Invoiced</span><strong>' +
+        self.money(cust.invoiceNumber ? cust.total : 0) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Received</span><strong>' +
         self.money(cust.amountReceived) +
-        "</div>" +
-        "<div>Outstanding: " +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Outstanding</span><strong>' +
         self.money(cust.outstanding) +
+        "</strong></div></section>" +
+        '<section class="acc-card"><h3>Carrier</h3><div class="acc-card-name">' +
+        self.esc(carr.name || "—") +
+        '</div><div class="acc-kv"><span>Rate</span><strong>' +
+        self.money(carr.rate) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Total</span><strong>' +
+        self.money(carr.total) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Paid</span><strong>' +
+        self.money(carr.amountPaid) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Outstanding</span><strong>' +
+        self.money(carr.outstanding) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Status</span>' +
+        self.pill(String(carr.paymentStatus || "UNPAID").toUpperCase(), carr.paymentStatus === "PAID" ? "ok" : "muted") +
+        "</div></section>" +
+        '<section class="acc-card"><div class="acc-card-head"><h3>Documents</h3><span class="gos-muted">' +
+        readyCount +
+        "/" +
+        slots.length +
+        " ready</span></div><ul class=\"acc-doc-list\">" +
+        docsHtml +
+        "</ul></section>" +
+        '<section class="acc-card"><h3>Accounting</h3>' +
+        '<div class="acc-kv"><span>Doc Status</span>' +
+        self.pill(String(acc.docStatus || "PENDING").toUpperCase(), docTone) +
         "</div>" +
-        "<div>Status: " +
-        self.esc(cust.paymentStatus || "—") +
+        '<div class="acc-kv"><span>Financial Verified</span><strong>' +
+        self.yesNo(acc.financialVerified) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Ready for Billing</span><strong>' +
+        self.yesNo(acc.readyForBilling) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Ready Carrier Pay</span><strong>' +
+        self.yesNo(acc.readyForCarrierPayment) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Can Pay Carrier</span>' +
+        (acc.canPayCarrier
+          ? self.pill("Yes", "ok")
+          : self.pill("Blocked", "bad")) +
         "</div>" +
-        '<label style="margin-top:0.65rem">Customer rate' +
-        '<input id="acc-cust-rate" inputmode="decimal" value="' +
+        '<label class="acc-notes-label">Notes<textarea id="acc-notes-box" rows="4" placeholder="Add accounting notes…">' +
+        self.esc(acc.notes || "") +
+        "</textarea></label>" +
+        '<button type="button" class="btn-secondary" id="acc-save-notes" style="width:auto;margin-top:0.45rem">Save notes</button>' +
+        "</section></div>" +
+        '<div class="acc-invoice-grid">' +
+        '<section class="acc-card acc-drop-card"><h3>Customer Invoice (For Billing)</h3>' +
+        (custInvoice && custInvoice.openUrl
+          ? '<p class="acc-drop-file"><button type="button" class="acc-doc-file" data-url="' +
+            self.esc(custInvoice.openUrl) +
+            '" data-name="' +
+            self.esc(custInvoice.fileName || "customer-invoice.pdf") +
+            '" data-mime="' +
+            self.esc(custInvoice.mimeType || "application/pdf") +
+            '">' +
+            self.esc(custInvoice.fileName || "Customer invoice") +
+            "</button></p>"
+          : '<p class="gos-muted">No customer invoice uploaded yet.</p>') +
+        '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="CUSTOMER_INVOICE">+ Add Customer Invoice</button>' +
+        '<input type="file" class="acc-file-input" data-doc-type="CUSTOMER_INVOICE" hidden accept=".pdf,image/*">' +
+        "</section>" +
+        '<section class="acc-card acc-drop-card"><h3>Carrier Invoice (For Payment)</h3>' +
+        (carrInvoice && carrInvoice.openUrl
+          ? '<p class="acc-drop-file"><button type="button" class="acc-doc-file" data-url="' +
+            self.esc(carrInvoice.openUrl) +
+            '" data-name="' +
+            self.esc(carrInvoice.fileName || "carrier-invoice.pdf") +
+            '" data-mime="' +
+            self.esc(carrInvoice.mimeType || "application/pdf") +
+            '">' +
+            self.esc(carrInvoice.fileName || "Carrier invoice") +
+            "</button></p>"
+          : '<p class="gos-muted">No carrier invoice uploaded yet.</p>') +
+        '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="CARRIER_INVOICE">+ Add Carrier Invoice</button>' +
+        '<input type="file" class="acc-file-input" data-doc-type="CARRIER_INVOICE" hidden accept=".pdf,image/*">' +
+        "</section></div>" +
+        '<section class="acc-card acc-rate-card"><h3>Rate &amp; Payment</h3>' +
+        '<div class="acc-rate-grid">' +
+        '<label>Customer Rate (Required)<input id="acc-cust-rate" inputmode="decimal" value="' +
         self.esc(cust.rate == null ? "" : cust.rate) +
         '"></label>' +
-        '<label>Payment option' +
-        '<select id="acc-pay-method">' +
-        self.paymentMethodOptions(cust.paymentMethod, cust.paymentFeeWaived) +
+        '<label>Payment Option<select id="acc-pay-method">' +
+        self.paymentMethodOptions(cust.paymentMethod, false) +
         "</select></label>" +
-        '<label style="flex-direction:row;align-items:center;gap:0.4rem;margin-top:0.35rem">' +
-        '<input type="checkbox" id="acc-pay-waive"' +
-        (cust.paymentFeeWaived ? " checked" : "") +
-        "> Do not add the 3%</label>" +
-        '<button type="button" class="btn-primary" id="acc-save-pay" style="width:auto;margin-top:0.45rem">Save rate and payment</button>' +
-        "</div>" +
-        "<div><h4>Carrier</h4>" +
-        "<div>" +
-        self.esc(carr.name || "—") +
-        "</div>" +
-        "<div>Rate: " +
-        self.money(carr.rate) +
-        "</div>" +
-        "<div>Total: " +
-        self.money(carr.total) +
-        "</div>" +
-        "<div>Paid: " +
-        self.money(carr.amountPaid) +
-        "</div>" +
-        "<div>Outstanding: " +
-        self.money(carr.outstanding) +
-        "</div>" +
-        "<div>Status: " +
-        self.esc(carr.paymentStatus || "—") +
-        "</div></div>" +
-        "<div><h4>Documents</h4><ul style=\"padding-left:1.1rem;margin:0\">" +
-        (docs || "<li class=\"gos-muted\">None</li>") +
-        "</ul></div>" +
-        "<div><h4>Accounting</h4>" +
-        "<div>Doc status: " +
-        self.esc(acc.docStatus || "—") +
-        "</div>" +
-        "<div>Financial verified: " +
-        (acc.financialVerified ? "Yes" : "No") +
-        "</div>" +
-        "<div>Ready billing: " +
-        (acc.readyForBilling ? "Yes" : "No") +
-        "</div>" +
-        "<div>Ready carrier pay: " +
-        (acc.readyForCarrierPayment ? "Yes" : "No") +
-        "</div>" +
-        "<div>Can pay carrier: " +
-        (acc.canPayCarrier ? "Yes" : "Blocked") +
-        "</div>" +
-        '<pre class="gos-muted" style="white-space:pre-wrap;font-size:0.8rem">' +
-        self.esc(acc.notes || "No notes") +
-        "</pre></div>" +
-        "</div>" +
-        '<div style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:0.5rem">' +
-        actions +
+        '<label class="acc-check"><input type="checkbox" id="acc-pay-fee"' +
+        (cust.paymentFeeWaived ? "" : " checked") +
+        "> Add 3% Fee</label>" +
+        '<div class="acc-rate-summary">' +
+        "<div>Base Rate: <strong>" +
+        self.money(cust.rate) +
+        "</strong></div>" +
+        "<div>3% Fee: <strong>" +
+        self.money(cust.paymentFee || 0) +
+        "</strong></div>" +
+        '<div class="acc-rate-total">Total Payment: <strong>' +
+        self.money(cust.total) +
+        "</strong></div></div></div></section>" +
+        '<div class="acc-profile-toolbar">' +
+        toolbar +
         "</div>" +
         '<p id="acc-msg" class="gos-muted" style="margin-top:0.75rem"></p>' +
+        '<input type="file" id="acc-generic-file" class="acc-file-input" hidden accept=".pdf,image/*">' +
         "</div>";
+
+      function closeProfile() {
+        if (typeof self._closeProfile === "function") self._closeProfile();
+      }
+      var back = host.querySelector("#acc-profile-back");
+      var closeBtn = host.querySelector("#acc-profile-close");
+      if (back) back.addEventListener("click", closeProfile);
+      if (closeBtn) closeBtn.addEventListener("click", closeProfile);
+      var prevBtn = host.querySelector("#acc-prev-load");
+      var nextBtn = host.querySelector("#acc-next-load");
+      if (prevBtn && neighbors.prev) {
+        prevBtn.addEventListener("click", function () {
+          self.openShipment(host, neighbors.prev);
+        });
+      }
+      if (nextBtn && neighbors.next) {
+        nextBtn.addEventListener("click", function () {
+          self.openShipment(host, neighbors.next);
+        });
+      }
 
       host.querySelectorAll("[data-act]").forEach(function (btn) {
         btn.addEventListener("click", function () {
           self.runAction(host, id, btn.getAttribute("data-act"));
         });
       });
+
+      var genericFile = host.querySelector("#acc-generic-file");
+      var pendingDocType = null;
+      host.querySelectorAll(".acc-doc-upload-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          pendingDocType = btn.getAttribute("data-doc-type");
+          var dedicated = host.querySelector(
+            '.acc-file-input[data-doc-type="' + pendingDocType + '"]'
+          );
+          if (dedicated) dedicated.click();
+          else if (genericFile) genericFile.click();
+        });
+      });
+      function handleFileInput(input) {
+        input.addEventListener("change", async function () {
+          var file = input.files && input.files[0];
+          var docType = input.getAttribute("data-doc-type") || pendingDocType;
+          input.value = "";
+          if (!file || !docType) return;
+          var msg = host.querySelector("#acc-msg");
+          if (msg) {
+            msg.textContent = "Uploading…";
+            msg.style.color = "";
+          }
+          try {
+            await self.uploadLoadDoc(id, docType, file);
+            await self.openShipment(host, id);
+          } catch (err) {
+            if (msg) {
+              msg.textContent = err.message || "Upload failed";
+              msg.style.color = "#ef4444";
+            } else {
+              alert(err.message || "Upload failed");
+            }
+          }
+        });
+      }
+      host.querySelectorAll(".acc-file-input").forEach(handleFileInput);
+
       var savePay = host.querySelector("#acc-save-pay");
       var payMethod = host.querySelector("#acc-pay-method");
-      var payWaive = host.querySelector("#acc-pay-waive");
+      var payFee = host.querySelector("#acc-pay-fee");
       function syncPayLabels() {
         if (!payMethod) return;
-        var hide = Boolean(payWaive && payWaive.checked);
+        var addFee = Boolean(payFee && payFee.checked);
         payMethod.querySelectorAll("option").forEach(function (opt) {
           var full = opt.getAttribute("data-full");
           if (!full) return;
-          opt.textContent = hide ? full.replace(/ \+3%$/, "") : full;
+          opt.textContent = addFee ? full : full.replace(/ \+3%$/, "");
         });
       }
-      if (payWaive) payWaive.addEventListener("change", syncPayLabels);
+      if (payFee) payFee.addEventListener("change", syncPayLabels);
+      syncPayLabels();
       if (savePay) {
         savePay.addEventListener("click", async function () {
           var raw = (host.querySelector("#acc-cust-rate") || {}).value;
-          var rate = raw == null || String(raw).trim() === "" ? null : Number(String(raw).replace(/[$,\s]/g, ""));
+          var rate =
+            raw == null || String(raw).trim() === ""
+              ? null
+              : Number(String(raw).replace(/[$,\s]/g, ""));
           var method = (host.querySelector("#acc-pay-method") || {}).value || "";
-          var waive = Boolean((host.querySelector("#acc-pay-waive") || {}).checked);
+          var waive = !(payFee && payFee.checked);
           if (rate == null || !Number.isFinite(rate) || rate < 0) {
             alert("Customer rate is required");
             return;
@@ -1345,6 +1638,56 @@ window.GreenOSModules.accounting = {
           }
         });
       }
+
+      var saveCarrier = host.querySelector("#acc-save-carrier-rate");
+      if (saveCarrier) {
+        saveCarrier.addEventListener("click", async function () {
+          var raw = (host.querySelector("#acc-carrier-rate") || {}).value;
+          var rate =
+            raw == null || String(raw).trim() === ""
+              ? null
+              : Number(String(raw).replace(/[$,\s]/g, ""));
+          if (rate == null || !Number.isFinite(rate) || rate < 0) {
+            alert("Carrier rate is required");
+            return;
+          }
+          saveCarrier.disabled = true;
+          try {
+            await self.loadApi("/" + encodeURIComponent(id), {
+              method: "PATCH",
+              body: { carrierRate: String(rate) },
+            });
+            self.openShipment(host, id);
+          } catch (err) {
+            saveCarrier.disabled = false;
+            alert(err.message || "Could not save");
+          }
+        });
+      }
+
+      var saveNotes = host.querySelector("#acc-save-notes");
+      if (saveNotes) {
+        saveNotes.addEventListener("click", async function () {
+          var note = ((host.querySelector("#acc-notes-box") || {}).value || "").trim();
+          if (!note) {
+            alert("Enter a note first");
+            return;
+          }
+          saveNotes.disabled = true;
+          try {
+            var noteRes = await self.api("/shipments/" + encodeURIComponent(id) + "/notes", {
+              method: "POST",
+              body: { note: note },
+            });
+            if (!noteRes.success) throw new Error(noteRes.message || "Could not save note");
+            self.openShipment(host, id);
+          } catch (err) {
+            saveNotes.disabled = false;
+            alert(err.message || "Could not save note");
+          }
+        });
+      }
+
       host.querySelectorAll(".acc-doc-file").forEach(function (btn) {
         btn.addEventListener("click", function (ev) {
           ev.preventDefault();
