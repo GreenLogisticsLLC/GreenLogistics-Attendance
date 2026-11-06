@@ -383,6 +383,21 @@ export class AccountingService {
         const customerTotal = payment.total || 0;
         const carrierTotal = money(s.carrierRate) || 0;
 
+        const pickupDay = s.opsPickupAt || s.pickupFrom || s.pickupTo || null;
+        const deliveryDay = s.opsDeliveryAt || s.deliveryFrom || s.deliveryTo || null;
+        const documents = buildAccountingDocuments({
+            shipmentLeadId,
+            loadDocs: s.loadDocuments,
+            carrierDocs,
+        });
+        const podDoc = documents.find((doc) => String(doc.docType || "").toUpperCase() === "POD");
+        const customerInvoice = documents.find(
+            (doc) => String(doc.docType || "").toUpperCase() === "CUSTOMER_INVOICE"
+        );
+        const carrierInvoice = documents.find(
+            (doc) => String(doc.docType || "").toUpperCase() === "CARRIER_INVOICE"
+        );
+
         return {
             identity: {
                 shipmentLeadId: s.shipmentLeadId,
@@ -390,12 +405,15 @@ export class AccountingService {
                 greenOsShipmentId: s.greenOsShipmentId,
                 status: s.status,
                 brokerName,
+                createdAt: s.createdAt,
             },
             lane: {
                 pickup: [s.pickupCity, s.pickupState, s.pickupZip].filter(Boolean).join(", "),
                 delivery: [s.deliveryCity, s.deliveryState, s.deliveryZip]
                     .filter(Boolean)
                     .join(", "),
+                pickupDay,
+                deliveryDay,
             },
             customer: {
                 name: s.customerName,
@@ -411,8 +429,9 @@ export class AccountingService {
                 dueDate: s.invoiceDueDate,
                 amountReceived: s.customerPaidAt ? customerTotal : 0,
                 outstanding: s.customerPaidAt ? 0 : customerTotal,
-                paymentStatus: s.paymentStatus,
+                paymentStatus: s.paymentStatus || (s.customerPaidAt ? "PAID" : "UNPAID"),
                 paidAt: s.customerPaidAt,
+                invoiceDoc: customerInvoice || null,
             },
             carrier: {
                 name: s.carrierName,
@@ -423,12 +442,15 @@ export class AccountingService {
                 outstanding: s.carrierPaidAt ? 0 : carrierTotal,
                 paymentStatus: s.carrierPaidAt ? "PAID" : "UNPAID",
                 paidAt: s.carrierPaidAt,
+                invoiceDoc: carrierInvoice || null,
             },
-            documents: buildAccountingDocuments({
-                shipmentLeadId,
-                loadDocs: s.loadDocuments,
-                carrierDocs,
-            }),
+            documents,
+            pod: {
+                status: podDoc
+                    ? String(podDoc.status || "UPLOADED").toUpperCase()
+                    : "PENDING",
+                document: podDoc || null,
+            },
             accounting: {
                 docStatus: s.accountingDocStatus || AccountingDocStatus.Pending,
                 docVerifiedAt: s.accountingDocVerifiedAt,
