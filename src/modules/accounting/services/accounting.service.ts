@@ -12,6 +12,7 @@ import { domainEventEngine } from "../../shipment/services/domain-event.engine.j
 import { AccountingDocStatus } from "../accounting.constants.js";
 import { buildAccountingDocuments } from "../accounting-documents.js";
 import { customerPaymentQuote } from "../../shipment/customer-payment.js";
+import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
 
 type Actor = {
     userId: string;
@@ -327,6 +328,8 @@ export class AccountingService {
                         status: true,
                         fileName: true,
                         fileUrl: true,
+                        mimeType: true,
+                        contentJson: true,
                         version: true,
                         createdAt: true,
                     },
@@ -344,21 +347,42 @@ export class AccountingService {
             });
             carrierId = match?.carrierId || null;
         }
+        const carrierProfile = carrierId
+            ? await prisma.carrier.findUnique({
+                  where: { carrierId },
+                  select: { paymentOption: true },
+              })
+            : null;
+        /** Packet docs on the carrier profile + any docs uploaded for this load. */
+        const packetTypes = [
+            "BROKER_CARRIER_AGREEMENT",
+            "MC_AUTHORITY",
+            "NOA",
+            "W9",
+            "INSURANCE",
+            "COI",
+            "LOR",
+            "OTHER",
+        ];
         const carrierDocs = await prisma.carrierDocument.findMany({
             where: {
                 status: "CURRENT",
                 OR: [
                     { shipmentLeadId },
-                    ...(carrierId ? [{ carrierId }] : []),
+                    ...(carrierId
+                        ? [{ carrierId, documentType: { in: packetTypes } }]
+                        : []),
                 ],
             },
             select: {
                 documentId: true,
                 carrierId: true,
+                shipmentLeadId: true,
                 documentType: true,
                 originalFilename: true,
                 mimeType: true,
                 status: true,
+                uploadedBy: true,
             },
             orderBy: { uploadedAt: "desc" },
         });
@@ -397,6 +421,29 @@ export class AccountingService {
         const carrierInvoice = documents.find(
             (doc) => String(doc.docType || "").toUpperCase() === "CARRIER_INVOICE"
         );
+
+        let rateConPaymentOption: string | null = null;
+        const rateCon = s.loadDocuments.find(
+            (doc) => String(doc.docType || "").toUpperCase() === "RATE_CONFIRMATION"
+        );
+        if (rateCon?.contentJson) {
+            try {
+                const content = JSON.parse(rateCon.contentJson) as {
+                    paymentOption?: string | null;
+                    paymentOptionLabel?: string | null;
+                };
+                rateConPaymentOption =
+                    String(content.paymentOptionLabel || content.paymentOption || "").trim() ||
+                    null;
+            } catch {
+                /* ignore bad RC snapshot */
+            }
+        }
+        const carrierPaymentOption =
+            rateConPaymentOption ||
+            carrierPaymentOptionLabel(carrierProfile?.paymentOption) ||
+            carrierProfile?.paymentOption ||
+            null;
 
         return {
             identity: {
@@ -443,6 +490,8 @@ export class AccountingService {
                 paymentStatus: s.carrierPaidAt ? "PAID" : "UNPAID",
                 paidAt: s.carrierPaidAt,
                 invoiceDoc: carrierInvoice || null,
+                paymentOption: carrierPaymentOption,
+                paymentOptionFromRateCon: Boolean(rateConPaymentOption),
             },
             documents,
             pod: {
