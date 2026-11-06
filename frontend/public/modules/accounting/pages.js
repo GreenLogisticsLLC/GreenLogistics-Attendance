@@ -1294,10 +1294,16 @@ window.GreenOSModules.accounting = {
 
       var custInvoice = cust.invoiceDoc;
       var carrInvoice = carr.invoiceDoc;
-      var payStatus = String(
-        cust.paymentStatus || carr.paymentStatus || "UNPAID"
-      ).toUpperCase();
-      var payTone = payStatus === "PAID" ? "ok" : "warn";
+      var custPayStatus = String(cust.paymentStatus || "UNPAID").toUpperCase();
+      var carrPayStatus = String(carr.paymentStatus || "UNPAID").toUpperCase();
+      var custPayTone = custPayStatus === "PAID" ? "ok" : "warn";
+      var carrPayTone = carrPayStatus === "PAID" ? "ok" : "warn";
+      var custRateNum = Number(cust.rate);
+      var carrRateNum = Number(carr.rate);
+      var brokerProfit =
+        Number.isFinite(custRateNum) && Number.isFinite(carrRateNum)
+          ? custRateNum - carrRateNum
+          : null;
       var docTone =
         String(acc.docStatus || "").toUpperCase() === "VERIFIED"
           ? "ok"
@@ -1310,42 +1316,13 @@ window.GreenOSModules.accounting = {
         '<button type="button" class="btn-primary" id="acc-save-pay">Save Rate and Payment</button>';
       if (perms.canVerifyDocuments) {
         toolbar +=
-          '<button type="button" class="btn-secondary" data-act="verify-docs">Verify Documents</button>' +
-          '<button type="button" class="btn-secondary" data-act="reject-docs">Reject / Request Correction</button>';
-      }
-      if (perms.canVerifyFinancials) {
-        toolbar +=
-          '<button type="button" class="btn-primary" data-act="verify-fin">Confirm Amounts</button>' +
-          '<button type="button" class="btn-secondary" data-act="ready-bill">Ready for Billing</button>' +
-          '<button type="button" class="btn-secondary" data-act="ready-pay">Ready for Carrier Payment</button>';
-      }
-      if (perms.canCreateInvoice) {
-        toolbar +=
-          '<button type="button" class="btn-secondary" data-act="invoice">Create Invoice</button>' +
-          '<button type="button" class="btn-secondary" data-act="send-invoice">Mark Invoice Sent</button>';
-      }
-      if (perms.canRecordCustomerPayment) {
-        toolbar +=
-          '<button type="button" class="btn-secondary" data-act="cust-pay">Record Customer Payment</button>';
-      }
-      if (perms.canExecuteCarrierPayment) {
-        toolbar +=
-          '<button type="button" class="btn-secondary" data-act="carr-pay"' +
-          (acc.canPayCarrier
-            ? ""
-            : ' disabled title="Blocked until Documents verification"') +
-          ">Execute Carrier Payment</button>";
+          '<button type="button" class="btn-secondary" data-act="verify-docs">Verify Documents</button>';
       }
       toolbar +=
         '<button type="button" class="btn-secondary" data-act="note">Add Accounting Note</button>';
 
       host.innerHTML =
         '<div class="acc-profile">' +
-        '<div class="acc-profile-crumb">' +
-        '<button type="button" class="acc-linkish" id="acc-profile-back">Accounting</button>' +
-        "<span>/</span><span>Loads</span><span>/</span><strong>" +
-        self.esc(loadNo) +
-        "</strong></div>" +
         '<div class="acc-profile-top">' +
         "<div>" +
         '<div class="acc-profile-title">' +
@@ -1353,16 +1330,9 @@ window.GreenOSModules.accounting = {
         self.esc(loadNo) +
         "</h2>" +
         self.pill(self.statusBadgeText(ident.status), "ok") +
-        "</div>" +
-        '<div class="acc-profile-meta">' +
-        "<span>Load ID: " +
-        self.esc(loadNo) +
-        "</span>" +
-        "<span>Created: " +
-        self.esc(self.formatDateTime(ident.createdAt)) +
-        "</span>" +
-        self.pill(payStatus, payTone) +
-        "</div>" +
+        '<div class="acc-title-pay"><span class="acc-quick-label">Customer Payment Status</span>' +
+        self.pill(custPayStatus, custPayTone) +
+        "</div></div>" +
         '<div class="acc-profile-days">' +
         "<span>Pickup day: <strong>" +
         self.esc(self.formatDay(lane.pickupDay)) +
@@ -1381,9 +1351,19 @@ window.GreenOSModules.accounting = {
         '<button type="button" class="btn-secondary" id="acc-profile-close">Close</button>' +
         "</div></div>" +
         '<div class="acc-quick-bar">' +
-        '<div class="acc-quick-item"><span class="acc-quick-label">Broker</span><strong>' +
+        '<div class="acc-quick-item acc-quick-broker"><span class="acc-quick-label">Broker</span><strong>' +
         self.esc(ident.brokerName || "—") +
+        '</strong><div class="acc-profit-block"><span class="acc-profit-label">PROFIT</span><span class="acc-profit-value">' +
+        self.esc(self.money(brokerProfit)) +
+        "</span></div></div>" +
+        '<div class="acc-quick-item acc-quick-carrier-pay"><span class="acc-quick-label">Carrier Payment Status</span>' +
+        self.pill(carrPayStatus, carrPayTone) +
+        '<div class="acc-carrier-pay-meta">Outstanding: <strong>' +
+        self.money(carr.outstanding) +
         "</strong></div>" +
+        '<div class="acc-carrier-pay-meta">Paid: <strong>' +
+        self.money(carr.amountPaid) +
+        "</strong></div></div>" +
         '<div class="acc-quick-item"><span class="acc-quick-label">POD Status</span>' +
         self.pill(String(pod.status || "PENDING").toUpperCase(), pod.document ? "ok" : "warn") +
         '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="POD">Upload POD</button></div>' +
@@ -1475,7 +1455,11 @@ window.GreenOSModules.accounting = {
             self.esc(custInvoice.fileName || "Customer invoice") +
             "</button></p>"
           : '<p class="gos-muted">No customer invoice uploaded yet.</p>') +
+        '<div class="acc-invoice-actions">' +
         '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="CUSTOMER_INVOICE">+ Add Customer Invoice</button>' +
+        '<button type="button" class="btn-primary acc-send-btn" data-act="send-invoice"' +
+        (perms.canCreateInvoice ? "" : " disabled") +
+        ">Send</button></div>" +
         '<input type="file" class="acc-file-input" data-doc-type="CUSTOMER_INVOICE" hidden accept=".pdf,image/*">' +
         "</section>" +
         '<section class="acc-card acc-drop-card"><h3>Carrier Invoice (For Payment)</h3>' +
@@ -1490,7 +1474,13 @@ window.GreenOSModules.accounting = {
             self.esc(carrInvoice.fileName || "Carrier invoice") +
             "</button></p>"
           : '<p class="gos-muted">No carrier invoice uploaded yet.</p>') +
+        '<div class="acc-invoice-actions">' +
         '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="CARRIER_INVOICE">+ Add Carrier Invoice</button>' +
+        '<button type="button" class="btn-primary acc-send-btn" data-act="carr-pay"' +
+        (perms.canExecuteCarrierPayment && acc.canPayCarrier
+          ? ""
+          : ' disabled title="Blocked until documents and amounts are ready"') +
+        ">Send</button></div>" +
         '<input type="file" class="acc-file-input" data-doc-type="CARRIER_INVOICE" hidden accept=".pdf,image/*">' +
         "</section></div>" +
         '<section class="acc-card acc-rate-card"><h3>Rate &amp; Payment</h3>' +
@@ -1548,9 +1538,7 @@ window.GreenOSModules.accounting = {
       function closeProfile() {
         if (typeof self._closeProfile === "function") self._closeProfile();
       }
-      var back = host.querySelector("#acc-profile-back");
       var closeBtn = host.querySelector("#acc-profile-close");
-      if (back) back.addEventListener("click", closeProfile);
       if (closeBtn) closeBtn.addEventListener("click", closeProfile);
       var prevBtn = host.querySelector("#acc-prev-load");
       var nextBtn = host.querySelector("#acc-next-load");
