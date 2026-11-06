@@ -4242,17 +4242,24 @@ tr.acc-row-carrier-pay button.acc-load-link {
 .acc-profile-nav .btn-secondary {
   width: 100%;
 }
-.acc-title-pay {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  margin-left: 0.35rem;
-}
-.acc-title-pay .acc-quick-label {
-  margin-bottom: 0;
-}
 .acc-quick-broker {
   min-width: 11rem;
+}
+.acc-quick-cust-pay,
+.acc-quick-pod {
+  min-width: 12rem;
+  flex: 1 1 12rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--gos-border);
+  background: color-mix(in srgb, var(--gos-surface) 70%, transparent);
+}
+.acc-quick-cust-pay {
+  border-color: color-mix(in srgb, var(--gos-warn) 40%, var(--gos-border));
+  background: color-mix(in srgb, var(--gos-warn) 10%, transparent);
+}
+.acc-quick-pod {
+  border-color: color-mix(in srgb, var(--gos-accent) 30%, var(--gos-border));
 }
 .acc-profit-block {
   margin-top: 0.55rem;

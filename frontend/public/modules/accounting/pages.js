@@ -1330,9 +1330,7 @@ window.GreenOSModules.accounting = {
         self.esc(loadNo) +
         "</h2>" +
         self.pill(self.statusBadgeText(ident.status), "ok") +
-        '<div class="acc-title-pay"><span class="acc-quick-label">Customer Payment Status</span>' +
-        self.pill(custPayStatus, custPayTone) +
-        "</div></div>" +
+        "</div>" +
         '<div class="acc-profile-days">' +
         "<span>Pickup day: <strong>" +
         self.esc(self.formatDay(lane.pickupDay)) +
@@ -1356,6 +1354,17 @@ window.GreenOSModules.accounting = {
         '</strong><div class="acc-profit-block"><span class="acc-profit-label">PROFIT</span><span class="acc-profit-value">' +
         self.esc(self.money(brokerProfit)) +
         "</span></div></div>" +
+        '<div class="acc-quick-item acc-quick-cust-pay"><span class="acc-quick-label">Customer Payment Status</span>' +
+        self.pill(custPayStatus, custPayTone) +
+        '<div class="acc-carrier-pay-meta">Outstanding: <strong>' +
+        self.money(cust.outstanding) +
+        "</strong></div>" +
+        '<div class="acc-carrier-pay-meta">Received: <strong>' +
+        self.money(cust.amountReceived) +
+        "</strong></div></div>" +
+        '<div class="acc-quick-item acc-quick-pod"><span class="acc-quick-label">POD Status</span>' +
+        self.pill(String(pod.status || "PENDING").toUpperCase(), pod.document ? "ok" : "warn") +
+        '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="POD">Upload POD</button></div>' +
         '<div class="acc-quick-item acc-quick-carrier-pay"><span class="acc-quick-label">Carrier Payment Status</span>' +
         self.pill(carrPayStatus, carrPayTone) +
         '<div class="acc-carrier-pay-meta">Outstanding: <strong>' +
@@ -1364,9 +1373,6 @@ window.GreenOSModules.accounting = {
         '<div class="acc-carrier-pay-meta">Paid: <strong>' +
         self.money(carr.amountPaid) +
         "</strong></div></div>" +
-        '<div class="acc-quick-item"><span class="acc-quick-label">POD Status</span>' +
-        self.pill(String(pod.status || "PENDING").toUpperCase(), pod.document ? "ok" : "warn") +
-        '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="POD">Upload POD</button></div>' +
         "</div>" +
         '<div class="acc-profile-grid">' +
         '<section class="acc-card"><h3>Customer</h3><div class="acc-card-name">' +
@@ -1575,23 +1581,26 @@ window.GreenOSModules.accounting = {
         input.addEventListener("change", async function () {
           var file = input.files && input.files[0];
           var docType = input.getAttribute("data-doc-type") || pendingDocType;
-          input.value = "";
-          if (!file || !docType) return;
+          if (!file || !docType) {
+            input.value = "";
+            return;
+          }
           var msg = host.querySelector("#acc-msg");
           if (msg) {
-            msg.textContent = "Uploading…";
+            msg.textContent = "Uploading " + docType.replace(/_/g, " ").toLowerCase() + "…";
             msg.style.color = "";
           }
           try {
             await self.uploadLoadDoc(id, docType, file);
+            input.value = "";
             await self.openShipment(host, id);
           } catch (err) {
+            input.value = "";
             if (msg) {
               msg.textContent = err.message || "Upload failed";
               msg.style.color = "#ef4444";
-            } else {
-              alert(err.message || "Upload failed");
             }
+            alert(err.message || "Upload failed");
           }
         });
       }

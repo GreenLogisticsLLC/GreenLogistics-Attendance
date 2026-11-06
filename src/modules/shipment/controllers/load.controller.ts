@@ -405,12 +405,15 @@ export const loadController = {
             if (!canViewLoadProfit(req.user?.role || "")) {
                 return res.status(403).json({
                     success: false,
-                    message: "Only Accounting and Owner can upload payment documents",
+                    message: "Only Accounting and Owner can upload invoices or payment documents",
                 });
             }
             const file = req.file;
             if (!file?.path) {
-                res.status(400).json({ success: false, message: "Payment document is required" });
+                res.status(400).json({
+                    success: false,
+                    message: "Invoice or payment document file is required",
+                });
                 return;
             }
             try {
