@@ -4226,15 +4226,78 @@ tr.acc-row-carrier-pay button.acc-load-link {
 .acc-profile-days,
 .acc-profile-nav {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem 0.85rem;
-  align-items: center;
-  margin-top: 0.45rem;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0.45rem;
+  align-items: stretch;
+  margin-top: 0;
+  min-width: 9.5rem;
   color: var(--gos-muted);
   font-size: 0.86rem;
 }
 .acc-profile-nav .btn-secondary {
-  width: auto;
+  width: 100%;
+}
+.acc-title-pay {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-left: 0.35rem;
+}
+.acc-title-pay .acc-quick-label {
+  margin-bottom: 0;
+}
+.acc-quick-broker {
+  min-width: 11rem;
+}
+.acc-profit-block {
+  margin-top: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.acc-profit-label {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #86efac;
+  line-height: 1;
+}
+.acc-profit-value {
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: #4ade80;
+  line-height: 1.1;
+}
+.acc-quick-carrier-pay {
+  min-width: 14rem;
+  flex: 1 1 14rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--gos-info) 35%, var(--gos-border));
+  background: color-mix(in srgb, var(--gos-info) 10%, transparent);
+}
+.acc-carrier-pay-meta {
+  font-size: 0.84rem;
+  color: var(--gos-muted);
+}
+.acc-carrier-pay-meta strong {
+  color: var(--gos-text);
+}
+.acc-invoice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  width: 100%;
+  margin-top: 0.35rem;
+}
+.acc-send-btn {
+  min-width: 7.5rem;
+  min-height: 2.6rem;
+  font-size: 1rem !important;
+  font-weight: 800 !important;
+  padding: 0.55rem 1.25rem !important;
 }
 .acc-pill {
   display: inline-flex;
