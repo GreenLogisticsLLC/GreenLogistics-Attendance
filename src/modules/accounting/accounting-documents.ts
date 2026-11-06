@@ -42,6 +42,8 @@ const HIDDEN_LOAD_TYPES = new Set(["DISPATCH_SHEET", "LOAD_SUMMARY"]);
 export type AccountingDocumentRow = {
     documentId: string;
     source: "load" | "carrier";
+    /** Who uploaded / owns the file for Accounting UI. */
+    uploadedBy: "Broker" | "Carrier";
     docType: string;
     label: string;
     status: string;
@@ -98,6 +100,8 @@ export function buildAccountingDocuments(input: {
         status?: string | null;
         originalFilename?: string | null;
         mimeType?: string | null;
+        uploadedBy?: string | null;
+        shipmentLeadId?: string | null;
     }>;
 }): AccountingDocumentRow[] {
     const loadRows: AccountingDocumentRow[] = [];
@@ -111,6 +115,7 @@ export function buildAccountingDocuments(input: {
         loadRows.push({
             documentId: doc.documentId,
             source: "load",
+            uploadedBy: "Broker",
             docType,
             label: accountingDocLabel(docType),
             status: doc.status || "",
@@ -128,14 +133,19 @@ export function buildAccountingDocuments(input: {
         if (seen.has(doc.documentId)) continue;
         seen.add(doc.documentId);
         const docType = String(doc.documentType || "").toUpperCase();
-        // The load already shows its own Rate Confirmation, BOL, and POD.
-        if (loadTypesWithFile.has(docType) && (docType === "RATE_CONFIRMATION" || docType === "BOL" || docType === "POD")) {
+        // Prefer the load's own Rate Confirmation / BOL / POD file when both exist.
+        if (
+            loadTypesWithFile.has(docType) &&
+            (docType === "RATE_CONFIRMATION" || docType === "BOL" || docType === "POD")
+        ) {
             continue;
         }
         const fileName = doc.originalFilename || null;
+        const who = String(doc.uploadedBy || "CARRIER").toUpperCase();
         carrierRows.push({
             documentId: doc.documentId,
             source: "carrier",
+            uploadedBy: who === "BROKER" || who === "USER" ? "Broker" : "Carrier",
             docType,
             label: accountingDocLabel(docType),
             status: String(doc.status || "").toUpperCase() === "CURRENT" ? "Uploaded" : doc.status || "Uploaded",
@@ -145,5 +155,7 @@ export function buildAccountingDocuments(input: {
         });
     }
 
-    return [...loadRows, ...carrierRows].sort((a, b) => rank(a.docType) - rank(b.docType) || a.label.localeCompare(b.label));
+    return [...loadRows, ...carrierRows].sort(
+        (a, b) => rank(a.docType) - rank(b.docType) || a.label.localeCompare(b.label)
+    );
 }

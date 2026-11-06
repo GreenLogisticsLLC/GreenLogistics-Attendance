@@ -659,19 +659,6 @@ window.GreenOSModules.accounting = {
     }
   },
 
-  profileDocSlots() {
-    return [
-      { type: "RATE_CONFIRMATION", label: "Rate Confirmation (RC)" },
-      { type: "BOL", label: "BOL" },
-      { type: "BROKER_CARRIER_AGREEMENT", label: "Broker-Carrier Agreement" },
-      { type: "MC_AUTHORITY", label: "MC Authority" },
-      { type: "NOA", label: "NOA / VOID CHECK / OTHER" },
-      { type: "W9", label: "W-9" },
-      { type: "INSURANCE", label: "Insurance" },
-      { type: "OTHER", label: "Other" },
-    ];
-  },
-
   findDoc(docs, docType) {
     var want = String(docType || "").toUpperCase();
     return (docs || []).find(function (d) {
@@ -684,6 +671,58 @@ window.GreenOSModules.accounting = {
     if (doc.openUrl) return true;
     var st = String(doc.status || "").toUpperCase();
     return st === "READY" || st === "UPLOADED" || st === "CURRENT" || st === "VERIFIED";
+  },
+
+  /** All broker + carrier documents for this load (API already merged). */
+  profileDocumentsHtml(docs) {
+    var self = this;
+    var rows = docs || [];
+    if (!rows.length) {
+      return '<li class="gos-muted" style="padding:0.4rem 0">No documents uploaded for this load yet.</li>';
+    }
+    return rows
+      .map(function (doc) {
+        var ready = self.docReady(doc);
+        var label = doc.label || doc.docType || "Document";
+        var who = doc.uploadedBy || (doc.source === "carrier" ? "Carrier" : "Broker");
+        var actions = "";
+        if (ready && doc.openUrl) {
+          actions +=
+            '<button type="button" class="acc-doc-icon acc-doc-file" data-url="' +
+            self.esc(doc.openUrl) +
+            '" data-name="' +
+            self.esc(doc.fileName || label) +
+            '" data-mime="' +
+            self.esc(doc.mimeType || "application/pdf") +
+            '" title="View">View</button>';
+        }
+        if (doc.source === "load") {
+          actions +=
+            '<button type="button" class="acc-doc-upload-btn" data-doc-type="' +
+            self.esc(doc.docType) +
+            '">' +
+            (ready ? "Replace" : "Upload") +
+            "</button>";
+        }
+        return (
+          '<li class="acc-doc-row">' +
+          '<span class="acc-doc-dot' +
+          (ready ? " is-ready" : "") +
+          '"></span>' +
+          '<span class="acc-doc-name">' +
+          self.esc(label) +
+          ' <span class="acc-doc-who">' +
+          self.esc(who) +
+          "</span></span>" +
+          (ready
+            ? self.pill(String(doc.status || "READY").toUpperCase(), "ok")
+            : self.pill("MISSING", "muted")) +
+          '<span class="acc-doc-actions">' +
+          actions +
+          "</span></li>"
+        );
+      })
+      .join("");
   },
 
   yesNo(v) {
@@ -1247,47 +1286,11 @@ window.GreenOSModules.accounting = {
       var pod = d.pod || {};
       var loadNo = ident.loadNumber || id;
       var neighbors = self.neighborLoadIds(id);
-      var slots = self.profileDocSlots();
-      var readyCount = 0;
-      var docsHtml = slots
-        .map(function (slot) {
-          var doc = self.findDoc(d.documents, slot.type);
-          var ready = self.docReady(doc);
-          if (ready) readyCount += 1;
-          var actions = "";
-          if (ready && doc && doc.openUrl) {
-            actions +=
-              '<button type="button" class="acc-doc-icon acc-doc-file" data-url="' +
-              self.esc(doc.openUrl) +
-              '" data-name="' +
-              self.esc(doc.fileName || slot.label) +
-              '" data-mime="' +
-              self.esc(doc.mimeType || "application/pdf") +
-              '" title="View">View</button>';
-          }
-          actions +=
-            '<button type="button" class="acc-doc-upload-btn" data-doc-type="' +
-            self.esc(slot.type) +
-            '">' +
-            (ready ? "Replace" : "Upload") +
-            "</button>";
-          return (
-            '<li class="acc-doc-row">' +
-            '<span class="acc-doc-dot' +
-            (ready ? " is-ready" : "") +
-            '"></span>' +
-            '<span class="acc-doc-name">' +
-            self.esc(slot.label) +
-            "</span>" +
-            (ready
-              ? self.pill(String(doc.status || "READY").toUpperCase(), "ok")
-              : '<span class="acc-doc-empty"></span>') +
-            '<span class="acc-doc-actions">' +
-            actions +
-            "</span></li>"
-          );
-        })
-        .join("");
+      var allDocs = d.documents || [];
+      var readyCount = allDocs.filter(function (doc) {
+        return self.docReady(doc);
+      }).length;
+      var docsHtml = self.profileDocumentsHtml(allDocs);
 
       var custInvoice = cust.invoiceDoc;
       var carrInvoice = carr.invoiceDoc;
@@ -1384,15 +1387,7 @@ window.GreenOSModules.accounting = {
         '<div class="acc-quick-item"><span class="acc-quick-label">POD Status</span>' +
         self.pill(String(pod.status || "PENDING").toUpperCase(), pod.document ? "ok" : "warn") +
         '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="POD">Upload POD</button></div>' +
-        '<div class="acc-quick-item"><span class="acc-quick-label">Carrier Choose Payment Option</span>' +
-        '<select id="acc-carrier-pay-opt" disabled title="Carrier payout method is set when paying the carrier">' +
-        '<option>ACH (Bank Transfer)</option><option>Wire</option><option>Zelle</option><option>Check</option>' +
-        "</select></div>" +
-        '<div class="acc-quick-item"><span class="acc-quick-label">Carrier Rate</span>' +
-        '<div class="acc-carrier-rate-edit"><input id="acc-carrier-rate" inputmode="decimal" value="' +
-        self.esc(carr.rate == null ? "" : carr.rate) +
-        '"><button type="button" class="btn-secondary" id="acc-save-carrier-rate" title="Save carrier rate">Save</button></div>' +
-        "</div></div>" +
+        "</div>" +
         '<div class="acc-profile-grid">' +
         '<section class="acc-card"><h3>Customer</h3><div class="acc-card-name">' +
         self.esc(cust.name || "—") +
@@ -1440,8 +1435,8 @@ window.GreenOSModules.accounting = {
         '<section class="acc-card"><div class="acc-card-head"><h3>Documents</h3><span class="gos-muted">' +
         readyCount +
         "/" +
-        slots.length +
-        " ready</span></div><ul class=\"acc-doc-list\">" +
+        allDocs.length +
+        " on this load</span></div><ul class=\"acc-doc-list\">" +
         docsHtml +
         "</ul></section>" +
         '<section class="acc-card"><h3>Accounting</h3>' +
@@ -1499,7 +1494,9 @@ window.GreenOSModules.accounting = {
         '<input type="file" class="acc-file-input" data-doc-type="CARRIER_INVOICE" hidden accept=".pdf,image/*">' +
         "</section></div>" +
         '<section class="acc-card acc-rate-card"><h3>Rate &amp; Payment</h3>' +
-        '<div class="acc-rate-grid">' +
+        '<div class="acc-rate-sides">' +
+        '<div class="acc-rate-side">' +
+        "<h4>Customer</h4>" +
         '<label>Customer Rate (Required)<input id="acc-cust-rate" inputmode="decimal" value="' +
         self.esc(cust.rate == null ? "" : cust.rate) +
         '"></label>' +
@@ -1518,7 +1515,29 @@ window.GreenOSModules.accounting = {
         "</strong></div>" +
         '<div class="acc-rate-total">Total Payment: <strong>' +
         self.money(cust.total) +
-        "</strong></div></div></div></section>" +
+        "</strong></div></div></div>" +
+        '<div class="acc-rate-side">' +
+        "<h4>Carrier</h4>" +
+        '<label>Carrier Rate<input id="acc-carrier-rate" inputmode="decimal" value="' +
+        self.esc(carr.rate == null ? "" : carr.rate) +
+        '"></label>' +
+        '<label>Carrier Choose Payment Option' +
+        '<input type="text" id="acc-carrier-pay-opt" readonly value="' +
+        self.esc(carr.paymentOption || "—") +
+        '" title="' +
+        self.esc(
+          carr.paymentOptionFromRateCon
+            ? "From Rate Confirmation document"
+            : "From carrier profile (no payment option saved on Rate Confirmation)"
+        ) +
+        '"></label>' +
+        '<p class="gos-muted acc-rc-pay-hint">' +
+        (carr.paymentOptionFromRateCon
+          ? "Taken from Rate Confirmation"
+          : "No payment option on Rate Confirmation — showing carrier profile value") +
+        "</p>" +
+        '<button type="button" class="btn-secondary" id="acc-save-carrier-rate" style="width:auto">Save carrier rate</button>' +
+        "</div></div></section>" +
         '<div class="acc-profile-toolbar">' +
         toolbar +
         "</div>" +
