@@ -2056,6 +2056,19 @@ export class CarrierService {
                 err instanceof Error ? err.message : err
             );
         }
+        // Archive after stamp so Carrier Documents gets the signed PDF copy.
+        const archived = await this.archiveSignedRcBolPdfs({
+            carrierId: session.carrierId,
+            shipmentLeadId: session.shipmentLeadId,
+            sessionId: session.sessionId,
+            uploadedBy: "SYSTEM",
+        }).catch((err) => {
+            console.warn(
+                `[rc-sign] archive signed RC/BOL failed for ${session.shipmentLeadId}:`,
+                err instanceof Error ? err.message : err
+            );
+            return { rateConDocumentId: null as string | null, bolDocumentId: null as string | null };
+        });
         const mailed = await this.emailSignedRateConfirmation({
             shipmentLeadId: session.shipmentLeadId,
             to: session.carrier.email,
@@ -2067,12 +2080,6 @@ export class CarrierService {
             emailTo: session.carrier.email,
             emailWarning: err instanceof Error ? err.message : "Could not email the signed Rate Confirmation",
         }));
-        const archived = await this.archiveSignedRcBolPdfs({
-            carrierId: session.carrierId,
-            shipmentLeadId: session.shipmentLeadId,
-            sessionId: session.sessionId,
-            uploadedBy: "SYSTEM",
-        });
         await this.emitEvent({
             carrierId: session.carrierId,
             sessionId: session.sessionId,
@@ -2096,8 +2103,9 @@ export class CarrierService {
     }
 
     /**
-     * RC/BOL stay on the load that created them. Do not copy onto the carrier packet
-     * (that would leak previous-load files onto the next load).
+     * Copy this load's signed RC (+ BOL if present) into Carrier Documents as an audit
+     * archive, tagged with shipmentLeadId. Assign Carrier / packet review still ignore
+     * RC/BOL/POD so they never leak onto the next load's checklist.
      */
     async archiveSignedRcBolPdfs(input: {
         carrierId: string;
@@ -2105,6 +2113,14 @@ export class CarrierService {
         sessionId?: string | null;
         uploadedBy?: string;
     }): Promise<{ rateConDocumentId: string | null; bolDocumentId: string | null }> {
+        const out: { rateConDocumentId: string | null; bolDocumentId: string | null } = {
+            rateConDocumentId: null,
+            bolDocumentId: null,
+        };
+
+        // One CURRENT RC/BOL/POD set per carrier in the UI — retire prior CURRENT
+        // rows (any load). Packet review still ignores these types via
+        // isCarrierPacketExcluded, so archived copies never leak into Assign Carrier.
         await prisma.carrierDocument.updateMany({
             where: {
                 carrierId: input.carrierId,
@@ -2113,7 +2129,62 @@ export class CarrierService {
             },
             data: { status: "ARCHIVED" },
         });
-        return { rateConDocumentId: null, bolDocumentId: null };
+
+        for (const docType of ["RATE_CONFIRMATION", "BOL"] as const) {
+            const loadDoc = await prisma.loadDocument.findFirst({
+                where: {
+                    shipmentLeadId: input.shipmentLeadId,
+                    docType,
+                    isCurrent: true,
+                    status: { not: "ARCHIVED" },
+                },
+                orderBy: { version: "desc" },
+            });
+            if (!loadDoc?.storedName) continue;
+            const src = path.join(LOAD_DOCS_ROOT, input.shipmentLeadId, loadDoc.storedName);
+            if (!fs.existsSync(src)) continue;
+
+            const prev = await prisma.carrierDocument.findFirst({
+                where: {
+                    carrierId: input.carrierId,
+                    documentType: docType,
+                    shipmentLeadId: input.shipmentLeadId,
+                },
+                orderBy: { version: "desc" },
+            });
+            const version = (prev?.version || 0) + 1;
+
+            const dir = carrierStorageService.ensureDir(input.carrierId);
+            const originalFilename =
+                loadDoc.fileName ||
+                (docType === "RATE_CONFIRMATION"
+                    ? `Rate-Confirmation-v${loadDoc.version}-signed.pdf`
+                    : `BOL-v${loadDoc.version}-signed.pdf`);
+            const storageKey = `${docType}_v${version}_${Date.now()}_signed.pdf`;
+            const absolutePath = path.join(dir, storageKey);
+            fs.copyFileSync(src, absolutePath);
+            const buf = fs.readFileSync(absolutePath);
+            const checksum = crypto.createHash("sha256").update(buf).digest("hex");
+
+            const created = await prisma.carrierDocument.create({
+                data: {
+                    carrierId: input.carrierId,
+                    shipmentLeadId: input.shipmentLeadId,
+                    documentType: docType,
+                    originalFilename,
+                    storageKey,
+                    mimeType: loadDoc.mimeType || "application/pdf",
+                    fileSize: buf.length,
+                    checksum,
+                    uploadedBy: input.uploadedBy || "SYSTEM",
+                    status: "CURRENT",
+                    version,
+                },
+            });
+            if (docType === "RATE_CONFIRMATION") out.rateConDocumentId = created.documentId;
+            else out.bolDocumentId = created.documentId;
+        }
+        return out;
     }
 
     /** Email the current signed Rate Confirmation PDF to the carrier. */
@@ -2200,7 +2271,7 @@ export class CarrierService {
         });
     }
 
-    /** Backfill: stamp the latest portal RC signature onto the load Rate Confirmation PDF. */
+    /** Backfill: stamp the latest portal RC signature onto the load Rate Confirmation PDF and archive copies. */
     async regenerateRcBolPdfs(carrierId: string, actor: Actor) {
         await this.assertCarrierAccess(carrierId, actor);
         const latest = await prisma.carrierRcSignature.findFirst({
@@ -2220,16 +2291,24 @@ export class CarrierService {
         if (!stamped) {
             throw Object.assign(
                 new Error(
-                    "No Rate Confirmation on that load to stamp. Open Documents on the load and generate Rate Con first."
+                    "Could not create or stamp the Rate Confirmation for that load. Check load details and try again."
                 ),
                 { status: 422 }
             );
         }
+        const archived = await this.archiveSignedRcBolPdfs({
+            carrierId,
+            shipmentLeadId: latest.shipmentLeadId,
+            sessionId: latest.sessionId,
+            uploadedBy: actor.userId || "STAFF",
+        });
         return {
             shipmentLeadId: latest.shipmentLeadId,
             rateConDocumentId: stamped.documentId,
             version: stamped.version,
             changeReason: stamped.changeReason,
+            archivedRateConDocumentId: archived.rateConDocumentId,
+            archivedBolDocumentId: archived.bolDocumentId,
         };
     }
 
