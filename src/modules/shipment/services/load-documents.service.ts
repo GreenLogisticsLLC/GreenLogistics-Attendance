@@ -306,7 +306,7 @@ export class LoadDocumentsService {
         const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!lead?.loadNumber) return null;
 
-        const current = await prisma.loadDocument.findFirst({
+        let current = await prisma.loadDocument.findFirst({
             where: {
                 shipmentLeadId,
                 docType: "RATE_CONFIRMATION",
@@ -315,7 +315,36 @@ export class LoadDocumentsService {
             },
             orderBy: { version: "desc" },
         });
-        if (!current) return null;
+
+        const signedAt = input.signedAt || new Date();
+        const signedDate = signedAt.toISOString().slice(0, 10);
+
+        // Portal sign can happen before Generate, or after the current RC was archived.
+        // Always materialize a signed PDF into Load Documents so the archive is not empty.
+        if (!current) {
+            try {
+                current = await this.generate({
+                    shipmentLeadId,
+                    docType: "RATE_CONFIRMATION",
+                    actorUserId: input.actorUserId || lead.assignedBrokerId || undefined,
+                    actorRole: "Owner",
+                    acknowledgeComplianceReview: true,
+                    changeReason: "FINAL_SIGNED",
+                    contentOverrides: {
+                        carrierSignatureDataUrl: signatureData,
+                        carrierSignerName: signerName,
+                        carrierSignedAt: signedDate,
+                    },
+                });
+                return current;
+            } catch (err) {
+                console.warn(
+                    `[rc-sign] could not auto-generate Rate Confirmation for ${shipmentLeadId}:`,
+                    err instanceof Error ? err.message : err
+                );
+                return null;
+            }
+        }
 
         let content: LoadDocumentContent = {};
         try {
@@ -324,8 +353,6 @@ export class LoadDocumentsService {
             content = {};
         }
 
-        const signedAt = input.signedAt || new Date();
-        const signedDate = signedAt.toISOString().slice(0, 10);
         const already =
             content.carrierSignatureDataUrl === signatureData &&
             content.carrierSignerName === signerName;
@@ -394,7 +421,8 @@ export class LoadDocumentsService {
     }
 
     /**
-     * If a portal RC signature exists for this load but the current PDF has none, stamp it.
+     * If a portal RC signature exists for this load but the current PDF has none
+     * (or there is no Rate Confirmation yet), stamp / generate the signed PDF.
      */
     async ensureCarrierSignatureOnRateCon(shipmentLeadId: string) {
         const current = await prisma.loadDocument.findFirst({
@@ -407,15 +435,16 @@ export class LoadDocumentsService {
             orderBy: { version: "desc" },
             select: { documentId: true, contentJson: true },
         });
-        if (!current) return null;
 
-        let content: LoadDocumentContent = {};
-        try {
-            content = JSON.parse(current.contentJson || "{}") as LoadDocumentContent;
-        } catch {
-            content = {};
+        if (current) {
+            let content: LoadDocumentContent = {};
+            try {
+                content = JSON.parse(current.contentJson || "{}") as LoadDocumentContent;
+            } catch {
+                content = {};
+            }
+            if (content.carrierSignatureDataUrl) return null;
         }
-        if (content.carrierSignatureDataUrl) return null;
 
         const sig = await prisma.carrierRcSignature.findFirst({
             where: { shipmentLeadId },
