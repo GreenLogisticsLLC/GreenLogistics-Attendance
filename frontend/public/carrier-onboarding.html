@@ -307,7 +307,8 @@
           '<strong class="doc-label">' + esc(t.label) + (t.required ? reqMark() : "") + "</strong>" +
           status +
           '<label class="doc-pick">Choose file' +
-          '<input type="file" data-type="' + t.id + '" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,application/pdf,image/*">' +
+          // Any document/photo format — server blocks only executables/scripts.
+          '<input type="file" data-type="' + t.id + '">' +
           "</label>" +
           "</div>";
       }).join("") +
@@ -779,7 +780,7 @@
           setMsg("Uploaded. Bot is checking the document.", true);
         } catch (e) {
           var msg = (e && e.name === "AbortError")
-            ? "Upload timed out. Try a smaller PDF (under 15 MB) or a photo of the W-9."
+            ? "Upload timed out. Try a smaller file (under 15 MB)."
             : (e && e.message) || "Upload failed";
           setMsg(msg, false);
           inp.value = "";

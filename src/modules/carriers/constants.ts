@@ -37,17 +37,30 @@ export const REQUIRED_CARRIER_DOC_TYPES = [
     CARRIER_DOC_TYPES.INSURANCE,
 ] as const;
 
+/**
+ * Legacy allow-lists kept for reference / older callers.
+ * Portal uploads now use a deny-list in carrier-storage (any document format OK).
+ */
 export const ALLOWED_UPLOAD_MIME = new Set([
     "application/pdf",
     "image/jpeg",
     "image/png",
     "image/webp",
     "image/gif",
+    "image/heic",
+    "image/heif",
+    "image/tiff",
+    "image/bmp",
+    "text/plain",
+    "text/csv",
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/rtf",
+    "application/vnd.oasis.opendocument.text",
 ]);
 
-/** Extensions we accept even when the browser sends a generic MIME (octet-stream). */
 export const ALLOWED_UPLOAD_EXT = new Set([
     ".pdf",
     ".jpg",
@@ -55,8 +68,19 @@ export const ALLOWED_UPLOAD_EXT = new Set([
     ".png",
     ".webp",
     ".gif",
+    ".heic",
+    ".heif",
+    ".tif",
+    ".tiff",
+    ".bmp",
+    ".txt",
+    ".csv",
     ".doc",
     ".docx",
+    ".xls",
+    ".xlsx",
+    ".rtf",
+    ".odt",
 ]);
 
 export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
