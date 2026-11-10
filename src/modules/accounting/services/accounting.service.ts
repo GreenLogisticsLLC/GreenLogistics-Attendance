@@ -502,6 +502,13 @@ where: { loadNumber: { not: null } },
                         r.accountingDocStatus === AccountingDocStatus.Pending ||
                         r.accountingDocStatus === AccountingDocStatus.NeedsCorrection)
             );
+        } else if (f === "verified") {
+            // Loads already checked / verified by Accounting Documents.
+            list = list.filter(
+                (r) =>
+                    !r.isVoided &&
+                    r.accountingDocStatus === AccountingDocStatus.Verified
+            );
         } else if (f === "billing") {
             list = list.filter(
                 (r) => !r.isVoided && r.accountingReadyForBilling && !r.customerPaidAt

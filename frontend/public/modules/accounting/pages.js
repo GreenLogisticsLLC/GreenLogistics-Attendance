@@ -6,6 +6,7 @@ window.GreenOSModules.accounting = {
   children: [
     { id: "dashboard", title: "Dashboard" },
     { id: "document-review", title: "Loads for Review" },
+    { id: "verified", title: "Verified" },
     { id: "customer-billing", title: "Billing (AR)" },
     { id: "carrier-payments", title: "Carrier Payments (AP)" },
     { id: "customer-payments", title: "Invoices" },
@@ -487,6 +488,7 @@ window.GreenOSModules.accounting = {
 
   filterForSub(subPageId) {
     if (subPageId === "document-review") return "documents";
+    if (subPageId === "verified") return "verified";
     if (subPageId === "customer-billing") return "billing";
     if (subPageId === "customer-payments") return "customer-payments";
     if (subPageId === "carrier-payments") return "carrier-payment";

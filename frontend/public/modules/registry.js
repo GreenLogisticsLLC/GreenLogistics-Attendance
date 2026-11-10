@@ -181,6 +181,7 @@ window.GreenOSRegistry = [
       { id: "dashboard", title: "Dashboard" },
       { id: "shipments", title: "Shipments" },
       { id: "document-review", title: "Document Review" },
+      { id: "verified", title: "Verified" },
       { id: "customer-billing", title: "Customer Billing" },
       { id: "customer-payments", title: "Customer Payments" },
       { id: "carrier-payments", title: "Carrier Payments" },
