@@ -79,6 +79,23 @@ function money(n: number | null | undefined) {
     return n == null || Number.isNaN(Number(n)) ? null : Number(n);
 }
 
+/** Numeric order for GL10001, GL10002… so Accounting lists stay sequential. */
+function loadNumberSortKey(loadNumber: string | null | undefined): number {
+    const digits = String(loadNumber || "").replace(/\D+/g, "");
+    if (!digits) return Number.MAX_SAFE_INTEGER;
+    const n = Number(digits);
+    return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+}
+
+function compareLoadNumberAsc(
+    a: { loadNumber?: string | null },
+    b: { loadNumber?: string | null }
+): number {
+    const diff = loadNumberSortKey(a.loadNumber) - loadNumberSortKey(b.loadNumber);
+    if (diff !== 0) return diff;
+    return String(a.loadNumber || "").localeCompare(String(b.loadNumber || ""));
+}
+
 export class AccountingService {
     private sub(actor: Actor): AccountingSubRole | null {
         if (isAccountingAdmin(actor.role)) return null;
@@ -381,8 +398,8 @@ export class AccountingService {
         const f = String(filter || "all").toLowerCase();
         const rows = await prisma.shipmentLead.findMany({
             where: { loadNumber: { not: null }, status: { not: "VOIDED" } },
-            orderBy: { updatedAt: "desc" },
-            take: 200,
+            orderBy: { loadNumber: "asc" },
+            take: 2000,
             select: {
                 shipmentLeadId: true,
                 loadNumber: true,
@@ -502,7 +519,7 @@ export class AccountingService {
             });
         }
 
-        return list;
+        return list.sort(compareLoadNumberAsc);
     }
 
     async getShipment(actor: Actor, shipmentLeadId: string) {
