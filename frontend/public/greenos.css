@@ -3258,13 +3258,46 @@ tr.crm-row.load-row-no-carrier td:first-child {
 }
 .load-form-grid .cu-agreement {
   border: 1px solid var(--gos-border, #334155);
-  border-radius: 10px;
-  padding: 0.75rem 0.9rem 0.9rem;
+  border-radius: 12px;
+  padding: 0.95rem 1.05rem 1.1rem;
   margin: 0.35rem 0 0;
+  gap: 0.75rem;
 }
 .load-form-grid .cu-agreement legend {
-  padding: 0 0.35rem;
+  padding: 0 0.4rem;
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: #f8fafc;
+  letter-spacing: 0.01em;
+}
+.load-form-grid .cu-agreement > .gos-muted {
+  color: #e2e8f0 !important;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+.load-form-grid .cu-agreement .cu-check {
+  align-items: center;
+  gap: 0.55rem 0.7rem;
+  font-size: 1.12rem;
   font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.35;
+}
+.load-form-grid .cu-agreement .cu-check input[type="radio"] {
+  width: 1.35rem;
+  height: 1.35rem;
+  min-width: 1.35rem;
+  min-height: 1.35rem;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--gos-accent, #12d48a);
+  cursor: pointer;
+  transform: scale(1.05);
+}
+.load-form-grid .cu-agreement .cu-check .gos-muted {
+  color: #cbd5e1 !important;
+  font-weight: 500;
+  font-size: 0.98rem;
 }
 .load-form-grid .cu-check {
   display: flex;
