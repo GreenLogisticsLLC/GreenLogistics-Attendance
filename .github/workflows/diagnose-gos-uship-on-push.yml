@@ -1,0 +1,51 @@
+name: Diagnose GOS uShip open links
+
+# Push-triggered because workflow_dispatch is blocked for the cloud agent token.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "tools/ops/TRIGGER_GOS_USHIP_DIAGNOSE"
+      - "scripts/diagnose-gos-uship-open.mjs"
+      - ".github/workflows/diagnose-gos-uship-on-push.yml"
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Dump GOS1001100 / GOS1001106 uShip URLs
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            bash -s << 'EOF'
+          set -euo pipefail
+          mkdir -p /var/lock
+          exec 9>/var/lock/greenos-autodeploy.lock
+          echo "Waiting for greenos deploy lock..."
+          flock 9
+          echo "Acquired greenos deploy lock"
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          git reset --hard origin/main
+          set -a
+          # shellcheck disable=SC1091
+          [ -f .env ] && . ./.env || true
+          set +a
+          if [ ! -d node_modules/@prisma/client ]; then
+            echo "Deps missing — npm ci + generate"
+            npm ci || npm install --no-audit --no-fund
+            npm run db:generate
+          fi
+          if [ ! -f dist/modules/email/parsers/uship/listing-url.js ]; then
+            npm run build
+          fi
+          node scripts/diagnose-gos-uship-open.mjs GOS1001100 GOS1001106
+          EOF
