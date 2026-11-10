@@ -915,13 +915,15 @@ window.GreenOSModules.accounting = {
     var options = opts || {};
     var showQueue = !!options.showQueue;
     var skipFilterBar = !!options.skipFilterBar;
-    var sourceRows = options.allRows || rows || [];
+    var sourceRows = self.sortRowsByLoadNumber(options.allRows || rows || []);
     self._tableRows = sourceRows;
     var displayRows = rows || [];
     if (!skipFilterBar) {
       displayRows = sourceRows.filter(function (r) {
         return self.rowMatchesFilters(r);
       });
+    } else {
+      displayRows = self.sortRowsByLoadNumber(displayRows);
     }
     var head =
       "<th>Load</th><th>Customer</th><th>Carrier</th>" +
@@ -1160,34 +1162,53 @@ window.GreenOSModules.accounting = {
     return '<span class="acc-mini-pill is-muted">—</span>';
   },
 
+  loadNumberSortKey(loadNumber) {
+    var digits = String(loadNumber || "").replace(/\D+/g, "");
+    if (!digits) return Number.MAX_SAFE_INTEGER;
+    var n = Number(digits);
+    return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+  },
+
+  sortRowsByLoadNumber(rows) {
+    var self = this;
+    return (rows || []).slice().sort(function (a, b) {
+      var diff =
+        self.loadNumberSortKey(a && a.loadNumber) - self.loadNumberSortKey(b && b.loadNumber);
+      if (diff !== 0) return diff;
+      return String((a && a.loadNumber) || "").localeCompare(String((b && b.loadNumber) || ""));
+    });
+  },
+
   filterDashboardRows(rows, queue) {
     var list = rows || [];
+    var filtered;
     if (queue === "billing") {
-      return list.filter(function (r) {
+      filtered = list.filter(function (r) {
         return r.accountingReadyForBilling && !r.customerPaidAt;
       });
-    }
-    if (queue === "carrier") {
-      return list.filter(function (r) {
+    } else if (queue === "carrier") {
+      filtered = list.filter(function (r) {
         return r.accountingReadyForCarrierPayment && !r.carrierPaidAt;
       });
-    }
-    if (queue === "paid") {
-      return list.filter(function (r) {
+    } else if (queue === "paid") {
+      filtered = list.filter(function (r) {
         return Boolean(r.customerPaidAt) && Boolean(r.carrierPaidAt);
       });
+    } else if (queue === "all") {
+      filtered = list.slice();
+    } else {
+      filtered = list.filter(function (r) {
+        if (r.accountingClosedAt) return false;
+        var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
+        var docPending =
+          !r.accountingDocStatus || doc === "PENDING" || doc.indexOf("CORRECTION") >= 0;
+        var billingReady = Boolean(r.accountingReadyForBilling) && !r.customerPaidAt;
+        var carrierReady = Boolean(r.accountingReadyForCarrierPayment) && !r.carrierPaidAt;
+        var invoiceOut = Boolean(r.invoiceNumber) && !r.customerPaidAt;
+        return docPending || billingReady || carrierReady || invoiceOut;
+      });
     }
-    if (queue === "all") return list.slice();
-    return list.filter(function (r) {
-      if (r.accountingClosedAt) return false;
-      var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
-      var docPending =
-        !r.accountingDocStatus || doc === "PENDING" || doc.indexOf("CORRECTION") >= 0;
-      var billingReady = Boolean(r.accountingReadyForBilling) && !r.customerPaidAt;
-      var carrierReady = Boolean(r.accountingReadyForCarrierPayment) && !r.carrierPaidAt;
-      var invoiceOut = Boolean(r.invoiceNumber) && !r.customerPaidAt;
-      return docPending || billingReady || carrierReady || invoiceOut;
-    });
+    return this.sortRowsByLoadNumber(filtered);
   },
 
   dashboardTableHtml(rows) {
