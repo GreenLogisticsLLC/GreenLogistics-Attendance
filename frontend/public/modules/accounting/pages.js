@@ -1341,7 +1341,10 @@ window.GreenOSModules.accounting = {
     var filtered;
     if (queue === "billing") {
       filtered = list.filter(function (r) {
-        return r.accountingReadyForBilling && !r.customerPaidAt;
+        return (
+          !r.customerPaidAt &&
+          (r.accountingReadyForBilling || Boolean(r.invoiceNumber))
+        );
       });
     } else if (queue === "carrier") {
       filtered = list.filter(function (r) {
@@ -2039,7 +2042,7 @@ window.GreenOSModules.accounting = {
             : ' disabled title="Upload the customer invoice first"'
           : ' disabled title="Billing send permission required"') +
         ">Send</button></div>" +
-        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Send emails the invoice to the customer with a delivery thank-you and payment request.</p>' +
+        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Send emails the invoice to the customer and moves this load into Billing (AR).</p>' +
         "</section>" +
         '<section class="acc-card acc-drop-card"><h3>Carrier Invoice (For Payment)</h3>' +
         (carrInvoice && carrInvoice.openUrl
@@ -2334,7 +2337,7 @@ window.GreenOSModules.accounting = {
     } else if (act === "send-invoice") {
       if (
         !window.confirm(
-          "Send the customer invoice by email now? The customer will receive a delivery thank-you with the invoice attached and a payment request."
+          "Send the customer invoice by email now? The load will move to Billing (AR). The customer will receive a delivery thank-you with the invoice attached and a payment request."
         )
       ) {
         return;
@@ -2371,7 +2374,10 @@ window.GreenOSModules.accounting = {
         return;
       }
       if (msg) {
-        msg.textContent = res.message || "Done";
+        msg.textContent =
+          act === "send-invoice"
+            ? (res.message || "Invoice sent") + " — load moved to Billing (AR)."
+            : res.message || "Done";
         msg.style.color = "#22c55e";
       }
       await self.openShipment(host, id);
