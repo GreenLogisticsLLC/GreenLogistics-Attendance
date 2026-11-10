@@ -861,12 +861,64 @@ window.GreenOSModules.accounting = {
     };
   },
 
+  invoiceFileAccept() {
+    return "application/pdf,.pdf,image/*,.png,.jpg,.jpeg,.webp";
+  },
+
+  /** Visually-hidden file input + label (HTML hidden blocks programmatic .click() in some browsers). */
+  invoiceUploadControlHtml(docType, labelText) {
+    var id =
+      "acc-file-" +
+      String(docType || "doc")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-");
+    return (
+      '<input type="file" id="' +
+      this.esc(id) +
+      '" class="acc-file-input" data-doc-type="' +
+      this.esc(docType) +
+      '" accept="' +
+      this.esc(this.invoiceFileAccept()) +
+      '">' +
+      '<label for="' +
+      this.esc(id) +
+      '" class="btn-secondary acc-invoice-add-label">' +
+      this.esc(labelText) +
+      "</label>"
+    );
+  },
+
+  openFilePicker(input) {
+    if (!input) return false;
+    try {
+      input.value = "";
+    } catch (e) {
+      /* ignore */
+    }
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+        return true;
+      }
+    } catch (e) {
+      /* fall through to click() */
+    }
+    try {
+      input.click();
+      return true;
+    } catch (e2) {
+      return false;
+    }
+  },
+
   async uploadLoadDoc(id, docType, file) {
     var token = "";
     try {
       token = localStorage.getItem("gl_token") || sessionStorage.getItem("gl_token") || "";
     } catch (e) {}
     if (!token && window.GreenOSToken) token = window.GreenOSToken;
+    if (!file) throw new Error("Choose a file to upload");
+    if (!docType) throw new Error("Document type is missing");
     var form = new FormData();
     form.append("file", file);
     if (token) form.append("sessionToken", token);
@@ -1989,7 +2041,7 @@ window.GreenOSModules.accounting = {
             "</button></p>"
           : '<p class="gos-muted">No customer invoice uploaded yet.</p>') +
         '<div class="acc-invoice-actions">' +
-        '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="CUSTOMER_INVOICE">+ Add Customer Invoice</button>' +
+        self.invoiceUploadControlHtml("CUSTOMER_INVOICE", "+ Add Customer Invoice") +
         '<button type="button" class="btn-primary acc-send-btn" data-act="send-invoice"' +
         (perms.canSendInvoice || perms.canCreateInvoice
           ? custInvoice && custInvoice.openUrl
@@ -1998,7 +2050,6 @@ window.GreenOSModules.accounting = {
           : ' disabled title="Billing send permission required"') +
         ">Send</button></div>" +
         '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Send emails the invoice to the customer with a delivery thank-you and payment request.</p>' +
-        '<input type="file" class="acc-file-input" data-doc-type="CUSTOMER_INVOICE" hidden accept=".pdf,image/*">' +
         "</section>" +
         '<section class="acc-card acc-drop-card"><h3>Carrier Invoice (For Payment)</h3>' +
         (carrInvoice && carrInvoice.openUrl
@@ -2013,13 +2064,17 @@ window.GreenOSModules.accounting = {
             "</button></p>"
           : '<p class="gos-muted">No carrier invoice uploaded yet.</p>') +
         '<div class="acc-invoice-actions">' +
-        '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="CARRIER_INVOICE">+ Add Carrier Invoice</button>' +
+        self.invoiceUploadControlHtml("CARRIER_INVOICE", "+ Add Carrier Invoice") +
         '<button type="button" class="btn-primary acc-send-btn" data-act="carr-pay"' +
         (perms.canExecuteCarrierPayment && acc.canPayCarrier
           ? ""
-          : ' disabled title="Blocked until documents and amounts are ready"') +
+          : ' disabled title="' +
+            (perms.canExecuteCarrierPayment
+              ? "Blocked until documents are verified and carrier payment is ready"
+              : "Carrier payment permission required") +
+            '"') +
         ">Send</button></div>" +
-        '<input type="file" class="acc-file-input" data-doc-type="CARRIER_INVOICE" hidden accept=".pdf,image/*">' +
+        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Send pays the carrier after documents and amounts are verified.</p>' +
         "</section></div>" +
         '<section class="acc-card acc-rate-card"><h3>Rate &amp; Payment</h3>' +
         '<div class="acc-rate-sides">' +
@@ -2070,7 +2125,9 @@ window.GreenOSModules.accounting = {
         toolbar +
         "</div>" +
         '<p id="acc-msg" class="gos-muted" style="margin-top:0.75rem"></p>' +
-        '<input type="file" id="acc-generic-file" class="acc-file-input" hidden accept=".pdf,image/*">' +
+        '<input type="file" id="acc-generic-file" class="acc-file-input" accept="' +
+        self.esc(self.invoiceFileAccept()) +
+        '">' +
         "</div>";
 
       function closeProfile() {
@@ -2100,13 +2157,17 @@ window.GreenOSModules.accounting = {
       var genericFile = host.querySelector("#acc-generic-file");
       var pendingDocType = null;
       host.querySelectorAll(".acc-doc-upload-btn").forEach(function (btn) {
-        btn.addEventListener("click", function () {
+        btn.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
           pendingDocType = btn.getAttribute("data-doc-type");
           var dedicated = host.querySelector(
             '.acc-file-input[data-doc-type="' + pendingDocType + '"]'
           );
-          if (dedicated) dedicated.click();
-          else if (genericFile) genericFile.click();
+          var target = dedicated || genericFile;
+          if (!self.openFilePicker(target)) {
+            alert("Could not open the file picker. Try again or use a different browser.");
+          }
         });
       });
       function handleFileInput(input) {
@@ -2125,6 +2186,7 @@ window.GreenOSModules.accounting = {
           try {
             await self.uploadLoadDoc(id, docType, file);
             input.value = "";
+            pendingDocType = null;
             await self.openShipment(host, id);
           } catch (err) {
             input.value = "";

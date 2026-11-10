@@ -955,6 +955,23 @@ export class LoadDocumentsService {
             },
             timelineStage,
         });
+
+        // Keep Accounting invoice metadata in sync so Send / filters see the upload.
+        if (docType === "CUSTOMER_INVOICE" && !lead.invoiceNumber) {
+            const invoiceNumber = String(lead.loadNumber || "")
+                .replace(/^GL/i, "INV-")
+                .trim() || `INV-${Date.now()}`;
+            await prisma.shipmentLead
+                .update({
+                    where: { shipmentLeadId: input.shipmentLeadId },
+                    data: {
+                        invoiceNumber,
+                        invoiceDate: lead.invoiceDate || new Date(),
+                    },
+                })
+                .catch(() => null);
+        }
+
         return row;
     }
 }
