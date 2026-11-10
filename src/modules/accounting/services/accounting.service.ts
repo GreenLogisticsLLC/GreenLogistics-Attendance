@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { prisma } from "../../../config/database.js";
 import {
     AccountingPermissions,
@@ -11,8 +13,10 @@ import { Roles } from "../../../auth/roles.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { AccountingDocStatus } from "../accounting.constants.js";
 import { buildAccountingDocuments } from "../accounting-documents.js";
+import { sendCustomerInvoiceEmail } from "../customer-invoice-email.js";
 import { customerPaymentQuote } from "../../shipment/customer-payment.js";
 import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
+import { LOAD_DOCS_ROOT } from "../../shipment/services/load-pdf.service.js";
 
 type Actor = {
     userId: string;
@@ -655,6 +659,7 @@ export class AccountingService {
             },
             customer: {
                 name: s.customerName,
+                email: s.customerEmail,
                 rate: payment.rate,
                 accessorials: payment.accessorials,
                 paymentMethod: payment.method,
@@ -728,6 +733,11 @@ export class AccountingService {
                     actor.role,
                     actor.accountingSubRole,
                     AccountingPermissions.BillingCreate
+                ),
+                canSendInvoice: hasAccountingPermission(
+                    actor.role,
+                    actor.accountingSubRole,
+                    AccountingPermissions.BillingSend
                 ),
                 canRecordCustomerPayment: hasAccountingPermission(
                     actor.role,
@@ -965,12 +975,70 @@ export class AccountingService {
         assertPerm(actor, AccountingPermissions.BillingSend);
         const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!s) throw notFound("Shipment not found");
-        if (!s.invoiceNumber) {
-            throw badRequest("Create an invoice before sending");
+
+        const invoiceDoc = await prisma.loadDocument.findFirst({
+            where: {
+                shipmentLeadId,
+                docType: "CUSTOMER_INVOICE",
+                isCurrent: true,
+                status: { not: "ARCHIVED" },
+            },
+            orderBy: { version: "desc" },
+        });
+        if (!invoiceDoc?.storedName || !invoiceDoc.fileUrl) {
+            throw badRequest("Upload the Customer Invoice document before sending");
         }
+        const absolutePath = path.join(LOAD_DOCS_ROOT, shipmentLeadId, invoiceDoc.storedName);
+        if (!fs.existsSync(absolutePath)) {
+            throw badRequest("Customer Invoice file is missing on the server");
+        }
+
+        const to = String(s.customerEmail || "").trim();
+        if (!to || !to.includes("@")) {
+            throw badRequest(
+                "Customer email is missing on this load. Add the customer email, then send again."
+            );
+        }
+
+        const payment = customerPaymentQuote({
+            customerRate: s.customerRate,
+            accessorialCharges: s.accessorialCharges,
+            method: s.customerPaymentMethod,
+            waiveFee: s.waiveCustomerPaymentFee,
+        });
+        const invoiceNumber =
+            String(s.invoiceNumber || "").trim() ||
+            (s.loadNumber ? String(s.loadNumber).replace(/^GL/i, "INV-") : `INV-${Date.now()}`);
+        const invoiceDate = s.invoiceDate || new Date();
+        const invoiceDueDate =
+            s.invoiceDueDate || new Date(invoiceDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+        const mail = await sendCustomerInvoiceEmail({
+            to,
+            customerName: s.customerName,
+            loadNumber: s.loadNumber,
+            invoiceNumber,
+            amountDue: payment.total,
+            attachment: {
+                filename:
+                    invoiceDoc.fileName ||
+                    `Customer-Invoice-${s.loadNumber || shipmentLeadId.slice(0, 8)}.pdf`,
+                content: fs.readFileSync(absolutePath),
+                contentType: invoiceDoc.mimeType || "application/pdf",
+            },
+        });
+
+        await prisma.loadDocument.update({
+            where: { documentId: invoiceDoc.documentId },
+            data: { status: "SENT" },
+        });
+
         const updated = await prisma.shipmentLead.update({
             where: { shipmentLeadId },
             data: {
+                invoiceNumber,
+                invoiceDate,
+                invoiceDueDate,
                 paymentStatus:
                     s.paymentStatus === "CUSTOMER_PAID" ||
                     s.paymentStatus === "CUSTOMER_AND_CARRIER_PAID"
@@ -978,14 +1046,39 @@ export class AccountingService {
                         : "INVOICE_SENT",
             },
         });
+
+        await domainEventEngine.emit({
+            shipmentLeadId,
+            eventType: "CUSTOMER_INVOICE_SENT",
+            title: "Customer invoice emailed",
+            message: `Invoice ${invoiceNumber} emailed to ${to}`,
+            actorUserId: actor.userId,
+            payload: {
+                invoiceNumber,
+                emailTo: to,
+                from: mail.from,
+                documentId: invoiceDoc.documentId,
+            },
+        });
         await writeAudit({
             actor,
             action: "INVOICE_SENT",
             shipmentLeadId,
-            oldValue: { paymentStatus: s.paymentStatus },
-            newValue: { paymentStatus: updated.paymentStatus, invoiceNumber: s.invoiceNumber },
+            oldValue: { paymentStatus: s.paymentStatus, invoiceNumber: s.invoiceNumber },
+            newValue: {
+                paymentStatus: updated.paymentStatus,
+                invoiceNumber,
+                emailTo: to,
+                from: mail.from,
+            },
         });
-        return updated;
+        return {
+            ...updated,
+            emailTo: to,
+            emailFrom: mail.from,
+            invoiceNumber,
+            documentId: invoiceDoc.documentId,
+        };
     }
 
     async recordCustomerPayment(actor: Actor, shipmentLeadId: string) {

@@ -1813,8 +1813,13 @@ window.GreenOSModules.accounting = {
         '<div class="acc-invoice-actions">' +
         '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="CUSTOMER_INVOICE">+ Add Customer Invoice</button>' +
         '<button type="button" class="btn-primary acc-send-btn" data-act="send-invoice"' +
-        (perms.canCreateInvoice ? "" : " disabled") +
+        (perms.canSendInvoice || perms.canCreateInvoice
+          ? custInvoice && custInvoice.openUrl
+            ? ""
+            : ' disabled title="Upload the customer invoice first"'
+          : ' disabled title="Billing send permission required"') +
         ">Send</button></div>" +
+        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Send emails the invoice to the customer with a delivery thank-you and payment request.</p>' +
         '<input type="file" class="acc-file-input" data-doc-type="CUSTOMER_INVOICE" hidden accept=".pdf,image/*">' +
         "</section>" +
         '<section class="acc-card acc-drop-card"><h3>Carrier Invoice (For Payment)</h3>' +
@@ -2088,8 +2093,16 @@ window.GreenOSModules.accounting = {
       var inv = window.prompt("Invoice number (optional):", "");
       path = "/shipments/" + id + "/invoice";
       body = { invoiceNumber: inv || null };
-    } else if (act === "send-invoice") path = "/shipments/" + id + "/invoice/send";
-    else if (act === "cust-pay") path = "/shipments/" + id + "/customer-payment";
+    } else if (act === "send-invoice") {
+      if (
+        !window.confirm(
+          "Send the customer invoice by email now? The customer will receive a delivery thank-you with the invoice attached and a payment request."
+        )
+      ) {
+        return;
+      }
+      path = "/shipments/" + id + "/invoice/send";
+    } else if (act === "cust-pay") path = "/shipments/" + id + "/customer-payment";
     else if (act === "carr-pay") {
       if (
         !window.confirm(
