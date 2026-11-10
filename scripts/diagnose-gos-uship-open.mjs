@@ -27,9 +27,6 @@ async function dumpOne(gos) {
                     gmailMessageId: true,
                 },
             },
-            assignedBroker: {
-                select: { firstName: true, lastName: true, username: true },
-            },
         },
     });
     console.log("\n==========", gos, "==========");
@@ -37,9 +34,14 @@ async function dumpOne(gos) {
         console.log("NOT FOUND");
         return;
     }
-    const broker = lead.assignedBroker
-        ? `${lead.assignedBroker.firstName || ""} ${lead.assignedBroker.lastName || ""}`.trim() ||
-          lead.assignedBroker.username
+    const assigned = lead.assignedBrokerId
+        ? await prisma.user.findUnique({
+              where: { userId: lead.assignedBrokerId },
+              select: { firstName: true, lastName: true, username: true },
+          })
+        : null;
+    const broker = assigned
+        ? `${assigned.firstName || ""} ${assigned.lastName || ""}`.trim() || assigned.username
         : null;
     console.log({
         shipmentLeadId: lead.shipmentLeadId,
