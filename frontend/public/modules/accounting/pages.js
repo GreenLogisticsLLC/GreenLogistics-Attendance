@@ -7,7 +7,7 @@ window.GreenOSModules.accounting = {
     { id: "dashboard", title: "Dashboard" },
     { id: "document-review", title: "Loads for Review" },
     { id: "verified", title: "Verified" },
-    { id: "customer-billing", title: "Billing (AR)" },
+    { id: "customer-billing", title: "Customer Billing" },
     { id: "carrier-payments", title: "Carrier Payments (AP)" },
     { id: "customer-payments", title: "Invoices" },
     { id: "shipments", title: "All Loads" },
@@ -2042,7 +2042,7 @@ window.GreenOSModules.accounting = {
             : ' disabled title="Upload the customer invoice first"'
           : ' disabled title="Billing send permission required"') +
         ">Send</button></div>" +
-        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Send emails the invoice to the customer and moves this load into Billing (AR).</p>' +
+        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Send emails the invoice to the customer and moves this load into Customer Billing.</p>' +
         "</section>" +
         '<section class="acc-card acc-drop-card"><h3>Carrier Invoice (For Payment)</h3>' +
         (carrInvoice && carrInvoice.openUrl
@@ -2337,7 +2337,7 @@ window.GreenOSModules.accounting = {
     } else if (act === "send-invoice") {
       if (
         !window.confirm(
-          "Send the customer invoice by email now? The load will move to Billing (AR). The customer will receive a delivery thank-you with the invoice attached and a payment request."
+          "Send the customer invoice by email now? The load will move to Customer Billing. The customer will receive a delivery thank-you with the invoice attached and a payment request."
         )
       ) {
         return;
@@ -2376,7 +2376,7 @@ window.GreenOSModules.accounting = {
       if (msg) {
         msg.textContent =
           act === "send-invoice"
-            ? (res.message || "Invoice sent") + " — load moved to Billing (AR)."
+            ? (res.message || "Invoice sent") + " — load moved to Customer Billing."
             : res.message || "Done";
         msg.style.color = "#22c55e";
       }

@@ -510,7 +510,7 @@ where: { loadNumber: { not: null } },
                     r.accountingDocStatus === AccountingDocStatus.Verified
             );
         } else if (f === "billing") {
-            // Billing (AR): unpaid loads ready for / already in customer billing.
+            // Customer Billing: unpaid loads ready for / already in customer billing.
             list = list.filter(
                 (r) =>
                     !r.isVoided &&
@@ -1161,7 +1161,7 @@ where: { loadNumber: { not: null } },
                 invoiceNumber,
                 invoiceDate,
                 invoiceDueDate,
-                // Sent invoice enters Billing (AR) until the customer pays.
+                // Sent invoice enters Customer Billing until the customer pays.
                 accountingReadyForBilling: true,
                 paymentStatus:
                     s.paymentStatus === "CUSTOMER_PAID" ||
