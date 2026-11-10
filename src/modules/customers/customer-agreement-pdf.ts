@@ -209,20 +209,31 @@ export async function buildCustomerAgreementPdf(
         y = drawFieldLine(doc, "Title", brokerTitle, y, left, width);
         doc.y = y + 4;
         doc.font("Helvetica-Bold").fontSize(9).fillColor("#111827").text("Signature");
-        const companySig = resolveCompanySignaturePng();
-        const sigTop = doc.y + 2;
-        if (companySig) {
-            try {
-                doc.image(companySig, left, sigTop, { height: 40, fit: [width * 0.45, 46] });
-            } catch {
-                /* fall through to typed signature */
-            }
-        }
-        doc.font("Times-Italic").fontSize(16).fillColor("#0f172a").text(input.brokerName, left, sigTop + 8, {
+        // Name first, then handwritten signature below — never overlap the employee name.
+        const nameTop = doc.y + 4;
+        doc.font("Times-Italic").fontSize(14).fillColor("#0f172a").text(input.brokerName, left, nameTop, {
             width: width * 0.55,
         });
-        doc.y = Math.max(doc.y, sigTop + 48);
-        drawFieldLine(doc, "Date", sendDate, doc.y + 4, left, width * 0.45);
+        const companySig = resolveCompanySignaturePng();
+        const sigTop = Math.max(doc.y, nameTop + 18) + 10;
+        let sigBottom = sigTop + 28;
+        if (companySig) {
+            try {
+                doc.image(companySig, left, sigTop, { height: 42, fit: [width * 0.5, 48] });
+                sigBottom = sigTop + 48;
+            } catch {
+                /* keep spacing */
+            }
+        } else {
+            doc.moveTo(left, sigTop + 22)
+                .lineTo(left + width * 0.5, sigTop + 22)
+                .strokeColor("#94a3b8")
+                .lineWidth(0.7)
+                .stroke();
+            sigBottom = sigTop + 28;
+        }
+        doc.y = sigBottom + 8;
+        drawFieldLine(doc, "Date", sendDate, doc.y, left, width * 0.45);
 
         doc.end();
     });
