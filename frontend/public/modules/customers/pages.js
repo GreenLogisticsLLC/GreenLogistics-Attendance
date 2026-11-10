@@ -211,7 +211,9 @@ window.GreenOSModules.customers = {
   customerFormHtml(c) {
     var self = this;
     c = c || {};
-    var sendLoad = c.sendLoadNumber ? " checked" : "";
+    var agreement = String(c.agreementType || "").toUpperCase();
+    var oneTime = agreement === "USHIP_ONETIME" ? " checked" : "";
+    var longTime = agreement === "LONG_TIME" ? " checked" : "";
     return (
       '<div class="load-form-grid">' +
       '<label>Company name * <input id="cu-company" value="' + self.esc(c.companyName || "") + '"></label>' +
@@ -228,14 +230,21 @@ window.GreenOSModules.customers = {
       '<input id="cu-addr" value="' + self.esc(c.billingAddress || "") + '">' +
       "</label>" +
       '<label class="full">Notes <textarea id="cu-notes" rows="3">' + self.esc(c.notes || "") + "</textarea></label>" +
-      '<div class="full cu-options">' +
-      '<label class="cu-check"><input type="checkbox" id="cu-send-load"' +
-      sendLoad +
-      "> Send load number" +
-      '<span class="gos-muted"> — email the GL# from your Gmail when you Create Load</span></label>' +
-      '<label class="cu-check"><input type="checkbox" id="cu-create-after"> Create load after save' +
-      '<span class="gos-muted"> — open Create Load right after this customer is saved</span></label>' +
-      "</div>" +
+      '<fieldset class="full cu-options cu-agreement">' +
+      "<legend>Customer agreement</legend>" +
+      '<p class="gos-muted" style="margin:0 0 0.45rem">Choose one. On Save, GreenOS emails that Word file from your Gmail to the customer.</p>' +
+      '<label class="cu-check"><input type="radio" name="cu-agreement" id="cu-agree-onetime" value="USHIP_ONETIME"' +
+      oneTime +
+      "> Broker Customer Uship OneTime" +
+      '<span class="gos-muted"> — send <em>Broker Customer Uship OneTime.docx</em></span></label>' +
+      '<label class="cu-check"><input type="radio" name="cu-agreement" id="cu-agree-long" value="LONG_TIME"' +
+      longTime +
+      "> Broker Customer Long TIme" +
+      '<span class="gos-muted"> — send <em>Broker Customer Long TIme.docx</em></span></label>' +
+      '<label class="cu-check"><input type="radio" name="cu-agreement" id="cu-agree-none" value=""' +
+      (!agreement ? " checked" : "") +
+      '> No agreement email now</label>' +
+      "</fieldset>" +
       "</div>"
     );
   },
@@ -253,6 +262,8 @@ window.GreenOSModules.customers = {
   },
 
   readCustomerForm(root) {
+    var agreement =
+      (root.querySelector('input[name="cu-agreement"]:checked') || {}).value || "";
     return {
       companyName: (root.querySelector("#cu-company").value || "").trim(),
       contactName: (root.querySelector("#cu-contact").value || "").trim() || null,
@@ -263,8 +274,8 @@ window.GreenOSModules.customers = {
       zip: (root.querySelector("#cu-zip").value || "").trim() || null,
       billingAddress: (root.querySelector("#cu-addr").value || "").trim() || null,
       notes: (root.querySelector("#cu-notes").value || "").trim() || null,
-      sendLoadNumber: Boolean(root.querySelector("#cu-send-load")?.checked),
-      createLoadAfterSave: Boolean(root.querySelector("#cu-create-after")?.checked),
+      agreementType: agreement || null,
+      sendAgreement: Boolean(agreement),
     };
   },
 
@@ -305,12 +316,10 @@ window.GreenOSModules.customers = {
         alert("Company name is required.");
         return;
       }
-      if (payload.sendLoadNumber && !payload.email) {
-        alert("Email is required when Send load number is checked.");
+      if (payload.agreementType && !payload.email) {
+        alert("Email is required to send the selected customer agreement.");
         return;
       }
-      var createAfter = payload.createLoadAfterSave;
-      delete payload.createLoadAfterSave;
       try {
         var saved = existing && existing.customerId
           ? await self.api("/" + encodeURIComponent(existing.customerId), {
@@ -319,11 +328,23 @@ window.GreenOSModules.customers = {
             })
           : await self.api("/", { method: "POST", body: JSON.stringify(payload) });
         self._customerId = saved.customerId;
-        if (createAfter) {
-          self.renderCreateLoad(body, root, saved);
-        } else {
-          self.renderDetail(body, root, saved.customerId);
+        if (payload.agreementType && saved.agreementEmail) {
+          if (saved.agreementEmail.sent) {
+            alert(
+              "Customer saved. Agreement emailed to " +
+                (saved.agreementEmail.to || payload.email) +
+                " from " +
+                (saved.agreementEmail.from || "your Gmail") +
+                "."
+            );
+          } else {
+            alert(
+              "Customer saved, but agreement email was not sent: " +
+                (saved.agreementEmail.error || "unknown error")
+            );
+          }
         }
+        self.renderDetail(body, root, saved.customerId);
       } catch (err) {
         alert(err.message || err);
       }

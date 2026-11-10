@@ -3256,6 +3256,16 @@ tr.crm-row.load-row-no-carrier td:first-child {
   gap: 0.55rem;
   margin-top: 0.25rem;
 }
+.load-form-grid .cu-agreement {
+  border: 1px solid var(--gos-border, #334155);
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem 0.9rem;
+  margin: 0.35rem 0 0;
+}
+.load-form-grid .cu-agreement legend {
+  padding: 0 0.35rem;
+  font-weight: 700;
+}
 .load-form-grid .cu-check {
   display: flex;
   flex-wrap: wrap;
@@ -3264,7 +3274,8 @@ tr.crm-row.load-row-no-carrier td:first-child {
   font-weight: 600;
   cursor: pointer;
 }
-.load-form-grid .cu-check input[type="checkbox"] {
+.load-form-grid .cu-check input[type="checkbox"],
+.load-form-grid .cu-check input[type="radio"] {
   width: auto;
   margin: 0;
   accent-color: var(--gos-accent, #12d48a);

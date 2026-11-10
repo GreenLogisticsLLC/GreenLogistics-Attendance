@@ -836,6 +836,8 @@ model DirectCustomer {
   notes             String?
   /// When true, Create Load emails the customer the GL# from the broker's Gmail.
   sendLoadNumber    Boolean        @default(false) @map("send_load_number")
+  /// USHIP_ONETIME | LONG_TIME — broker customer agreement choice on Add customer.
+  agreementType     String?        @map("agreement_type")
   createdByUserId   String         @map("created_by_user_id")
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
