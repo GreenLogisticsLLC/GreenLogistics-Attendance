@@ -16,8 +16,13 @@ import { ASSIGNMENT_TIMEZONE, assignmentWasAfterHours, dayOffEmployeeIdsFromRows
 import { receivesNewShipments } from "./activity-window.js";
 import { queuePlaces, syncQueueOrder, takeNextInQueue } from "./round-robin.js";
 import { arrivalCountsFor, summarizeShipmentArrivals } from "./arrival-counts.js";
-import { otherRoundIsClosed } from "./other-round.js";
+import {
+    brokersAtOtherOfferCap,
+    brokersDueForOtherOffer,
+    otherRoundIsClosed,
+} from "./other-round.js";
 import { isLoadPhase, normalizeStatus } from "../shipment/shipment.lifecycle.js";
+import { shipmentService } from "../shipment/services/shipment.service.js";
 
 const ASSIGNMENT_ROLE_NAMES = [...NEW_SHIPMENT_ASSIGNMENT_ROLES];
 
@@ -431,10 +436,10 @@ export class AssignmentEngine {
         return counts;
     }
 
-    /** In-office Other circle only. After hours keeps passing. */
+    /** Other circle closes after two passes through the current eligible pool. */
     private async secondOfficeRoundClosed(shipmentLeadId: string, holderId: string): Promise<boolean> {
         const { eligible, mode } = await this.resolveEligibleBrokers();
-        if (mode !== "in_office") return false;
+        if (mode === "none" || !eligible.length) return false;
         const offerCounts = await this.otherOfferCounts(shipmentLeadId);
         return otherRoundIsClosed({
             eligibleIds: eligible.map((person) => person.userId),
@@ -443,11 +448,25 @@ export class AssignmentEngine {
         });
     }
 
+    /** Brokers already at the 2-pass Other cap for this shipment (+ optional extra ids). */
+    private async otherPassExcludeUserIds(
+        shipmentLeadId: string,
+        extraExclude: string[] = []
+    ): Promise<string[]> {
+        const { eligible } = await this.resolveEligibleBrokers();
+        const offerCounts = await this.otherOfferCounts(shipmentLeadId);
+        const atCap = brokersAtOtherOfferCap(
+            eligible.map((person) => person.userId),
+            offerCounts
+        );
+        return [...new Set([...extraExclude.filter(Boolean), ...atCap])];
+    }
+
     /**
-     * Nobody in the office accepted. The holder who finished the second pass
-     * keeps the shipment in their Decline folder. It does not go around again.
+     * Nobody accepted after two Other passes. Remove the shipment from GreenOS
+     * so it cannot rotate a third time (e.g. back to Rio).
      */
-    private async fileSecondOfficeRound(
+    private async purgeAfterOtherRound(
         lead: {
             shipmentLeadId: string;
             greenOsShipmentId?: string | null;
@@ -456,41 +475,34 @@ export class AssignmentEngine {
         holderId: string,
         holderLabel: string
     ): Promise<boolean> {
-        const filed = await prisma.shipmentLead.updateMany({
+        const stillWaiting = await prisma.shipmentLead.findFirst({
             where: {
                 shipmentLeadId: lead.shipmentLeadId,
                 acceptedAt: null,
                 assignedBrokerId: holderId,
                 status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
             },
-            data: {
-                status: "ROUND_DECLINED",
-                assignedBrokerId: holderId,
-                acceptanceDeadline: null,
-                closedAt: new Date(),
-                isReassignment: true,
-                wasEverReassigned: true,
-            },
+            select: { shipmentLeadId: true },
         });
-        if (filed.count === 0) return false;
+        if (!stillWaiting) return false;
         const gosId = lead.greenOsShipmentId || lead.shipmentLeadId.slice(0, 8);
         await this.pipelineLog(
             lead.shipmentLeadId,
-            `Second office round closed by ${holderLabel} — shipment is in their Decline folder`
+            `Other shipment closed after two passes — ${holderLabel}; deleting from GreenOS`
         );
         await domainEventEngine.emit({
             shipmentLeadId: lead.shipmentLeadId,
             eventType: "STATUS_CHANGED",
-            title: "Decline",
-            message: `${holderLabel} closed the second office round. Nobody accepted. Shipment # ${gosId} is in their Decline folder.`,
+            title: "Other shipment removed",
+            message: `${holderLabel} closed the second pass. Nobody accepted. Shipment # ${gosId} was deleted from GreenOS.`,
             timelineStage: "STATUS_CHANGED",
-            payload: { brokerId: holderId, reason: "SECOND_OFFICE_ROUND" },
+            payload: { brokerId: holderId, reason: "OTHER_TWO_PASS_DELETE" },
         });
         await this.assignmentLog({
             shipmentLeadId: lead.shipmentLeadId,
             assignedUserId: holderId,
             eventType: "ROUND_DECLINED",
-            message: `Second office round closed by ${holderLabel}`,
+            message: `Other two-pass closed by ${holderLabel} — purged`,
         });
         sseEmitToUser(holderId, {
             type: "SHIPMENT_UNASSIGNED",
@@ -498,19 +510,20 @@ export class AssignmentEngine {
             greenOsShipmentId: lead.greenOsShipmentId,
             shipmentTitle: lead.shipmentTitle,
             removedFromYourQueue: true,
-            reason: "Second office round closed — moved to your Decline folder",
+            reason: "Other shipment went through everyone twice — removed from GreenOS",
             at: new Date().toISOString(),
         });
         await platformNotificationService
             .notifyUser({
                 userId: holderId,
                 notificationType: "ACCEPTANCE_MISSED",
-                title: "Decline",
-                message: `Shipment # ${gosId} went through everyone in the office twice with no Accept. It is in your Decline folder.`,
+                title: "Other shipment removed",
+                message: `Shipment # ${gosId} went through everyone twice with no Accept and was deleted from GreenOS.`,
                 meta: { greenOsShipmentId: lead.greenOsShipmentId },
             })
             .catch(() => null);
-        return true;
+        const purged = await shipmentService.purgeShipmentLead(lead.shipmentLeadId);
+        return purged;
     }
 
     async processDueAcceptances() {
@@ -623,8 +636,8 @@ export class AssignmentEngine {
             const gosId = lead.greenOsShipmentId || lead.shipmentLeadId.slice(0, 8);
 
             if (await this.secondOfficeRoundClosed(lead.shipmentLeadId, previousBrokerId)) {
-                const filed = await this.fileSecondOfficeRound(lead, previousBrokerId, previousLabel);
-                if (filed) {
+                const purged = await this.purgeAfterOtherRound(lead, previousBrokerId, previousLabel);
+                if (purged) {
                     reassigned += 1;
                     continue;
                 }
@@ -686,12 +699,33 @@ export class AssignmentEngine {
                 },
             });
 
+            const otherExclude = await this.otherPassExcludeUserIds(lead.shipmentLeadId, [
+                previousBrokerId,
+            ]);
             const pick = await this.pickNextBrokerRoundRobin({
                 queueKey: QUEUE_OTHER,
-                excludeUserIds: [previousBrokerId],
+                excludeUserIds: otherExclude,
             });
 
             if (!pick) {
+                // Nobody left under the 2-pass Other cap — delete instead of a 3rd lap.
+                const offerCounts = await this.otherOfferCounts(lead.shipmentLeadId);
+                const { eligible } = await this.resolveEligibleBrokers();
+                const stillDue = brokersDueForOtherOffer(
+                    eligible.map((person) => person.userId),
+                    offerCounts
+                ).filter((id) => id !== previousBrokerId);
+                if (stillDue.length === 0) {
+                    const purged = await this.purgeAfterOtherRound(
+                        lead,
+                        previousBrokerId,
+                        previousLabel
+                    );
+                    if (purged) {
+                        reassigned += 1;
+                        continue;
+                    }
+                }
                 // No other broker In Office — keep the lead with the same broker.
                 // Extend the acceptance deadline by another ACCEPTANCE_MINUTES so the
                 // scheduler does not fire again immediately on the next tick.
@@ -770,9 +804,9 @@ export class AssignmentEngine {
             : "broker";
         const gosId = lead.greenOsShipmentId || lead.shipmentLeadId.slice(0, 8);
         if (await this.secondOfficeRoundClosed(lead.shipmentLeadId, actorUserId)) {
-            const filed = await this.fileSecondOfficeRound(lead, actorUserId, previousLabel);
-            if (filed) {
-                return { passed: false, unassigned: false, declined: true, assignedTo: previousLabel };
+            const purged = await this.purgeAfterOtherRound(lead, actorUserId, previousLabel);
+            if (purged) {
+                return { passed: false, unassigned: false, declined: true, deleted: true, assignedTo: previousLabel };
             }
         }
         await this.pipelineLog(lead.shipmentLeadId, `${previousLabel} declined this shipment`);
@@ -784,11 +818,30 @@ export class AssignmentEngine {
             timelineStage: "STATUS_CHANGED",
             payload: { previousBrokerId: actorUserId, reason: "BROKER_DECLINED" },
         });
+        const otherExclude = await this.otherPassExcludeUserIds(lead.shipmentLeadId, [actorUserId]);
         const pick = await this.pickNextBrokerRoundRobin({
             queueKey: QUEUE_OTHER,
-            excludeUserIds: [actorUserId],
+            excludeUserIds: otherExclude,
         });
         if (!pick) {
+            const offerCounts = await this.otherOfferCounts(lead.shipmentLeadId);
+            const { eligible } = await this.resolveEligibleBrokers();
+            const stillDue = brokersDueForOtherOffer(
+                eligible.map((person) => person.userId),
+                offerCounts
+            ).filter((id) => id !== actorUserId);
+            if (stillDue.length === 0) {
+                const purged = await this.purgeAfterOtherRound(lead, actorUserId, previousLabel);
+                if (purged) {
+                    return {
+                        passed: false,
+                        unassigned: false,
+                        declined: true,
+                        deleted: true,
+                        assignedTo: previousLabel,
+                    };
+                }
+            }
             const parked = await prisma.shipmentLead.updateMany({
                 where: {
                     shipmentLeadId: lead.shipmentLeadId,
