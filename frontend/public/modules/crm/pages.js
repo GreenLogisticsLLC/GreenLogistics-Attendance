@@ -2225,7 +2225,7 @@ window.GreenOSModules.crm = {
           modal.classList.add("hidden");
           modal.innerHTML = "";
           if (typeof window.GreenOSOpenLoad === "function") {
-            window.GreenOSOpenLoad(id, "general");
+            window.GreenOSOpenLoad(id, "customer");
           } else {
             alert("TEST OK" + (loadNo ? " — Load " + loadNo : "") + ". Open Loads module.");
             window.GreenOSModules.crm.openShipmentCard(root, id);
@@ -2254,7 +2254,10 @@ window.GreenOSModules.crm = {
           return;
         }
         if (typeof window.GreenOSOpenLoad === "function") {
-          window.GreenOSOpenLoad(id, "general");
+          // After Booking Confirmation, open Create Load on customer-first step.
+          var openTab =
+            !s.customerEmail && !s.customerPhone ? "customer" : "general";
+          window.GreenOSOpenLoad(id, openTab);
         } else {
           try {
             sessionStorage.setItem("gos_open_load_id", id);

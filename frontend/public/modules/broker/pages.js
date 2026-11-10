@@ -354,7 +354,7 @@ window.GreenOSModules.broker = {
     }
     var activeTab = self._shipmentsTab || "new";
     body.innerHTML =
-      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>New imports first — passed loads in Other · accepted work in Accepted · customer-approved loads in Load Created</p></section>' +
+      '<section class="gos-dash-hero"><h1>My Shipments</h1><p>New imports first — passed loads in Other · accepted work in Accepted · Booking Confirmation moves loads to Create Load</p></section>' +
       '<nav class="gos-subnav" id="broker-ship-tabs">' +
       '<button type="button" class="gos-subnav-item' +
       (activeTab === "new" ? " is-active" : "") +
@@ -376,7 +376,7 @@ window.GreenOSModules.broker = {
       '" data-ship-tab="no-longer">No longer needed <span class="gos-queue-badge" id="broker-ship-count-nlr">…</span></button>' +
       '<button type="button" class="gos-subnav-item' +
       (activeTab === "loads" ? " is-active" : "") +
-      '" data-ship-tab="loads">Load Created <span class="gos-queue-badge" id="broker-ship-count-loads">…</span></button>' +
+      '" data-ship-tab="loads">Create Load <span class="gos-queue-badge" id="broker-ship-count-loads">…</span></button>' +
       "</nav>" +
       '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0 0 0.75rem">' +
       '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +
@@ -501,7 +501,7 @@ window.GreenOSModules.broker = {
 
     function tabLabelFor(tab) {
       if (tab === "other") return "Other Shipment";
-      if (tab === "loads") return "Load Created";
+      if (tab === "loads") return "Create Load";
       if (tab === "accepted") return "Accepted shipments";
       if (tab === "accepted-another") return "Accepted to another company";
       if (tab === "no-longer") return "No longer needed";

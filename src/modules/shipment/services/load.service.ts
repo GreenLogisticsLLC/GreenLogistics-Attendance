@@ -12,6 +12,7 @@ import {
     assertQuickActionAllowed,
     roleSkipsLoadGates,
     buildLoadQuickActions,
+    isCustomerInfoReady,
 } from "../load-quick-actions.js";
 import { isLoadCarrierApproved } from "../load-carrier-review.js";
 import { buildLoadCarrierReviewPacket } from "./load-carrier-review.service.js";
@@ -738,9 +739,17 @@ export class LoadService {
                 futureIntegrations: ["RingCentral", "Gmail"],
             },
             timeline: [],
+            needsCustomerInfo: !isCustomerInfoReady({
+                customerName: s.customerName,
+                customerEmail: s.customerEmail,
+                customerPhone: s.customerPhone,
+            }),
             quickActions: buildLoadQuickActions({
                 status: s.status,
                 carrierName: s.carrierName,
+                customerName: s.customerName,
+                customerEmail: s.customerEmail,
+                customerPhone: s.customerPhone,
                 loadCarrierApproved,
                 customerPaidAt: s.customerPaidAt,
                 carrierPaidAt: s.carrierPaidAt,

@@ -41,7 +41,7 @@ window.GreenOSRegistry = [
       { id: "accepted-another", title: "Accepted to another company" },
       { id: "no-longer", title: "No longer needed" },
       { id: "decline", title: "Decline" },
-      { id: "load-created", title: "Load Created" },
+      { id: "load-created", title: "Create Load" },
     ],
   },
   {

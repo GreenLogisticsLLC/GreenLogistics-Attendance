@@ -15,6 +15,9 @@ export type LoadQuickAction = {
 export type LoadQuickActionInput = {
     status: string;
     carrierName?: string | null;
+    customerName?: string | null;
+    customerEmail?: string | null;
+    customerPhone?: string | null;
     /** True only after broker clicks Approve Carrier on THIS load. */
     loadCarrierApproved?: boolean | null;
     customerPaidAt?: Date | string | null;
@@ -25,6 +28,20 @@ export type LoadQuickActionInput = {
     /** Owner, Manager, and Administrator skip step locks. */
     unrestricted?: boolean;
 };
+
+/** After Booking Confirmation, broker must fill customer contact before Assign Carrier. */
+export function isCustomerInfoReady(input: {
+    customerName?: string | null;
+    customerEmail?: string | null;
+    customerPhone?: string | null;
+}): boolean {
+    const name = String(input.customerName || "").trim();
+    const email = String(input.customerEmail || "").trim();
+    const phone = String(input.customerPhone || "").replace(/\D/g, "");
+    if (name.length < 2) return false;
+    if (email.includes("@")) return true;
+    return phone.length >= 10;
+}
 
 export function roleSkipsLoadGates(role?: string | null): boolean {
     return role === "Owner" || role === "Manager" || role === "Administrator";
@@ -121,6 +138,12 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
           ? "Review carrier packet documents, then click Approve Carrier"
           : "Assign Carrier first";
 
+    const customerDone = isCustomerInfoReady({
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+        customerPhone: input.customerPhone,
+    });
+
     const defs: Array<{
         id: string;
         label: string;
@@ -131,11 +154,19 @@ export function buildLoadQuickActions(input: LoadQuickActionInput): LoadQuickAct
         need: string;
     }> = [
         {
+            id: "generate_customer",
+            label: "Generate customer information",
+            done: customerDone,
+            need: "Create the Load first",
+        },
+        {
             id: "assign_carrier",
             label: "Assign Carrier",
             status: "CARRIER_ASSIGNED",
             done: carrierDone,
-            need: "Create the Load first",
+            need: customerDone
+                ? "Create the Load first"
+                : "Generate customer information first",
         },
         {
             id: "approve_carrier",
@@ -295,6 +326,7 @@ export function assertQuickActionAllowed(actionId: string, input: LoadQuickActio
         if (row.docType) return;
         if (
             actionId === "send_review_link" ||
+            actionId === "generate_customer" ||
             actionId === "assign_carrier" ||
             actionId === "approve_carrier" ||
             actionId === "mark_pickup"

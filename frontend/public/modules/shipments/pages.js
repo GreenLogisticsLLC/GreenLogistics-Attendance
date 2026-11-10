@@ -68,7 +68,7 @@ window.GreenOSModules.shipments = {
       '" data-subpage="decline">Decline</button>' +
       '<button type="button" class="gos-subnav-item' +
       (tab === "load-created" ? " is-active" : "") +
-      '" data-subpage="load-created">Load Created</button>' +
+      '" data-subpage="load-created">Create Load</button>' +
       (canSeeQueue
         ? '<button type="button" class="gos-subnav-item' +
           (tab === "queue" ? " is-active" : "") +

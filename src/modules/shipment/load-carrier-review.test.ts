@@ -65,9 +65,12 @@ test("global onboarding APPROVED is not enough for Rate Con", () => {
     const actions = buildLoadQuickActions({
         status: "CARRIER_ASSIGNED",
         carrierName: "Ash",
+        customerName: "TDA LLC",
+        customerEmail: "ops@tda.example",
         loadCarrierApproved: false,
         documents: [],
     });
+    assert.equal(actions.find((a) => a.id === "generate_customer")?.state, "done");
     assert.equal(actions.find((a) => a.id === "approve_carrier")?.state, "current");
     assert.equal(actions.find((a) => a.id === "generate_rate_con")?.state, "locked");
 });
@@ -76,6 +79,8 @@ test("Approved Carrier unlocks Generate Rate Confirmation", () => {
     const actions = buildLoadQuickActions({
         status: "CARRIER_ASSIGNED",
         carrierName: "Ash",
+        customerName: "TDA LLC",
+        customerEmail: "ops@tda.example",
         loadCarrierApproved: true,
         documents: [],
     });

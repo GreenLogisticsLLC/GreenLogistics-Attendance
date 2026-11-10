@@ -1836,6 +1836,10 @@ window.GreenOSModules["dispatch"] = {
     var self = this;
     self._loadId = id;
     self._tab = tab || self._tab || "general";
+    if (tab === "customer" || tab === "generate_customer") {
+      self._tab = "general";
+      self._focusCustomer = true;
+    }
     try {
       sessionStorage.setItem("gos_viewing_load_id", id);
       if (self._tab) sessionStorage.setItem("gos_open_load_tab", self._tab);
@@ -1922,6 +1926,15 @@ window.GreenOSModules["dispatch"] = {
     if (self._tab === "timeline") self._tab = "general";
     if (!showMoney && self._tab === "pricing") {
       self._tab = "general";
+    }
+    var needsCustomer =
+      data.needsCustomerInfo === true ||
+      (data.quickActions || []).some(function (a) {
+        return a.id === "generate_customer" && a.state === "current";
+      });
+    if (needsCustomer || self._focusCustomer) {
+      self._tab = "general";
+      self._focusCustomer = true;
     }
 
     var tabNav = tabs.map(function (t) {
@@ -2207,6 +2220,13 @@ window.GreenOSModules["dispatch"] = {
         if (state === "done" && action === "close_load") {
           return;
         }
+        // Booking Confirmation → first step is customer contact on General.
+        if (action === "generate_customer") {
+          self._tab = "general";
+          self._focusCustomer = true;
+          self.renderDetails(body, data);
+          return;
+        }
         // Assign Carrier = go fill Carrier tab (do not jump status without data).
         if (action === "assign_carrier") {
           self._tab = "carrier";
@@ -2403,8 +2423,29 @@ window.GreenOSModules["dispatch"] = {
             "</span></label>" +
             "</div>"
           : "";
+      var customerPanelHtml =
+        '<div class="load-edit-panel' +
+        (needsCustomer || self._focusCustomer ? " is-customer-focus" : "") +
+        '" id="ld-customer-setup">' +
+        "<h3>Generate customer information</h3>" +
+        '<p class="gos-muted">Booking Confirmation approved this load for you. Enter customer name and email or phone first — then Assign Carrier unlocks.</p>' +
+        '<div class="load-form-grid">' +
+        '<label>Customer name * <input id="ld-customer" value="' +
+        self.esc(g.customer || "") +
+        '" placeholder="Customer / shipper name"></label>' +
+        '<label>Customer email (Gmail) <input id="ld-customer-email" type="email" value="' +
+        self.esc(contacts.customerEmail || g.customerEmail || "") +
+        '" placeholder="customer@gmail.com"></label>' +
+        '<label>Customer phone <input id="ld-customer-phone" type="tel" value="' +
+        self.esc(self.formatUsPhone(contacts.customerPhone || g.customerPhone || "")) +
+        '" placeholder="(XXX) XXX-XXXX"></label>' +
+        "</div>" +
+        '<p class="gos-muted" style="margin:0.35rem 0 0.75rem">Email or phone is required.</p>' +
+        '<div class="load-actions"><button type="button" class="btn-primary" id="ld-save-customer">Save customer information</button></div>' +
+        "</div>";
       main.innerHTML =
         "<h2>General</h2>" +
+        customerSetupHtml +
         '<div class="load-grid">' +
         field("Load Number", g.loadNumber) +
         field("Shipment Number", g.shipmentNumber) +
@@ -2496,13 +2537,6 @@ window.GreenOSModules["dispatch"] = {
         field("Carrier Email", contacts.carrierEmail || (data.carrier && data.carrier.carrierEmail)) +
         "</div>" +
         '<div class="load-form-grid">' +
-        '<label>Customer name <input id="ld-customer" value="' + self.esc(g.customer || "") + '"></label>' +
-        '<label>Customer email (Gmail) <input id="ld-customer-email" type="email" value="' +
-        self.esc(contacts.customerEmail || g.customerEmail || "") +
-        '" placeholder="customer@gmail.com"></label>' +
-        '<label>Customer phone <input id="ld-customer-phone" type="tel" value="' +
-        self.esc(self.formatUsPhone(contacts.customerPhone || g.customerPhone || "")) +
-        '" placeholder="(XXX) XXX-XXXX"></label>' +
         '<label>Carrier email <input id="ld-carrier-email-g" type="email" value="' +
         self.esc(contacts.carrierEmail || (data.carrier && data.carrier.carrierEmail) || "") +
         '" placeholder="dispatch@carrier.com"></label>' +
@@ -2560,6 +2594,48 @@ window.GreenOSModules["dispatch"] = {
           updateProfitView();
         });
         main.querySelector("#ld-carr-price")?.addEventListener("input", updateProfitView);
+      }
+
+      async function saveCustomerInfoOnly() {
+        var name = String((main.querySelector("#ld-customer") || {}).value || "").trim();
+        var email = String((main.querySelector("#ld-customer-email") || {}).value || "").trim();
+        var phoneRaw = (main.querySelector("#ld-customer-phone") || {}).value || "";
+        var phoneFmt = self.formatUsPhone(phoneRaw);
+        var phoneDigits = String(phoneRaw || "").replace(/\D/g, "");
+        if (name.length < 2) {
+          alert("Customer name is required");
+          (main.querySelector("#ld-customer") || {}).focus?.();
+          return;
+        }
+        if (!email.includes("@") && phoneDigits.length < 10) {
+          alert("Enter customer email or a valid phone number");
+          (main.querySelector("#ld-customer-email") || {}).focus?.();
+          return;
+        }
+        await self.api("/" + encodeURIComponent(id), {
+          method: "PATCH",
+          body: JSON.stringify({
+            customerName: name,
+            customerEmail: email || null,
+            customerPhone: phoneFmt || null,
+          }),
+        });
+        self._focusCustomer = false;
+        self.openLoad(main.closest(".load-tms-body") || main.parentElement, id, "general");
+      }
+      main.querySelector("#ld-save-customer")?.addEventListener("click", function () {
+        saveCustomerInfoOnly().catch(function (err) {
+          alert(err.message || err);
+        });
+      });
+      if (self._focusCustomer || needsCustomer) {
+        setTimeout(function () {
+          var box = main.querySelector("#ld-customer-setup");
+          var nameEl = main.querySelector("#ld-customer");
+          if (box) box.scrollIntoView({ behavior: "smooth", block: "start" });
+          if (nameEl && nameEl.focus) nameEl.focus();
+          self._focusCustomer = false;
+        }, 60);
       }
 
       var uploadAgreementBtn = main.querySelector("#ld-upload-customer-agreement");

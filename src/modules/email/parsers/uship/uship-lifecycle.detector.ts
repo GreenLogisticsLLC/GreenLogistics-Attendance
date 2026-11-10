@@ -808,7 +808,7 @@ export async function applyUshipLifecycleEvent(input: {
             });
         }
 
-        // After Accept Green → auto-generate Load Number (GL100001…).
+        // After Accept Green → auto-generate Load Number and move to Create Load.
         // Do not create a load when another company won.
         if (
             (detected.kind === "CUSTOMER_ACCEPTED" || detected.kind === "SHIPMENT_BOOKED") &&
@@ -825,6 +825,25 @@ export async function applyUshipLifecycleEvent(input: {
                         err instanceof Error ? err.message : err
                     );
                 });
+            // Refresh so SSE / notifications carry the new GL# and Create Load hint.
+            const refreshed = await prisma.shipmentLead.findUnique({
+                where: { shipmentLeadId: input.shipmentLeadId },
+                select: {
+                    loadNumber: true,
+                    status: true,
+                    customerName: true,
+                    customerEmail: true,
+                    customerPhone: true,
+                },
+            });
+            if (refreshed) {
+                shipment.loadNumber = refreshed.loadNumber;
+                shipment.status = refreshed.status;
+                (shipment as { customerName?: string | null }).customerName = refreshed.customerName;
+                (shipment as { customerEmail?: string | null }).customerEmail = refreshed.customerEmail;
+                (shipment as { customerPhone?: string | null }).customerPhone =
+                    refreshed.customerPhone;
+            }
         }
     } else {
         await domainEventEngine.emit({
@@ -872,6 +891,15 @@ export async function applyUshipLifecycleEvent(input: {
     }
 
     if (NOTIFY_KINDS.has(detected.kind)) {
+        const booked =
+            detected.kind === "CUSTOMER_ACCEPTED" || detected.kind === "SHIPMENT_BOOKED";
+        const needsCustomerInfo =
+            booked &&
+            !(
+                String(shipment.customerName || "").trim().length >= 2 &&
+                (String(shipment.customerEmail || "").includes("@") ||
+                    String(shipment.customerPhone || "").replace(/\D/g, "").length >= 10)
+            );
         const payload = {
             type: "SHIPMENT_LIFECYCLE",
             kind: detected.kind,
@@ -882,6 +910,8 @@ export async function applyUshipLifecycleEvent(input: {
             subject: input.subject,
             loadNumber: detected.loadNumber || shipment.loadNumber,
             assignedBrokerId: shipment.assignedBrokerId || null,
+            openCreateLoad: booked && Boolean(shipment.loadNumber),
+            needsCustomerInfo,
             at: new Date().toISOString(),
         };
         if (shipment.assignedBrokerId) {

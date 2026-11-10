@@ -897,6 +897,24 @@
             d.shipmentLeadId
           );
         }
+        if (
+          (kind === "CUSTOMER_ACCEPTED" || kind === "SHIPMENT_BOOKED") &&
+          d.openCreateLoad &&
+          d.shipmentLeadId
+        ) {
+          showDesktopPush(
+            "Create Load",
+            (num ? "Shipment # " + num + " — " : "") +
+              (d.loadNumber ? d.loadNumber + " ready. " : "") +
+              "Generate customer information first.",
+            d.shipmentLeadId
+          );
+          if (typeof window.GreenOSOpenLoad === "function") {
+            setTimeout(function () {
+              window.GreenOSOpenLoad(d.shipmentLeadId, "customer");
+            }, 400);
+          }
+        }
       }
       refreshOpenViews();
     }

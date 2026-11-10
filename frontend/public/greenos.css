@@ -3032,6 +3032,17 @@ tr.crm-row.load-row-no-carrier td:first-child {
   padding-top: 1rem;
   border-top: 1px solid var(--gos-border);
 }
+.load-edit-panel.is-customer-focus {
+  margin-top: 0.35rem;
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--gos-accent, #16a34a) 45%, var(--gos-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gos-accent, #16a34a) 8%, transparent);
+}
+.load-edit-panel.is-customer-focus h3 {
+  margin-top: 0;
+}
 .ld-carrier-docs {
   margin: 1.35rem 0 0.25rem;
   padding-top: 1.1rem;
