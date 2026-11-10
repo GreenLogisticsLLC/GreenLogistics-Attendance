@@ -18,6 +18,7 @@ README.md.txt
 .env.example.txt
 *.xlsx
 *.docx
+!assets/customer-agreements/*.docx
 backend/
 
 # Phase 2B verification artifacts may contain sanitized-but-sensitive extraction
