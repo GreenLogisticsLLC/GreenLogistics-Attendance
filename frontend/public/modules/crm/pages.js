@@ -694,7 +694,7 @@ window.GreenOSModules.crm = {
           : options.status === "NO_LONGER_NEEDED"
             ? "The customer deleted this shipment on uShip. Decline reason: shipping no longer required."
           : options.status === "ROUND_DECLINED"
-            ? "Other shipment went through everyone in the office twice and nobody accepted. It stays with the person who closed the second round."
+            ? "Other shipment went through everyone twice with no Accept and was removed from GreenOS. Older Decline rows may still show here."
           : options.assignmentKind === "loads"
             ? "Customer approved the shipment and Green OS already created the Load. Direct-customer loads land here, not in Other."
           : options.assignmentKind === "accepted"
