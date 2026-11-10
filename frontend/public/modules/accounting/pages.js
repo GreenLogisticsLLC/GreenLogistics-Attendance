@@ -1091,7 +1091,7 @@ window.GreenOSModules.accounting = {
       self.loadSortHeaderHtml("Load") +
       "<th>Customer</th><th>Carrier</th>" +
       "<th>Pickup day</th><th>Delivery day</th>" +
-      (showQueue ? "<th>Waiting for</th>" : "<th>Doc status</th><th>Ready</th>") +
+      (showQueue ? "<th>Waiting for</th>" : "<th>Doc status</th>") +
       "<th>Broker</th><th>Payments</th><th></th>";
     var bodyRows = displayRows
       .map(function (r) {
@@ -1100,19 +1100,9 @@ window.GreenOSModules.accounting = {
         if (showQueue) {
           mid = "<td>" + self.pendingReasons(r) + "</td>";
         } else {
-          var readyBits = [];
-          if (r.accountingReadyForBilling) {
-            readyBits.push('<span class="acc-status-pill is-ready">Billing</span>');
-          }
-          if (r.accountingReadyForCarrierPayment) {
-            readyBits.push('<span class="acc-status-pill is-ready">Carrier$</span>');
-          }
           mid =
             "<td>" +
             self.docStatusPill(r.accountingDocStatus || "PENDING") +
-            "</td>" +
-            "<td>" +
-            (readyBits.length ? readyBits.join(" ") : "—") +
             "</td>";
         }
         return (
@@ -1160,7 +1150,7 @@ window.GreenOSModules.accounting = {
       })
       .join("");
     if (!bodyRows) {
-      var colCount = showQueue ? 9 : 10;
+      var colCount = 9;
       bodyRows =
         '<tr class="acc-filter-empty"><td colspan="' +
         colCount +
