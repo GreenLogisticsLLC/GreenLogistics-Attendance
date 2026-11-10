@@ -2,11 +2,12 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
-import { ALLOWED_UPLOAD_EXT, ALLOWED_UPLOAD_MIME, MAX_UPLOAD_BYTES } from "../constants.js";
+import { MAX_UPLOAD_BYTES } from "../constants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const CARRIER_UPLOADS_ROOT = path.join(__dirname, "..", "..", "..", "uploads", "carriers");
 
+/** Deny-list only — carriers may upload any document format (PDF, Word, photos, HEIC, etc.). */
 const BLOCKED_EXT = new Set([
     ".exe",
     ".bat",
@@ -15,12 +16,40 @@ const BLOCKED_EXT = new Set([
     ".msi",
     ".js",
     ".mjs",
+    ".cjs",
     ".vbs",
     ".ps1",
     ".sh",
+    ".bash",
     ".dll",
     ".scr",
     ".jar",
+    ".apk",
+    ".dmg",
+    ".app",
+    ".php",
+    ".phtml",
+    ".asp",
+    ".aspx",
+    ".cgi",
+    ".pl",
+    ".py",
+    ".rb",
+    ".html",
+    ".htm",
+    ".shtml",
+    ".svg",
+    ".wasm",
+]);
+
+const BLOCKED_MIME_PREFIXES = ["application/x-msdownload", "application/x-executable", "application/x-sh"];
+const BLOCKED_MIME = new Set([
+    "application/javascript",
+    "text/javascript",
+    "application/x-javascript",
+    "text/html",
+    "image/svg+xml",
+    "application/wasm",
 ]);
 
 function safeFileName(name: string): string {
@@ -52,25 +81,11 @@ export class CarrierStorageService {
             throw Object.assign(new Error("Executable or script files are not allowed"), { status: 400 });
         }
         const mime = String(input.mimeType || "").toLowerCase().trim();
-        const genericMime =
-            !mime || mime === "application/octet-stream" || mime === "binary/octet-stream";
-        const mimeOk =
-            genericMime || ALLOWED_UPLOAD_MIME.has(mime) || mime.startsWith("image/");
-        // When MIME is missing/generic (common for mobile W-9 PDFs), require a safe extension.
-        if (genericMime && ext && !ALLOWED_UPLOAD_EXT.has(ext)) {
-            throw Object.assign(new Error("File type not allowed. Upload PDF or image (JPG/PNG)."), {
-                status: 400,
-            });
-        }
-        if (!mimeOk) {
-            throw Object.assign(new Error("File type not allowed. Upload PDF or image (JPG/PNG)."), {
-                status: 400,
-            });
-        }
-        if (ext && !ALLOWED_UPLOAD_EXT.has(ext) && !mime.startsWith("image/")) {
-            throw Object.assign(new Error("File type not allowed. Upload PDF or image (JPG/PNG)."), {
-                status: 400,
-            });
+        if (
+            BLOCKED_MIME.has(mime) ||
+            BLOCKED_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix))
+        ) {
+            throw Object.assign(new Error("Executable or script files are not allowed"), { status: 400 });
         }
     }
 
