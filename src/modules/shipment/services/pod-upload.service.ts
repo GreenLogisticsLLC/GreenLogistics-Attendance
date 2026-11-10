@@ -277,6 +277,9 @@ export async function uploadPodFile(input: {
     assertQuickActionAllowed(quickActionIdForDocType("POD") || "upload_pod", {
         status: lead.status,
         carrierName: lead.carrierName,
+        customerName: lead.customerName,
+        customerEmail: lead.customerEmail,
+        customerPhone: lead.customerPhone,
         loadCarrierApproved: isLoadCarrierApproved(lead),
         unrestricted: roleSkipsLoadGates(input.actorRole),
         documents: existingDocs,
