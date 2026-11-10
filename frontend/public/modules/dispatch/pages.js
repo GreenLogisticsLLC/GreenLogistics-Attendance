@@ -2468,6 +2468,20 @@ window.GreenOSModules["dispatch"] = {
             "</span></label>" +
             "</div>"
           : "";
+      var showCustomerEmailOpts = needsCustomer || self._focusCustomer;
+      var customerAgreementHtml = showCustomerEmailOpts
+        ? '<fieldset class="full cu-options cu-agreement" id="ld-agreement-box">' +
+          "<legend>Customer agreement</legend>" +
+          '<p class="gos-muted" style="margin:0 0 0.45rem">Choose which document to email on Create Load. Customer gets a fill-and-sign link + PDF. Broker name, Title Broker, signature, and today’s date are filled automatically.</p>' +
+          '<label class="cu-check"><input type="radio" name="ld-agreement" id="ld-agree-onetime" value="USHIP_ONETIME" checked> Broker Customer Uship OneTime' +
+          '<span class="gos-muted"> — customer fills fields &amp; signs online</span></label>' +
+          '<label class="cu-check"><input type="radio" name="ld-agreement" id="ld-agree-long" value="LONG_TIME"> Broker Customer Long TIme' +
+          '<span class="gos-muted"> — customer fills fields &amp; signs online</span></label>' +
+          '<label class="cu-check"><input type="radio" name="ld-agreement" id="ld-agree-none" value=""> No agreement email now</label>' +
+          "</fieldset>" +
+          '<label class="full cu-check"><input type="checkbox" id="ld-send-load" checked> Send load number' +
+          '<span class="gos-muted"> — email this GL# from your connected Gmail to the customer</span></label>'
+        : "";
       var customerSetupHtml =
         '<div class="load-edit-panel' +
         (needsCustomer || self._focusCustomer ? " is-customer-focus" : "") +
@@ -2488,6 +2502,7 @@ window.GreenOSModules["dispatch"] = {
         '<label>Customer phone <input id="ld-customer-phone" type="tel" value="' +
         self.esc(self.formatUsPhone(contacts.customerPhone || g.customerPhone || "")) +
         '" placeholder="(XXX) XXX-XXXX"></label>' +
+        customerAgreementHtml +
         "</div>" +
         '<p class="gos-muted" style="margin:0.35rem 0 0.75rem">Email or phone is required.' +
         (missingLoadNumber
@@ -2654,21 +2669,89 @@ window.GreenOSModules["dispatch"] = {
           (main.querySelector("#ld-customer-email") || {}).focus?.();
           return;
         }
-        // Ensure GL# exists for Booking / Create Load shipments that still lack one.
-        if (missingLoadNumber) {
-          await self.api("/" + encodeURIComponent(id) + "/create", {
+        var agreementEl = main.querySelector('input[name="ld-agreement"]:checked');
+        var agreementType = agreementEl ? String(agreementEl.value || "") : "";
+        var sendLoadNumber = Boolean(main.querySelector("#ld-send-load")?.checked);
+        var hasEmailOpts = Boolean(main.querySelector("#ld-agreement-box") || main.querySelector("#ld-send-load"));
+        if (hasEmailOpts) {
+          if (sendLoadNumber && !email.includes("@")) {
+            alert("Customer email is required to send the load number.");
+            (main.querySelector("#ld-customer-email") || {}).focus?.();
+            return;
+          }
+          if (agreementType && !email.includes("@")) {
+            alert("Customer email is required to send the selected customer agreement.");
+            (main.querySelector("#ld-customer-email") || {}).focus?.();
+            return;
+          }
+          var result = await self.api("/" + encodeURIComponent(id) + "/customer-setup", {
             method: "POST",
-            body: "{}",
+            body: JSON.stringify({
+              customerName: name,
+              customerEmail: email || null,
+              customerPhone: phoneFmt || null,
+              sendLoadNumber: sendLoadNumber,
+              agreementType: agreementType || null,
+              sendAgreement: Boolean(agreementType),
+            }),
+          });
+          var msg = "Customer information saved.";
+          if (result && result.loadNumber) {
+            msg = "Customer saved. Load " + result.loadNumber + ".";
+          } else if (result && result.identity && result.identity.loadNumber) {
+            msg = "Customer saved. Load " + result.identity.loadNumber + ".";
+          } else if (result && result.general && result.general.loadNumber) {
+            msg = "Customer saved. Load " + result.general.loadNumber + ".";
+          }
+          if (result && result.loadNumberEmail) {
+            if (result.loadNumberEmail.sent) {
+              msg +=
+                "\nLoad number emailed to " +
+                (result.loadNumberEmail.to || email) +
+                " from " +
+                (result.loadNumberEmail.from || "your Gmail") +
+                ".";
+            } else if (sendLoadNumber) {
+              msg +=
+                "\nLoad number email was not sent: " +
+                (result.loadNumberEmail.error || "unknown error");
+            }
+          }
+          if (agreementType && result && result.agreementEmail) {
+            if (result.agreementEmail.sent) {
+              msg +=
+                "\nAgreement emailed to " +
+                (result.agreementEmail.to || email) +
+                " from " +
+                (result.agreementEmail.from || "your Gmail") +
+                ".";
+              if (result.agreementEmail.signUrl) {
+                msg += "\nSign link:\n" + result.agreementEmail.signUrl;
+              }
+            } else {
+              msg +=
+                "\nAgreement email was not sent: " +
+                (result.agreementEmail.error || "unknown error");
+            }
+          }
+          alert(msg);
+        } else {
+          // Ensure GL# exists for Booking / Create Load shipments that still lack one.
+          if (missingLoadNumber) {
+            await self.api("/" + encodeURIComponent(id) + "/create", {
+              method: "POST",
+              body: "{}",
+            });
+          }
+          await self.api("/" + encodeURIComponent(id), {
+            method: "PATCH",
+            body: JSON.stringify({
+              customerName: name,
+              customerEmail: email || null,
+              customerPhone: phoneFmt || null,
+            }),
           });
         }
-        await self.api("/" + encodeURIComponent(id), {
-          method: "PATCH",
-          body: JSON.stringify({
-            customerName: name,
-            customerEmail: email || null,
-            customerPhone: phoneFmt || null,
-          }),
-        });
         self._focusCustomer = false;
         self.openLoad(main.closest(".load-tms-body") || main.parentElement, id, "general");
       }

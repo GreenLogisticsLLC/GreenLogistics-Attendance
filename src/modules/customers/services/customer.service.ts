@@ -420,6 +420,130 @@ export class CustomerService {
         };
     }
 
+    /**
+     * After uShip / Booking Confirmation Create Load customer step:
+     * optionally email GL# and/or customer agreement (same options as Direct Create Load).
+     * Creates/links a DirectCustomer when an agreement email is requested.
+     */
+    async sendLoadCustomerSetupEmails(
+        shipmentLeadId: string,
+        body: Record<string, unknown>,
+        actor: Actor
+    ): Promise<{
+        loadNumberEmail: { sent: boolean; to?: string; from?: string; error?: string };
+        agreementEmail: {
+            sent: boolean;
+            to?: string;
+            from?: string;
+            error?: string;
+            label?: string;
+            signUrl?: string;
+        };
+        directCustomerId: string | null;
+    }> {
+        const shipment = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+        });
+        if (!shipment) {
+            throw Object.assign(new Error("Load not found"), { status: 404 });
+        }
+
+        const customerName =
+            str(body.customerName) || str(shipment.customerName) || "Customer";
+        const customerEmail = str(body.customerEmail) || str(shipment.customerEmail);
+        const customerPhone = str(body.customerPhone) || str(shipment.customerPhone);
+        const loadNumber = str(shipment.loadNumber);
+        const sendLoadNumber = bool(body.sendLoadNumber, false);
+        const agreementType =
+            normalizeCustomerAgreementType(body.agreementType) ||
+            (bool(body.sendAgreement, false)
+                ? normalizeCustomerAgreementType("USHIP_ONETIME")
+                : null);
+        const brokerId = shipment.assignedBrokerId || actor.userId;
+
+        let loadNumberEmail: { sent: boolean; to?: string; from?: string; error?: string } = {
+            sent: false,
+        };
+        if (sendLoadNumber) {
+            if (!customerEmail) {
+                throw Object.assign(
+                    new Error("Customer email is required to send the load number"),
+                    { status: 422, code: "CUSTOMER_LOAD_NUMBER_EMAIL_REQUIRED" }
+                );
+            }
+            if (!loadNumber) {
+                throw Object.assign(new Error("Load number was not generated"), {
+                    status: 422,
+                });
+            }
+            loadNumberEmail = await this.sendLoadNumberEmail({
+                brokerUserId: brokerId,
+                toEmail: customerEmail,
+                loadNumber,
+                shipmentLeadId,
+            });
+        }
+
+        let agreementEmail: {
+            sent: boolean;
+            to?: string;
+            from?: string;
+            error?: string;
+            label?: string;
+            signUrl?: string;
+        } = { sent: false };
+        let directCustomerId = shipment.directCustomerId || null;
+
+        if (agreementType) {
+            if (!customerEmail) {
+                throw Object.assign(
+                    new Error("Customer email is required to send the selected customer agreement"),
+                    { status: 422, code: "CUSTOMER_AGREEMENT_EMAIL_REQUIRED" }
+                );
+            }
+            if (directCustomerId) {
+                await prisma.directCustomer
+                    .update({
+                        where: { customerId: directCustomerId },
+                        data: {
+                            companyName: customerName,
+                            email: customerEmail,
+                            phone: customerPhone,
+                            agreementType,
+                            ...(sendLoadNumber ? { sendLoadNumber: true } : {}),
+                        },
+                    })
+                    .catch(() => undefined);
+            } else {
+                const created = await prisma.directCustomer.create({
+                    data: {
+                        companyName: customerName,
+                        email: customerEmail,
+                        phone: customerPhone,
+                        sendLoadNumber,
+                        agreementType,
+                        createdByUserId: actor.userId,
+                    },
+                });
+                directCustomerId = created.customerId;
+                await prisma.shipmentLead.update({
+                    where: { shipmentLeadId },
+                    data: { directCustomerId },
+                });
+            }
+            agreementEmail = await this.sendCustomerAgreementEmail({
+                brokerUserId: brokerId,
+                toEmail: customerEmail,
+                companyName: customerName,
+                agreementType,
+                customerId: directCustomerId,
+                phone: customerPhone,
+            });
+        }
+
+        return { loadNumberEmail, agreementEmail, directCustomerId };
+    }
+
     private async sendLoadNumberEmail(input: {
         brokerUserId: string;
         toEmail: string | null;

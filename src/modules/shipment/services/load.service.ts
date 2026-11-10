@@ -33,6 +33,7 @@ import {
 import { carrierMissingOnPickup } from "../carrier-missing-on-pickup.js";
 import { config } from "../../../config/env.js";
 import { AccountingDocStatus } from "../../accounting/accounting.constants.js";
+import { customerService } from "../../customers/services/customer.service.js";
 
 function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
@@ -176,6 +177,76 @@ export class LoadService {
             actorUserId,
             ...(rateToSave !== undefined ? { customerRate: rateToSave } : {}),
         });
+    }
+
+    /**
+     * Create Load Step 1 (uShip / Booking Confirmation): save customer contact,
+     * ensure GL#, optionally email agreement + load number (Direct Create Load parity).
+     */
+    async saveCustomerSetup(
+        shipmentLeadId: string,
+        body: Record<string, unknown>,
+        actor: { userId: string; role: string }
+    ) {
+        const shipment = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!shipment) throw Object.assign(new Error("Load not found"), { status: 404 });
+
+        const customerName =
+            body.customerName == null ? "" : String(body.customerName).trim();
+        const customerEmail =
+            body.customerEmail == null || body.customerEmail === ""
+                ? null
+                : String(body.customerEmail).trim();
+        const customerPhone =
+            body.customerPhone == null || body.customerPhone === ""
+                ? null
+                : String(body.customerPhone).trim();
+
+        if (customerName.length < 2) {
+            throw Object.assign(new Error("Customer name is required"), { status: 422 });
+        }
+        const phoneDigits = String(customerPhone || "").replace(/\D/g, "");
+        if (!(customerEmail && customerEmail.includes("@")) && phoneDigits.length < 10) {
+            throw Object.assign(
+                new Error("Enter customer email or a valid phone number"),
+                { status: 422 }
+            );
+        }
+
+        await prisma.shipmentLead.update({
+            where: { shipmentLeadId },
+            data: {
+                customerName,
+                customerEmail,
+                customerPhone,
+            },
+        });
+
+        if (!shipment.loadNumber || !String(shipment.loadNumber).trim()) {
+            await this.createLoad(shipmentLeadId, actor.userId);
+        }
+
+        const emails = await customerService.sendLoadCustomerSetupEmails(
+            shipmentLeadId,
+            {
+                customerName,
+                customerEmail,
+                customerPhone,
+                sendLoadNumber: body.sendLoadNumber,
+                agreementType: body.agreementType,
+                sendAgreement: body.sendAgreement,
+            },
+            actor
+        );
+
+        const details = await this.getLoadDetails(shipmentLeadId, {
+            actorRole: actor.role,
+        });
+        return {
+            ...details,
+            loadNumberEmail: emails.loadNumberEmail,
+            agreementEmail: emails.agreementEmail,
+        };
     }
 
     async listLoads(filter: {

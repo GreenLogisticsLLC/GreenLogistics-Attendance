@@ -164,6 +164,48 @@ export const loadController = {
         }
     },
 
+    async customerSetup(req: AuthRequest, res: Response) {
+        try {
+            const id = String(req.params.id || "");
+            const access = await accessOr404(req, res, id);
+            if (!access.ok) return;
+            if (!req.user?.userId) {
+                return res.status(401).json({ success: false, message: "Unauthorized" });
+            }
+            const body = (req.body || {}) as Record<string, unknown>;
+            const data = await loadService.saveCustomerSetup(id, body, {
+                userId: req.user.userId,
+                role: req.user.role || "",
+            });
+            const role = req.user?.role || "";
+            const {
+                loadNumberEmail,
+                agreementEmail,
+                ...details
+            } = data as Record<string, unknown> & {
+                loadNumberEmail?: unknown;
+                agreementEmail?: unknown;
+            };
+            const payload = canViewLoadProfit(role)
+                ? { ...details, canViewMoney: true }
+                : redactLoadDetails(details as Record<string, unknown>);
+            res.json({
+                success: true,
+                message: "Customer information saved",
+                data: {
+                    ...payload,
+                    loadNumberEmail,
+                    agreementEmail,
+                },
+            });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to save customer information",
+            });
+        }
+    },
+
     async remove(req: AuthRequest, res: Response) {
         try {
             if (!canManageLoads(req.user?.role)) {
