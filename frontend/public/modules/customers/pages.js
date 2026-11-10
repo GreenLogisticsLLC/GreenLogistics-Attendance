@@ -211,9 +211,6 @@ window.GreenOSModules.customers = {
   customerFormHtml(c) {
     var self = this;
     c = c || {};
-    var agreement = String(c.agreementType || "").toUpperCase();
-    var oneTime = agreement === "USHIP_ONETIME" ? " checked" : "";
-    var longTime = agreement === "LONG_TIME" ? " checked" : "";
     return (
       '<div class="load-form-grid">' +
       '<label>Company name * <input id="cu-company" value="' + self.esc(c.companyName || "") + '"></label>' +
@@ -230,23 +227,30 @@ window.GreenOSModules.customers = {
       '<input id="cu-addr" value="' + self.esc(c.billingAddress || "") + '">' +
       "</label>" +
       '<label class="full">Notes <textarea id="cu-notes" rows="3">' + self.esc(c.notes || "") + "</textarea></label>" +
-      '<fieldset class="full cu-options cu-agreement">' +
+      "</div>"
+    );
+  },
+
+  customerAgreementChoiceHtml(selected) {
+    var agreement = String(selected || "").toUpperCase();
+    var oneTime = agreement === "USHIP_ONETIME" ? " checked" : "";
+    var longTime = agreement === "LONG_TIME" ? " checked" : "";
+    return (
+      '<fieldset class="full cu-options cu-agreement" id="cl-agreement-box">' +
       "<legend>Customer agreement</legend>" +
-      '<p class="gos-muted" style="margin:0 0 0.45rem">Choose one. On Save, GreenOS emails a fill-and-sign link + PDF. Broker name, Title Broker, signature, and today’s date are filled automatically.</p>' +
-      '<label class="cu-check"><input type="radio" name="cu-agreement" id="cu-agree-onetime" value="USHIP_ONETIME"' +
+      '<p class="gos-muted" style="margin:0 0 0.45rem">Choose which document to email on Create Load. Customer gets a fill-and-sign link + PDF. Broker name, Title Broker, signature, and today’s date are filled automatically.</p>' +
+      '<label class="cu-check"><input type="radio" name="cl-agreement" id="cl-agree-onetime" value="USHIP_ONETIME"' +
       oneTime +
       "> Broker Customer Uship OneTime" +
       '<span class="gos-muted"> — customer fills fields &amp; signs online</span></label>' +
-      '<label class="cu-check"><input type="radio" name="cu-agreement" id="cu-agree-long" value="LONG_TIME"' +
+      '<label class="cu-check"><input type="radio" name="cl-agreement" id="cl-agree-long" value="LONG_TIME"' +
       longTime +
       "> Broker Customer Long TIme" +
       '<span class="gos-muted"> — customer fills fields &amp; signs online</span></label>' +
-
-      '<label class="cu-check"><input type="radio" name="cu-agreement" id="cu-agree-none" value=""' +
+      '<label class="cu-check"><input type="radio" name="cl-agreement" id="cl-agree-none" value=""' +
       (!agreement ? " checked" : "") +
-      '> No agreement email now</label>' +
-      "</fieldset>" +
-      "</div>"
+      "> No agreement email now</label>" +
+      "</fieldset>"
     );
   },
 
@@ -263,8 +267,6 @@ window.GreenOSModules.customers = {
   },
 
   readCustomerForm(root) {
-    var agreement =
-      (root.querySelector('input[name="cu-agreement"]:checked') || {}).value || "";
     return {
       companyName: (root.querySelector("#cu-company").value || "").trim(),
       contactName: (root.querySelector("#cu-contact").value || "").trim() || null,
@@ -275,8 +277,6 @@ window.GreenOSModules.customers = {
       zip: (root.querySelector("#cu-zip").value || "").trim() || null,
       billingAddress: (root.querySelector("#cu-addr").value || "").trim() || null,
       notes: (root.querySelector("#cu-notes").value || "").trim() || null,
-      agreementType: agreement || null,
-      sendAgreement: Boolean(agreement),
     };
   },
 
@@ -317,10 +317,6 @@ window.GreenOSModules.customers = {
         alert("Company name is required.");
         return;
       }
-      if (payload.agreementType && !payload.email) {
-        alert("Email is required to send the selected customer agreement.");
-        return;
-      }
       try {
         var saved = existing && existing.customerId
           ? await self.api("/" + encodeURIComponent(existing.customerId), {
@@ -329,25 +325,6 @@ window.GreenOSModules.customers = {
             })
           : await self.api("/", { method: "POST", body: JSON.stringify(payload) });
         self._customerId = saved.customerId;
-        if (payload.agreementType && saved.agreementEmail) {
-          if (saved.agreementEmail.sent) {
-            alert(
-              "Customer saved. Fill-and-sign agreement emailed to " +
-                (saved.agreementEmail.to || payload.email) +
-                " from " +
-                (saved.agreementEmail.from || "your Gmail") +
-                "." +
-                (saved.agreementEmail.signUrl
-                  ? "\n\nSign link:\n" + saved.agreementEmail.signUrl
-                  : "")
-            );
-          } else {
-            alert(
-              "Customer saved, but agreement email was not sent: " +
-                (saved.agreementEmail.error || "unknown error")
-            );
-          }
-        }
         self.renderDetail(body, root, saved.customerId);
       } catch (err) {
         alert(err.message || err);
@@ -470,6 +447,7 @@ window.GreenOSModules.customers = {
       '<label>Miles <input id="cl-miles" type="number" min="0"></label>' +
       '<label>Customer rate $ <input id="cl-rate" inputmode="decimal" placeholder="0.00"></label>' +
       '<label class="full">Special instructions <textarea id="cl-notes" rows="3"></textarea></label>' +
+      self.customerAgreementChoiceHtml(c.agreementType) +
       '<label class="full cu-check"><input type="checkbox" id="cl-send-load"' +
       (c.sendLoadNumber ? " checked" : "") +
       "> Send load number" +
@@ -498,8 +476,15 @@ window.GreenOSModules.customers = {
         if (btn) btn.disabled = true;
         var customerEmail = (body.querySelector("#cl-email").value || "").trim() || null;
         var sendLoadNumber = Boolean(body.querySelector("#cl-send-load")?.checked);
+        var agreementType =
+          (body.querySelector('input[name="cl-agreement"]:checked') || {}).value || "";
         if (sendLoadNumber && !customerEmail) {
           alert("Customer email is required to send the load number.");
+          if (btn) btn.disabled = false;
+          return;
+        }
+        if (agreementType && !customerEmail) {
+          alert("Customer email is required to send the selected customer agreement.");
           if (btn) btn.disabled = false;
           return;
         }
@@ -526,6 +511,8 @@ window.GreenOSModules.customers = {
             customerRate: body.querySelector("#cl-rate").value || null,
             specialInstructions: (body.querySelector("#cl-notes").value || "").trim() || null,
             sendLoadNumber: sendLoadNumber,
+            agreementType: agreementType || null,
+            sendAgreement: Boolean(agreementType),
           }),
         });
         var msg = "Load " + (result.loadNumber || "") + " created.";
@@ -541,6 +528,23 @@ window.GreenOSModules.customers = {
             msg +=
               "\nLoad number email was not sent: " +
               (result.loadNumberEmail.error || "unknown error");
+          }
+        }
+        if (agreementType && result.agreementEmail) {
+          if (result.agreementEmail.sent) {
+            msg +=
+              "\nAgreement emailed to " +
+              (result.agreementEmail.to || customerEmail) +
+              " from " +
+              (result.agreementEmail.from || "your Gmail") +
+              ".";
+            if (result.agreementEmail.signUrl) {
+              msg += "\nSign link:\n" + result.agreementEmail.signUrl;
+            }
+          } else {
+            msg +=
+              "\nAgreement email was not sent: " +
+              (result.agreementEmail.error || "unknown error");
           }
         }
         alert(msg);

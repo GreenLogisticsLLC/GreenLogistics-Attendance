@@ -126,19 +126,11 @@ export class CustomerService {
         if (!companyName) {
             throw Object.assign(new Error("Company name is required"), { status: 422 });
         }
-        const agreementType = normalizeCustomerAgreementType(body.agreementType);
-        const email = str(body.email);
-        if (agreementType && !email) {
-            throw Object.assign(
-                new Error("Email is required to send the selected customer agreement"),
-                { status: 422, code: "CUSTOMER_AGREEMENT_EMAIL_REQUIRED" }
-            );
-        }
-        const row = await prisma.directCustomer.create({
+        return prisma.directCustomer.create({
             data: {
                 companyName,
                 contactName: str(body.contactName),
-                email,
+                email: str(body.email),
                 phone: str(body.phone),
                 billingAddress: str(body.billingAddress),
                 city: str(body.city),
@@ -146,28 +138,10 @@ export class CustomerService {
                 zip: str(body.zip),
                 notes: str(body.notes),
                 sendLoadNumber: bool(body.sendLoadNumber, false),
-                agreementType,
+                agreementType: normalizeCustomerAgreementType(body.agreementType),
                 createdByUserId: actor.userId,
             },
         });
-        let agreementEmail: { sent: boolean; to?: string; from?: string; error?: string; label?: string } =
-            { sent: false };
-        if (agreementType) {
-            agreementEmail = await this.sendCustomerAgreementEmail({
-                brokerUserId: actor.userId,
-                toEmail: email,
-                companyName: row.companyName,
-                agreementType,
-                customerId: row.customerId,
-                contactName: row.contactName,
-                phone: row.phone,
-                billingAddress: row.billingAddress,
-                city: row.city,
-                state: row.state,
-                zip: row.zip,
-            });
-        }
-        return { ...row, agreementEmail };
     }
 
     async update(customerId: string, body: Record<string, unknown>, actor: Actor) {
@@ -184,48 +158,10 @@ export class CustomerService {
         if (body.sendLoadNumber !== undefined) {
             data.sendLoadNumber = bool(body.sendLoadNumber, false);
         }
-        let agreementType: CustomerAgreementType | null | undefined;
         if (body.agreementType !== undefined) {
-            agreementType = normalizeCustomerAgreementType(body.agreementType);
-            data.agreementType = agreementType;
+            data.agreementType = normalizeCustomerAgreementType(body.agreementType);
         }
-        const emailAfter =
-            body.email !== undefined ? str(body.email) : undefined;
-        if (agreementType && emailAfter === null) {
-            throw Object.assign(
-                new Error("Email is required to send the selected customer agreement"),
-                { status: 422, code: "CUSTOMER_AGREEMENT_EMAIL_REQUIRED" }
-            );
-        }
-        const row = await prisma.directCustomer.update({ where: { customerId }, data });
-        let agreementEmail: { sent: boolean; to?: string; from?: string; error?: string; label?: string } =
-            { sent: false };
-        const sendAgreement = bool(body.sendAgreement, Boolean(agreementType));
-        const typeToSend =
-            agreementType || normalizeCustomerAgreementType(row.agreementType);
-        const toEmail = emailAfter !== undefined ? emailAfter : str(row.email);
-        if (sendAgreement && typeToSend) {
-            if (!toEmail) {
-                throw Object.assign(
-                    new Error("Email is required to send the selected customer agreement"),
-                    { status: 422, code: "CUSTOMER_AGREEMENT_EMAIL_REQUIRED" }
-                );
-            }
-            agreementEmail = await this.sendCustomerAgreementEmail({
-                brokerUserId: actor.userId,
-                toEmail,
-                companyName: row.companyName,
-                agreementType: typeToSend,
-                customerId: row.customerId,
-                contactName: row.contactName,
-                phone: row.phone,
-                billingAddress: row.billingAddress,
-                city: row.city,
-                state: row.state,
-                zip: row.zip,
-            });
-        }
-        return { ...row, agreementEmail };
+        return prisma.directCustomer.update({ where: { customerId }, data });
     }
 
     private async sendCustomerAgreementEmail(input: {
@@ -430,6 +366,49 @@ export class CustomerService {
             }
         }
 
+        const agreementType =
+            normalizeCustomerAgreementType(body.agreementType) ||
+            (bool(body.sendAgreement, false)
+                ? normalizeCustomerAgreementType(customer.agreementType)
+                : null);
+        let agreementEmail: {
+            sent: boolean;
+            to?: string;
+            from?: string;
+            error?: string;
+            label?: string;
+            signUrl?: string;
+        } = { sent: false };
+        if (agreementType) {
+            if (!toEmail) {
+                throw Object.assign(
+                    new Error("Customer email is required to send the selected customer agreement"),
+                    { status: 422, code: "CUSTOMER_AGREEMENT_EMAIL_REQUIRED" }
+                );
+            }
+            agreementEmail = await this.sendCustomerAgreementEmail({
+                brokerUserId: brokerId || actor.userId,
+                toEmail,
+                companyName: customerName || customer.companyName,
+                agreementType,
+                customerId: customer.customerId,
+                contactName: customer.contactName,
+                phone: str(body.customerPhone) || customer.phone,
+                billingAddress: customer.billingAddress,
+                city: customer.city,
+                state: customer.state,
+                zip: customer.zip,
+            });
+            if (agreementType !== customer.agreementType) {
+                await prisma.directCustomer
+                    .update({
+                        where: { customerId: customer.customerId },
+                        data: { agreementType },
+                    })
+                    .catch(() => undefined);
+            }
+        }
+
         return {
             customer,
             shipmentLeadId: loaded.shipmentLeadId,
@@ -437,6 +416,7 @@ export class CustomerService {
             greenOsShipmentId: loaded.greenOsShipmentId || greenOsShipmentId,
             status: loaded.status,
             loadNumberEmail,
+            agreementEmail,
         };
     }
 
