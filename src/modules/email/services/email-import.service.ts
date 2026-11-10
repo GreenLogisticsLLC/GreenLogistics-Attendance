@@ -13,7 +13,12 @@ import {
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { getCompanyImportAfter } from "./gmail-import-cutoff.service.js";
-import { canonicalUshipListingUrl, listingIdsFromText, resolveConcreteUshipListing } from "../parsers/uship/listing-url.js";
+import {
+    canonicalUshipListingUrl,
+    listingIdsFromText,
+    primaryUshipCtaTracker,
+    resolveConcreteUshipListing,
+} from "../parsers/uship/listing-url.js";
 import {
     normalizeUshipTitle,
     titlesFromQuestionAnsweredEmail,
@@ -389,9 +394,24 @@ export class EmailImportService {
                         draft.viewUrl = bound.viewUrl;
                         draft.externalShipmentId = bound.externalShipmentId;
                     } else {
+                        // Cloudflare often blocks server-side tracker follows. Keep the
+                        // Instant Alert CTA so Open in uShip still works in the broker's
+                        // browser (same hop as clicking the email button).
+                        const cta = primaryUshipCtaTracker(
+                            draft.viewUrl,
+                            raw.bodyHtml,
+                            raw.bodyText,
+                            raw.subject,
+                            raw.snippet
+                        );
+                        if (cta) {
+                            draft.viewUrl = cta;
+                        }
                         await shipmentImportLogRepository.create({
                             eventType: "MissingUshipUrl",
-                            message: `No concrete uShip URL for: ${raw.subject}`,
+                            message: cta
+                                ? `No concrete uShip URL — stored Instant Alert CTA for Open: ${raw.subject}`
+                                : `No concrete uShip URL for: ${raw.subject}`,
                             gmailMessageId,
                             emailMessageId: stored.emailMessageId,
                         });

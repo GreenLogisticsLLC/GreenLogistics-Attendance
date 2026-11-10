@@ -146,6 +146,10 @@ window.GreenOSModules.crm = {
       }
       var bare = storedClean.match(/uship\.com\/(?:listing|l)\/(\d{6,})\/?(?:[?#]|$)/i);
       if (bare) return "https://www.uship.com/listing/" + bare[1] + "/";
+      // Instant Alert CTA — broker browser follows track.uship.com while logged in.
+      if (/track\.uship\.com\/(?:f\/a|q)\//i.test(storedClean)) {
+        return storedClean.replace(/[)>.,;]+$/g, "");
+      }
     }
     var extra = [];
     if (s.email) extra.push(s.email.subject, s.email.snippet);
@@ -186,6 +190,18 @@ window.GreenOSModules.crm = {
   ushipOpenHref(s, id) {
     var listing = this.ushipListingUrl(s);
     if (listing) return listing;
+    // Scrape Instant Alert CTA from card blobs when viewUrl was never bound.
+    var blob = [s && s.ushipUrl, s && s.viewUrl, s && s.notes, s && s.imageUrl]
+      .concat(
+        s && s.email
+          ? [s.email.subject, s.email.snippet, s.email.bodyHtml, s.email.bodyText]
+          : []
+      )
+      .join("\n");
+    var cta = String(blob || "").match(
+      /https?:\/\/track\.uship\.com\/f\/a\/[^\s"'<>]+/i
+    );
+    if (cta) return cta[0].replace(/[)>.,;]+$/g, "");
     var token = localStorage.getItem("gl_token") || "";
     return (
       "/api/crm/shipments/" +

@@ -246,6 +246,36 @@ export function trackingUrlsFromText(...blobs: Array<string | null | undefined>)
     });
 }
 
+/**
+ * Instant Alert emails often only embed track.uship.com/f/a/... CTAs (no /shipment/
+ * path). Server-side follow is blocked by Cloudflare, but the broker's browser can
+ * open the CTA while logged into uShip — same as clicking the email button.
+ */
+export function primaryUshipCtaTracker(
+    ...blobs: Array<string | null | undefined>
+): string | null {
+    const trackers = trackingUrlsFromText(...blobs);
+    const cta = trackers.find((u) => /track\.uship\.com\/f\/a\//i.test(u));
+    return cta || trackers.find((u) => /track\.uship\.com\//i.test(u)) || null;
+}
+
+/** Concrete listing/shipment page if known; otherwise the Instant Alert CTA tracker. */
+export function ushipOpenUrlFromLead(
+    lead: Record<string, unknown>,
+    extraBlobs: Array<string | null | undefined> = []
+): string | null {
+    const concrete = ushipListingUrlFromLead(lead, extraBlobs);
+    if (concrete && hasRealListingSlug(concrete)) return concrete;
+    const view = String(lead.viewUrl || "").trim();
+    if (/track\.uship\.com\/(?:f\/a|q)\//i.test(view)) return view;
+    return primaryUshipCtaTracker(
+        view,
+        String(lead.imageUrl || ""),
+        String(lead.notes || ""),
+        ...extraBlobs
+    );
+}
+
 const USHIP_HOST = /(^|\.)uship\.com$/i;
 
 function sluggedListingUrlFrom(...blobs: Array<string | null | undefined>): string | null {

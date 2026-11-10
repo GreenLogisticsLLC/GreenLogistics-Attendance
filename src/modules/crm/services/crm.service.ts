@@ -31,6 +31,7 @@ import {
     listingIdFromText,
     trackingUrlsFromText,
     ushipListingUrlFromLead,
+    ushipOpenUrlFromLead,
 } from "../../email/parsers/uship/listing-url.js";
 import { gmailListener } from "../../email/gmail/gmail.listener.js";
 import { brokerGmailSyncService } from "../../email/gmail/broker-gmail-sync.service.js";
@@ -103,7 +104,9 @@ function enrichLead(lead: Record<string, unknown>, brokers: Map<string, BrokerUs
         paymentStatus: (lead.paymentStatus as string) || null,
         opsPickupAt: lead.opsPickupAt || null,
         opsDeliveryAt: lead.opsDeliveryAt || null,
-        ushipUrl: ushipListingUrlFromLead(lead),
+        // Prefer concrete /shipment|/listing URL; Instant Alert CTA tracker otherwise
+        // so Open in uShip works when Cloudflare blocks server-side follow.
+        ushipUrl: ushipOpenUrlFromLead(lead),
         brokerReplyDeadline: lead.brokerReplyDeadline || null,
         customerReplied: String(lead.status || "") === "CUSTOMER_REPLIED",
         carrierMissingOnPickup: carrierMissingOnPickup({
@@ -897,6 +900,11 @@ export class CrmService {
             lead as unknown as Record<string, unknown>,
             extraBlobs
         );
+        const openUshipUrl =
+            (resolvedUshipUrl && hasRealListingSlug(resolvedUshipUrl)
+                ? resolvedUshipUrl
+                : null) ||
+            ushipOpenUrlFromLead(lead as unknown as Record<string, unknown>, extraBlobs);
         if (resolvedUshipUrl && hasRealListingSlug(resolvedUshipUrl)) {
             const listingId = listingIdFromText(resolvedUshipUrl);
             const currentView = String(lead.viewUrl || "");
@@ -919,13 +927,21 @@ export class CrmService {
                     })
                     .catch(() => null);
             }
+        } else if (openUshipUrl && !lead.viewUrl) {
+            // Persist Instant Alert CTA so list/Open keep working without re-reading HTML.
+            await prisma.shipmentLead
+                .update({
+                    where: { shipmentLeadId: lead.shipmentLeadId },
+                    data: { viewUrl: openUshipUrl },
+                })
+                .catch(() => null);
         }
 
         const enriched = enrichLead(
             {
                 ...(lead as unknown as Record<string, unknown>),
                 greenOsShipmentId: greenOsShipmentId || lead.greenOsShipmentId,
-                viewUrl: resolvedUshipUrl || lead.viewUrl,
+                viewUrl: openUshipUrl || lead.viewUrl,
                 externalShipmentId:
                     lead.externalShipmentId || listingIdFromText(resolvedUshipUrl || "") || null,
             },
@@ -1091,6 +1107,20 @@ export class CrmService {
                     .catch(() => null);
             }
             return url;
+        }
+
+        // No concrete page — open the Instant Alert CTA in the broker's browser.
+        const cta = ushipOpenUrlFromLead(lead as unknown as Record<string, unknown>, extraBlobs);
+        if (cta) {
+            if (!currentView) {
+                await prisma.shipmentLead
+                    .update({
+                        where: { shipmentLeadId },
+                        data: { viewUrl: cta },
+                    })
+                    .catch(() => null);
+            }
+            return cta;
         }
         return null;
     }

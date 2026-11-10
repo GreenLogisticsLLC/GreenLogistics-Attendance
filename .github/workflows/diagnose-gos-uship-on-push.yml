@@ -8,6 +8,7 @@ on:
     paths:
       - "tools/ops/TRIGGER_GOS_USHIP_DIAGNOSE"
       - "scripts/diagnose-gos-uship-open.mjs"
+      - "scripts/repair-gos-uship-cta.mjs"
       - ".github/workflows/diagnose-gos-uship-on-push.yml"
 
 jobs:
@@ -46,6 +47,13 @@ jobs:
           fi
           if [ ! -f dist/modules/email/parsers/uship/listing-url.js ]; then
             npm run build
+          else
+            # Rebuild listing-url so repair uses the latest CTA helpers.
+            npx tsc -p tsconfig.json --pretty false >/dev/null 2>&1 || npm run build
           fi
+          node scripts/diagnose-gos-uship-open.mjs GOS1001100 GOS1001106
+          echo "=== REPAIR CTA ==="
+          node scripts/repair-gos-uship-cta.mjs GOS1001100 GOS1001106
+          echo "=== AFTER REPAIR ==="
           node scripts/diagnose-gos-uship-open.mjs GOS1001100 GOS1001106
           EOF

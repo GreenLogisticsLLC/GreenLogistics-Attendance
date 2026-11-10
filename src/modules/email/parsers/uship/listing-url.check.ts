@@ -3,8 +3,10 @@ import {
     cleanResolvedUshipUrl,
     listingIdFromText,
     listingIdsFromText,
+    primaryUshipCtaTracker,
     trackingUrlsFromText,
     ushipListingUrlFromLead,
+    ushipOpenUrlFromLead,
 } from "./listing-url.js";
 
 function assert(cond: unknown, msg: string) {
@@ -94,6 +96,32 @@ assert(
         'href="https://track.uship.com/f/a/abc~~/AA~/payload"'
     )[0]?.includes("track.uship.com"),
     "track.uship.com is a tracker"
+);
+
+const ctaHtml =
+    'Click <a href="https://track.uship.com/f/a/abc~~/AA~/payload">View shipment</a> ' +
+    'pixel https://track.uship.com/q/xyz~~/AA~/p';
+assert(
+    primaryUshipCtaTracker(ctaHtml) ===
+        "https://track.uship.com/f/a/abc~~/AA~/payload",
+    "primary CTA prefers /f/a/ over /q/"
+);
+assert(
+    ushipOpenUrlFromLead(
+        { viewUrl: "", shipmentTitle: "Haas VF2SS" },
+        [ctaHtml]
+    ) === "https://track.uship.com/f/a/abc~~/AA~/payload",
+    "Open falls back to Instant Alert CTA when no concrete listing URL"
+);
+assert(
+    ushipOpenUrlFromLead(
+        {
+            viewUrl: "https://www.uship.com/shipment/Haas-VF2SS/742953082/",
+            externalShipmentId: "742953082",
+        },
+        [ctaHtml]
+    ) === "https://www.uship.com/shipment/Haas-VF2SS/742953082/",
+    "Open prefers concrete shipment URL over CTA"
 );
 
 console.log("OK: listing-url checks passed");
