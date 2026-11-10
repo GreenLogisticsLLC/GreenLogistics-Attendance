@@ -370,6 +370,12 @@ model ShipmentLead {
   accountingReadyForCarrierPayment Boolean     @default(false) @map("accounting_ready_for_carrier_payment")
   accountingNotes          String?                 @map("accounting_notes")
   accountingClosedAt       DateTime?               @map("accounting_closed_at")
+  /// Set when a voided load is reactivated or a new carrier is saved on the same Load Number.
+  accountingReactivatedAt  DateTime?               @map("accounting_reactivated_at")
+  /// Prior carriers kept on this Load Number after a carrier change (JSON array).
+  carrierHistoryJson       String?                 @map("carrier_history_json")
+  /// Status before Void load number — restored when broker sets Active again.
+  statusBeforeVoid         String?                 @map("status_before_void")
   /// Thank-you / review link emails sent by the broker before Close Load.
   reviewCustomerSentAt  DateTime?               @map("review_customer_sent_at")
   reviewCustomerSentTo  String?                 @map("review_customer_sent_to")

@@ -2856,6 +2856,10 @@ button.load-review-choice:hover {
   font-size: 0.8rem;
   font-weight: 600;
 }
+.load-status-pill.is-voided {
+  background: color-mix(in srgb, var(--gos-danger) 22%, transparent);
+  color: var(--gos-danger);
+}
 .load-timeline-mini, .load-timeline-full, .load-comms, .load-tracking {
   list-style: none;
   margin: 0;
@@ -4345,6 +4349,15 @@ tr.crm-row.load-row-no-carrier td:first-child {
 .emp-users-table tr.acc-row-carrier-pay td:first-child {
   box-shadow: inset 4px 0 0 var(--gos-info);
 }
+.emp-users-table tr.acc-row-voided td:first-child {
+  box-shadow: inset 4px 0 0 var(--gos-danger);
+}
+.emp-users-table tr.acc-row-voided td {
+  color: color-mix(in srgb, var(--gos-danger) 82%, white);
+}
+.emp-users-table tr.acc-row-reactivated td:first-child {
+  box-shadow: inset 4px 0 0 #f59e0b;
+}
 
 .acc-status-pill {
   display: inline-block;
@@ -4369,6 +4382,18 @@ tr.crm-row.load-row-no-carrier td:first-child {
 .acc-status-pill.is-ready {
   background: color-mix(in srgb, #f97316 22%, transparent);
   color: #fb923c;
+}
+.acc-status-pill.is-voided {
+  background: color-mix(in srgb, var(--gos-danger) 24%, transparent);
+  color: var(--gos-danger);
+}
+.acc-status-pill.is-reactivated {
+  background: color-mix(in srgb, #f59e0b 24%, transparent);
+  color: #f59e0b;
+}
+tr.acc-row-voided button.acc-load-link {
+  color: var(--gos-danger);
+  font-weight: 700;
 }
 
 .acc-row-actions {
