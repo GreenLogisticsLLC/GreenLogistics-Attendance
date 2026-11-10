@@ -510,8 +510,12 @@ where: { loadNumber: { not: null } },
                     r.accountingDocStatus === AccountingDocStatus.Verified
             );
         } else if (f === "billing") {
+            // Billing (AR): unpaid loads ready for / already in customer billing.
             list = list.filter(
-                (r) => !r.isVoided && r.accountingReadyForBilling && !r.customerPaidAt
+                (r) =>
+                    !r.isVoided &&
+                    !r.customerPaidAt &&
+                    (r.accountingReadyForBilling || Boolean(r.invoiceNumber))
             );
         } else if (f === "carrier-payment") {
             list = list.filter(
@@ -1157,6 +1161,8 @@ where: { loadNumber: { not: null } },
                 invoiceNumber,
                 invoiceDate,
                 invoiceDueDate,
+                // Sent invoice enters Billing (AR) until the customer pays.
+                accountingReadyForBilling: true,
                 paymentStatus:
                     s.paymentStatus === "CUSTOMER_PAID" ||
                     s.paymentStatus === "CUSTOMER_AND_CARRIER_PAID"
@@ -1176,18 +1182,24 @@ where: { loadNumber: { not: null } },
                 emailTo: to,
                 from: mail.from,
                 documentId: invoiceDoc.documentId,
+                accountingReadyForBilling: true,
             },
         });
         await writeAudit({
             actor,
             action: "INVOICE_SENT",
             shipmentLeadId,
-            oldValue: { paymentStatus: s.paymentStatus, invoiceNumber: s.invoiceNumber },
+            oldValue: {
+                paymentStatus: s.paymentStatus,
+                invoiceNumber: s.invoiceNumber,
+                accountingReadyForBilling: s.accountingReadyForBilling,
+            },
             newValue: {
                 paymentStatus: updated.paymentStatus,
                 invoiceNumber,
                 emailTo: to,
                 from: mail.from,
+                accountingReadyForBilling: true,
             },
         });
         return {
@@ -1196,6 +1208,7 @@ where: { loadNumber: { not: null } },
             emailFrom: mail.from,
             invoiceNumber,
             documentId: invoiceDoc.documentId,
+            movedToBilling: true,
         };
     }
 
