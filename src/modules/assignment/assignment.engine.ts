@@ -210,27 +210,19 @@ export class AssignmentEngine {
         const now = new Date();
         // Night is when we hand the shipment out, not when uShip sent the mail.
         const arrivedAtNight = isAfterHoursAssignment(now, ASSIGNMENT_TIMEZONE);
-        let assigneeInOffice = false;
-        if (arrivedAtNight && broker.employeeId) {
-            const inOfficeIds = await getInOfficeEmployeeIds([broker.employeeId]);
-            assigneeInOffice = inOfficeIds.has(broker.employeeId);
-        }
         const acceptanceDeadline = nightAcceptanceDeadline({
             arrivedAt: now,
             now,
-            assigneeInOffice,
+            assigneeInOffice: false,
             timezone: ASSIGNMENT_TIMEZONE,
         });
         const windowLabel = !arrivedAtNight
             ? `${ACCEPTANCE_MINUTES}m`
-            : assigneeInOffice
-              ? `${NIGHT_ACCEPT_MINUTES}m after check-in`
-              : "until this broker checks in, then 30m to Accept";
+            : "held overnight until Accept (or check-in starts 30m)";
+        // Never treat "already has a broker id" alone as Other — a first night
+        // handoff must stay New Shipment for Andy/Maddy and the rest of the roster.
         const isReassignment = Boolean(
-            options?.reassignFrom ||
-                lead.wasEverReassigned ||
-                lead.isReassignment ||
-                lead.assignedBrokerId
+            options?.reassignFrom || lead.wasEverReassigned || lead.isReassignment
         );
         const claimed = await prisma.shipmentLead.updateMany({
             where: {
@@ -609,12 +601,16 @@ export class AssignmentEngine {
         });
 
         let reassigned = 0;
+        const afterHoursNow = isAfterHoursAssignment(now, ASSIGNMENT_TIMEZONE);
         for (const lead of expired) {
             if (isHeldUntilOffice(lead.acceptanceDeadline)) continue;
             const latest = await shipmentLeadRepository.findById(lead.shipmentLeadId);
             if (!latest || isKeptByCurrentBroker(latest)) continue;
-            const nightShipment = shipmentArrivedAtNight(latest);
-            const timeoutMinutes = nightShipment ? NIGHT_ACCEPT_MINUTES : ACCEPTANCE_MINUTES;
+            // Overnight (01:00–16:59): never pass night New Shipments — even if a
+            // short deadline leaked through while Andy/Maddy were already In Office.
+            // After check-in during office hours, armed 30m windows still expire.
+            if (afterHoursNow && shipmentArrivedAtNight(latest)) continue;
+            const timeoutMinutes = ACCEPTANCE_MINUTES;
             const previousBrokerId = lead.assignedBrokerId!;
             const previousUser = await prisma.user.findUnique({
                 where: { userId: previousBrokerId },
@@ -1143,6 +1139,55 @@ export class AssignmentEngine {
         }
 
         return { orderedUserIds: joinedNew.orderedUserIds, nextIndex: joinedNew.nextIndex };
+    }
+
+    /**
+     * While after-hours (01:00–16:59), night New Shipments that still have a short
+     * 30-minute deadline (old bug when the broker was already In Office) go back
+     * on overnight hold so Andy/Maddy do not lose their New list overnight.
+     * During office hours this no-ops so check-in-armed 30m windows can expire.
+     */
+    async holdOpenNightShipments(): Promise<number> {
+        const now = new Date();
+        if (!isAfterHoursAssignment(now, ASSIGNMENT_TIMEZONE)) return 0;
+
+        const waiting = await prisma.shipmentLead.findMany({
+            where: {
+                acceptedAt: null,
+                assignedBrokerId: { not: null },
+                status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
+                acceptanceDeadline: { not: null, lt: NIGHT_HOLD_UNTIL_OFFICE },
+                AND: [arrivedAfterShipmentCutoff],
+            },
+            take: 200,
+            select: {
+                shipmentLeadId: true,
+                assignedAt: true,
+                receivedAt: true,
+                createdAt: true,
+                acceptanceDeadline: true,
+            },
+        });
+        let held = 0;
+        for (const lead of waiting) {
+            if (!shipmentArrivedAtNight(lead)) continue;
+            if (isHeldUntilOffice(lead.acceptanceDeadline)) continue;
+            const updated = await prisma.shipmentLead.updateMany({
+                where: {
+                    shipmentLeadId: lead.shipmentLeadId,
+                    acceptedAt: null,
+                    status: { in: ["ASSIGNED", "AWAITING_ACCEPTANCE", "AGENT_OPEN"] },
+                },
+                data: { acceptanceDeadline: NIGHT_HOLD_UNTIL_OFFICE },
+            });
+            if (updated.count > 0) held += 1;
+        }
+        if (held > 0) {
+            console.log(
+                `[assignment] held ${held} night New Shipment(s) so night-shift brokers keep them`
+            );
+        }
+        return held;
     }
 
     /**

@@ -391,8 +391,11 @@ export const NIGHT_HOLD_UNTIL_OFFICE = new Date("2099-01-01T00:00:00.000Z");
 
 /**
  * Daytime arrivals: 15 minutes to Accept.
- * Night arrivals while the broker is out: hold until they check in.
- * Night arrivals when they are already In Office: 30 minutes to Accept.
+ * Night arrivals (01:00–16:59): always hold until check-in arms a 30-minute
+ * window. Night-shift brokers who are already In Office must keep New Shipments
+ * — a short 30-minute timer at handoff emptied Andy/Maddy's New list overnight
+ * while sleeping brokers (on hold) still saw theirs in the morning.
+ * `assigneeInOffice` is kept for callers; it does not shorten the night hold.
  */
 export function nightAcceptanceDeadline(input: {
     arrivedAt: Date;
@@ -402,9 +405,6 @@ export function nightAcceptanceDeadline(input: {
 }): Date {
     if (!isAfterHoursAssignment(input.arrivedAt, input.timezone)) {
         return new Date(input.now.getTime() + 15 * 60_000);
-    }
-    if (input.assigneeInOffice) {
-        return new Date(input.now.getTime() + 30 * 60_000);
     }
     return NIGHT_HOLD_UNTIL_OFFICE;
 }

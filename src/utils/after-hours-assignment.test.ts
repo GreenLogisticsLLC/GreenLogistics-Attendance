@@ -60,7 +60,7 @@ test("after 01:00 and before 17:00 is after-hours assignment", () => {
     assert.equal(isAfterHoursAssignment(zonedDateTime("2026-11-03", "22:30", tz), tz), false);
 });
 
-test("night shipment waits for office check-in, then 30 minutes", () => {
+test("night shipment always holds, even when the broker is already In Office", () => {
     const now = zonedDateTime("2026-11-03", "02:15", tz);
     const nightArrival = zonedDateTime("2026-11-03", "02:10", tz);
     const dayArrival = zonedDateTime("2026-11-02", "18:00", tz);
@@ -73,13 +73,17 @@ test("night shipment waits for office check-in, then 30 minutes", () => {
         }).getTime(),
         NIGHT_HOLD_UNTIL_OFFICE.getTime()
     );
-    const inOffice = nightAcceptanceDeadline({
-        arrivedAt: nightArrival,
-        now,
-        assigneeInOffice: true,
-        timezone: tz,
-    });
-    assert.equal(inOffice.getTime() - now.getTime(), 30 * 60_000);
+    // Night-shift brokers (Andy/Maddy) stay In Office after 01:00 — they must
+    // keep New Shipments, not lose them on a 30-minute timer.
+    assert.equal(
+        nightAcceptanceDeadline({
+            arrivedAt: nightArrival,
+            now,
+            assigneeInOffice: true,
+            timezone: tz,
+        }).getTime(),
+        NIGHT_HOLD_UNTIL_OFFICE.getTime()
+    );
     const day = nightAcceptanceDeadline({
         arrivedAt: dayArrival,
         now,
