@@ -55,7 +55,12 @@ export async function accountingVerifyDocumentsController(req: AuthRequest, res:
     try {
         const id = String(req.params.id || "");
         const note = typeof req.body?.note === "string" ? req.body.note : undefined;
-        const data = await accountingService.verifyDocuments(actorFrom(req), id, note);
+        const rawSide = String(req.body?.side || "both").toLowerCase();
+        const side =
+            rawSide === "customer" || rawSide === "carrier" || rawSide === "both"
+                ? (rawSide as "customer" | "carrier" | "both")
+                : "both";
+        const data = await accountingService.verifyDocuments(actorFrom(req), id, note, side);
         return res.json(apiResponse(true, "Documents verified", data));
     } catch (err) {
         return res.status(errStatus(err)).json(errPayload(err));

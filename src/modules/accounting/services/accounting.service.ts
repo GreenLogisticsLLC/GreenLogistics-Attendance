@@ -746,6 +746,24 @@ where: { loadNumber: { not: null } },
                 docStatus: s.accountingDocStatus || AccountingDocStatus.Pending,
                 docVerifiedAt: s.accountingDocVerifiedAt,
                 docVerifiedById: s.accountingDocVerifiedById,
+                customerDocsVerified: Boolean(
+                    s.accountingCustomerDocsVerifiedAt ||
+                        s.accountingDocStatus === AccountingDocStatus.Verified
+                ),
+                carrierDocsVerified: Boolean(
+                    s.accountingCarrierDocsVerifiedAt ||
+                        s.accountingDocStatus === AccountingDocStatus.Verified
+                ),
+                customerDocsVerifiedAt:
+                    s.accountingCustomerDocsVerifiedAt ||
+                    (s.accountingDocStatus === AccountingDocStatus.Verified
+                        ? s.accountingDocVerifiedAt
+                        : null),
+                carrierDocsVerifiedAt:
+                    s.accountingCarrierDocsVerifiedAt ||
+                    (s.accountingDocStatus === AccountingDocStatus.Verified
+                        ? s.accountingDocVerifiedAt
+                        : null),
                 financialVerified: Boolean(s.accountingFinancialVerified),
                 readyForBilling: Boolean(s.accountingReadyForBilling),
                 readyForCarrierPayment: Boolean(s.accountingReadyForCarrierPayment),
@@ -798,37 +816,87 @@ where: { loadNumber: { not: null } },
         };
     }
 
-    async verifyDocuments(actor: Actor, shipmentLeadId: string, note?: string) {
+    async verifyDocuments(
+        actor: Actor,
+        shipmentLeadId: string,
+        note?: string,
+        side: "customer" | "carrier" | "both" = "both"
+    ) {
         assertPerm(actor, AccountingPermissions.DocumentsVerify);
         const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!s) throw notFound("Shipment not found");
         const now = new Date();
+        const sideNorm =
+            side === "customer" || side === "carrier" || side === "both" ? side : "both";
+        const legacyBoth = s.accountingDocStatus === AccountingDocStatus.Verified;
+        const customerAt =
+            sideNorm === "customer" || sideNorm === "both"
+                ? now
+                : s.accountingCustomerDocsVerifiedAt ||
+                  (legacyBoth ? s.accountingDocVerifiedAt || now : null);
+        const carrierAt =
+            sideNorm === "carrier" || sideNorm === "both"
+                ? now
+                : s.accountingCarrierDocsVerifiedAt ||
+                  (legacyBoth ? s.accountingDocVerifiedAt || now : null);
+        const fullyVerified = Boolean(customerAt && carrierAt);
+        const nextStatus = fullyVerified
+            ? AccountingDocStatus.Verified
+            : s.accountingDocStatus === AccountingDocStatus.NeedsCorrection
+              ? AccountingDocStatus.NeedsCorrection
+              : AccountingDocStatus.Pending;
         const updated = await prisma.shipmentLead.update({
             where: { shipmentLeadId },
             data: {
-                accountingDocStatus: AccountingDocStatus.Verified,
-                accountingDocVerifiedAt: now,
-                accountingDocVerifiedById: actor.userId,
-                accountingReactivatedAt: null,
+                accountingCustomerDocsVerifiedAt: customerAt,
+                accountingCarrierDocsVerifiedAt: carrierAt,
+                accountingDocStatus: nextStatus,
+                accountingDocVerifiedAt: fullyVerified ? now : null,
+                accountingDocVerifiedById: fullyVerified ? actor.userId : null,
+                ...(fullyVerified ? { accountingReactivatedAt: null } : {}),
                 accountingNotes: note
                     ? [s.accountingNotes, note].filter(Boolean).join("\n")
                     : s.accountingNotes,
             },
         });
+        const sideLabel =
+            sideNorm === "customer"
+                ? "Customer Documents"
+                : sideNorm === "carrier"
+                  ? "Carrier Documents"
+                  : "Customer & Carrier Documents";
         await domainEventEngine.emit({
             shipmentLeadId,
             eventType: "STATUS_CHANGED",
-            title: "Accounting documents verified",
-            message: "Accounting Documents verified BOL/POD/RC package",
+            title: fullyVerified
+                ? "Accounting documents verified"
+                : `${sideLabel} verified`,
+            message: fullyVerified
+                ? "Accounting verified customer and carrier document packages"
+                : `Accounting verified ${sideLabel}; waiting for the other side`,
             actorUserId: actor.userId,
-            payload: { accountingDocStatus: AccountingDocStatus.Verified },
+            payload: {
+                accountingDocStatus: nextStatus,
+                side: sideNorm,
+                customerDocsVerified: Boolean(customerAt),
+                carrierDocsVerified: Boolean(carrierAt),
+            },
         });
         await writeAudit({
             actor,
-            action: "DOCUMENTS_VERIFIED",
+            action: fullyVerified ? "DOCUMENTS_VERIFIED" : "DOCUMENTS_SIDE_VERIFIED",
             shipmentLeadId,
-            oldValue: { accountingDocStatus: s.accountingDocStatus },
-            newValue: { accountingDocStatus: AccountingDocStatus.Verified },
+            oldValue: {
+                accountingDocStatus: s.accountingDocStatus,
+                customerDocsVerifiedAt: s.accountingCustomerDocsVerifiedAt || null,
+                carrierDocsVerifiedAt: s.accountingCarrierDocsVerifiedAt || null,
+            },
+            newValue: {
+                accountingDocStatus: nextStatus,
+                customerDocsVerifiedAt: customerAt,
+                carrierDocsVerifiedAt: carrierAt,
+                side: sideNorm,
+            },
             reason: note || null,
         });
         return updated;
@@ -851,6 +919,10 @@ where: { loadNumber: { not: null } },
             where: { shipmentLeadId },
             data: {
                 accountingDocStatus: status,
+                accountingCustomerDocsVerifiedAt: null,
+                accountingCarrierDocsVerifiedAt: null,
+                accountingDocVerifiedAt: null,
+                accountingDocVerifiedById: null,
                 accountingReadyForBilling: false,
                 accountingReadyForCarrierPayment: false,
                 accountingFinancialVerified: false,
