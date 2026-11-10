@@ -1870,6 +1870,10 @@ window.GreenOSModules["dispatch"] = {
       var data = await self.api("/" + encodeURIComponent(id) + qs);
       // Stale response if user navigated away / opened another load.
       if (self._loadId && self._loadId !== id) return;
+      if (self.loadNeedsCustomer(data)) {
+        self._tab = "general";
+        self._focusCustomer = true;
+      }
       self.renderDetails(body, data);
     } catch (err) {
       body.innerHTML = '<p class="gos-error">' + self.esc(err.message || err) + "</p>";
@@ -1927,11 +1931,7 @@ window.GreenOSModules["dispatch"] = {
     if (!showMoney && self._tab === "pricing") {
       self._tab = "general";
     }
-    var needsCustomer =
-      data.needsCustomerInfo === true ||
-      (data.quickActions || []).some(function (a) {
-        return a.id === "generate_customer" && a.state === "current";
-      });
+    var needsCustomer = self.loadNeedsCustomer(data);
     if (needsCustomer || self._focusCustomer) {
       self._tab = "general";
       self._focusCustomer = true;
@@ -2365,6 +2365,14 @@ window.GreenOSModules["dispatch"] = {
     self.renderTab(main, data, self._tab);
   },
 
+  loadNeedsCustomer(data) {
+    if (!data) return false;
+    if (data.needsCustomerInfo === true) return true;
+    return (data.quickActions || []).some(function (a) {
+      return a.id === "generate_customer" && a.state === "current";
+    });
+  },
+
   renderTab(main, data, tab) {
     var self = this;
     var g = data.general || {};
@@ -2372,6 +2380,11 @@ window.GreenOSModules["dispatch"] = {
     var p = data.pricing || {};
     var id = data.identity.shipmentLeadId;
     var showMoney = data.canViewMoney === true || self.canSeeMoney();
+    // Must be local — renderDetails vars are out of scope here (caused "needsCustomer is not defined").
+    var needsCustomer = self.loadNeedsCustomer(data);
+    var missingLoadNumber = !String(
+      (data.identity && data.identity.loadNumber) || g.loadNumber || ""
+    ).trim();
 
     function field(label, value) {
       return (
@@ -2427,8 +2440,12 @@ window.GreenOSModules["dispatch"] = {
         '<div class="load-edit-panel' +
         (needsCustomer || self._focusCustomer ? " is-customer-focus" : "") +
         '" id="ld-customer-setup">' +
-        "<h3>Generate customer information</h3>" +
-        '<p class="gos-muted">Booking Confirmation approved this load for you. Enter customer name and email or phone first — then Assign Carrier unlocks.</p>' +
+        "<h3>Register customer &amp; get Load Number</h3>" +
+        '<p class="gos-muted">' +
+        (missingLoadNumber
+          ? "This shipment has no Load Number yet. Enter customer name and email or phone — Save creates the GL# so you can continue with load details."
+          : "Enter customer name and email or phone first — then you can continue with load details and Assign Carrier.") +
+        "</p>" +
         '<div class="load-form-grid">' +
         '<label>Customer name * <input id="ld-customer" value="' +
         self.esc(g.customer || "") +
@@ -2440,9 +2457,26 @@ window.GreenOSModules["dispatch"] = {
         self.esc(self.formatUsPhone(contacts.customerPhone || g.customerPhone || "")) +
         '" placeholder="(XXX) XXX-XXXX"></label>' +
         "</div>" +
-        '<p class="gos-muted" style="margin:0.35rem 0 0.75rem">Email or phone is required.</p>' +
-        '<div class="load-actions"><button type="button" class="btn-primary" id="ld-save-customer">Save customer information</button></div>' +
+        '<p class="gos-muted" style="margin:0.35rem 0 0.75rem">Email or phone is required.' +
+        (missingLoadNumber
+          ? " Load Number is assigned automatically when you save."
+          : " Load Number: <strong>" +
+            self.esc(g.loadNumber || (data.identity && data.identity.loadNumber) || "—") +
+            "</strong>.") +
+        "</p>" +
+        '<div class="load-actions"><button type="button" class="btn-primary" id="ld-save-customer">' +
+        (missingLoadNumber ? "Save customer &amp; get Load Number" : "Save customer information") +
+        "</button></div>" +
         "</div>";
+
+      if (needsCustomer || self._focusCustomer) {
+        main.innerHTML =
+          "<h2>Create Load — Customer</h2>" +
+          '<p class="gos-muted">Step 1 of Create Load. After the customer is saved' +
+          (missingLoadNumber ? " and the Load Number is created" : "") +
+          ", full load details unlock.</p>" +
+          customerSetupHtml;
+      } else {
       main.innerHTML =
         "<h2>General</h2>" +
         customerSetupHtml +
@@ -2570,6 +2604,8 @@ window.GreenOSModules["dispatch"] = {
       self.bindApptFields(main, "ld-pickup");
       self.bindApptFields(main, "ld-delivery");
 
+      }
+
       function updateProfitView() {
         var a = parseFloat(self.parseMoneyInput(main.querySelector("#ld-cust-price").value));
         var b = parseFloat(self.parseMoneyInput(main.querySelector("#ld-carr-price").value));
@@ -2611,6 +2647,13 @@ window.GreenOSModules["dispatch"] = {
           alert("Enter customer email or a valid phone number");
           (main.querySelector("#ld-customer-email") || {}).focus?.();
           return;
+        }
+        // Ensure GL# exists for Booking / Create Load shipments that still lack one.
+        if (missingLoadNumber) {
+          await self.api("/" + encodeURIComponent(id) + "/create", {
+            method: "POST",
+            body: "{}",
+          });
         }
         await self.api("/" + encodeURIComponent(id), {
           method: "PATCH",
