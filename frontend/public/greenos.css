@@ -4521,6 +4521,32 @@ button.acc-doc-file {
   box-shadow: 0 0 0 3px var(--gos-accent-soft);
 }
 
+.acc-filter-range-field {
+  min-width: 15rem;
+}
+
+.acc-filter-range-label {
+  display: block;
+}
+
+.acc-filter-range {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.acc-filter-range input[type="date"] {
+  min-width: 0;
+  flex: 1 1 8.5rem;
+}
+
+.acc-filter-range-sep {
+  flex: 0 0 auto;
+  color: var(--gos-muted);
+  font-weight: 700;
+  text-transform: none;
+}
+
 .acc-filter-clear {
   margin-left: auto;
 }

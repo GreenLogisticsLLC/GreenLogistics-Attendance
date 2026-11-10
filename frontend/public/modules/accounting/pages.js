@@ -124,14 +124,51 @@ window.GreenOSModules.accounting = {
     }
   },
 
+  emptyTableFilters() {
+    return {
+      load: "",
+      pickupDayFrom: "",
+      pickupDayTo: "",
+      deliveryDayFrom: "",
+      deliveryDayTo: "",
+      broker: "",
+    };
+  },
+
   getTableFilters() {
-    return this._tableFilters || { load: "", pickupDay: "", deliveryDay: "", broker: "" };
+    return this._tableFilters || this.emptyTableFilters();
   },
 
   setTableFilters(next) {
-    this._tableFilters = Object.assign(
-      { load: "", pickupDay: "", deliveryDay: "", broker: "" },
-      next || {}
+    this._tableFilters = Object.assign(this.emptyTableFilters(), next || {});
+  },
+
+  /** Inclusive YYYY-MM-DD range match. Empty from/to sides are open-ended. */
+  dayInRange(iso, fromKey, toKey) {
+    var day = this.dayKey(iso);
+    var from = String(fromKey || "").trim();
+    var to = String(toKey || "").trim();
+    if (!from && !to) return true;
+    if (!day) return false;
+    if (from && to && from > to) {
+      var swap = from;
+      from = to;
+      to = swap;
+    }
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    return true;
+  },
+
+  filtersAreActive(filters) {
+    var f = filters || this.getTableFilters();
+    return !!(
+      f.load ||
+      f.pickupDayFrom ||
+      f.pickupDayTo ||
+      f.deliveryDayFrom ||
+      f.deliveryDayTo ||
+      f.broker
     );
   },
 
@@ -142,16 +179,43 @@ window.GreenOSModules.accounting = {
       var loadHay = String(r.loadNumber || r.greenOsShipmentId || "").toLowerCase();
       if (loadHay.indexOf(loadQ) < 0) return false;
     }
-    var pickupQ = String(f.pickupDay || "").trim();
-    if (pickupQ && this.dayKey(r.pickupDay) !== pickupQ) return false;
-    var deliveryQ = String(f.deliveryDay || "").trim();
-    if (deliveryQ && this.dayKey(r.deliveryDay) !== deliveryQ) return false;
+    if (!this.dayInRange(r.pickupDay, f.pickupDayFrom, f.pickupDayTo)) return false;
+    if (!this.dayInRange(r.deliveryDay, f.deliveryDayFrom, f.deliveryDayTo)) return false;
     var brokerQ = String(f.broker || "").trim().toLowerCase();
     if (brokerQ) {
       var brokerHay = String(r.brokerName || "").toLowerCase();
       if (brokerHay.indexOf(brokerQ) < 0) return false;
     }
     return true;
+  },
+
+  dayRangeFieldHtml(label, fromKey, toKey) {
+    var f = this.getTableFilters();
+    return (
+      '<div class="acc-filter-field acc-filter-range-field">' +
+      '<span class="acc-filter-range-label">' +
+      this.esc(label) +
+      "</span>" +
+      '<div class="acc-filter-range" role="group" aria-label="' +
+      this.esc(label) +
+      ' range">' +
+      '<input type="date" data-acc-filter="' +
+      this.esc(fromKey) +
+      '" value="' +
+      this.esc(f[fromKey] || "") +
+      '" title="From" aria-label="' +
+      this.esc(label) +
+      ' from">' +
+      '<span class="acc-filter-range-sep" aria-hidden="true">–</span>' +
+      '<input type="date" data-acc-filter="' +
+      this.esc(toKey) +
+      '" value="' +
+      this.esc(f[toKey] || "") +
+      '" title="To" aria-label="' +
+      this.esc(label) +
+      ' to">' +
+      "</div></div>"
+    );
   },
 
   filterBarHtml() {
@@ -162,14 +226,8 @@ window.GreenOSModules.accounting = {
       '<input type="search" data-acc-filter="load" value="' +
       this.esc(f.load || "") +
       '" placeholder="GL…" autocomplete="off"></label>' +
-      '<label class="acc-filter-field">Pickup day' +
-      '<input type="date" data-acc-filter="pickupDay" value="' +
-      this.esc(f.pickupDay || "") +
-      '"></label>' +
-      '<label class="acc-filter-field">Delivery day' +
-      '<input type="date" data-acc-filter="deliveryDay" value="' +
-      this.esc(f.deliveryDay || "") +
-      '"></label>' +
+      this.dayRangeFieldHtml("Pickup day", "pickupDayFrom", "pickupDayTo") +
+      this.dayRangeFieldHtml("Delivery day", "deliveryDayFrom", "deliveryDayTo") +
       '<label class="acc-filter-field">Broker' +
       '<input type="search" data-acc-filter="broker" value="' +
       this.esc(f.broker || "") +
@@ -188,7 +246,7 @@ window.GreenOSModules.accounting = {
     var totalCount = allRows ? allRows.length : 0;
 
     function readFilters() {
-      var next = { load: "", pickupDay: "", deliveryDay: "", broker: "" };
+      var next = self.emptyTableFilters();
       body.querySelectorAll("[data-acc-filter]").forEach(function (input) {
         var key = input.getAttribute("data-acc-filter");
         if (key && Object.prototype.hasOwnProperty.call(next, key)) {
@@ -214,9 +272,7 @@ window.GreenOSModules.accounting = {
         self.bindOpenHandlers(body);
       }
       if (countEl) {
-        var active =
-          filters.load || filters.pickupDay || filters.deliveryDay || filters.broker;
-        countEl.textContent = active
+        countEl.textContent = self.filtersAreActive(filters)
           ? filtered.length + " of " + totalCount + " load" + (totalCount === 1 ? "" : "s")
           : totalCount + " load" + (totalCount === 1 ? "" : "s");
       }
