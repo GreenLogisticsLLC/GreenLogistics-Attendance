@@ -57,6 +57,9 @@ const DOCUMENTS_PERMISSIONS: AccountingPermission[] = [
     AccountingPermissions.FinancialsView,
     AccountingPermissions.FinancialsVerify,
     AccountingPermissions.BillingView,
+    // Documents team uploads + emails the customer invoice from the load profile.
+    AccountingPermissions.BillingCreate,
+    AccountingPermissions.BillingSend,
     AccountingPermissions.NotesCreate,
     AccountingPermissions.AuditView,
 ];

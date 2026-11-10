@@ -4813,12 +4813,36 @@ tr.acc-row-carrier-pay button.acc-load-link {
   width: 100%;
   margin-top: 0.35rem;
 }
+.acc-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  opacity: 0;
+}
+.acc-invoice-add-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  cursor: pointer;
+  margin: 0;
+}
 .acc-send-btn {
   min-width: 7.5rem;
   min-height: 2.6rem;
   font-size: 1rem !important;
   font-weight: 800 !important;
   padding: 0.55rem 1.25rem !important;
+}
+.acc-send-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .acc-pill {
   display: inline-flex;
