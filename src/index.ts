@@ -49,6 +49,11 @@ app.get("/carrier/onboarding/:token", (req, res) => {
     res.sendFile(path.join(frontendPath, "carrier-onboarding.html"));
 });
 
+app.get("/customer/agreement/:token", (_req, res) => {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    res.sendFile(path.join(frontendPath, "customer-agreement.html"));
+});
+
 app.get("*", (_req, res) => {
     res.sendFile(path.join(frontendPath, "index.html"));
 });

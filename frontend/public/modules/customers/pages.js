@@ -232,15 +232,16 @@ window.GreenOSModules.customers = {
       '<label class="full">Notes <textarea id="cu-notes" rows="3">' + self.esc(c.notes || "") + "</textarea></label>" +
       '<fieldset class="full cu-options cu-agreement">' +
       "<legend>Customer agreement</legend>" +
-      '<p class="gos-muted" style="margin:0 0 0.45rem">Choose one. On Save, GreenOS emails that Word file from your Gmail to the customer.</p>' +
+      '<p class="gos-muted" style="margin:0 0 0.45rem">Choose one. On Save, GreenOS emails a fill-and-sign link + PDF. Broker name, Title Broker, signature, and today’s date are filled automatically.</p>' +
       '<label class="cu-check"><input type="radio" name="cu-agreement" id="cu-agree-onetime" value="USHIP_ONETIME"' +
       oneTime +
       "> Broker Customer Uship OneTime" +
-      '<span class="gos-muted"> — send <em>Broker Customer Uship OneTime.docx</em></span></label>' +
+      '<span class="gos-muted"> — customer fills fields &amp; signs online</span></label>' +
       '<label class="cu-check"><input type="radio" name="cu-agreement" id="cu-agree-long" value="LONG_TIME"' +
       longTime +
       "> Broker Customer Long TIme" +
-      '<span class="gos-muted"> — send <em>Broker Customer Long TIme.docx</em></span></label>' +
+      '<span class="gos-muted"> — customer fills fields &amp; signs online</span></label>' +
+
       '<label class="cu-check"><input type="radio" name="cu-agreement" id="cu-agree-none" value=""' +
       (!agreement ? " checked" : "") +
       '> No agreement email now</label>' +
@@ -331,11 +332,14 @@ window.GreenOSModules.customers = {
         if (payload.agreementType && saved.agreementEmail) {
           if (saved.agreementEmail.sent) {
             alert(
-              "Customer saved. Agreement emailed to " +
+              "Customer saved. Fill-and-sign agreement emailed to " +
                 (saved.agreementEmail.to || payload.email) +
                 " from " +
                 (saved.agreementEmail.from || "your Gmail") +
-                "."
+                "." +
+                (saved.agreementEmail.signUrl
+                  ? "\n\nSign link:\n" + saved.agreementEmail.signUrl
+                  : "")
             );
           } else {
             alert(

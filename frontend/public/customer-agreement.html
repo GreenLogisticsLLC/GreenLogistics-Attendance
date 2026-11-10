@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Customer Agreement — Green Logistics</title>
+  <style>
+    :root { --bg:#0b1220; --card:#121a2b; --text:#f8fafc; --muted:#94a3b8; --accent:#12d48a; --line:#334155; --danger:#f87171; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Arial, Helvetica, sans-serif; background:linear-gradient(180deg,#0b1220,#111827); color:var(--text); }
+    .wrap { max-width: 840px; margin: 0 auto; padding: 1.25rem; }
+    .card { background: var(--card); border:1px solid var(--line); border-radius:14px; padding:1.1rem 1.2rem; margin-bottom:1rem; }
+    h1 { margin:0 0 .35rem; font-size:1.35rem; }
+    h2 { margin:1rem 0 .55rem; font-size:1.05rem; color:var(--accent); }
+    .muted { color:var(--muted); font-size:.95rem; line-height:1.45; }
+    label { display:block; font-weight:700; margin:.65rem 0 .25rem; }
+    input, textarea { width:100%; padding:.65rem .7rem; border-radius:10px; border:1px solid var(--line); background:#0b1220; color:var(--text); font:inherit; }
+    textarea { min-height: 78px; resize: vertical; }
+    .grid { display:grid; gap:.35rem 1rem; }
+    @media (min-width:720px) { .grid.two { grid-template-columns: 1fr 1fr; } }
+    .broker { background:#0b3d2e22; border:1px solid #12d48a55; }
+    .broker strong { color:#bbf7d0; }
+    canvas { width:100%; max-width:520px; height:160px; border:1px dashed var(--line); border-radius:12px; background:#fff; touch-action:none; }
+    .actions { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:1rem; }
+    button { border:0; border-radius:10px; padding:.7rem 1rem; font-weight:800; cursor:pointer; }
+    .primary { background:var(--accent); color:#052e1c; }
+    .secondary { background:#1e293b; color:var(--text); border:1px solid var(--line); }
+    .msg { white-space:pre-wrap; margin-top:.75rem; }
+    .ok { color:#86efac; }
+    .error { color:var(--danger); }
+    .ack { display:flex; gap:.55rem; align-items:flex-start; margin-top:.85rem; font-weight:600; }
+    .ack input { width:auto; margin-top:.2rem; }
+    .terms li { margin:.35rem 0; color:#e2e8f0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="boot" class="card muted">Loading secure agreement…</div>
+    <div id="app" hidden></div>
+  </div>
+  <script>
+(function () {
+  var token = (location.pathname.split("/").filter(Boolean).pop() || "").trim();
+  var state = null;
+  var drawing = false;
+
+  function esc(s) {
+    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+  function $(id) { return document.getElementById(id); }
+  function showError(msg) {
+    $("boot").hidden = false;
+    $("app").hidden = true;
+    $("boot").innerHTML = '<p class="error">' + esc(msg) + "</p>";
+  }
+  async function api(path, opts) {
+    var res = await fetch("/api/customer-agreement/" + encodeURIComponent(token) + path, opts || {});
+    var json = await res.json().catch(function () { return {}; });
+    if (!res.ok || json.success === false) throw new Error(json.message || "Request failed");
+    return json.data;
+  }
+  function fieldValue(key) {
+    var el = document.querySelector('[data-field="' + key + '"]');
+    return el ? String(el.value || "").trim() : "";
+  }
+  function collectFields() {
+    var out = {};
+    (state.fieldDefs || []).forEach(function (f) {
+      out[f.key] = fieldValue(f.key);
+    });
+    return out;
+  }
+  function setMsg(text, ok) {
+    var el = $("msg");
+    if (!el) return;
+    el.className = "msg " + (ok ? "ok" : "error");
+    el.textContent = text || "";
+  }
+  function setupSig() {
+    var canvas = $("sig-canvas");
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d");
+    var ratio = Math.max(window.devicePixelRatio || 1, 1);
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width * ratio);
+    canvas.height = Math.floor(160 * ratio);
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#0f172a";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, rect.width, 160);
+    function pos(e) {
+      var r = canvas.getBoundingClientRect();
+      var t = e.touches && e.touches[0];
+      return { x: (t ? t.clientX : e.clientX) - r.left, y: (t ? t.clientY : e.clientY) - r.top };
+    }
+    function start(e) { e.preventDefault(); drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+    function move(e) {
+      if (!drawing) return;
+      e.preventDefault();
+      var p = pos(e);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+    function end(e) { if (!drawing) return; e.preventDefault(); drawing = false; }
+    canvas.onmousedown = start; canvas.onmousemove = move; canvas.onmouseup = end; canvas.onmouseleave = end;
+    canvas.ontouchstart = start; canvas.ontouchmove = move; canvas.ontouchend = end;
+    $("btn-clear-sig").onclick = function () {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    };
+  }
+  function isBlankSig() {
+    var canvas = $("sig-canvas");
+    if (!canvas) return true;
+    var ctx = canvas.getContext("2d");
+    var data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (var i = 0; i < data.length; i += 4) {
+      if (data[i] < 250 || data[i + 1] < 250 || data[i + 2] < 250) return false;
+    }
+    return true;
+  }
+  function sigData() {
+    return $("sig-canvas").toDataURL("image/png");
+  }
+  function render() {
+    $("boot").hidden = true;
+    $("app").hidden = false;
+    var sections = {};
+    (state.fieldDefs || []).forEach(function (f) {
+      sections[f.section] = sections[f.section] || [];
+      sections[f.section].push(f);
+    });
+    var formHtml = Object.keys(sections).map(function (section) {
+      var fields = sections[section].map(function (f) {
+        var val = esc((state.fields && state.fields[f.key]) || "");
+        var tag = f.multiline
+          ? '<textarea data-field="' + esc(f.key) + '"' + (state.alreadySigned ? " readonly" : "") + ">" + val + "</textarea>"
+          : '<input data-field="' + esc(f.key) + '" value="' + val + '"' + (state.alreadySigned ? " readonly" : "") + " />";
+        return "<label>" + esc(f.label) + "</label>" + tag;
+      }).join("");
+      return "<div class='card'><h2>" + esc(section) + "</h2><div class='grid'>" + fields + "</div></div>";
+    }).join("");
+
+    $("app").innerHTML =
+      '<div class="card"><h1>' + esc(state.title) + '</h1>' +
+      '<p class="muted">' + esc(state.label) + " for " + esc(state.customer.companyName) + "</p></div>" +
+      '<div class="card broker"><h2>Green Logistics — Broker (completed automatically)</h2>' +
+      '<p><strong>Authorized Representative:</strong> ' + esc(state.broker.name) + '</p>' +
+      '<p><strong>Title:</strong> ' + esc(state.broker.title || "Broker") + '</p>' +
+      '<p><strong>Signature:</strong> ' + esc(state.broker.name) + ' (applied for Green Logistics LLC)</p>' +
+      '<p><strong>Date:</strong> ' + esc(new Date(state.sentAt).toLocaleDateString()) + '</p></div>' +
+      formHtml +
+      '<div class="card"><h2>Customer acknowledgment &amp; signature</h2>' +
+      '<ul class="terms muted"><li>Shipment / company information I entered is accurate.</li>' +
+      '<li>I reviewed and accept the transportation terms for this agreement.</li>' +
+      '<li>I have authority to sign for the Customer.</li></ul>' +
+      (state.alreadySigned
+        ? '<p class="ok">Already signed' + (state.signedAt ? " on " + esc(new Date(state.signedAt).toLocaleString()) : "") + '.</p>' +
+          '<div class="actions"><a class="primary" style="text-decoration:none;display:inline-block" href="/api/customer-agreement/' +
+          encodeURIComponent(token) + '/signed-pdf">Download signed PDF</a></div>'
+        : '<label>Full name for signature</label><input id="sig-name" value="' + esc(state.customer.contactName || "") + '" />' +
+          '<label>Draw signature</label><canvas id="sig-canvas"></canvas>' +
+          '<div class="actions"><button type="button" class="secondary" id="btn-clear-sig">Clear signature</button></div>' +
+          '<label class="ack"><input type="checkbox" id="sig-agree" /> I agree to the terms above and authorize my electronic signature.</label>' +
+          '<div class="actions">' +
+          '<button type="button" class="secondary" id="btn-save">Save progress</button>' +
+          '<button type="button" class="primary" id="btn-sign">Sign agreement</button></div>' +
+          '<div id="msg" class="msg"></div>') +
+      "</div>";
+
+    if (!state.alreadySigned) {
+      setupSig();
+      $("btn-save").onclick = async function () {
+        try {
+          await api("/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fields: collectFields() }),
+          });
+          setMsg("Progress saved.", true);
+        } catch (e) {
+          setMsg(e.message || e, false);
+        }
+      };
+      $("btn-sign").onclick = async function () {
+        try {
+          if (!String($("sig-name").value || "").trim()) throw new Error("Enter your full name for the signature.");
+          if (isBlankSig()) throw new Error("Please draw your signature.");
+          if (!$("sig-agree").checked) throw new Error("Please check the acknowledgment box.");
+          var data = await api("/sign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              signerName: $("sig-name").value,
+              signatureData: sigData(),
+              fields: collectFields(),
+            }),
+          });
+          state.alreadySigned = true;
+          state.signedAt = data.signedAt;
+          render();
+        } catch (e) {
+          setMsg(e.message || e, false);
+        }
+      };
+    }
+  }
+
+  if (!token) {
+    showError("Invalid agreement link.");
+    return;
+  }
+  api("")
+    .then(function (data) {
+      state = data;
+      render();
+    })
+    .catch(function (e) {
+      showError(e.message || "Invalid agreement link.");
+    });
+})();
+  </script>
+</body>
+</html>
