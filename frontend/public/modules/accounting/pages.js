@@ -7,7 +7,7 @@ window.GreenOSModules.accounting = {
     { id: "dashboard", title: "Dashboard" },
     { id: "document-review", title: "Loads for Review" },
     { id: "verified", title: "Verified" },
-    { id: "customer-billing", title: "Billing (AR)" },
+    { id: "customer-billing", title: "Customer Billing" },
     { id: "carrier-payments", title: "Carrier Payments (AP)" },
     { id: "customer-payments", title: "Invoices" },
     { id: "shipments", title: "All Loads" },
