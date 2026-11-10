@@ -5,6 +5,13 @@ import { shipmentService } from "../../shipment/services/shipment.service.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { brokerGmailOAuthService } from "../../email/gmail/broker-gmail-oauth.service.js";
 import { buildCustomerLoadNumberEmail } from "../customer-load-number-email.js";
+import {
+    buildCustomerAgreementEmail,
+    customerAgreementLabel,
+    normalizeCustomerAgreementType,
+    readCustomerAgreementFile,
+    type CustomerAgreementType,
+} from "../customer-agreement.js";
 
 type Actor = { userId: string; role: string };
 
@@ -119,11 +126,19 @@ export class CustomerService {
         if (!companyName) {
             throw Object.assign(new Error("Company name is required"), { status: 422 });
         }
-        return prisma.directCustomer.create({
+        const agreementType = normalizeCustomerAgreementType(body.agreementType);
+        const email = str(body.email);
+        if (agreementType && !email) {
+            throw Object.assign(
+                new Error("Email is required to send the selected customer agreement"),
+                { status: 422, code: "CUSTOMER_AGREEMENT_EMAIL_REQUIRED" }
+            );
+        }
+        const row = await prisma.directCustomer.create({
             data: {
                 companyName,
                 contactName: str(body.contactName),
-                email: str(body.email),
+                email,
                 phone: str(body.phone),
                 billingAddress: str(body.billingAddress),
                 city: str(body.city),
@@ -131,9 +146,21 @@ export class CustomerService {
                 zip: str(body.zip),
                 notes: str(body.notes),
                 sendLoadNumber: bool(body.sendLoadNumber, false),
+                agreementType,
                 createdByUserId: actor.userId,
             },
         });
+        let agreementEmail: { sent: boolean; to?: string; from?: string; error?: string; label?: string } =
+            { sent: false };
+        if (agreementType) {
+            agreementEmail = await this.sendCustomerAgreementEmail({
+                brokerUserId: actor.userId,
+                toEmail: email,
+                companyName: row.companyName,
+                agreementType,
+            });
+        }
+        return { ...row, agreementEmail };
     }
 
     async update(customerId: string, body: Record<string, unknown>, actor: Actor) {
@@ -150,7 +177,79 @@ export class CustomerService {
         if (body.sendLoadNumber !== undefined) {
             data.sendLoadNumber = bool(body.sendLoadNumber, false);
         }
-        return prisma.directCustomer.update({ where: { customerId }, data });
+        let agreementType: CustomerAgreementType | null | undefined;
+        if (body.agreementType !== undefined) {
+            agreementType = normalizeCustomerAgreementType(body.agreementType);
+            data.agreementType = agreementType;
+        }
+        const emailAfter =
+            body.email !== undefined ? str(body.email) : undefined;
+        if (agreementType && emailAfter === null) {
+            throw Object.assign(
+                new Error("Email is required to send the selected customer agreement"),
+                { status: 422, code: "CUSTOMER_AGREEMENT_EMAIL_REQUIRED" }
+            );
+        }
+        const row = await prisma.directCustomer.update({ where: { customerId }, data });
+        let agreementEmail: { sent: boolean; to?: string; from?: string; error?: string; label?: string } =
+            { sent: false };
+        const sendAgreement = bool(body.sendAgreement, Boolean(agreementType));
+        const typeToSend =
+            agreementType || normalizeCustomerAgreementType(row.agreementType);
+        const toEmail = emailAfter !== undefined ? emailAfter : str(row.email);
+        if (sendAgreement && typeToSend) {
+            if (!toEmail) {
+                throw Object.assign(
+                    new Error("Email is required to send the selected customer agreement"),
+                    { status: 422, code: "CUSTOMER_AGREEMENT_EMAIL_REQUIRED" }
+                );
+            }
+            agreementEmail = await this.sendCustomerAgreementEmail({
+                brokerUserId: actor.userId,
+                toEmail,
+                companyName: row.companyName,
+                agreementType: typeToSend,
+            });
+        }
+        return { ...row, agreementEmail };
+    }
+
+    private async sendCustomerAgreementEmail(input: {
+        brokerUserId: string;
+        toEmail: string | null;
+        companyName: string;
+        agreementType: CustomerAgreementType;
+    }): Promise<{ sent: boolean; to?: string; from?: string; error?: string; label?: string }> {
+        const to = str(input.toEmail);
+        const label = customerAgreementLabel(input.agreementType);
+        if (!to) {
+            return { sent: false, error: "Customer email is required", label };
+        }
+        try {
+            const file = readCustomerAgreementFile(input.agreementType);
+            const mail = buildCustomerAgreementEmail({
+                companyName: input.companyName,
+                agreementType: input.agreementType,
+            });
+            const sent = await brokerGmailOAuthService.sendMailAsBroker(input.brokerUserId, {
+                to,
+                subject: mail.subject,
+                text: mail.text,
+                html: mail.html,
+                attachments: [
+                    {
+                        filename: file.filename,
+                        content: file.content,
+                        contentType: file.contentType,
+                    },
+                ],
+            });
+            return { sent: true, to, from: sent.from, label };
+        } catch (err) {
+            const error = err instanceof Error ? err.message : String(err);
+            console.warn("[customers] send agreement email failed:", error);
+            return { sent: false, to, error, label };
+        }
     }
 
     /** Main account only. Unlinks loads, then removes the direct customer. */
