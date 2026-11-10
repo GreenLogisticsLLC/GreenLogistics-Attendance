@@ -4947,6 +4947,30 @@ tr.acc-row-carrier-pay button.acc-load-link {
   margin: 0;
   padding: 0;
 }
+.acc-doc-verify-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid color-mix(in srgb, var(--gos-border) 80%, transparent);
+}
+.acc-verify-side-btn {
+  width: auto;
+  min-width: 7.5rem;
+}
+.acc-verified-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 7.5rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, #166534 55%, var(--gos-surface));
+  color: #bbf7d0;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
 .acc-doc-row {
   display: grid;
   grid-template-columns: auto 1fr auto auto;

@@ -1817,13 +1817,31 @@ window.GreenOSModules.accounting = {
           ? custRateNum - carrRateNum
           : null;
 
+      var custDocsVerified = Boolean(acc.customerDocsVerified);
+      var carrDocsVerified = Boolean(acc.carrierDocsVerified);
+      var verifyCustBtn = "";
+      var verifyCarrBtn = "";
+      if (perms.canVerifyDocuments) {
+        verifyCustBtn = custDocsVerified
+          ? '<span class="acc-verified-badge" title="Customer documents verified">Verified</span>'
+          : '<button type="button" class="btn-primary acc-verify-side-btn" data-act="verify-customer-docs">Verified</button>';
+        verifyCarrBtn = carrDocsVerified
+          ? '<span class="acc-verified-badge" title="Carrier documents verified">Verified</span>'
+          : '<button type="button" class="btn-primary acc-verify-side-btn" data-act="verify-carrier-docs">Verified</button>';
+      } else if (custDocsVerified || carrDocsVerified) {
+        if (custDocsVerified) {
+          verifyCustBtn =
+            '<span class="acc-verified-badge" title="Customer documents verified">Verified</span>';
+        }
+        if (carrDocsVerified) {
+          verifyCarrBtn =
+            '<span class="acc-verified-badge" title="Carrier documents verified">Verified</span>';
+        }
+      }
+
       var toolbar = "";
       toolbar +=
         '<button type="button" class="btn-primary" id="acc-save-pay">Save Rate and Payment</button>';
-      if (perms.canVerifyDocuments) {
-        toolbar +=
-          '<button type="button" class="btn-secondary" data-act="verify-docs">Verify Documents</button>';
-      }
       toolbar +=
         '<button type="button" class="btn-secondary" data-act="note">Add Accounting Note</button>';
 
@@ -1941,14 +1959,22 @@ window.GreenOSModules.accounting = {
         customerDocs.length +
         "</span></div><ul class=\"acc-doc-list\">" +
         customerDocsHtml +
-        "</ul></section>" +
+        "</ul>" +
+        (verifyCustBtn
+          ? '<div class="acc-doc-verify-row">' + verifyCustBtn + "</div>"
+          : "") +
+        "</section>" +
         '<section class="acc-card"><div class="acc-card-head"><h3>Documents</h3><span class="gos-muted">' +
         carrierReady +
         "/" +
         carrierDocs.length +
         " on this load</span></div><ul class=\"acc-doc-list\">" +
         docsHtml +
-        "</ul></section></div>" +
+        "</ul>" +
+        (verifyCarrBtn
+          ? '<div class="acc-doc-verify-row">' + verifyCarrBtn + "</div>"
+          : "") +
+        "</section></div>" +
         '<div class="acc-invoice-grid">' +
         '<section class="acc-card acc-drop-card"><h3>Customer Invoice (For Billing)</h3>' +
         (custInvoice && custInvoice.openUrl
@@ -2232,8 +2258,16 @@ window.GreenOSModules.accounting = {
     var msg = host.querySelector("#acc-msg");
     var path = null;
     var body = {};
-    if (act === "verify-docs") path = "/shipments/" + id + "/documents/verify";
-    else if (act === "reject-docs") {
+    if (act === "verify-docs") {
+      path = "/shipments/" + id + "/documents/verify";
+      body = { side: "both" };
+    } else if (act === "verify-customer-docs") {
+      path = "/shipments/" + id + "/documents/verify";
+      body = { side: "customer" };
+    } else if (act === "verify-carrier-docs") {
+      path = "/shipments/" + id + "/documents/verify";
+      body = { side: "carrier" };
+    } else if (act === "reject-docs") {
       var reason = window.prompt("Rejection / correction reason:");
       if (!reason) return;
       path = "/shipments/" + id + "/documents/reject";

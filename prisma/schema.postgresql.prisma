@@ -330,6 +330,8 @@ model ShipmentLead {
   accountingDocStatus   String?                 @map("accounting_doc_status")
   accountingDocVerifiedAt DateTime?             @map("accounting_doc_verified_at")
   accountingDocVerifiedById String?            @map("accounting_doc_verified_by_id")
+  accountingCustomerDocsVerifiedAt DateTime?    @map("accounting_customer_docs_verified_at")
+  accountingCarrierDocsVerifiedAt DateTime?     @map("accounting_carrier_docs_verified_at")
   accountingFinancialVerified Boolean          @default(false) @map("accounting_financial_verified")
   accountingReadyForBilling Boolean            @default(false) @map("accounting_ready_for_billing")
   accountingReadyForCarrierPayment Boolean     @default(false) @map("accounting_ready_for_carrier_payment")
