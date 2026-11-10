@@ -88,6 +88,28 @@ test("Approved Carrier unlocks Generate Rate Confirmation", () => {
     assert.equal(actions.find((a) => a.id === "generate_rate_con")?.state, "current");
 });
 
+test("approve_carrier stays current when customer contact was already saved", () => {
+    const withoutCustomerFields = buildLoadQuickActions({
+        status: "CARRIER_ASSIGNED",
+        carrierName: "TRANSLINK LOGISTICS INC",
+        loadCarrierApproved: false,
+        documents: [],
+    });
+    // Missing customer* in the assert payload used to lock Approve Carrier incorrectly.
+    assert.equal(withoutCustomerFields.find((a) => a.id === "approve_carrier")?.state, "locked");
+
+    const withCustomerFields = buildLoadQuickActions({
+        status: "CARRIER_ASSIGNED",
+        carrierName: "TRANSLINK LOGISTICS INC",
+        customerName: "Mark Ghelman",
+        customerEmail: "mark@example.com",
+        loadCarrierApproved: false,
+        documents: [],
+    });
+    assert.equal(withCustomerFields.find((a) => a.id === "approve_carrier")?.state, "current");
+    assert.equal(withCustomerFields.find((a) => a.id === "generate_rate_con")?.state, "locked");
+});
+
 test("isLoadCarrierApproved requires matching profile id", () => {
     assert.equal(
         isLoadCarrierApproved({

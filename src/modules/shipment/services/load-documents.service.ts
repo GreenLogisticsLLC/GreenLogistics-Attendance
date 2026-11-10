@@ -552,6 +552,9 @@ export class LoadDocumentsService {
             assertQuickActionAllowed(actionId, {
                 status: lead.status,
                 carrierName: lead.carrierName,
+                customerName: lead.customerName,
+                customerEmail: lead.customerEmail,
+                customerPhone: lead.customerPhone,
                 loadCarrierApproved: isLoadCarrierApproved(lead),
                 documents: existingDocs,
                 unrestricted: roleSkipsLoadGates(input.actorRole),

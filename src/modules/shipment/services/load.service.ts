@@ -1301,6 +1301,7 @@ export class LoadService {
                 carrierPhone: true,
                 customerName: true,
                 customerEmail: true,
+                customerPhone: true,
                 carrierEmail: true,
                 customerPaidAt: true,
                 carrierPaidAt: true,
@@ -1324,9 +1325,14 @@ export class LoadService {
             select: { docType: true, contentJson: true },
         });
         const loadCarrierApproved = isLoadCarrierApproved(shipment);
+        // Customer contact must be included — otherwise approve_carrier / generate_rate_con
+        // look "locked" even after Generate customer information is done on the load.
         assertQuickActionAllowed(action, {
             status: shipment.status,
             carrierName: shipment.carrierName,
+            customerName: shipment.customerName,
+            customerEmail: shipment.customerEmail,
+            customerPhone: shipment.customerPhone,
             loadCarrierApproved,
             customerPaidAt: shipment.customerPaidAt,
             carrierPaidAt: shipment.carrierPaidAt,

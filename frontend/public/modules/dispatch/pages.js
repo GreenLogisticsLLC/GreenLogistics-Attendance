@@ -249,11 +249,11 @@ window.GreenOSModules["dispatch"] = {
           '" style="margin:0.75rem 0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">' +
           '<button type="button" class="btn-primary" id="ld-approved-carrier-next' +
           suffix +
-          '" style="background:#067647;border-color:#067647">Approved Carrier</button>' +
+          '" style="background:#067647;border-color:#067647">Generate Rate Confirmation</button>' +
           '<button type="button" class="btn-secondary" id="ld-open-carrier-record' +
           suffix +
           '">Open full carrier record</button>' +
-          '<span class="gos-muted" style="flex:1 1 12rem">Click to continue — Generate Rate Confirmation.</span>' +
+          '<span class="gos-muted" style="flex:1 1 12rem">Carrier approved for this load — continue to Rate Confirmation.</span>' +
           "</div>"
         );
       }
@@ -263,11 +263,11 @@ window.GreenOSModules["dispatch"] = {
         '" style="margin:0.75rem 0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">' +
         '<button type="button" class="btn-primary" id="ld-approve-carrier' +
         suffix +
-        '">Approved Carrier</button>' +
+        '">Approve Carrier</button>' +
         '<button type="button" class="btn-secondary" id="ld-open-carrier-record' +
         suffix +
         '">Open full carrier record</button>' +
-        '<span class="gos-muted" style="flex:1 1 12rem">Required even when the bot shows Approved on every file.</span>' +
+        '<span class="gos-muted" style="flex:1 1 12rem">Required even when the bot shows Approved on every file. Then Generate Rate Confirmation unlocks.</span>' +
         "</div>"
       );
     }
@@ -410,25 +410,39 @@ window.GreenOSModules["dispatch"] = {
     async function openRateConNext(loadId) {
       var host = document.querySelector("#load-tms-body");
       if (!host || !loadId) return;
-      // Reload load details on Documents tab, then open Rate Con wizard.
+      // Reload on Documents, then open the Rate Con wizard with fresh unlocked data.
+      self._tab = "documents";
       await self.openLoad(host, loadId, "documents");
       setTimeout(function () {
-        var mainEl = document.querySelector("#load-details-main") || document.querySelector(".load-details-main");
-        var genBtn = document.querySelector('[data-action="generate_rate_con"]');
-        if (genBtn && genBtn.getAttribute("data-state") !== "locked") {
-          genBtn.click();
+        var mainEl = host.querySelector("#load-main") || document.querySelector("#load-main");
+        var genBtn = host.querySelector('[data-action="generate_rate_con"]');
+        if (genBtn && genBtn.getAttribute("data-state") === "locked") {
+          alert(
+            genBtn.getAttribute("data-blocked") ||
+              "Generate Rate Confirmation is still locked. Click Approve Carrier again, then try Generate Rate Confirmation."
+          );
+          if (genBtn.scrollIntoView) genBtn.scrollIntoView({ behavior: "smooth", block: "center" });
           return;
         }
-        if (genBtn) {
-          genBtn.scrollIntoView({ behavior: "smooth", block: "center" });
-          genBtn.focus();
+        if (mainEl && typeof self.showRateConWizard === "function") {
+          // Prefer direct wizard open — click can miss if the rail re-renders.
+          self
+            .api("/" + encodeURIComponent(loadId))
+            .then(function (fresh) {
+              self.showRateConWizard(mainEl, loadId, fresh || {}, "GENERATED");
+            })
+            .catch(function () {
+              if (genBtn) genBtn.click();
+            });
+          return;
         }
-      }, 120);
+        if (genBtn) genBtn.click();
+      }, 180);
     }
     async function runApproveCarrier() {
       if (
         !confirm(
-          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement for THIS load?\n\nAfter Approved Carrier you can generate Rate Confirmation."
+          "Confirm you reviewed MC Authority, W-9, Certificate of Holder, and Broker–Carrier Agreement for THIS load?\n\nAfter Approve Carrier you can generate Rate Confirmation."
         )
       ) {
         return;
