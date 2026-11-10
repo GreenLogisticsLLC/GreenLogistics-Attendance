@@ -7,11 +7,11 @@ import { brokerGmailOAuthService } from "../../email/gmail/broker-gmail-oauth.se
 import { buildCustomerLoadNumberEmail } from "../customer-load-number-email.js";
 import {
     buildCustomerAgreementEmail,
-    customerAgreementLabel,
     normalizeCustomerAgreementType,
-    readCustomerAgreementFile,
     type CustomerAgreementType,
 } from "../customer-agreement.js";
+import { customerAgreementInviteService } from "./customer-agreement-invite.service.js";
+import { config } from "../../../config/env.js";
 
 type Actor = { userId: string; role: string };
 
@@ -158,6 +158,13 @@ export class CustomerService {
                 toEmail: email,
                 companyName: row.companyName,
                 agreementType,
+                customerId: row.customerId,
+                contactName: row.contactName,
+                phone: row.phone,
+                billingAddress: row.billingAddress,
+                city: row.city,
+                state: row.state,
+                zip: row.zip,
             });
         }
         return { ...row, agreementEmail };
@@ -209,6 +216,13 @@ export class CustomerService {
                 toEmail,
                 companyName: row.companyName,
                 agreementType: typeToSend,
+                customerId: row.customerId,
+                contactName: row.contactName,
+                phone: row.phone,
+                billingAddress: row.billingAddress,
+                city: row.city,
+                state: row.state,
+                zip: row.zip,
             });
         }
         return { ...row, agreementEmail };
@@ -219,17 +233,51 @@ export class CustomerService {
         toEmail: string | null;
         companyName: string;
         agreementType: CustomerAgreementType;
-    }): Promise<{ sent: boolean; to?: string; from?: string; error?: string; label?: string }> {
+        customerId: string;
+        contactName?: string | null;
+        phone?: string | null;
+        billingAddress?: string | null;
+        city?: string | null;
+        state?: string | null;
+        zip?: string | null;
+    }): Promise<{
+        sent: boolean;
+        to?: string;
+        from?: string;
+        error?: string;
+        label?: string;
+        signUrl?: string;
+    }> {
         const to = str(input.toEmail);
-        const label = customerAgreementLabel(input.agreementType);
         if (!to) {
-            return { sent: false, error: "Customer email is required", label };
+            return { sent: false, error: "Customer email is required" };
         }
         try {
-            const file = readCustomerAgreementFile(input.agreementType);
+            const invite = await customerAgreementInviteService.createInvite({
+                customerId: input.customerId,
+                agreementType: input.agreementType,
+                brokerUserId: input.brokerUserId,
+                companyName: input.companyName,
+                contactName: input.contactName,
+                email: to,
+                phone: input.phone,
+                billingAddress: input.billingAddress,
+                city: input.city,
+                state: input.state,
+                zip: input.zip,
+            });
+            const sentDateLabel = new Intl.DateTimeFormat("en-US", {
+                timeZone: config.timezone || "America/Los_Angeles",
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+            }).format(invite.sentAt);
             const mail = buildCustomerAgreementEmail({
                 companyName: input.companyName,
                 agreementType: input.agreementType,
+                signUrl: invite.signUrl,
+                brokerName: invite.brokerName,
+                sentDateLabel,
             });
             const sent = await brokerGmailOAuthService.sendMailAsBroker(input.brokerUserId, {
                 to,
@@ -238,17 +286,23 @@ export class CustomerService {
                 html: mail.html,
                 attachments: [
                     {
-                        filename: file.filename,
-                        content: file.content,
-                        contentType: file.contentType,
+                        filename: invite.pdfFilename,
+                        content: invite.pdf,
+                        contentType: "application/pdf",
                     },
                 ],
             });
-            return { sent: true, to, from: sent.from, label };
+            return {
+                sent: true,
+                to,
+                from: sent.from,
+                label: invite.label,
+                signUrl: invite.signUrl,
+            };
         } catch (err) {
             const error = err instanceof Error ? err.message : String(err);
             console.warn("[customers] send agreement email failed:", error);
-            return { sent: false, to, error, label };
+            return { sent: false, to, error };
         }
     }
 
