@@ -18,6 +18,8 @@ window.GreenOSModules.accounting = {
   _idleTimer: null,
   _activityRoot: null,
   _onActivity: null,
+  /** Load column sort: "asc" | "desc". */
+  _loadSortDir: "asc",
 
   /** Accounting never auto-refreshes — only after user clicks / navigation. */
   stopIdleRefresh() {
@@ -212,6 +214,9 @@ window.GreenOSModules.accounting = {
           allRows: allRows,
         });
         self.bindOpenHandlers(body);
+        self.bindLoadSortHandlers(body, function () {
+          apply();
+        });
       }
       if (countEl) {
         var active =
@@ -236,6 +241,42 @@ window.GreenOSModules.accounting = {
         apply();
       });
     }
+    self.bindLoadSortHandlers(body, function () {
+      apply();
+    });
+  },
+
+  loadSortHeaderHtml(label) {
+    var dir = this._loadSortDir === "desc" ? "desc" : "asc";
+    return (
+      '<th class="acc-load-sort-th">' +
+      '<span class="acc-load-sort-label">' +
+      this.esc(label || "Load") +
+      "</span>" +
+      '<span class="acc-load-sort-arrows" role="group" aria-label="Sort by load number">' +
+      '<button type="button" class="acc-load-sort-btn' +
+      (dir === "asc" ? " is-active" : "") +
+      '" data-acc-load-sort="asc" title="Ascending (10001 → 10002)">▲</button>' +
+      '<button type="button" class="acc-load-sort-btn' +
+      (dir === "desc" ? " is-active" : "") +
+      '" data-acc-load-sort="desc" title="Descending (10068 → 10067)">▼</button>' +
+      "</span></th>"
+    );
+  },
+
+  bindLoadSortHandlers(root, onChange) {
+    var self = this;
+    if (!root) return;
+    root.querySelectorAll("[data-acc-load-sort]").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var next = btn.getAttribute("data-acc-load-sort") === "desc" ? "desc" : "asc";
+        if (self._loadSortDir === next) return;
+        self._loadSortDir = next;
+        if (typeof onChange === "function") onChange(next);
+      });
+    });
   },
 
   /** Customer rate beside carrier rate. A +3% method adds that fee under the rate. */
@@ -937,7 +978,8 @@ window.GreenOSModules.accounting = {
       displayRows = self.sortRowsByLoadNumber(displayRows);
     }
     var head =
-      "<th>Load</th><th>Customer</th><th>Carrier</th>" +
+      self.loadSortHeaderHtml("Load") +
+      "<th>Customer</th><th>Carrier</th>" +
       "<th>Pickup day</th><th>Delivery day</th>" +
       (showQueue ? "<th>Waiting for</th>" : "<th>Doc status</th><th>Ready</th>") +
       "<th>Broker</th><th>Payments</th><th></th>";
@@ -1180,13 +1222,17 @@ window.GreenOSModules.accounting = {
     return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
   },
 
-  sortRowsByLoadNumber(rows) {
+  sortRowsByLoadNumber(rows, dir) {
     var self = this;
+    var direction = dir || self._loadSortDir || "asc";
+    var mult = direction === "desc" ? -1 : 1;
     return (rows || []).slice().sort(function (a, b) {
       var diff =
         self.loadNumberSortKey(a && a.loadNumber) - self.loadNumberSortKey(b && b.loadNumber);
-      if (diff !== 0) return diff;
-      return String((a && a.loadNumber) || "").localeCompare(String((b && b.loadNumber) || ""));
+      if (diff !== 0) return diff * mult;
+      return (
+        String((a && a.loadNumber) || "").localeCompare(String((b && b.loadNumber) || "")) * mult
+      );
     });
   },
 
@@ -1224,7 +1270,8 @@ window.GreenOSModules.accounting = {
 
   dashboardTableHtml(rows) {
     var self = this;
-    var bodyRows = (rows || [])
+    var sorted = self.sortRowsByLoadNumber(rows || []);
+    var bodyRows = sorted
       .slice(0, 12)
       .map(function (r) {
         var status = self.accountingQueueLabel(r);
@@ -1276,7 +1323,9 @@ window.GreenOSModules.accounting = {
     return (
       '<div class="emp-users-wrap acc-dash-table-wrap"><table class="emp-users-table acc-dash-table">' +
       "<thead><tr>" +
-      "<th></th><th>Load #</th><th>Customer</th><th>Carrier</th>" +
+      "<th></th>" +
+      self.loadSortHeaderHtml("Load") +
+      "<th>Customer</th><th>Carrier</th>" +
       "<th>Customer Rate</th><th>Carrier Rate</th>" +
       "<th>POD</th><th>Inv. (Cust.)</th><th>Inv. (Carrier)</th>" +
       "<th>Status</th><th></th>" +
@@ -1435,6 +1484,9 @@ window.GreenOSModules.accounting = {
           );
         });
         self.bindOpenHandlers(body);
+        self.bindLoadSortHandlers(body, function () {
+          paintQueue(self._dashQueue);
+        });
       }
 
       var summaryHtml =

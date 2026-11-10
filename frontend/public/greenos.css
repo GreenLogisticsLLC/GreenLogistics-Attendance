@@ -4046,6 +4046,37 @@ tr.crm-row.load-row-no-carrier td:first-child {
 .acc-dash-table .acc-dash-check {
   width: 2rem;
 }
+.acc-load-sort-th {
+  white-space: nowrap;
+}
+.acc-load-sort-label {
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+.acc-load-sort-arrows {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0;
+  vertical-align: middle;
+  margin-left: 0.1rem;
+}
+.acc-load-sort-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--gos-muted);
+  padding: 0 0.1rem;
+  margin: 0;
+  line-height: 0.75;
+  font-size: 0.62rem;
+  cursor: pointer;
+}
+.acc-load-sort-btn:hover {
+  color: #86efac;
+}
+.acc-load-sort-btn.is-active {
+  color: #fbbf24;
+}
 .acc-mini-pill,
 .acc-queue-pill {
   display: inline-flex;
