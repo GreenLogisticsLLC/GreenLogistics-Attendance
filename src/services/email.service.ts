@@ -65,6 +65,11 @@ async function sendViaSmtp(options: {
     subject: string;
     text: string;
     html: string;
+    attachments?: Array<{
+        filename: string;
+        content: Buffer;
+        contentType?: string;
+    }>;
 }): Promise<void> {
     if (!config.smtp.host || !config.smtp.user || !config.smtp.pass) {
         throw new Error("SMTP is not configured (SMTP_HOST / SMTP_USER / SMTP_PASS)");
@@ -86,6 +91,11 @@ async function sendViaSmtp(options: {
         subject: options.subject,
         text: options.text,
         html: options.html,
+        attachments: (options.attachments || []).map((att) => ({
+            filename: att.filename,
+            content: att.content,
+            contentType: att.contentType || "application/octet-stream",
+        })),
     });
 }
 
@@ -96,6 +106,11 @@ export async function sendCorporateMail(options: {
     subject: string;
     text: string;
     html: string;
+    attachments?: Array<{
+        filename: string;
+        content: Buffer;
+        contentType?: string;
+    }>;
 }): Promise<void> {
     try {
         await sendViaSmtp(options);

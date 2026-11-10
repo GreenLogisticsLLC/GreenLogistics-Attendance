@@ -138,7 +138,16 @@ export async function accountingSendInvoiceController(req: AuthRequest, res: Res
     try {
         const id = String(req.params.id || "");
         const data = await accountingService.sendInvoice(actorFrom(req), id);
-        return res.json(apiResponse(true, "Invoice marked sent", data));
+        const to = data && typeof data === "object" && "emailTo" in data ? data.emailTo : null;
+        return res.json(
+            apiResponse(
+                true,
+                to
+                    ? `Invoice emailed to ${to}`
+                    : "Invoice emailed to the customer",
+                data
+            )
+        );
     } catch (err) {
         return res.status(errStatus(err)).json(errPayload(err));
     }
