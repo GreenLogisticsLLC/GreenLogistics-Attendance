@@ -2067,7 +2067,7 @@ window.GreenOSModules.accounting = {
               : "Carrier payment permission required") +
             '"') +
         ">Send</button></div>" +
-        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Send pays the carrier after documents and amounts are verified.</p>' +
+        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Uploading a carrier invoice moves this load into Carrier Payments. Send pays the carrier after documents and amounts are verified.</p>' +
         "</section></div>" +
         '<section class="acc-card acc-rate-card"><h3>Rate &amp; Payment</h3>' +
         '<div class="acc-rate-sides">' +
@@ -2180,6 +2180,12 @@ window.GreenOSModules.accounting = {
             await self.uploadLoadDoc(id, docType, file);
             input.value = "";
             pendingDocType = null;
+            if (docType === "CARRIER_INVOICE") {
+              self._profileFlash =
+                "Carrier invoice uploaded — load moved to Carrier Payments.";
+            } else if (docType === "CUSTOMER_INVOICE") {
+              self._profileFlash = "Customer invoice uploaded.";
+            }
             await self.openShipment(host, id);
           } catch (err) {
             input.value = "";
@@ -2302,6 +2308,15 @@ window.GreenOSModules.accounting = {
           );
         });
       });
+
+      if (self._profileFlash) {
+        var flash = host.querySelector("#acc-msg");
+        if (flash) {
+          flash.textContent = self._profileFlash;
+          flash.style.color = "#22c55e";
+        }
+        self._profileFlash = null;
+      }
     } catch (err) {
       host.innerHTML =
         '<p style="color:#ef4444">' + self.esc(err.message || "Failed") + "</p>";
