@@ -20,12 +20,18 @@ import { shipmentLifecycleService } from "../../ai/lifecycle/service.js";
 import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
 import { isNameAndEmailCarrierChange } from "../../carriers/carrier-superseded.js";
 import {
+    appendCarrierHistory,
+    parseCarrierHistory,
+    statusAfterUnvoid,
+} from "../carrier-history.js";
+import {
     canWaiveCustomerPaymentFee,
     customerPaymentQuote,
     normalizeCustomerPaymentMethod,
 } from "../customer-payment.js";
 import { carrierMissingOnPickup } from "../carrier-missing-on-pickup.js";
 import { config } from "../../../config/env.js";
+import { AccountingDocStatus } from "../../accounting/accounting.constants.js";
 
 function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
@@ -573,6 +579,9 @@ export class LoadService {
                 isLoad: Boolean(s.loadNumber) || isLoadPhase(s.status),
                 status: s.status,
                 statusLabel: statusLabel(s.status),
+                isVoided: normalizeStatus(s.status) === "VOIDED",
+                accountingReactivatedAt: s.accountingReactivatedAt || null,
+                isReactivated: Boolean(s.accountingReactivatedAt),
                 createdAt: s.createdAt,
                 updatedAt: s.updatedAt,
                 viewUrl: s.viewUrl,
@@ -640,6 +649,7 @@ export class LoadService {
                 onboardingStatus: carrierProfile?.onboardingStatus || null,
                 loadCarrierApproved: isLoadCarrierApproved(s),
                 loadCarrierApprovedAt: s.loadCarrierApprovedAt,
+                previousCarriers: parseCarrierHistory(s.carrierHistoryJson),
                 carrierRecordStatus: carrierProfile?.status || null,
                 agreementSigned: Boolean(carrierProfile?.agreementSigns?.[0]?.agreed),
                 agreementSignature: carrierProfile?.agreementSigns?.[0] || null,
@@ -757,196 +767,123 @@ export class LoadService {
     }
 
     /**
-     * Carrier change (Name + Email both different): keep the old Load Number + data,
-     * create a sequential new Load for the new carrier registration.
+     * Carrier change (Name + Email both different): keep the same Load Number,
+     * archive the previous carrier on this load, and reactivate Accounting review
+     * for the new carrier packet.
      */
-    private async forkLoadOnCarrierChange(
+    private async replaceCarrierOnSameLoad(
         previous: {
             shipmentLeadId: string;
             loadNumber: string | null;
-            greenOsShipmentId: string | null;
-            source: string;
-            shipmentTitle: string;
-            customerName: string | null;
-            customerEmail: string | null;
-            customerPhone: string | null;
-            pickupCity: string | null;
-            pickupState: string | null;
-            pickupZip: string | null;
-            deliveryCity: string | null;
-            deliveryState: string | null;
-            deliveryZip: string | null;
-            pickupFrom: Date | null;
-            pickupTo: Date | null;
-            deliveryFrom: Date | null;
-            deliveryTo: Date | null;
-            opsPickupAt: Date | null;
-            opsDeliveryAt: Date | null;
-            miles: number | null;
-            equipment: string | null;
-            commodity: string | null;
-            weight: string | null;
-            pieces: number | null;
-            specialInstructions: string | null;
-            customerRate: number | null;
-            price: number | null;
-            fuelSurcharge: number | null;
-            accessorialCharges: number | null;
-            assignedBrokerId: string | null;
-            directCustomerId: string | null;
-            priority: string;
+            status: string;
             carrierName: string | null;
             carrierEmail: string | null;
-            trailerVin?: string | null;
+            carrierPhone: string | null;
+            carrierMc: string | null;
+            carrierDot: string | null;
+            carrierProfileId: string | null;
+            carrierRate: number | null;
+            carrierHistoryJson?: string | null;
         },
         body: Record<string, unknown>,
         actorUserId?: string
     ) {
-        const previousLoadNumber = String(previous.loadNumber || "").trim();
-        const [greenOsShipmentId, loadNumber] = await Promise.all([
-            allocateGreenOsShipmentId(),
-            allocateLoadNumber(),
-        ]);
-
-        const str = (k: string) => {
-            if (body[k] === undefined) return undefined;
-            if (body[k] == null || body[k] === "") return null;
-            return String(body[k]);
-        };
+        const shipmentLeadId = previous.shipmentLeadId;
+        const loadNumber = String(previous.loadNumber || "").trim();
+        const str = (k: string) =>
+            body[k] === undefined ? undefined : body[k] == null ? null : String(body[k]);
         const num = (k: string) => {
             if (body[k] === undefined) return undefined;
             if (body[k] == null || body[k] === "") return null;
             const n = Number(body[k]);
             return Number.isFinite(n) ? n : null;
         };
-        const dateVal = (k: string, fallback: Date | null) => {
-            if (body[k] === undefined) return fallback;
-            if (body[k] == null || body[k] === "") return null;
-            const d = new Date(String(body[k]));
-            return Number.isNaN(d.getTime()) ? null : d;
+
+        const carrierName = str("carrierName") ?? "";
+        const carrierEmail = str("carrierEmail") ?? null;
+        const wasVoided = normalizeStatus(previous.status) === "VOIDED";
+        const historyJson = appendCarrierHistory(previous.carrierHistoryJson, {
+            carrierName: previous.carrierName,
+            carrierEmail: previous.carrierEmail,
+            carrierPhone: previous.carrierPhone,
+            carrierMc: previous.carrierMc,
+            carrierDot: previous.carrierDot,
+            carrierProfileId: previous.carrierProfileId,
+            carrierRate: previous.carrierRate,
+            reason: wasVoided ? "carrier_change_from_voided" : "carrier_change",
+        });
+
+        const data: Record<string, unknown> = {
+            carrierName: carrierName || null,
+            carrierEmail,
+            carrierPhone: str("carrierPhone") ?? null,
+            carrierMc: str("carrierMc") ?? null,
+            carrierDot: str("carrierDot") ?? null,
+            carrierInsurance: str("carrierInsurance") ?? null,
+            carrierStatus: str("carrierStatus") || "Assigned",
+            driverName: str("driverName") ?? null,
+            driverPhone: str("driverPhone") ?? null,
+            truckNumber: str("truckNumber") ?? null,
+            trailerNumber: str("trailerNumber") ?? null,
+            trailerVin: str("trailerVin") ?? null,
+            carrierRate: num("carrierRate") !== undefined ? num("carrierRate") : null,
+            carrierProfileId: null,
+            loadCarrierApprovedAt: null,
+            loadCarrierApprovedById: null,
+            loadCarrierApprovedProfileId: null,
+            carrierHistoryJson: historyJson,
+            // Accounting must re-check the new carrier packet on this Load Number.
+            accountingDocStatus: AccountingDocStatus.Pending,
+            accountingDocVerifiedAt: null,
+            accountingDocVerifiedById: null,
+            accountingFinancialVerified: false,
+            accountingReadyForBilling: false,
+            accountingReadyForCarrierPayment: false,
+            accountingReactivatedAt: new Date(),
+            status: "CARRIER_ASSIGNED",
+            statusBeforeVoid: null,
         };
 
-        const carrierName = str("carrierName") ?? String(body.carrierName || "");
-        const carrierEmail = str("carrierEmail");
-        const now = new Date();
-
-        const created = await prisma.shipmentLead.create({
-            data: {
-                greenOsShipmentId,
-                loadNumber,
-                source: previous.source || "carrier_change",
-                shipmentTitle: previous.shipmentTitle,
-                customerName: previous.customerName,
-                customerEmail: previous.customerEmail,
-                customerPhone: previous.customerPhone,
-                pickupCity: previous.pickupCity,
-                pickupState: previous.pickupState,
-                pickupZip: previous.pickupZip,
-                deliveryCity: previous.deliveryCity,
-                deliveryState: previous.deliveryState,
-                deliveryZip: previous.deliveryZip,
-                pickupFrom: dateVal("pickupFrom", previous.pickupFrom),
-                pickupTo: previous.pickupTo,
-                deliveryFrom: dateVal("deliveryFrom", previous.deliveryFrom),
-                deliveryTo: previous.deliveryTo,
-                opsPickupAt: dateVal("opsPickupAt", previous.opsPickupAt),
-                opsDeliveryAt: dateVal("opsDeliveryAt", previous.opsDeliveryAt),
-                miles: num("miles") !== undefined ? num("miles") : previous.miles,
-                equipment: previous.equipment,
-                commodity: previous.commodity,
-                weight: previous.weight,
-                pieces: previous.pieces,
-                specialInstructions: previous.specialInstructions,
-                customerRate: previous.customerRate,
-                price: previous.price,
-                fuelSurcharge: previous.fuelSurcharge,
-                accessorialCharges: previous.accessorialCharges,
-                // New carrier — rates/docs start fresh on this Load Number.
-                carrierRate: num("carrierRate") !== undefined ? num("carrierRate") : null,
-                carrierName: carrierName || null,
-                carrierEmail: carrierEmail ?? null,
-                carrierPhone: str("carrierPhone") ?? null,
-                carrierMc: str("carrierMc") ?? null,
-                carrierDot: str("carrierDot") ?? null,
-                carrierInsurance: str("carrierInsurance") ?? null,
-                carrierStatus: str("carrierStatus") || "Assigned",
-                driverName: str("driverName") ?? null,
-                driverPhone: str("driverPhone") ?? null,
-                truckNumber: str("truckNumber") ?? null,
-                trailerNumber: str("trailerNumber") ?? null,
-                trailerVin: str("trailerVin") ?? previous.trailerVin ?? null,
-                carrierProfileId: null,
-                loadCarrierApprovedAt: null,
-                loadCarrierApprovedById: null,
-                loadCarrierApprovedProfileId: null,
-                assignedBrokerId: previous.assignedBrokerId,
-                directCustomerId: previous.directCustomerId,
-                priority: previous.priority || "NORMAL",
-                status: "CARRIER_ASSIGNED",
-                acceptedAt: now,
-                assignedAt: now,
-                receivedAt: now,
-                referenceNumber: previousLoadNumber
-                    ? `Carrier change from ${previousLoadNumber}`
-                    : "Carrier change",
-            },
+        await prisma.shipmentLead.update({
+            where: { shipmentLeadId },
+            data,
         });
 
         await domainEventEngine.emit({
-            shipmentLeadId: previous.shipmentLeadId,
-            eventType: "STATUS_CHANGED",
-            title: "Carrier change — new Load Number",
-            message: `Carrier Name + Email changed (${previous.carrierName || "—"} / ${previous.carrierEmail || "—"} → ${carrierName || "—"} / ${carrierEmail || "—"}). Prior Load ${previousLoadNumber || "—"} kept. New Load ${loadNumber} created for the new carrier.`,
+            shipmentLeadId,
+            eventType: "CARRIER_CHANGED",
+            title: wasVoided
+                ? "Load reactivated with new carrier"
+                : "Carrier changed on Load Number",
+            message: `Load ${loadNumber || "—"}: ${previous.carrierName || "—"} / ${
+                previous.carrierEmail || "—"
+            } → ${carrierName || "—"} / ${carrierEmail || "—"}. Previous carrier kept on this Load Number. Accounting review reset.`,
             actorUserId,
             payload: {
-                reason: "carrier_name_email_change",
-                previousLoadNumber,
-                successorShipmentLeadId: created.shipmentLeadId,
-                successorLoadNumber: loadNumber,
+                reason: wasVoided ? "carrier_change_from_voided" : "carrier_change",
+                loadNumber,
+                previousCarrierName: previous.carrierName,
+                previousCarrierEmail: previous.carrierEmail,
+                previousCarrierProfileId: previous.carrierProfileId,
+                newCarrierName: carrierName,
+                newCarrierEmail: carrierEmail,
+                accountingReactivated: true,
+            },
+            timelineStage: "CARRIER_ASSIGNED",
+        });
+
+        const details = await this.getLoadDetails(shipmentLeadId);
+        return {
+            ...details,
+            carrierChange: {
+                shipmentLeadId,
+                loadNumber,
                 previousCarrierName: previous.carrierName,
                 previousCarrierEmail: previous.carrierEmail,
                 newCarrierName: carrierName,
                 newCarrierEmail: carrierEmail,
-            },
-            timelineStage: "LOAD_CREATED",
-        });
-
-        await domainEventEngine.emit({
-            shipmentLeadId: created.shipmentLeadId,
-            eventType: "LOAD_CREATED",
-            title: "Load created from carrier change",
-            message: `New Load ${loadNumber} after carrier change (was ${previousLoadNumber || "prior load"}). New carrier data is saved only on this Load Number.`,
-            actorUserId,
-            payload: {
-                reason: "carrier_name_email_change",
-                previousShipmentLeadId: previous.shipmentLeadId,
-                previousLoadNumber,
-                loadNumber,
-                carrierName,
-                carrierEmail,
-            },
-            timelineStage: "LOAD_CREATED",
-        });
-
-        await domainEventEngine.emit({
-            shipmentLeadId: created.shipmentLeadId,
-            eventType: "CARRIER_ASSIGNED",
-            title: "Carrier Assigned",
-            message: `Carrier ${carrierName} assigned to Load ${loadNumber}`,
-            actorUserId,
-            payload: { carrierName, carrierEmail, fromCarrierChange: true },
-            timelineStage: "CARRIER_ASSIGNED",
-        });
-
-        const details = await this.getLoadDetails(created.shipmentLeadId);
-        return {
-            ...details,
-            carrierChangeFork: {
-                previousShipmentLeadId: previous.shipmentLeadId,
-                previousLoadNumber,
-                newShipmentLeadId: created.shipmentLeadId,
-                newLoadNumber: loadNumber,
-                greenOsShipmentId,
+                accountingReactivated: true,
+                reactivatedFromVoided: wasVoided,
             },
         };
     }
@@ -1030,8 +967,8 @@ export class LoadService {
                 { name: nextName, email: nextEmail }
             )
         ) {
-            // Keep prior Load Number + carrier history; new carrier gets a new Load.
-            return this.forkLoadOnCarrierChange(shipment, body, actorUserId);
+            // Same Load Number — archive previous carrier, reactivate Accounting review.
+            return this.replaceCarrierOnSameLoad(shipment, body, actorUserId);
         }
 
         const data: Record<string, unknown> = {};
@@ -1258,7 +1195,7 @@ export class LoadService {
         }
         await prisma.shipmentLead.update({
             where: { shipmentLeadId },
-            data: { status: "VOIDED" },
+            data: { status: "VOIDED", statusBeforeVoid: status },
         });
         await domainEventEngine.emit({
             shipmentLeadId,
@@ -1267,7 +1204,71 @@ export class LoadService {
             message: `Load ${loadNumber} voided — carrier did not pick up`,
             actorUserId: actorUserId || undefined,
             timelineStage: "STATUS_CHANGED",
-            payload: { loadNumber, reason: "CARRIER_DID_NOT_PICK_UP" },
+            payload: {
+                loadNumber,
+                reason: "CARRIER_DID_NOT_PICK_UP",
+                from: status,
+                to: "VOIDED",
+            },
+        });
+        return this.getLoadDetails(shipmentLeadId);
+    }
+
+    /** Broker sets a voided Load Number back to Active (restores prior status). */
+    async unvoidLoad(shipmentLeadId: string, actorUserId?: string) {
+        const shipment = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+            select: {
+                status: true,
+                loadNumber: true,
+                statusBeforeVoid: true,
+                carrierName: true,
+            },
+        });
+        if (!shipment) throw Object.assign(new Error("Load not found"), { status: 404 });
+        const loadNumber = String(shipment.loadNumber || "").trim();
+        if (!loadNumber) {
+            throw Object.assign(new Error("Generate a load number before reactivating"), {
+                status: 422,
+            });
+        }
+        const status = normalizeStatus(shipment.status);
+        if (status !== "VOIDED") {
+            throw Object.assign(new Error("This load number is not voided"), { status: 422 });
+        }
+        const restoreTo = statusAfterUnvoid(shipment.statusBeforeVoid);
+        const nextStatus =
+            !shipment.carrierName && restoreTo === "CARRIER_ASSIGNED"
+                ? "LOAD_CREATED"
+                : restoreTo;
+        await prisma.shipmentLead.update({
+            where: { shipmentLeadId },
+            data: {
+                status: nextStatus,
+                statusBeforeVoid: null,
+                accountingReactivatedAt: new Date(),
+                accountingDocStatus: AccountingDocStatus.Pending,
+                accountingDocVerifiedAt: null,
+                accountingDocVerifiedById: null,
+                accountingFinancialVerified: false,
+                accountingReadyForBilling: false,
+                accountingReadyForCarrierPayment: false,
+            },
+        });
+        await domainEventEngine.emit({
+            shipmentLeadId,
+            eventType: "STATUS_CHANGED",
+            title: "Load reactivated",
+            message: `Load ${loadNumber} set Active again (${nextStatus}). Accounting review reset.`,
+            actorUserId: actorUserId || undefined,
+            timelineStage: "STATUS_CHANGED",
+            payload: {
+                loadNumber,
+                reason: "UNVOID_SET_ACTIVE",
+                from: "VOIDED",
+                to: nextStatus,
+                accountingReactivated: true,
+            },
         });
         return this.getLoadDetails(shipmentLeadId);
     }

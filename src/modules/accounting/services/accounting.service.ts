@@ -93,7 +93,6 @@ export class AccountingService {
         const rows = await prisma.shipmentLead.findMany({
             where: {
                 loadNumber: { not: null },
-                status: { not: "VOIDED" },
             },
             select: {
                 shipmentLeadId: true,
@@ -102,6 +101,7 @@ export class AccountingService {
                 accountingFinancialVerified: true,
                 accountingReadyForBilling: true,
                 accountingReadyForCarrierPayment: true,
+                accountingReactivatedAt: true,
                 customerPaidAt: true,
                 carrierPaidAt: true,
                 invoiceNumber: true,
@@ -120,7 +120,7 @@ export class AccountingService {
 
         const now = Date.now();
         const dayMs = 24 * 60 * 60 * 1000;
-        const enriched = rows.map((r) => {
+        const enrichedAll = rows.map((r) => {
             const payment = customerPaymentQuote({
                 customerRate: r.customerRate,
                 accessorialCharges: r.accessorialCharges,
@@ -137,6 +137,9 @@ export class AccountingService {
                 outstandingCarrier: r.carrierPaidAt ? 0 : carrierTotal,
             };
         });
+        // Money / queue KPIs ignore Voided; Accounting still sees Voided rows in red on lists.
+        const enriched = enrichedAll.filter((r) => String(r.status || "").toUpperCase() !== "VOIDED");
+        const voidedCount = enrichedAll.length - enriched.length;
 
         const docsPending = enriched.filter(
             (r) =>
@@ -303,6 +306,7 @@ export class AccountingService {
                 carrierPaymentsCompleted: carrierPaid,
                 overdueCustomerPayments: overdue,
                 accountingClosed: closed,
+                voidedLoads: voidedCount,
             },
             summary: {
                 totalLoads: enriched.length,
@@ -310,6 +314,7 @@ export class AccountingService {
                 readyForCarrierPay: readyCarrierPay,
                 arToReceive: Math.round(arToReceive * 100) / 100,
                 apToPay: Math.round(apToPay * 100) / 100,
+                voidedLoads: voidedCount,
             },
             queues: {
                 forReview,
@@ -317,6 +322,7 @@ export class AccountingService {
                 readyCarrierPay,
                 paid: paidBoth,
                 all: enriched.length,
+                voided: voidedCount,
             },
             tasks: [
                 {
@@ -380,7 +386,8 @@ export class AccountingService {
         assertPerm(actor, AccountingPermissions.ShipmentsView);
         const f = String(filter || "all").toLowerCase();
         const rows = await prisma.shipmentLead.findMany({
-            where: { loadNumber: { not: null }, status: { not: "VOIDED" } },
+            // Include VOIDED so Accounting sees them in red; Reactivated carrier changes too.
+            where: { loadNumber: { not: null } },
             orderBy: { updatedAt: "desc" },
             take: 200,
             select: {
@@ -410,6 +417,7 @@ export class AccountingService {
                 accountingFinancialVerified: true,
                 accountingReadyForBilling: true,
                 accountingReadyForCarrierPayment: true,
+                accountingReactivatedAt: true,
                 invoiceNumber: true,
                 invoiceDate: true,
                 invoiceDueDate: true,
@@ -447,6 +455,7 @@ export class AccountingService {
             const customerOwes = payment.total;
             const pickupDay = r.opsPickupAt || r.pickupFrom || r.pickupTo || null;
             const deliveryDay = r.opsDeliveryAt || r.deliveryFrom || r.deliveryTo || null;
+            const status = String(r.status || "").toUpperCase();
             return {
                 ...r,
                 pickupDay,
@@ -462,32 +471,45 @@ export class AccountingService {
                 carrierTotal: money(r.carrierRate),
                 outstandingCustomer: r.customerPaidAt ? 0 : customerOwes || 0,
                 outstandingCarrier: r.carrierPaidAt ? 0 : money(r.carrierRate) || 0,
+                isVoided: status === "VOIDED",
+                isReactivated: Boolean(r.accountingReactivatedAt) && status !== "VOIDED",
             };
         });
 
-        if (f === "documents" || f === "review") {
+        if (f === "voided") {
+            list = list.filter((r) => r.isVoided);
+        } else if (f === "documents" || f === "review") {
             list = list.filter(
                 (r) =>
-                    !r.accountingDocStatus ||
-                    r.accountingDocStatus === AccountingDocStatus.Pending ||
-                    r.accountingDocStatus === AccountingDocStatus.NeedsCorrection
+                    !r.isVoided &&
+                    (!r.accountingDocStatus ||
+                        r.accountingDocStatus === AccountingDocStatus.Pending ||
+                        r.accountingDocStatus === AccountingDocStatus.NeedsCorrection)
             );
         } else if (f === "billing") {
-            list = list.filter((r) => r.accountingReadyForBilling && !r.customerPaidAt);
+            list = list.filter(
+                (r) => !r.isVoided && r.accountingReadyForBilling && !r.customerPaidAt
+            );
         } else if (f === "carrier-payment") {
             list = list.filter(
-                (r) => r.accountingReadyForCarrierPayment && !r.carrierPaidAt
+                (r) =>
+                    !r.isVoided && r.accountingReadyForCarrierPayment && !r.carrierPaidAt
             );
         } else if (f === "customer-payments") {
-            list = list.filter((r) => Boolean(r.invoiceNumber) || Boolean(r.customerPaidAt));
+            list = list.filter(
+                (r) =>
+                    !r.isVoided && (Boolean(r.invoiceNumber) || Boolean(r.customerPaidAt))
+            );
         } else if (f === "history") {
             list = list.filter(
-                (r) => Boolean(r.accountingClosedAt) || Boolean(r.carrierPaidAt)
+                (r) =>
+                    !r.isVoided &&
+                    (Boolean(r.accountingClosedAt) || Boolean(r.carrierPaidAt))
             );
         } else if (f === "pending" || f === "awaiting" || f === "confirmation") {
             // Dashboard: all loads still waiting for accounting confirmation / action
             list = list.filter((r) => {
-                if (r.accountingClosedAt) return false;
+                if (r.isVoided || r.accountingClosedAt) return false;
                 const docPending =
                     !r.accountingDocStatus ||
                     r.accountingDocStatus === AccountingDocStatus.Pending ||
@@ -764,6 +786,7 @@ export class AccountingService {
                 accountingDocStatus: AccountingDocStatus.Verified,
                 accountingDocVerifiedAt: now,
                 accountingDocVerifiedById: actor.userId,
+                accountingReactivatedAt: null,
                 accountingNotes: note
                     ? [s.accountingNotes, note].filter(Boolean).join("\n")
                     : s.accountingNotes,

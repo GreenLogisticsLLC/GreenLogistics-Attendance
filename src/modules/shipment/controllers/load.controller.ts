@@ -231,6 +231,25 @@ export const loadController = {
         }
     },
 
+    async unvoidLoad(req: AuthRequest, res: Response) {
+        try {
+            const id = String(req.params.id || "");
+            const access = await accessOr404(req, res, id);
+            if (!access.ok) return;
+            const data = await loadService.unvoidLoad(id, req.user?.userId);
+            const role = req.user?.role || "";
+            const payload = canViewLoadProfit(role)
+                ? { ...data, canViewMoney: true }
+                : redactLoadDetails(data as unknown as Record<string, unknown>);
+            res.json({ success: true, data: payload });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to reactivate load",
+            });
+        }
+    },
+
     async action(req: AuthRequest, res: Response) {
         try {
             const id = String(req.params.id || "");

@@ -37,7 +37,8 @@ export function isSameCarrierIdentity(
 
 /**
  * Broker changed BOTH carrier name and email → full carrier change.
- * New registration must get a new Load Number; prior load keeps its history.
+ * Same Load Number is kept; previous carrier is archived on that load and
+ * Accounting is reactivated to review the new carrier packet.
  */
 export function isNameAndEmailCarrierChange(
     previous: { name?: string | null; email?: string | null },

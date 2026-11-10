@@ -503,6 +503,9 @@ window.GreenOSModules.accounting = {
   },
 
   rowUrgencyClass(r) {
+    var status = String(r.status || "").toUpperCase();
+    if (r.isVoided || status === "VOIDED") return "acc-row-voided";
+    if (r.isReactivated) return "acc-row-reactivated";
     var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
     if (doc === "NEEDS_CORRECTION" || doc.indexOf("CORRECTION") >= 0) return "acc-row-correction";
     if (!r.accountingDocStatus || doc === "PENDING") return "acc-row-pending";
@@ -515,6 +518,14 @@ window.GreenOSModules.accounting = {
   /** Why this load still needs accounting attention (Dashboard queue labels). */
   pendingReasons(r) {
     var bits = [];
+    var status = String(r.status || "").toUpperCase();
+    if (r.isVoided || status === "VOIDED") {
+      bits.push('<span class="acc-status-pill is-voided">Voided</span>');
+      return bits.join(" ");
+    }
+    if (r.isReactivated) {
+      bits.push('<span class="acc-status-pill is-reactivated">Reactivated</span>');
+    }
     var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
     if (doc === "NEEDS_CORRECTION" || doc.indexOf("CORRECTION") >= 0) {
       bits.push('<span class="acc-status-pill is-correction">Needs Correction</span>');
@@ -1693,7 +1704,17 @@ window.GreenOSModules.accounting = {
         "<h2>" +
         self.esc(loadNo) +
         "</h2>" +
-        self.pill(self.statusBadgeText(ident.status), "ok") +
+        self.pill(
+          self.statusBadgeText(ident.status),
+          String(ident.status || "").toUpperCase() === "VOIDED"
+            ? "bad"
+            : ident.isReactivated
+              ? "warn"
+              : "ok"
+        ) +
+        (ident.isReactivated && String(ident.status || "").toUpperCase() !== "VOIDED"
+          ? self.pill("Reactivated", "warn")
+          : "") +
         "</div>" +
         '<div class="acc-profile-days">' +
         "<span>Pickup day: <strong>" +

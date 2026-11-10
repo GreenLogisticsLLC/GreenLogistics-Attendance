@@ -1635,7 +1635,11 @@ window.GreenOSModules["dispatch"] = {
           "<td>" + self.esc(r.customerName || "—") + "</td>" +
           "<td>" + self.esc((r.pickup || "—") + " → " + (r.delivery || "—")) + "</td>" +
           "<td>" + self.esc(r.carrierName || "—") + "</td>" +
-          "<td><span class=\"load-status-pill\">" + self.esc(r.statusLabel || r.status) + "</span></td>" +
+          "<td><span class=\"load-status-pill" +
+          (String(r.status || "").toUpperCase() === "VOIDED" ? " is-voided" : "") +
+          '">' +
+          self.esc(r.statusLabel || r.status) +
+          "</span></td>" +
           moneyCols +
           '<td class="load-row-actions">' +
           (self.canManageLoads()
@@ -2074,10 +2078,14 @@ window.GreenOSModules["dispatch"] = {
           COMPLETED: 1,
           CLOSED: 1,
         };
-        if (!loadNo || past[status]) return "";
+        if (!loadNo) return "";
         if (status === "VOIDED") {
-          return '<p class="gos-muted">This load number is voided. It is in the Voided folder.</p>';
+          return (
+            '<p class="gos-muted" style="margin:0.35rem 0 0.25rem">This load number is voided.</p>' +
+            '<button type="button" class="btn-primary" id="load-unvoid-btn" style="width:100%;margin:0 0 0.5rem">Set Active</button>'
+          );
         }
+        if (past[status]) return "";
         return (
           '<button type="button" class="btn-secondary" id="load-void-btn" style="width:100%;margin:0.35rem 0 0.5rem">Void load number</button>'
         );
@@ -2128,6 +2136,35 @@ window.GreenOSModules["dispatch"] = {
           throw new Error((res && res.message) || "Could not void this load");
         }
         self._listPhase = "voided";
+        self.renderDetails(body, res.data || data);
+      } catch (err) {
+        if (btn) btn.disabled = false;
+        alert(err.message || err);
+      }
+    });
+
+    body.querySelector("#load-unvoid-btn")?.addEventListener("click", async function () {
+      var loadNo = (data.identity && data.identity.loadNumber) || "this load";
+      if (
+        !confirm(
+          "Set " +
+            loadNo +
+            " back to Active? Accounting will see it as Reactivated and must re-check documents if the carrier changes."
+        )
+      ) {
+        return;
+      }
+      var btn = body.querySelector("#load-unvoid-btn");
+      if (btn) btn.disabled = true;
+      try {
+        var res = await self.api("/" + encodeURIComponent(id) + "/unvoid", {
+          method: "POST",
+          body: "{}",
+        });
+        if (!res || res.success === false) {
+          throw new Error((res && res.message) || "Could not reactivate this load");
+        }
+        self._listPhase = "active";
         self.renderDetails(body, res.data || data);
       } catch (err) {
         if (btn) btn.disabled = false;
@@ -2624,12 +2661,38 @@ window.GreenOSModules["dispatch"] = {
         : !carrierApproved
           ? "Next: review carrier packet documents below, then click <strong>Approve Carrier</strong> — Rate Confirmation stays locked until then."
           : "Next: Generate Rate Confirmation.";
+      var prevCarriers = Array.isArray(c.previousCarriers) ? c.previousCarriers : [];
+      var prevCarriersHtml = prevCarriers.length
+        ? '<div class="load-edit-panel" style="margin:0.75rem 0">' +
+          "<h3 style=\"margin:0 0 0.35rem\">Previous carriers on this Load Number</h3>" +
+          '<p class="gos-muted" style="margin:0 0 0.5rem">Kept for history when you assign a new carrier.</p>' +
+          prevCarriers
+            .slice()
+            .reverse()
+            .map(function (pc) {
+              return (
+                '<div class="gos-muted" style="margin:0.25rem 0">' +
+                "<strong>" +
+                self.esc(pc.carrierName || "—") +
+                "</strong> · " +
+                self.esc(pc.carrierEmail || "—") +
+                (pc.carrierMc ? " · MC " + self.esc(pc.carrierMc) : "") +
+                (pc.replacedAt
+                  ? " · " + self.esc(new Date(pc.replacedAt).toLocaleString())
+                  : "") +
+                "</div>"
+              );
+            })
+            .join("") +
+          "</div>"
+        : "";
       main.innerHTML =
         "<h2>Assign Carrier</h2>" +
         '<p class="gos-muted">Phase 2 — fill carrier details' +
         (showMoney ? ", then set Carrier price (Accounting). " : ". ") +
         nextStepHint +
         "</p>" +
+        prevCarriersHtml +
         '<div class="load-grid">' +
         field("Carrier", c.carrierName) +
         field("Carrier Email", c.carrierEmail) +
@@ -2698,7 +2761,7 @@ window.GreenOSModules["dispatch"] = {
         "</button>" +
         '<p class="gos-muted" style="margin-top:0.5rem">' +
         (c.carrierName
-          ? "Changing <strong>both</strong> Carrier name and email creates a new Load Number for the new carrier. The previous Load Number keeps the old carrier and documents. Other field edits stay on this Load and may resend the onboarding link."
+          ? "Changing <strong>both</strong> Carrier name and email keeps this Load Number, archives the previous carrier here, and marks the load Reactivated for Accounting to re-check the new carrier documents. Other field edits stay on this Load and may resend the onboarding link."
           : "After save → status <strong>Carrier Assigned</strong>. Green OS emails the Agreement + MC / NOA/VOID CHECK-OTHER / W-9 link from <strong>your Gmail</strong> to the carrier.") +
         "</p>" +
         "</div>";
@@ -2799,19 +2862,18 @@ window.GreenOSModules["dispatch"] = {
             method: "PATCH",
             body: JSON.stringify(carrierPayload),
           });
-          var fork = saved && saved.carrierChangeFork ? saved.carrierChangeFork : null;
-          var targetId =
-            fork && fork.newShipmentLeadId ? String(fork.newShipmentLeadId) : id;
+          var change = saved && saved.carrierChange ? saved.carrierChange : null;
+          var targetId = id;
           var inviteMsg = "";
-          if (fork && fork.newLoadNumber) {
+          if (change) {
             inviteMsg =
-              "\n\nCarrier change (Name + Email) → new Load Number " +
-              fork.newLoadNumber +
-              " created. Prior Load " +
-              (fork.previousLoadNumber || "—") +
-              " keeps the previous carrier and documents. Continuing on the new Load.";
+              "\n\nCarrier change on Load " +
+              (change.loadNumber ||
+                (data.identity && data.identity.loadNumber) ||
+                "—") +
+              ": previous carrier kept on this Load Number. Accounting sees Reactivated and must re-check the new carrier documents.";
           }
-          if (!shouldResendInvite && !fork) {
+          if (!shouldResendInvite && !change) {
             inviteMsg =
               "\n\nNo field changes — onboarding link was not resent to the same carrier.";
           } else {
@@ -2826,7 +2888,7 @@ window.GreenOSModules["dispatch"] = {
                     sessionToken: token,
                     reason: isFirstAssign
                       ? "assign"
-                      : nameAndEmailChange || fork
+                      : nameAndEmailChange || change
                         ? "carrier_change"
                         : "carrier_fields_changed",
                   }),
@@ -2843,7 +2905,7 @@ window.GreenOSModules["dispatch"] = {
               } else if (isFirstAssign) {
                 inviteMsg +=
                   "\n\nSecure Agreement link emailed to the carrier from your Gmail.";
-              } else if (fork || nameAndEmailChange) {
+              } else if (change || nameAndEmailChange) {
                 inviteMsg +=
                   "\n\nNew carrier registration — secure Agreement link emailed from your Gmail.";
               } else {
@@ -2856,8 +2918,8 @@ window.GreenOSModules["dispatch"] = {
             }
           }
           alert(
-            (fork
-              ? "New Load created for carrier change."
+            (change
+              ? "Carrier changed on this Load Number."
               : c.carrierName
                 ? "Carrier updated."
                 : "Carrier assigned.") + inviteMsg
