@@ -416,27 +416,45 @@ window.GreenOSModules["dispatch"] = {
       setTimeout(function () {
         var mainEl = host.querySelector("#load-main") || document.querySelector("#load-main");
         var genBtn = host.querySelector('[data-action="generate_rate_con"]');
-        if (genBtn && genBtn.getAttribute("data-state") === "locked") {
-          alert(
-            genBtn.getAttribute("data-blocked") ||
-              "Generate Rate Confirmation is still locked. Click Approve Carrier again, then try Generate Rate Confirmation."
-          );
-          if (genBtn.scrollIntoView) genBtn.scrollIntoView({ behavior: "smooth", block: "center" });
-          return;
+        function openWizard(fresh) {
+          if (mainEl && typeof self.showRateConWizard === "function") {
+            self.showRateConWizard(mainEl, loadId, fresh || {}, "GENERATED");
+            return true;
+          }
+          if (genBtn) {
+            genBtn.click();
+            return true;
+          }
+          return false;
         }
-        if (mainEl && typeof self.showRateConWizard === "function") {
-          // Prefer direct wizard open — click can miss if the rail re-renders.
-          self
-            .api("/" + encodeURIComponent(loadId))
-            .then(function (fresh) {
-              self.showRateConWizard(mainEl, loadId, fresh || {}, "GENERATED");
-            })
-            .catch(function () {
-              if (genBtn) genBtn.click();
-            });
-          return;
-        }
-        if (genBtn) genBtn.click();
+        self
+          .api("/" + encodeURIComponent(loadId))
+          .then(function (fresh) {
+            var approved = Boolean(fresh && fresh.carrier && fresh.carrier.loadCarrierApproved);
+            if (
+              !approved &&
+              genBtn &&
+              genBtn.getAttribute("data-state") === "locked"
+            ) {
+              alert(
+                genBtn.getAttribute("data-blocked") ||
+                  "Generate Rate Confirmation is still locked. Click Approve Carrier again, then try Generate Rate Confirmation."
+              );
+              if (genBtn.scrollIntoView) genBtn.scrollIntoView({ behavior: "smooth", block: "center" });
+              return;
+            }
+            openWizard(fresh);
+          })
+          .catch(function () {
+            if (genBtn && genBtn.getAttribute("data-state") === "locked") {
+              alert(
+                genBtn.getAttribute("data-blocked") ||
+                  "Generate Rate Confirmation is still locked. Click Approve Carrier again, then try Generate Rate Confirmation."
+              );
+              return;
+            }
+            openWizard({});
+          });
       }, 180);
     }
     async function runApproveCarrier() {
@@ -3589,10 +3607,13 @@ window.GreenOSModules["dispatch"] = {
         });
         // POD Upload must stay clickable whenever BOL exists — never use HTML
         // disabled (it swallows clicks with no feedback).
+        var carrierApprovedHere = Boolean(c && c.loadCarrierApproved);
         var locked =
           slot.type === "POD"
             ? !findDoc("BOL")
-            : Boolean(qa && qa.state === "locked");
+            : slot.type === "RATE_CONFIRMATION" && carrierApprovedHere
+              ? false
+              : Boolean(qa && qa.state === "locked");
         var blocked =
           slot.type === "POD"
             ? "Generate BOL first — POD must be the signed copy of that BOL"
