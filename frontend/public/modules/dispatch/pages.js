@@ -2436,7 +2436,7 @@ window.GreenOSModules["dispatch"] = {
             "</span></label>" +
             "</div>"
           : "";
-      var customerPanelHtml =
+      var customerSetupHtml =
         '<div class="load-edit-panel' +
         (needsCustomer || self._focusCustomer ? " is-customer-focus" : "") +
         '" id="ld-customer-setup">' +
