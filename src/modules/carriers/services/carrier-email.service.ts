@@ -406,9 +406,10 @@ export class CarrierEmailService {
             "Documents / checklist:",
             ...input.docs.map((d) => `✓ ${d}`),
             "",
-            `Open full package in Green OS: ${input.carrierUrl}`,
+            `Open carrier package in Green OS: ${input.carrierUrl}`,
             "",
-            "Sensitive files (W-9, MC, NOA) are stored in Green OS — open the carrier card to download.",
+            "Signed Rate Confirmation PDF: open the Load → Documents (look for Final Signed / Signed by carrier).",
+            "Sensitive files (W-9, MC, NOA) are on the carrier card Documents tab.",
         ]
             .filter((line) => line !== "")
             .join("\n");
@@ -443,10 +444,10 @@ export class CarrierEmailService {
             <ul>${input.docs.map((d) => `<li>✓ ${esc(d)}</li>`).join("")}</ul>
             <p style="margin:24px 0">
               <a href="${esc(input.carrierUrl)}" style="background:#059669;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;font-weight:600">
-                Open filled package in Green OS
+                Open carrier package in Green OS
               </a>
             </p>
-            <p style="color:#5b6b84;font-size:13px">MC Authority / NOA / W-9 are saved in Green OS (download from the carrier card). This email is the broker notification with the filled form data.</p>
+            <p style="color:#5b6b84;font-size:13px">Signed Rate Confirmation is on the <strong>Load → Documents</strong> tab (Final Signed). MC / NOA / W-9 stay on the carrier card. This email is the broker notification only.</p>
           </div>`;
 
         const payload = { to: input.to, subject, text, html };

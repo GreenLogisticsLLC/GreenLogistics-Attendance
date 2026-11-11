@@ -4,7 +4,7 @@ import path from "path";
 import { prisma } from "../../../config/database.js";
 import { config } from "../../../config/env.js";
 import { platformNotificationService } from "../../shipment/services/platform-notification.service.js";
-import { LOAD_DOCS_ROOT } from "../../shipment/services/load-pdf.service.js";
+import { resolveLoadDocumentAbsolutePath } from "../../shipment/services/load-pdf.service.js";
 import {
     AGREEMENT_TEMPLATE_TITLE,
     AGREEMENT_TEMPLATE_VERSION,
@@ -843,18 +843,40 @@ export class CarrierService {
             throw Object.assign(new Error("Carrier profile missing on load"), { status: 400 });
         }
 
-        if (purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET) {
+        if (
+            purpose === ONBOARDING_PURPOSE.RC_SIGN_PACKET ||
+            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+        ) {
             const rc = await prisma.loadDocument.findFirst({
-                where: { shipmentLeadId, docType: "RATE_CONFIRMATION", isCurrent: true },
+                where: {
+                    shipmentLeadId,
+                    docType: "RATE_CONFIRMATION",
+                    isCurrent: true,
+                    status: { not: "ARCHIVED" },
+                },
+                orderBy: { version: "desc" },
             });
-            if (!rc) {
-                throw Object.assign(new Error("Generate Rate Confirmation first, then the RC sign link can be sent"), {
-                    status: 400,
-                });
+            if (!rc?.storedName || !resolveLoadDocumentAbsolutePath(shipmentLeadId, rc.storedName)) {
+                throw Object.assign(
+                    new Error(
+                        "Generate Rate Confirmation first (and keep the PDF), then the RC sign link can be sent"
+                    ),
+                    { status: 400, code: "RC_PDF_REQUIRED" }
+                );
             }
-        } else {
+        }
+        if (
+            purpose === ONBOARDING_PURPOSE.BOL_POD_PACKET ||
+            purpose === ONBOARDING_PURPOSE.RC_BOL_PACKET
+        ) {
             const bol = await prisma.loadDocument.findFirst({
-                where: { shipmentLeadId, docType: "BOL", isCurrent: true },
+                where: {
+                    shipmentLeadId,
+                    docType: "BOL",
+                    isCurrent: true,
+                    status: { not: "ARCHIVED" },
+                },
+                orderBy: { version: "desc" },
             });
             if (!bol) {
                 throw Object.assign(new Error("Save BOL first, then the BOL / POD link can be sent"), {
@@ -2042,8 +2064,9 @@ export class CarrierService {
             },
         });
         let stampedDocumentId: string | null = null;
+        let stamped;
         try {
-            const stamped = await loadDocumentsService.stampCarrierSignatureOnRateCon({
+            stamped = await loadDocumentsService.stampCarrierSignatureOnRateCon({
                 shipmentLeadId: session.shipmentLeadId,
                 signerName,
                 signatureData,
@@ -2054,6 +2077,25 @@ export class CarrierService {
             console.warn(
                 `[rc-sign] failed to stamp load Rate Confirmation PDF for ${session.shipmentLeadId}:`,
                 err instanceof Error ? err.message : err
+            );
+            throw Object.assign(
+                new Error(
+                    err instanceof Error
+                        ? `Could not save signed Rate Confirmation in GreenOS: ${err.message}`
+                        : "Could not save signed Rate Confirmation in GreenOS"
+                ),
+                {
+                    status: (err as { status?: number })?.status || 422,
+                    code: (err as { code?: string })?.code || "RC_STAMP_FAILED",
+                }
+            );
+        }
+        if (!stampedDocumentId) {
+            throw Object.assign(
+                new Error(
+                    "Signed Rate Confirmation was not saved on the Load. Ask the broker to open Load → Documents and generate the Rate Confirmation, then sign again."
+                ),
+                { status: 422, code: "RC_STAMP_MISSING" }
             );
         }
         // Archive after stamp so Carrier Documents gets the signed PDF copy.
@@ -2069,6 +2111,17 @@ export class CarrierService {
             );
             return { rateConDocumentId: null as string | null, bolDocumentId: null as string | null };
         });
+        if (!archived.rateConDocumentId) {
+            // Retry once — stamp succeeded so the load PDF must exist.
+            const retried = await this.archiveSignedRcBolPdfs({
+                carrierId: session.carrierId,
+                shipmentLeadId: session.shipmentLeadId,
+                sessionId: session.sessionId,
+                uploadedBy: "SYSTEM",
+            }).catch(() => archived);
+            archived.rateConDocumentId = retried.rateConDocumentId;
+            archived.bolDocumentId = retried.bolDocumentId ?? archived.bolDocumentId;
+        }
         const mailed = await this.emailSignedRateConfirmation({
             shipmentLeadId: session.shipmentLeadId,
             to: session.carrier.email,
@@ -2141,8 +2194,8 @@ export class CarrierService {
                 orderBy: { version: "desc" },
             });
             if (!loadDoc?.storedName) continue;
-            const src = path.join(LOAD_DOCS_ROOT, input.shipmentLeadId, loadDoc.storedName);
-            if (!fs.existsSync(src)) continue;
+            const src = resolveLoadDocumentAbsolutePath(input.shipmentLeadId, loadDoc.storedName);
+            if (!src) continue;
 
             const prev = await prisma.carrierDocument.findFirst({
                 where: {
@@ -2215,8 +2268,8 @@ export class CarrierService {
                 emailWarning: "Signed Rate Confirmation PDF is not ready yet.",
             };
         }
-        const absolutePath = path.join(LOAD_DOCS_ROOT, input.shipmentLeadId, doc.storedName);
-        if (!fs.existsSync(absolutePath)) {
+        const absolutePath = resolveLoadDocumentAbsolutePath(input.shipmentLeadId, doc.storedName);
+        if (!absolutePath) {
             return {
                 emailed: false,
                 emailTo: to,
@@ -2533,6 +2586,35 @@ export class CarrierService {
             ? carrier?.rcSignatures?.[0]
             : carrier?.agreementSigns?.[0];
 
+        // Heal stamped/archived RC before telling the broker the package is ready.
+        if (
+            isRcBol &&
+            purposeNow !== ONBOARDING_PURPOSE.BOL_POD_PACKET &&
+            session.shipmentLeadId &&
+            latestSign?.signerName &&
+            latestSign?.signatureData
+        ) {
+            try {
+                await loadDocumentsService.stampCarrierSignatureOnRateCon({
+                    shipmentLeadId: session.shipmentLeadId,
+                    signerName: latestSign.signerName,
+                    signatureData: latestSign.signatureData,
+                    signedAt: latestSign.signedAt,
+                });
+                await this.archiveSignedRcBolPdfs({
+                    carrierId: session.carrierId,
+                    shipmentLeadId: session.shipmentLeadId,
+                    sessionId: session.sessionId,
+                    uploadedBy: "SYSTEM",
+                });
+            } catch (err) {
+                console.warn(
+                    `[rc-sign] submit heal stamp/archive failed for ${session.shipmentLeadId}:`,
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+
         let warning: string | undefined;
         let brokerNotified = false;
         if (carrier?.assignedBroker) {
@@ -2701,8 +2783,8 @@ export class CarrierService {
         if (!row || !row.storedName) {
             throw Object.assign(new Error("Document PDF not found"), { status: 404 });
         }
-        const absolutePath = path.join(LOAD_DOCS_ROOT, row.shipmentLeadId, row.storedName);
-        if (!fs.existsSync(absolutePath)) {
+        const absolutePath = resolveLoadDocumentAbsolutePath(row.shipmentLeadId, row.storedName);
+        if (!absolutePath) {
             throw Object.assign(new Error("PDF file missing on disk"), { status: 404 });
         }
         return {

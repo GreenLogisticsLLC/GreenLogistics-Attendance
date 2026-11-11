@@ -3714,6 +3714,12 @@ window.GreenOSModules["dispatch"] = {
             "<td><strong>" +
             self.esc(slot.label) +
             "</strong>" +
+            (d.carrierSigned
+              ? '<div style="margin-top:0.2rem;font-size:0.75rem;font-weight:700;color:#067647">Signed by carrier' +
+                (d.carrierSignerName ? " · " + self.esc(d.carrierSignerName) : "") +
+                (d.carrierSignedAt ? " · " + self.esc(d.carrierSignedAt) : "") +
+                "</div>"
+              : "") +
             (d.title && d.title !== slot.label
               ? '<div class="gos-muted" style="font-size:0.75rem;margin-top:0.15rem">' +
                 self.esc(d.title) +
@@ -3724,7 +3730,7 @@ window.GreenOSModules["dispatch"] = {
             self.esc(d.version) +
             "</td>" +
             "<td>" +
-            self.esc(d.changeReason || "—") +
+            self.esc(d.changeReasonLabel || d.changeReason || "—") +
             "</td>" +
             "<td>" +
             self.esc(d.status || "READY") +

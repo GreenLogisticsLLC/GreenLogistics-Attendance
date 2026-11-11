@@ -3,7 +3,7 @@ import { domainEventEngine } from "./domain-event.engine.js";
 import { shipmentService } from "./shipment.service.js";
 import { loadDocumentsService } from "./load-documents.service.js";
 import { platformNotificationService } from "./platform-notification.service.js";
-import { TRACKING_STEPS } from "../load.constants.js";
+import { LOAD_DOC_CHANGE_LABELS, TRACKING_STEPS } from "../load.constants.js";
 import { isLoadPhase, normalizeStatus, statusLabel } from "../shipment.lifecycle.js";
 import { allocateLoadNumber } from "../load-number.js";
 import { allocateGreenOsShipmentId } from "../shipment.id.js";
@@ -626,13 +626,23 @@ export class LoadService {
                     content = null;
                 }
             }
+            const changeReason = d.changeReason || null;
+            const carrierSigned = Boolean(
+                content &&
+                    (content.carrierSignatureDataUrl || content.carrierSignerName || content.carrierSignedAt)
+            );
             return {
                 documentId: d.documentId,
                 docType: d.docType,
                 version: d.version,
                 title: d.title,
                 status: d.status,
-                changeReason: d.changeReason,
+                changeReason,
+                changeReasonLabel:
+                    (changeReason && LOAD_DOC_CHANGE_LABELS[changeReason]) || changeReason,
+                carrierSigned,
+                carrierSignerName: content?.carrierSignerName || null,
+                carrierSignedAt: content?.carrierSignedAt || null,
                 fileUrl: d.fileUrl
                     ? `/api/loads/${shipmentLeadId}/documents/${d.documentId}/download`
                     : null,

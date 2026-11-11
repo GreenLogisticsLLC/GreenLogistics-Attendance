@@ -1,12 +1,11 @@
 import type { Response } from "express";
 import fs from "fs";
-import path from "path";
 import type { AuthRequest } from "../../../middlewares/auth.middleware.js";
 import { assertShipmentAccess } from "../../../auth/access.js";
 import { canManageLoads, canViewLoadProfit } from "../../../auth/roles.js";
 import { loadService } from "../services/load.service.js";
 import { loadDocumentsService } from "../services/load-documents.service.js";
-import { LOAD_DOCS_ROOT } from "../services/load-pdf.service.js";
+import { resolveLoadDocumentAbsolutePath } from "../services/load-pdf.service.js";
 import { uploadPodFile } from "../services/pod-upload.service.js";
 
 function errStatus(err: unknown): number {
@@ -536,8 +535,8 @@ export const loadController = {
                 res.status(404).json({ success: false, message: "PDF file missing" });
                 return;
             }
-            const abs = path.join(LOAD_DOCS_ROOT, id, row.storedName);
-            if (!fs.existsSync(abs)) {
+            const abs = resolveLoadDocumentAbsolutePath(id, row.storedName);
+            if (!abs) {
                 res.status(404).json({ success: false, message: "PDF file missing on disk" });
                 return;
             }

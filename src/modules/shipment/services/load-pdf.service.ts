@@ -7,7 +7,38 @@ import type { LoadDocType } from "../load.constants.js";
 import { LOAD_DOC_TYPE_LABELS } from "../load.constants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const LOAD_DOCS_ROOT = path.join(__dirname, "..", "..", "..", "uploads", "loads");
+
+/**
+ * Canonical load-doc storage under the process working directory.
+ * Prefer cwd so `tsx` (src/) and `node dist/` share the same files.
+ * Legacy roots (src/uploads, dist/uploads) are still resolved when reading.
+ */
+export const LOAD_DOCS_ROOT = path.join(process.cwd(), "uploads", "loads");
+
+const LEGACY_LOAD_DOCS_ROOTS = [
+    path.join(__dirname, "..", "..", "..", "uploads", "loads"),
+    path.join(process.cwd(), "src", "uploads", "loads"),
+    path.join(process.cwd(), "dist", "uploads", "loads"),
+];
+
+/** Absolute path to a stored load PDF, checking cwd + legacy roots. */
+export function resolveLoadDocumentAbsolutePath(
+    shipmentLeadId: string,
+    storedName: string
+): string | null {
+    const id = String(shipmentLeadId || "").trim();
+    const name = String(storedName || "").trim();
+    if (!id || !name) return null;
+    const roots = [LOAD_DOCS_ROOT, ...LEGACY_LOAD_DOCS_ROOTS];
+    const seen = new Set<string>();
+    for (const root of roots) {
+        const abs = path.join(root, id, name);
+        if (seen.has(abs)) continue;
+        seen.add(abs);
+        if (fs.existsSync(abs)) return abs;
+    }
+    return null;
+}
 
 const LIA_TORRES_SIGNATURE_PNG = path.resolve(__dirname, "../assets/lia-torres-signature.png");
 const GREEN_LOGISTICS_LOGO_PNG = path.resolve(__dirname, "../assets/green-logistics-logo.png");
