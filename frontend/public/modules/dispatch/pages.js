@@ -600,21 +600,78 @@ window.GreenOSModules["dispatch"] = {
     var out = [];
     wrap.querySelectorAll(".load-extra-stop").forEach(function (row) {
       var addrEl = row.querySelector("[data-extra-field=\"address\"]");
-      var dateEl = row.querySelector("[data-extra-field=\"date\"]");
       var prefix = row.getAttribute("data-time-prefix") || "";
       var address = String((addrEl && addrEl.value) || "").trim();
       if (!address) return;
-      var time24 = prefix ? self.readAmPmTime(row, prefix) : "";
+      var appt = prefix
+        ? self.readApptFields(row, prefix)
+        : { from: null, to: null, opsAt: null };
+      var dateVal =
+        self.toInputDate(appt.from || appt.to || appt.opsAt || "") || null;
+      var timeLabel = self.formatApptTimeOnly(appt.from, appt.to, appt.opsAt) || null;
       out.push({
         address: address,
-        date: String((dateEl && dateEl.value) || "").trim() || null,
-        time: self.formatAmPmLabel(time24) || time24 || null,
+        date: dateVal,
+        time: timeLabel,
+        from: appt.from || null,
+        to: appt.to || null,
       });
     });
     return out;
   },
 
-  /** Normalize saved extra stop (string or {address,date,time}). */
+  /** HH:MM 24h from a human "8:00 AM" / "08:00" label. */
+  hhmmFromTimeLabel(raw) {
+    var parts = this.ampmPartsFromRaw(raw);
+    if (!parts.h || !parts.m || !parts.p) return "";
+    var h12 = parseInt(parts.h, 10);
+    if (!Number.isFinite(h12)) return "";
+    var h24 = h12 % 12;
+    if (parts.p === "PM") h24 += 12;
+    return String(h24).padStart(2, "0") + ":" + String(parts.m).padStart(2, "0");
+  },
+
+  /**
+   * Build from/to ISO for an extra stop so Window / Before / Till restore correctly.
+   * Prefers saved from/to; falls back to legacy single `time` or "8:00 AM – 4:00 PM".
+   */
+  extraStopApptIso(stop) {
+    var dateVal = String((stop && stop.date) || "").trim();
+    var fromSaved = stop && stop.from ? String(stop.from) : "";
+    var toSaved = stop && stop.to ? String(stop.to) : "";
+    if (fromSaved || toSaved) {
+      return { from: fromSaved || null, to: toSaved || null };
+    }
+    var timeLabel = String((stop && stop.time) || "").trim();
+    if (!dateVal || !timeLabel) return { from: null, to: null };
+    var before = timeLabel.match(/^before\s+(.+)$/i);
+    if (before) {
+      var beforeHh = this.hhmmFromTimeLabel(before[1].trim());
+      return { from: null, to: this.combineDateTime(dateVal, beforeHh || "00:00") };
+    }
+    var till = timeLabel.match(/^till\s+(.+)$/i);
+    if (till) {
+      var tillHh = this.hhmmFromTimeLabel(till[1].trim());
+      return {
+        from: this.combineDateTime(dateVal, "00:00"),
+        to: this.combineDateTime(dateVal, tillHh || "00:00"),
+      };
+    }
+    var windowBits = timeLabel.split(/\s*[–—-]\s*/);
+    if (windowBits.length === 2) {
+      var fromHh = this.hhmmFromTimeLabel(windowBits[0].trim());
+      var toHh = this.hhmmFromTimeLabel(windowBits[1].trim());
+      return {
+        from: this.combineDateTime(dateVal, fromHh || "00:00"),
+        to: this.combineDateTime(dateVal, toHh || fromHh || "00:00"),
+      };
+    }
+    var exactHh = this.hhmmFromTimeLabel(timeLabel);
+    var exactIso = this.combineDateTime(dateVal, exactHh || "00:00");
+    return { from: exactIso, to: null };
+  },
+
+  /** Normalize saved extra stop (string or {address,date,time,from,to}). */
   normalizeExtraStop(raw) {
     if (raw && typeof raw === "object") {
       var dateRaw = String(raw.date || raw.pickupDate || raw.deliveryDate || "").trim();
@@ -622,15 +679,18 @@ window.GreenOSModules["dispatch"] = {
         address: String(raw.address || raw.pickupAddress || raw.deliveryAddress || "").trim(),
         date: this.toInputDate(dateRaw) || dateRaw,
         time: String(raw.time || raw.pickupTime || raw.deliveryTime || "").trim(),
+        from: raw.from || null,
+        to: raw.to || null,
       };
     }
-    return { address: String(raw == null ? "" : raw).trim(), date: "", time: "" };
+    return { address: String(raw == null ? "" : raw).trim(), date: "", time: "", from: null, to: null };
   },
 
-  /** Render one removable extra stop row with address + date + time. */
+  /** Removable extra stop: address + same Time type (Exact / Window / Before / Till) as primary. */
   extraStopRowHtml(value, kind, seq) {
     var stop = this.normalizeExtraStop(value);
     var prefix = "extra-" + kind + "-" + String(seq || Date.now());
+    var appt = this.extraStopApptIso(stop);
     return (
       '<div class="load-extra-stop" data-time-prefix="' +
       this.esc(prefix) +
@@ -642,15 +702,14 @@ window.GreenOSModules["dispatch"] = {
       '" value="' +
       this.esc(stop.address || "") +
       '"></label>' +
-      '<label>' +
-      (kind === "origin" ? "Pickup date" : "Delivery date") +
-      '<input type="date" data-extra-field="date" value="' +
-      this.esc(stop.date || "") +
-      '"></label>' +
-      "<label>" +
-      (kind === "origin" ? "Pickup time" : "Delivery time") +
-      this.timeFieldHtml(prefix, stop.time || "") +
-      "</label>" +
+      '<div class="load-extra-stop-appt">' +
+      this.apptFieldHtml(
+        prefix,
+        kind === "origin" ? "Pickup time" : "Delivery time",
+        appt.from,
+        appt.to
+      ) +
+      "</div>" +
       '<button type="button" class="btn-secondary extra-stop-remove">Remove</button>' +
       "</div>"
     );
@@ -664,10 +723,20 @@ window.GreenOSModules["dispatch"] = {
     var addOrigin = box.querySelector(opts.addOriginBtn);
     var addDest = box.querySelector(opts.addDestBtn);
     var seq = 0;
+    function wireLastRow(wrap) {
+      if (!wrap) return null;
+      var rows = wrap.querySelectorAll(".load-extra-stop");
+      var last = rows[rows.length - 1];
+      if (!last) return null;
+      var prefix = last.getAttribute("data-time-prefix") || "";
+      if (prefix) self.bindApptFields(last, prefix);
+      return last;
+    }
     function addRow(wrap, kind, value) {
       if (!wrap) return;
       seq += 1;
       wrap.insertAdjacentHTML("beforeend", self.extraStopRowHtml(value, kind, seq));
+      wireLastRow(wrap);
     }
     (opts.initialOrigins || []).forEach(function (v) {
       addRow(originWrap, "origin", v);
@@ -677,14 +746,14 @@ window.GreenOSModules["dispatch"] = {
     });
     addOrigin?.addEventListener("click", function () {
       addRow(originWrap, "origin", { address: "", date: "", time: "" });
-      var rows = originWrap.querySelectorAll(".load-extra-stop");
+      var rows = originWrap ? originWrap.querySelectorAll(".load-extra-stop") : [];
       var last = rows[rows.length - 1];
       var focusEl = last && last.querySelector("[data-extra-field=\"address\"]");
       if (focusEl) focusEl.focus();
     });
     addDest?.addEventListener("click", function () {
       addRow(destWrap, "dest", { address: "", date: "", time: "" });
-      var rows = destWrap.querySelectorAll(".load-extra-stop");
+      var rows = destWrap ? destWrap.querySelectorAll(".load-extra-stop") : [];
       var last = rows[rows.length - 1];
       var focusEl = last && last.querySelector("[data-extra-field=\"address\"]");
       if (focusEl) focusEl.focus();

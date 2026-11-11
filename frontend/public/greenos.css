@@ -3210,22 +3210,37 @@ tr.crm-row.load-row-no-carrier td:first-child {
 }
 .load-form-grid .load-extra-stop {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(8rem, 0.75fr) minmax(10rem, 1fr) auto;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) auto;
   gap: 0.4rem 0.5rem;
-  align-items: end;
+  align-items: start;
   width: 100%;
 }
 .load-form-grid .load-extra-stop > label {
   margin: 0;
 }
+.load-form-grid .load-extra-stop-appt {
+  min-width: 0;
+}
+.load-form-grid .load-extra-stop-appt .load-appt-block {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+}
+.load-form-grid .load-extra-stop-appt .load-appt-block h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.82rem;
+}
 .load-form-grid .load-extra-stop .extra-stop-remove {
-  margin-bottom: 0.2rem;
+  margin-top: 1.6rem;
   flex: 0 0 auto;
   justify-self: end;
 }
 @media (max-width: 720px) {
   .load-form-grid .load-extra-stop {
     grid-template-columns: 1fr;
+  }
+  .load-form-grid .load-extra-stop .extra-stop-remove {
+    margin-top: 0.2rem;
+    justify-self: start;
   }
 }
 .load-form-grid .cu-billing-head {
