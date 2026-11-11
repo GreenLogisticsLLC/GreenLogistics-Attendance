@@ -2794,13 +2794,13 @@ window.GreenOSModules["dispatch"] = {
                 " from " +
                 (result.agreementEmail.from || "your Gmail") +
                 ".";
-              if (result.agreementEmail.signUrl) {
-                msg += "\nSign link:\n" + result.agreementEmail.signUrl;
-              }
             } else {
               msg +=
                 "\nAgreement email was not sent: " +
                 (result.agreementEmail.error || "unknown error");
+            }
+            if (result.agreementEmail.signUrl) {
+              msg += "\nSign link:\n" + result.agreementEmail.signUrl;
             }
           }
           alert(msg);

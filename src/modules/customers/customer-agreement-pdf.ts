@@ -5,8 +5,8 @@ import PDFDocument from "pdfkit";
 import type { CustomerAgreementType } from "./customer-agreement.js";
 import {
     customerAgreementFields,
+    customerAgreementSections,
     customerAgreementSubtitle,
-    customerAgreementTerms,
     customerAgreementTitle,
 } from "./customer-agreement-fields.js";
 
@@ -142,15 +142,28 @@ export async function buildCustomerAgreementPdf(
 
         doc.moveDown(0.5);
         if (doc.y > doc.page.height - 160) doc.addPage();
-        doc.font("Helvetica-Bold").fontSize(11).fillColor("#0b3d2e").text("TERMS (SUMMARY)");
-        doc.moveDown(0.2);
-        for (const term of customerAgreementTerms(input.agreementType)) {
-            if (doc.y > doc.page.height - 80) doc.addPage();
-            doc.font("Helvetica").fontSize(8.5).fillColor("#1e293b").text(`• ${term}`, {
+        doc.font("Helvetica-Bold").fontSize(11).fillColor("#0b3d2e").text("AGREEMENT TERMS");
+        doc.moveDown(0.15);
+        doc.font("Helvetica").fontSize(8).fillColor("#64748b").text(
+            "Full operative clauses from the Broker Customer agreement document selected for this shipment.",
+            { width }
+        );
+        doc.moveDown(0.25);
+        for (const section of customerAgreementSections(input.agreementType)) {
+            if (doc.y > doc.page.height - 100) doc.addPage();
+            doc.font("Helvetica-Bold").fontSize(9.5).fillColor("#0b3d2e").text(section.title, {
                 width,
-                align: "left",
             });
-            doc.moveDown(0.15);
+            doc.moveDown(0.12);
+            for (const line of section.lines) {
+                if (doc.y > doc.page.height - 70) doc.addPage();
+                doc.font("Helvetica").fontSize(8).fillColor("#1e293b").text(line, {
+                    width,
+                    align: "left",
+                });
+                doc.moveDown(0.1);
+            }
+            doc.moveDown(0.2);
         }
 
         if (doc.y > doc.page.height - 220) doc.addPage();

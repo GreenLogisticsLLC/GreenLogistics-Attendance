@@ -6,6 +6,7 @@ import { config } from "../../../config/env.js";
 import type { CustomerAgreementType } from "../customer-agreement.js";
 import {
     customerAgreementFields,
+    customerAgreementSections,
     prefillCustomerAgreementFields,
 } from "../customer-agreement-fields.js";
 import { buildCustomerAgreementPdf } from "../customer-agreement-pdf.js";
@@ -182,6 +183,7 @@ export class CustomerAgreementInviteService {
             customer: invite.customer,
             fields,
             fieldDefs: customerAgreementFields(agreementType),
+            sections: customerAgreementSections(agreementType),
             alreadySigned: invite.status === "SIGNED",
         };
     }
