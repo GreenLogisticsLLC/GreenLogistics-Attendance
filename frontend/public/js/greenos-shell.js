@@ -1156,10 +1156,11 @@
           return;
         }
         if (document.hidden) return;
-        if (Date.now() - (self._dashLastActivity || 0) < 60000) return;
+        // Only refresh when the user has been idle — and not more than once a minute.
+        if (Date.now() - (self._dashLastActivity || 0) < 90000) return;
         self._dashLastActivity = Date.now();
         self.loadDashboardMetrics(root);
-      }, 15000);
+      }, 60000);
     },
 
     renderDashboard(root) {
@@ -1563,7 +1564,8 @@
           renderAll();
         });
 
-      this.shellApi("/api/crm/shipments?assignmentKind=new&lite=1&pageSize=80")
+      // Keep Command Center lists short — handoff boards are expensive company-wide.
+      this.shellApi("/api/crm/shipments?assignmentKind=new&lite=1&pageSize=25")
         .then(function (res) {
           state.newShip = res;
           renderAll();
@@ -1573,7 +1575,7 @@
           renderAll();
         });
 
-      this.shellApi("/api/crm/shipments?assignmentKind=other&lite=1&pageSize=80")
+      this.shellApi("/api/crm/shipments?assignmentKind=other&lite=1&pageSize=25")
         .then(function (res) {
           state.otherShip = res;
           renderAll();

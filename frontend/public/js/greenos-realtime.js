@@ -638,17 +638,19 @@
     }
 
     if (!window.__gosShipmentPoll) {
+      // Soft backup when SSE stalls — do not hammer open modules every 10s.
       window.__gosShipmentPoll = setInterval(function () {
         if (document.hidden) return;
         refreshOpenViews();
-      }, 10000);
+      }, 45000);
     }
 
     // SSE can drop behind the proxy. Poll the broker's own assignment alerts
     // so the corner toast and bell still fire within a few seconds.
     if (!window.__gosAssignPoll) {
       var assignSince = Date.now() - 25000;
-      window.__gosAssignPoll = setInterval(pollAssignedShipments, 8000);
+      // SSE is primary; this is a slow backup for dropped proxy streams.
+      window.__gosAssignPoll = setInterval(pollAssignedShipments, 20000);
       setTimeout(pollAssignedShipments, 1200);
     }
 
