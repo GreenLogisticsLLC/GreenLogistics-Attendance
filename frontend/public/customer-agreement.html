@@ -32,6 +32,10 @@
     .ack { display:flex; gap:.55rem; align-items:flex-start; margin-top:.85rem; font-weight:600; }
     .ack input { width:auto; margin-top:.2rem; }
     .terms li { margin:.35rem 0; color:#e2e8f0; }
+    .clause-block { margin:0 0 1rem; padding-bottom:.75rem; border-bottom:1px solid #1e293b; }
+    .clause-block:last-child { border-bottom:0; margin-bottom:0; padding-bottom:0; }
+    .clause-block h3 { margin:0 0 .4rem; font-size:.95rem; color:#86efac; }
+    .clause-block p { margin:.28rem 0; color:#e2e8f0; font-size:.9rem; line-height:1.45; }
   </style>
 </head>
 <body>
@@ -144,6 +148,13 @@
       return "<div class='card'><h2>" + esc(section) + "</h2><div class='grid'>" + fields + "</div></div>";
     }).join("");
 
+    var sectionsHtml = (state.sections || []).map(function (section) {
+      var lines = (section.lines || []).map(function (line) {
+        return "<p>" + esc(line) + "</p>";
+      }).join("");
+      return '<div class="clause-block"><h3>' + esc(section.title) + "</h3>" + lines + "</div>";
+    }).join("");
+
     $("app").innerHTML =
       '<div class="card"><h1>' + esc(state.title) + '</h1>' +
       '<p class="muted">' + esc(state.label) + " for " + esc(state.customer.companyName) + "</p></div>" +
@@ -153,9 +164,15 @@
       '<p><strong>Signature:</strong> ' + esc(state.broker.name) + ' (applied for Green Logistics LLC)</p>' +
       '<p><strong>Date:</strong> ' + esc(new Date(state.sentAt).toLocaleDateString()) + '</p></div>' +
       formHtml +
+      (sectionsHtml
+        ? '<div class="card"><h2>Agreement terms</h2>' +
+          '<p class="muted">Full clauses from the selected Broker Customer agreement. Review before signing.</p>' +
+          sectionsHtml +
+          "</div>"
+        : "") +
       '<div class="card"><h2>Customer acknowledgment &amp; signature</h2>' +
       '<ul class="terms muted"><li>Shipment / company information I entered is accurate.</li>' +
-      '<li>I reviewed and accept the transportation terms for this agreement.</li>' +
+      '<li>I reviewed and accept all agreement terms shown above.</li>' +
       '<li>I have authority to sign for the Customer.</li></ul>' +
       (state.alreadySigned
         ? '<p class="ok">Already signed' + (state.signedAt ? " on " + esc(new Date(state.signedAt).toLocaleString()) : "") + '.</p>' +

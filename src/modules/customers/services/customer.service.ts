@@ -188,8 +188,10 @@ export class CustomerService {
         if (!to) {
             return { sent: false, error: "Customer email is required" };
         }
+        let invite: Awaited<ReturnType<typeof customerAgreementInviteService.createInvite>> | null =
+            null;
         try {
-            const invite = await customerAgreementInviteService.createInvite({
+            invite = await customerAgreementInviteService.createInvite({
                 customerId: input.customerId,
                 agreementType: input.agreementType,
                 brokerUserId: input.brokerUserId,
@@ -238,7 +240,14 @@ export class CustomerService {
         } catch (err) {
             const error = err instanceof Error ? err.message : String(err);
             console.warn("[customers] send agreement email failed:", error);
-            return { sent: false, to, error };
+            // Keep the invite + sign link even when Gmail send fails so the broker can still share it.
+            return {
+                sent: false,
+                to,
+                error,
+                label: invite?.label,
+                signUrl: invite?.signUrl,
+            };
         }
     }
 
