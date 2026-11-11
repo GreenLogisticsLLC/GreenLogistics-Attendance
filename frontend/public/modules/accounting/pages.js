@@ -1375,7 +1375,6 @@ window.GreenOSModules.accounting = {
     var self = this;
     var sorted = self.sortRowsByLoadNumber(rows || []);
     var bodyRows = sorted
-      .slice(0, 12)
       .map(function (r) {
         var status = self.accountingQueueLabel(r);
         return (
