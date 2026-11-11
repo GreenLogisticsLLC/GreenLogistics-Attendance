@@ -44,7 +44,8 @@ window.GreenOSModules.brokers = {
     self._openId = null;
     if (!body) return;
     body.innerHTML = "<p class=\"gos-muted\">Loading staff…</p>";
-    var data = await this.api("/brokers");
+    // summary=1 — name / role / in-office / active count only (no bid/response scans).
+    var data = await this.api("/brokers?summary=1");
     if (!data.success) {
       body.innerHTML = "<p>" + this.esc(data.message || "Failed") + "</p>";
       return;
@@ -99,6 +100,13 @@ window.GreenOSModules.brokers = {
     }
     desk._opsGiveOptions = "";
     desk._opsGivePeople = null;
+    // Reuse the staff list already fetched for Brokers — desk must not wait on /brokers again.
+    if (typeof desk.seedGivePeopleFromStaff === "function") {
+      desk.seedGivePeopleFromStaff(rows, brokerId);
+    }
+    desk._shipmentsCache = null;
+    desk._shipmentsTab = "new";
+    desk._shipmentsPage = 1;
     desk.render(root, "shipments", {
       brokerId: brokerId,
       name: person ? person.name : "Employee",

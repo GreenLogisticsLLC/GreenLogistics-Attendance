@@ -111,6 +111,11 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
         req.query.lite === "1" ||
         req.query.lite === "true" ||
         req.query.lite === "yes";
+    const countOnly =
+        req.query.countOnly === "1" ||
+        req.query.countOnly === "true" ||
+        req.query.countOnly === "yes";
+    // Owner/Manager opening a broker desk also needs the slim list payload.
     const data = await crmService.listShipments({
         brokerId,
         status,
@@ -119,7 +124,8 @@ export async function crmListShipmentsController(req: AuthRequest, res: Response
         page,
         pageSize,
         teamLeadId: !brokerId && teamLeadId ? teamLeadId : undefined,
-        lite: req.user?.role === "Broker" || mine || liteQuery,
+        lite: req.user?.role === "Broker" || mine || liteQuery || Boolean(brokerId),
+        countOnly,
     });
     return res.json(apiResponse(true, "Shipments loaded", data));
 }
@@ -202,12 +208,48 @@ export async function crmListBrokersController(req: AuthRequest, res: Response) 
         return res.status(403).json(apiResponse(false, "Forbidden"));
     }
     const teamLeadId = teamScopeUserId(req) || undefined;
-    const data = await crmService.getBrokerWorkload(
-        teamLeadId ? { teamLeadId } : undefined
-    );
+    // Ops Brokers desk / Give-to: summary=1 skips avg-response + bid scans.
+    // CRM Brokers board keeps the full payload (quotesSent, averageResponseTime).
+    const summary =
+        req.query.summary === "1" ||
+        req.query.summary === "true" ||
+        req.query.summary === "yes";
+    const data = await crmService.getBrokerWorkload({
+        ...(teamLeadId ? { teamLeadId } : {}),
+        summary,
+    });
     return res.json(
         apiResponse(true, teamLeadId ? "Team brokers loaded" : "Brokers loaded", data)
     );
+}
+
+export async function crmShipmentTabCountsController(req: AuthRequest, res: Response) {
+    const requested =
+        typeof req.query.brokerId === "string" ? req.query.brokerId : undefined;
+    const mine = req.query.mine === "1" || req.query.mine === "true";
+    let brokerId = scopedBrokerId(req, requested);
+    if (mine && req.user?.userId) {
+        brokerId = req.user.userId;
+    }
+    if (!brokerId) {
+        return res.status(422).json(apiResponse(false, "brokerId is required for tab counts"));
+    }
+    if (
+        isDataScopedRole(req.user?.role || "") &&
+        requested &&
+        requested !== req.user!.userId
+    ) {
+        return res.status(403).json(apiResponse(false, "Forbidden — cannot count another broker's shipments"));
+    }
+    const teamLeadId = teamScopeUserId(req);
+    if (teamLeadId && requested) {
+        const onTeam = await isBrokerOnTeam(teamLeadId, requested);
+        if (!onTeam) {
+            return res.status(403).json(apiResponse(false, "Forbidden — broker is not on your team"));
+        }
+    }
+    const data = await crmService.countBrokerShipmentTabs(brokerId);
+    return res.json(apiResponse(true, "Tab counts loaded", data));
 }
 
 export async function crmBrokerWorkspaceController(req: AuthRequest, res: Response) {

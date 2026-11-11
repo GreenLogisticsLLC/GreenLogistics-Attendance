@@ -579,8 +579,12 @@ export class CrmService {
         statusGroup?: string;
         /** Include terminal deleted rows (default: hide — they are purged from CRM). */
         includeDeleted?: boolean;
+        /** Return total only — used by tab badge probes. */
+        countOnly?: boolean;
+        /** Skip wasEverReassigned repair (caller already ran it). */
+        skipRepair?: boolean;
     }) {
-        if (options?.lite || options?.assignmentKind) {
+        if ((options?.lite || options?.assignmentKind) && !options?.skipRepair && !options?.countOnly) {
             try {
                 const { assignmentEngine } = await import(
                     "../../assignment/assignment.engine.js"
@@ -709,6 +713,21 @@ export class CrmService {
         const pageSize = Math.min(200, Math.max(1, Number(pageSizeRaw) || 50));
         const page = Math.max(1, Number(options?.page) || 1);
         const skip = (page - 1) * pageSize;
+        const emptyPage = {
+            items: [] as Array<Record<string, unknown>>,
+            total: 0,
+            page,
+            pageSize,
+            totalPages: 1,
+            statusGroup,
+            statusFilters: statusFiltersForClient(),
+        };
+
+        // Badge probes only need totals — never hydrate rows or flag events.
+        if (options?.countOnly) {
+            const total = await prisma.shipmentLead.count({ where });
+            return { ...emptyPage, total, totalPages: Math.max(1, Math.ceil(total / Math.max(1, pageSize))) };
+        }
 
         // Broker My Shipments: priority board order must apply across pages
         // (Waiting → BROKER REPLY / Bid Submitted → Shipment Accepted), not only
@@ -717,13 +736,26 @@ export class CrmService {
         let total: number;
         let rows: Array<Record<string, unknown>>;
         if (priorityBoard) {
-            const all = await prisma.shipmentLead.findMany({
+            // Sort keys only — full list columns load for the current page.
+            const sortKeys = await prisma.shipmentLead.findMany({
                 where,
-                select: SHIPMENT_LIST_SELECT,
+                select: { shipmentLeadId: true, status: true, updatedAt: true },
             });
-            all.sort(compareShipmentsForBoard);
-            total = all.length;
-            rows = all.slice(skip, skip + pageSize) as Array<Record<string, unknown>>;
+            sortKeys.sort(compareShipmentsForBoard);
+            total = sortKeys.length;
+            const pageIds = sortKeys.slice(skip, skip + pageSize).map((row) => row.shipmentLeadId);
+            if (!pageIds.length) {
+                rows = [];
+            } else {
+                const pageRows = await prisma.shipmentLead.findMany({
+                    where: { shipmentLeadId: { in: pageIds } },
+                    select: SHIPMENT_LIST_SELECT,
+                });
+                const byId = new Map(pageRows.map((row) => [row.shipmentLeadId, row]));
+                rows = pageIds
+                    .map((id) => byId.get(id))
+                    .filter(Boolean) as Array<Record<string, unknown>>;
+            }
         } else {
             const [count, pageRows] = await Promise.all([
                 prisma.shipmentLead.count({ where }),
@@ -1250,22 +1282,64 @@ export class CrmService {
         return counts;
     }
 
-    async getBrokerWorkload(options?: { teamLeadId?: string }) {
+    /**
+     * One round-trip for My Shipments tab badges (New / Other / Accepted / …).
+     * Uses count-only queries — no row hydration.
+     */
+    async countBrokerShipmentTabs(brokerId: string) {
+        try {
+            const { assignmentEngine } = await import("../../assignment/assignment.engine.js");
+            await assignmentEngine.repairPassedShipmentFlags();
+        } catch {
+            /* counts still work if repair is busy */
+        }
+        const base = { brokerId, countOnly: true as const, lite: true as const, skipRepair: true as const };
+        const [newMeta, otherMeta, acceptedMeta, loadsMeta, aacMeta, nlrMeta, declineMeta] =
+            await Promise.all([
+                this.listShipments({ ...base, assignmentKind: "new" }),
+                this.listShipments({ ...base, assignmentKind: "other" }),
+                this.listShipments({ ...base, assignmentKind: "accepted" }),
+                this.listShipments({ ...base, assignmentKind: "loads" }),
+                this.listShipments({ ...base, status: "ACCEPTED_ANOTHER_COMPANY" }),
+                this.listShipments({ ...base, status: "NO_LONGER_NEEDED" }),
+                this.listShipments({ ...base, status: "ROUND_DECLINED" }),
+            ]);
+        return {
+            new: newMeta.total,
+            other: otherMeta.total,
+            accepted: acceptedMeta.total,
+            loads: loadsMeta.total,
+            acceptedAnother: aacMeta.total,
+            noLongerNeeded: nlrMeta.total,
+            decline: declineMeta.total,
+        };
+    }
+
+    async getBrokerWorkload(options?: {
+        teamLeadId?: string;
+        /** Limit to these user ids (e.g. one broker workspace). */
+        brokerIds?: string[];
+        /** Brokers list / Give-to — skip avg response + bid scan. */
+        summary?: boolean;
+    }) {
         const teamUserIds = options?.teamLeadId
             ? await listTeamBrokerIds(options.teamLeadId)
             : null;
+        const scopedIds = options?.brokerIds?.filter(Boolean) || null;
         const brokers = await prisma.user.findMany({
             where: {
                 isActive: true,
-                ...(teamUserIds
-                    ? { userId: { in: teamUserIds } }
-                    : {
-                          role: {
-                              roleName: {
-                                  in: ["Broker", "Team Lead", "Manager", "Accounting", "Owner"],
-                              },
-                          },
-                      }),
+                ...(scopedIds
+                    ? { userId: { in: scopedIds } }
+                    : teamUserIds
+                      ? { userId: { in: teamUserIds } }
+                      : {
+                            role: {
+                                roleName: {
+                                    in: ["Broker", "Team Lead", "Manager", "Accounting", "Owner"],
+                                },
+                            },
+                        }),
             },
             include: {
                 role: true,
@@ -1273,34 +1347,49 @@ export class CrmService {
             },
             orderBy: { firstName: "asc" },
         });
-        const pool = teamUserIds
+        const pool = scopedIds
             ? brokers
-            : brokers.filter(
-                  (b) => b.role.roleName === "Broker" || b.role.roleName === "Team Lead"
-              );
+            : teamUserIds
+              ? brokers
+              : brokers.filter(
+                    (b) => b.role.roleName === "Broker" || b.role.roleName === "Team Lead"
+                );
         const poolIds = pool.map((b) => b.userId);
         const employeeIds = pool
             .map((b) => b.employeeId)
             .filter((id): id is string => Boolean(id));
+        const summary = options?.summary === true;
 
         const [statusCounts, acceptedRows, inOfficeIds, bidCounts] = await Promise.all([
-            prisma.shipmentLead.groupBy({
-                by: ["assignedBrokerId", "status"],
-                where: { assignedBrokerId: { in: poolIds } },
-                _count: { _all: true },
-            }),
-            prisma.shipmentLead.findMany({
-                where: {
-                    assignedBrokerId: { in: poolIds },
-                    assignedAt: { not: null },
-                    acceptedAt: { not: null },
-                },
-                select: { assignedBrokerId: true, assignedAt: true, acceptedAt: true },
-                orderBy: { acceptedAt: "desc" },
-                take: Math.max(poolIds.length * 100, 500),
-            }),
+            poolIds.length
+                ? prisma.shipmentLead.groupBy({
+                      by: ["assignedBrokerId", "status"],
+                      where: { assignedBrokerId: { in: poolIds } },
+                      _count: { _all: true },
+                  })
+                : Promise.resolve([]),
+            summary || !poolIds.length
+                ? Promise.resolve(
+                      [] as Array<{
+                          assignedBrokerId: string | null;
+                          assignedAt: Date | null;
+                          acceptedAt: Date | null;
+                      }>
+                  )
+                : prisma.shipmentLead.findMany({
+                      where: {
+                          assignedBrokerId: { in: poolIds },
+                          assignedAt: { not: null },
+                          acceptedAt: { not: null },
+                      },
+                      select: { assignedBrokerId: true, assignedAt: true, acceptedAt: true },
+                      orderBy: { acceptedAt: "desc" },
+                      take: Math.max(poolIds.length * 100, 500),
+                  }),
             getInOfficeEmployeeIds(employeeIds),
-            this.countShipmentsWithBid(poolIds),
+            summary || !poolIds.length
+                ? Promise.resolve(new Map<string, number>())
+                : this.countShipmentsWithBid(poolIds),
         ]);
 
         const countsByBroker = new Map<string, Map<string, number>>();
@@ -1395,8 +1484,12 @@ export class CrmService {
         });
         if (!user) return null;
 
-        const stats = (await this.getBrokerWorkload()).find((b) => b.brokerId === brokerId);
-        const shipments = await this.listShipments({ brokerId, limit: 200, pageSize: 200 });
+        // Only this broker — never scan every staff member's accepted/bid history.
+        const [workload, shipments] = await Promise.all([
+            this.getBrokerWorkload({ brokerIds: [brokerId] }),
+            this.listShipments({ brokerId, limit: 200, pageSize: 200, lite: true }),
+        ]);
+        const stats = workload.find((b) => b.brokerId === brokerId);
 
         return {
             broker: {
