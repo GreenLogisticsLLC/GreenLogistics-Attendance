@@ -17,6 +17,7 @@ import {
     accountingReadyCarrierPayController,
     accountingRejectDocumentsController,
     accountingSendInvoiceController,
+    accountingSendCarrierInvoiceController,
     accountingVerifyDocumentsController,
     accountingVerifyFinancialsController,
 } from "../controllers/accounting.controller.js";
@@ -78,6 +79,11 @@ accountingRouter.post(
     "/shipments/:id/invoice/send",
     requireAccountingPermission(AccountingPermissions.BillingSend),
     accountingSendInvoiceController
+);
+accountingRouter.post(
+    "/shipments/:id/carrier-invoice/send",
+    requireAccountingPermission(AccountingPermissions.BillingSend),
+    accountingSendCarrierInvoiceController
 );
 accountingRouter.post(
     "/shipments/:id/customer-payment",

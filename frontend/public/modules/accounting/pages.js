@@ -2057,16 +2057,14 @@ window.GreenOSModules.accounting = {
           : '<p class="gos-muted">No carrier invoice uploaded yet.</p>') +
         '<div class="acc-invoice-actions">' +
         self.invoiceUploadControlHtml("CARRIER_INVOICE", "+ Add Carrier Invoice") +
-        '<button type="button" class="btn-primary acc-send-btn" data-act="carr-pay"' +
-        (perms.canExecuteCarrierPayment && acc.canPayCarrier
-          ? ""
-          : ' disabled title="' +
-            (perms.canExecuteCarrierPayment
-              ? "Blocked until documents are verified and carrier payment is ready"
-              : "Carrier payment permission required") +
-            '"') +
+        '<button type="button" class="btn-primary acc-send-btn" data-act="send-carrier-invoice"' +
+        (perms.canSendCarrierInvoice || perms.canSendInvoice || perms.canCreateInvoice
+          ? carrInvoice && carrInvoice.openUrl
+            ? ""
+            : ' disabled title="Upload the carrier invoice first"'
+          : ' disabled title="Carrier invoice send permission required"') +
         ">Send</button></div>" +
-        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Uploading a carrier invoice moves this load into Carrier Payments. Send pays the carrier after documents and amounts are verified.</p>' +
+        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Upload the carrier invoice, then Send moves this load into Carrier Payments (AP). Paying the carrier happens later in Carrier Payments after documents are verified.</p>' +
         "</section></div>" +
         '<section class="acc-card acc-rate-card"><h3>Rate &amp; Payment</h3>' +
         '<div class="acc-rate-sides">' +
@@ -2148,18 +2146,36 @@ window.GreenOSModules.accounting = {
 
       var genericFile = host.querySelector("#acc-generic-file");
       var pendingDocType = null;
+      function pickDocFile(docType, preferredInput) {
+        pendingDocType = docType || null;
+        var dedicated =
+          preferredInput ||
+          (docType
+            ? host.querySelector('.acc-file-input[data-doc-type="' + docType + '"]')
+            : null);
+        var target = dedicated || genericFile;
+        if (!self.openFilePicker(target)) {
+          alert("Could not open the file picker. Try again or use a different browser.");
+        }
+      }
       host.querySelectorAll(".acc-doc-upload-btn").forEach(function (btn) {
         btn.addEventListener("click", function (ev) {
           ev.preventDefault();
           ev.stopPropagation();
-          pendingDocType = btn.getAttribute("data-doc-type");
-          var dedicated = host.querySelector(
-            '.acc-file-input[data-doc-type="' + pendingDocType + '"]'
+          pickDocFile(btn.getAttribute("data-doc-type"));
+        });
+      });
+      // Label+input should open the picker natively; back it with JS for stubborn browsers.
+      host.querySelectorAll(".acc-invoice-add-label").forEach(function (label) {
+        label.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          var forId = label.getAttribute("for");
+          var input = forId ? document.getElementById(forId) : null;
+          pickDocFile(
+            (input && input.getAttribute("data-doc-type")) || null,
+            input
           );
-          var target = dedicated || genericFile;
-          if (!self.openFilePicker(target)) {
-            alert("Could not open the file picker. Try again or use a different browser.");
-          }
         });
       });
       function handleFileInput(input) {
@@ -2181,7 +2197,7 @@ window.GreenOSModules.accounting = {
             pendingDocType = null;
             if (docType === "CARRIER_INVOICE") {
               self._profileFlash =
-                "Carrier invoice uploaded — load moved to Carrier Payments.";
+                "Carrier invoice uploaded. Click Send to move this load into Carrier Payments.";
             } else if (docType === "CUSTOMER_INVOICE") {
               self._profileFlash = "Customer invoice uploaded.";
             }
@@ -2357,6 +2373,15 @@ window.GreenOSModules.accounting = {
         return;
       }
       path = "/shipments/" + id + "/invoice/send";
+    } else if (act === "send-carrier-invoice") {
+      if (
+        !window.confirm(
+          "Send the carrier invoice to Carrier Payments (AP) now? The load will appear in the Carrier Payments queue. Paying the carrier still happens later after documents are verified."
+        )
+      ) {
+        return;
+      }
+      path = "/shipments/" + id + "/carrier-invoice/send";
     } else if (act === "cust-pay") path = "/shipments/" + id + "/customer-payment";
     else if (act === "carr-pay") {
       if (
@@ -2391,8 +2416,15 @@ window.GreenOSModules.accounting = {
         msg.textContent =
           act === "send-invoice"
             ? (res.message || "Invoice sent") + " — load moved to Billing (AR)."
-            : res.message || "Done";
+            : act === "send-carrier-invoice"
+              ? (res.message || "Carrier invoice sent") +
+                " — load moved to Carrier Payments."
+              : res.message || "Done";
         msg.style.color = "#22c55e";
+      }
+      if (act === "send-carrier-invoice") {
+        self._profileFlash =
+          (res.message || "Carrier invoice sent") + " — open Carrier Payments to continue.";
       }
       await self.openShipment(host, id);
     } catch (err) {

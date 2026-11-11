@@ -976,29 +976,33 @@ export class LoadDocumentsService {
                 .catch(() => null);
         }
 
-        // Carrier invoice upload moves the load into Carrier Payments (AP).
+        // Carrier invoice upload queues the load for Carrier Payments (AP).
         if (docType === "CARRIER_INVOICE" && !lead.carrierPaidAt) {
-            await prisma.shipmentLead
-                .update({
-                    where: { shipmentLeadId: input.shipmentLeadId },
-                    data: { accountingReadyForCarrierPayment: true },
-                })
-                .catch(() => null);
-            await domainEventEngine
-                .emit({
-                    shipmentLeadId: input.shipmentLeadId,
-                    eventType: "STATUS_CHANGED",
-                    title: "Ready for Carrier Payment",
-                    message: `Carrier invoice uploaded — Load ${lead.loadNumber} moved to Carrier Payments`,
-                    actorUserId: input.actorUserId,
-                    payload: {
-                        documentId: row.documentId,
-                        docType,
-                        accountingReadyForCarrierPayment: true,
-                    },
-                    timelineStage: "LOAD_CREATED",
-                })
-                .catch(() => null);
+            const { canTransition } = await import("../shipment.lifecycle.js");
+            const nextStatus = canTransition(String(lead.status || ""), "CARRIER_PAYMENT")
+                ? "CARRIER_PAYMENT"
+                : undefined;
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId: input.shipmentLeadId },
+                data: {
+                    accountingReadyForCarrierPayment: true,
+                    ...(nextStatus ? { status: nextStatus } : {}),
+                },
+            });
+            await domainEventEngine.emit({
+                shipmentLeadId: input.shipmentLeadId,
+                eventType: "STATUS_CHANGED",
+                title: "Ready for Carrier Payment",
+                message: `Carrier invoice uploaded — Load ${lead.loadNumber} moved to Carrier Payments`,
+                actorUserId: input.actorUserId,
+                payload: {
+                    documentId: row.documentId,
+                    docType,
+                    accountingReadyForCarrierPayment: true,
+                    ...(nextStatus ? { status: nextStatus } : {}),
+                },
+                timelineStage: nextStatus || "LOAD_CREATED",
+            });
         }
 
         return row;

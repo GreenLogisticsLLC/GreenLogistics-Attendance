@@ -16,6 +16,7 @@ import { sendCustomerInvoiceEmail } from "../customer-invoice-email.js";
 import { customerPaymentQuote } from "../../shipment/customer-payment.js";
 import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
 import { resolveLoadDocumentAbsolutePath } from "../../shipment/services/load-pdf.service.js";
+import { canTransition } from "../../shipment/shipment.lifecycle.js";
 
 type Actor = {
     userId: string;
@@ -815,8 +816,106 @@ where: { loadNumber: { not: null } },
                     actor.accountingSubRole,
                     AccountingPermissions.CarrierPaymentsExecute
                 ),
+                // Documents (BillingSend) or Payments can queue a carrier invoice into AP.
+                canSendCarrierInvoice:
+                    hasAccountingPermission(
+                        actor.role,
+                        actor.accountingSubRole,
+                        AccountingPermissions.BillingSend
+                    ) ||
+                    hasAccountingPermission(
+                        actor.role,
+                        actor.accountingSubRole,
+                        AccountingPermissions.CarrierPaymentsExecute
+                    ),
             },
         };
+    }
+
+    /**
+     * After a carrier invoice is uploaded, Send moves the load into Carrier Payments (AP).
+     * Actual payout stays on Carrier Payments → Execute (Payments team).
+     */
+    async sendCarrierInvoice(actor: Actor, shipmentLeadId: string) {
+        const canSend =
+            hasAccountingPermission(
+                actor.role,
+                actor.accountingSubRole,
+                AccountingPermissions.BillingSend
+            ) ||
+            hasAccountingPermission(
+                actor.role,
+                actor.accountingSubRole,
+                AccountingPermissions.CarrierPaymentsExecute
+            );
+        if (!canSend) {
+            throw forbid("You cannot send a carrier invoice to Carrier Payments");
+        }
+        const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!s) throw notFound("Shipment not found");
+        if (s.carrierPaidAt) {
+            throw badRequest("Carrier is already paid on this load");
+        }
+
+        const invoiceDoc = await prisma.loadDocument.findFirst({
+            where: {
+                shipmentLeadId,
+                docType: "CARRIER_INVOICE",
+                isCurrent: true,
+                status: { not: "ARCHIVED" },
+            },
+            orderBy: { version: "desc" },
+        });
+        if (!invoiceDoc?.storedName || !invoiceDoc.fileUrl) {
+            throw badRequest("Upload the Carrier Invoice document before sending");
+        }
+        const absolutePath = resolveLoadDocumentAbsolutePath(shipmentLeadId, invoiceDoc.storedName);
+        if (!absolutePath) {
+            throw badRequest("Carrier Invoice file is missing on the server — upload it again");
+        }
+
+        const nextStatus = canTransition(String(s.status || ""), "CARRIER_PAYMENT")
+            ? "CARRIER_PAYMENT"
+            : undefined;
+        const updated = await prisma.shipmentLead.update({
+            where: { shipmentLeadId },
+            data: {
+                accountingReadyForCarrierPayment: true,
+                ...(nextStatus ? { status: nextStatus } : {}),
+            },
+        });
+        await prisma.loadDocument
+            .update({
+                where: { documentId: invoiceDoc.documentId },
+                data: { status: "SENT" },
+            })
+            .catch(() => null);
+        await writeAudit({
+            actor,
+            action: "CARRIER_INVOICE_SENT_TO_AP",
+            shipmentLeadId,
+            newValue: {
+                accountingReadyForCarrierPayment: true,
+                documentId: invoiceDoc.documentId,
+                ...(nextStatus ? { status: nextStatus } : {}),
+            },
+        });
+        await domainEventEngine
+            .emit({
+                shipmentLeadId,
+                eventType: "STATUS_CHANGED",
+                title: "Carrier invoice sent to AP",
+                message: `Carrier invoice sent — Load ${s.loadNumber || shipmentLeadId} moved to Carrier Payments`,
+                actorUserId: actor.userId,
+                payload: {
+                    accountingReadyForCarrierPayment: true,
+                    documentId: invoiceDoc.documentId,
+                    ...(nextStatus ? { status: nextStatus } : {}),
+                },
+                timelineStage: nextStatus || "LOAD_CREATED",
+            })
+            .catch(() => null);
+        return updated;
     }
 
     async verifyDocuments(
