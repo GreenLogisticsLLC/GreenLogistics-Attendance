@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { prisma } from "../../../config/database.js";
 import { carrierStorageService } from "../../carriers/services/carrier-storage.service.js";
-import { LOAD_DOCS_ROOT } from "../../shipment/services/load-pdf.service.js";
+import { resolveLoadDocumentAbsolutePath } from "../../shipment/services/load-pdf.service.js";
 import { classifyDocumentText, type DocAiType } from "./classify.js";
 import { extractFieldsForType, type ExtractedField } from "./extract.js";
 import type { W9Marks } from "./w9-marks.js";
@@ -80,15 +80,6 @@ function sha256File(abs: string): string {
     return crypto.createHash("sha256").update(buf).digest("hex");
 }
 
-function pathJoinSafe(root: string, id: string, name: string): string {
-    const resolved = path.resolve(path.join(root, id, name));
-    const base = path.resolve(path.join(root, id));
-    if (!resolved.startsWith(base + path.sep) && resolved !== base) {
-        throw Object.assign(new Error("Invalid document path"), { status: 400 });
-    }
-    return resolved;
-}
-
 async function resolveFilePath(job: {
     documentSource: string;
     documentId: string;
@@ -114,7 +105,8 @@ async function resolveFilePath(job: {
     }
     const doc = await prisma.loadDocument.findUnique({ where: { documentId: job.documentId } });
     if (!doc || !doc.storedName) return null;
-    const abs = pathJoinSafe(LOAD_DOCS_ROOT, doc.shipmentLeadId, doc.storedName);
+    const abs = resolveLoadDocumentAbsolutePath(doc.shipmentLeadId, doc.storedName);
+    if (!abs) return null;
     return {
         absPath: abs,
         declaredType: doc.docType,

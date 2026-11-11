@@ -366,13 +366,9 @@ export class LoadDocumentsService {
         };
 
         const version = (current.version || 0) + 1;
-        if (current.isCurrent) {
-            await prisma.loadDocument.update({
-                where: { documentId: current.documentId },
-                data: { isCurrent: false },
-            });
-        }
-
+        // Generate the signed PDF first. Only demote the previous current after the
+        // new FINAL_SIGNED row exists — otherwise a mid-flight failure leaves the Load
+        // with no current Rate Confirmation and archive/Preview look empty.
         const pdf = await generateLoadDocumentPdf({
             shipmentLeadId,
             docType: "RATE_CONFIRMATION",
@@ -381,23 +377,31 @@ export class LoadDocumentsService {
         });
 
         const title = `${LOAD_DOC_TYPE_LABELS.RATE_CONFIRMATION || "Rate Confirmation"} v${version}`;
-        const row = await prisma.loadDocument.create({
-            data: {
-                shipmentLeadId,
-                docType: "RATE_CONFIRMATION",
-                version,
-                changeReason: "FINAL_SIGNED",
-                title,
-                status: "READY",
-                isCurrent: true,
-                contentJson: JSON.stringify(content),
-                fileName: pdf.fileName,
-                mimeType: pdf.mimeType,
-                storedName: pdf.storedName,
-                fileUrl: pdf.fileUrl,
-                fileSize: pdf.fileSize,
-                createdById: input.actorUserId || null,
-            },
+        const row = await prisma.$transaction(async (tx) => {
+            if (current.isCurrent) {
+                await tx.loadDocument.update({
+                    where: { documentId: current.documentId },
+                    data: { isCurrent: false },
+                });
+            }
+            return tx.loadDocument.create({
+                data: {
+                    shipmentLeadId,
+                    docType: "RATE_CONFIRMATION",
+                    version,
+                    changeReason: "FINAL_SIGNED",
+                    title,
+                    status: "READY",
+                    isCurrent: true,
+                    contentJson: JSON.stringify(content),
+                    fileName: pdf.fileName,
+                    mimeType: pdf.mimeType,
+                    storedName: pdf.storedName,
+                    fileUrl: pdf.fileUrl,
+                    fileSize: pdf.fileSize,
+                    createdById: input.actorUserId || null,
+                },
+            });
         });
 
         await domainEventEngine.emit({

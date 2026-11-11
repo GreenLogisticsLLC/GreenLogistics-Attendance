@@ -1,5 +1,4 @@
 import fs from "fs";
-import path from "path";
 import { prisma } from "../../../config/database.js";
 import {
     AccountingPermissions,
@@ -16,7 +15,7 @@ import { buildAccountingDocuments } from "../accounting-documents.js";
 import { sendCustomerInvoiceEmail } from "../customer-invoice-email.js";
 import { customerPaymentQuote } from "../../shipment/customer-payment.js";
 import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
-import { LOAD_DOCS_ROOT } from "../../shipment/services/load-pdf.service.js";
+import { resolveLoadDocumentAbsolutePath } from "../../shipment/services/load-pdf.service.js";
 
 type Actor = {
     userId: string;
@@ -1110,8 +1109,8 @@ where: { loadNumber: { not: null } },
         if (!invoiceDoc?.storedName || !invoiceDoc.fileUrl) {
             throw badRequest("Upload the Customer Invoice document before sending");
         }
-        const absolutePath = path.join(LOAD_DOCS_ROOT, shipmentLeadId, invoiceDoc.storedName);
-        if (!fs.existsSync(absolutePath)) {
+        const absolutePath = resolveLoadDocumentAbsolutePath(shipmentLeadId, invoiceDoc.storedName);
+        if (!absolutePath) {
             throw badRequest("Customer Invoice file is missing on the server");
         }
 
