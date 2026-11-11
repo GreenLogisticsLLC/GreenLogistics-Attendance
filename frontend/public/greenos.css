@@ -4098,6 +4098,24 @@ tr.crm-row.load-row-no-carrier td:first-child {
   border: 1.5px solid color-mix(in srgb, var(--gos-accent) 55%, var(--gos-border));
   background: color-mix(in srgb, var(--gos-accent) 12%, transparent);
 }
+.acc-dash-table-wrap {
+  max-height: min(62vh, 42rem);
+  overflow: auto;
+  margin-top: 0.75rem;
+  border: 1px solid var(--gos-border);
+  border-radius: 10px;
+  -webkit-overflow-scrolling: touch;
+}
+.acc-dash-table-wrap .acc-dash-table {
+  margin: 0;
+}
+.acc-dash-table-wrap .acc-dash-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #0b1220;
+  box-shadow: 0 1px 0 var(--gos-border);
+}
 .acc-dash-table .acc-dash-check {
   width: 2rem;
 }
