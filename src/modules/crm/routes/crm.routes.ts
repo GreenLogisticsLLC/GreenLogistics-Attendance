@@ -15,6 +15,7 @@ import {
     crmOpenUshipController,
     crmListBrokersController,
     crmListShipmentsController,
+    crmShipmentTabCountsController,
     crmMarkShipmentOpenedController,
     crmMarkAllNotificationsReadController,
     crmMarkNotificationReadController,
@@ -66,6 +67,7 @@ crmRouter.get("/problems", problemsRoles, crmListProblemsController);
 crmRouter.get("/problems/monthly-stats", problemsRoles, crmProblemsMonthlyStatsController);
 crmRouter.get("/problems/late", problemsRoles, crmListLateProblemsController);
 crmRouter.get("/shipments", crmRoles, crmListShipmentsController);
+crmRouter.get("/shipments/tab-counts", crmRoles, crmShipmentTabCountsController);
 crmRouter.get("/team-broker-stats", crmRoles, crmBrokerShipmentStatsController);
 crmRouter.get("/shipments/:id/uship", crmRoles, crmOpenUshipController);
 crmRouter.get("/shipments/:id", crmRoles, crmGetShipmentController);

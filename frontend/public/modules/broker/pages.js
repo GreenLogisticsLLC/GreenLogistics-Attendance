@@ -148,7 +148,27 @@ window.GreenOSModules.broker = {
     if (this._personalMine) {
       q += (q ? "&" : "") + "mine=1";
     }
+    // Always ask for the slim list row — owner desk and personal desk share this table.
+    if (q.indexOf("lite=") < 0) {
+      q += (q ? "&" : "") + "lite=1";
+    }
     return "/shipments?" + q;
+  },
+
+  /** Prefill Give-to from the Brokers list already in memory (no second heavy /brokers wait). */
+  seedGivePeopleFromStaff(rows, excludeBrokerId) {
+    var people = Array.isArray(rows) ? rows : [];
+    var exclude = excludeBrokerId ? String(excludeBrokerId) : "";
+    this._opsGivePeople = people
+      .filter(function (person) {
+        return person && person.brokerId && String(person.brokerId) !== exclude;
+      })
+      .map(function (person) {
+        return {
+          id: String(person.brokerId),
+          label: person.name + (person.role ? " · " + person.role : ""),
+        };
+      });
   },
 
   async api(path, options) {
@@ -890,24 +910,46 @@ window.GreenOSModules.broker = {
     window.GreenOSBrokerSearchHandler = applyGlobalSearch;
     globalSearch?.addEventListener("input", applyGlobalSearch);
 
-    async function paint(force) {
-      if (self._opsView && !self._opsGivePeople) {
-        try {
-          var staff = await self.api("/brokers");
-          var people = staff && staff.success ? staff.data || [] : [];
-          self._opsGivePeople = people
-            .filter(function (person) {
-              return person.brokerId && person.brokerId !== self._opsView.brokerId;
-            })
-            .map(function (person) {
-              return {
-                id: String(person.brokerId),
-                label: person.name + (person.role ? " · " + person.role : ""),
-              };
-            });
-        } catch (e) {
-          self._opsGivePeople = [];
+    async function loadTabCounts(myGen) {
+      try {
+        var countQs = "page=1&pageSize=1";
+        if (self._scopeBrokerId) {
+          countQs += "&brokerId=" + encodeURIComponent(self._scopeBrokerId);
         }
+        if (self._personalMine) countQs += "&mine=1";
+        var countsRes = await self.api("/shipments/tab-counts?" + countQs);
+        if (myGen !== paintGen) return;
+        var c = (countsRes && countsRes.success && countsRes.data) || null;
+        if (!c) return;
+        updateTabCounts({
+          newCount: c.new != null ? c.new : "…",
+          otherCount: c.other != null ? c.other : "…",
+          acceptedCount: c.accepted != null ? c.accepted : "…",
+          loadsCount: c.loads != null ? c.loads : "…",
+          aacCount: c.acceptedAnother != null ? c.acceptedAnother : "…",
+          nlrCount: c.noLongerNeeded != null ? c.noLongerNeeded : "…",
+          declineCount: c.decline != null ? c.decline : "…",
+        });
+      } catch {
+        /* counts are optional — table already painted */
+      }
+    }
+
+    async function ensureGivePeople() {
+      if (!self._opsView || self._opsGivePeople) return;
+      try {
+        var staff = await self.api("/brokers?summary=1");
+        var people = staff && staff.success ? staff.data || [] : [];
+        self.seedGivePeopleFromStaff(people, self._opsView.brokerId);
+      } catch (e) {
+        self._opsGivePeople = [];
+      }
+    }
+
+    async function paint(force) {
+      // Give-to staff must not block the shipments table.
+      if (self._opsView && !self._opsGivePeople) {
+        ensureGivePeople();
       }
       var tbody = document.getElementById("broker-ship-body");
       var syncEls = body.querySelectorAll(".broker-ship-sync");
@@ -983,36 +1025,6 @@ window.GreenOSModules.broker = {
         self._shipmentsTotalPages = totalPages;
         self._shipmentsTotal = total;
 
-        // Lightweight count probes for the other tabs (pageSize=1 → total only).
-        try {
-          var [newMeta, otherMeta, acceptedMeta, loadsMeta, aacMeta, nlrMeta, declineMeta] = await Promise.all([
-            self.api(self.shipmentsQuery("assignmentKind=new&page=1&pageSize=1")),
-            self.api(self.shipmentsQuery("assignmentKind=other&page=1&pageSize=1")),
-            self.api(self.shipmentsQuery("assignmentKind=accepted&page=1&pageSize=1")),
-            self.api(self.shipmentsQuery("assignmentKind=loads&page=1&pageSize=1")),
-            self.api(self.shipmentsQuery("status=ACCEPTED_ANOTHER_COMPANY&page=1&pageSize=1")),
-            self.api(self.shipmentsQuery("status=NO_LONGER_NEEDED&page=1&pageSize=1")),
-            self.api(self.shipmentsQuery("status=ROUND_DECLINED&page=1&pageSize=1")),
-          ]);
-          updateTabCounts({
-            newCount: newMeta && newMeta.success ? (newMeta.data && newMeta.data.total) || 0 : "…",
-            otherCount:
-              otherMeta && otherMeta.success ? (otherMeta.data && otherMeta.data.total) || 0 : "…",
-            acceptedCount:
-              acceptedMeta && acceptedMeta.success
-                ? (acceptedMeta.data && acceptedMeta.data.total) || 0
-                : "…",
-            loadsCount:
-              loadsMeta && loadsMeta.success ? (loadsMeta.data && loadsMeta.data.total) || 0 : "…",
-            aacCount: aacMeta && aacMeta.success ? (aacMeta.data && aacMeta.data.total) || 0 : "…",
-            nlrCount: nlrMeta && nlrMeta.success ? (nlrMeta.data && nlrMeta.data.total) || 0 : "…",
-            declineCount:
-              declineMeta && declineMeta.success ? (declineMeta.data && declineMeta.data.total) || 0 : "…",
-          });
-        } catch {
-          /* counts are optional */
-        }
-
         prevBtns.forEach(function (btn) {
           btn.disabled = page <= 1;
         });
@@ -1036,7 +1048,9 @@ window.GreenOSModules.broker = {
         syncEls.forEach(function (el) {
           el.textContent = syncText;
         });
+        // Paint the table first — tab badges load in the background.
         renderRows(rows, { page: page, pageSize: pageSize });
+        loadTabCounts(myGen);
       } catch (err) {
         var failText =
           "Refresh failed" +
