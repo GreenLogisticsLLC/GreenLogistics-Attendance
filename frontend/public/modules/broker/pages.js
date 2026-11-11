@@ -839,9 +839,13 @@ window.GreenOSModules.broker = {
           if (!confirm("Decline this shipment? It goes to the next broker now. The 15-minute timer stays for the others.")) return;
           btn.disabled = true;
           try {
+            var declineBody = {};
+            if (self._opsView && self._opsView.brokerId) {
+              declineBody.asBrokerId = String(self._opsView.brokerId);
+            }
             var json = await self.api("/shipments/" + encodeURIComponent(id) + "/decline", {
               method: "POST",
-              body: "{}",
+              body: JSON.stringify(declineBody),
             });
             if (!json || json.success === false) {
               throw new Error((json && json.message) || "Could not decline");

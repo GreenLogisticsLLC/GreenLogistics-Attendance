@@ -1009,9 +1009,11 @@ window.GreenOSModules.crm = {
           if (!confirm("Decline this shipment? It goes to the next broker now. The 15-minute timer stays for the others.")) return;
           btn.disabled = true;
           try {
+            var declineBody = {};
+            if (brokerId) declineBody.asBrokerId = String(brokerId);
             var res = await window.GreenOSModules.crm.api("/shipments/" + encodeURIComponent(id) + "/decline", {
               method: "POST",
-              body: "{}",
+              body: JSON.stringify(declineBody),
             });
             if (!res || res.success === false) throw new Error((res && res.message) || "Could not decline");
             window.GreenOSModules.crm.renderShipments(body, root, brokerId, options);
@@ -2014,6 +2016,7 @@ window.GreenOSModules.crm = {
       });
       modal.querySelector("#crm-decline")?.addEventListener("click", async function () {
         if (!confirm("Decline this shipment? It goes to the next broker now. The 15-minute timer stays for the others.")) return;
+        // Backend declines on behalf of the assigned broker for Owner / Team Lead / Manager.
         var res = await window.GreenOSModules.crm.api("/shipments/" + id + "/decline", {
           method: "POST",
           body: "{}",

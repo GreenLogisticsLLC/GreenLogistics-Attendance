@@ -32,7 +32,15 @@ function opsViewBrokerId(req: AuthRequest): string | undefined {
     const raw = typeof req.query.brokerId === "string" ? req.query.brokerId.trim() : "";
     if (!raw) return undefined;
     const role = req.user?.role || "";
-    if (role === "Owner" || role === "Manager" || role === "Administrator") return raw;
+    // Owner/Manager/Admin and Team Lead may open a broker desk (team check happens later).
+    if (
+        role === "Owner" ||
+        role === "Manager" ||
+        role === "Administrator" ||
+        role === "Team Lead"
+    ) {
+        return raw;
+    }
     return undefined;
 }
 
@@ -296,14 +304,56 @@ export async function crmDeclineShipmentController(req: AuthRequest, res: Respon
     const id = String(req.params.id);
     if (!req.user?.userId) return res.status(401).json(apiResponse(false, "Unauthorized"));
     const role = req.user.role || "";
-    if (role !== "Broker" && role !== "Team Lead") {
+    const canDeclineRole =
+        role === "Broker" ||
+        role === "Team Lead" ||
+        role === "Owner" ||
+        role === "Manager" ||
+        role === "Administrator";
+    if (!canDeclineRole) {
         return res.status(403).json(apiResponse(false, "Only a Broker or Team Lead can decline a shipment"));
     }
     const access = await assertShipmentAccess(req, res, id);
     if (!access.ok) return;
+
+    // Brokers decline as themselves. Ops / Team Lead decline on behalf of the assigned
+    // broker (broker desk view already sends ?brokerId=…).
+    let declinerId = req.user.userId;
+    if (role !== "Broker") {
+        const requested =
+            (typeof req.body?.asBrokerId === "string" && String(req.body.asBrokerId).trim()) ||
+            (typeof req.query.brokerId === "string" && String(req.query.brokerId).trim()) ||
+            "";
+        if (requested) {
+            const ok = await assertBrokerWorkspaceAccess(req, res, requested);
+            if (!ok) return;
+            if (access.assignedBrokerId && requested !== access.assignedBrokerId) {
+                return res
+                    .status(403)
+                    .json(apiResponse(false, "Can only decline for the assigned broker"));
+            }
+            declinerId = requested;
+        } else if (access.assignedBrokerId) {
+            if (isTeamScopedRole(role)) {
+                const onTeam = await isBrokerOnTeam(req.user.userId, access.assignedBrokerId);
+                if (!onTeam) {
+                    return res
+                        .status(403)
+                        .json(apiResponse(false, "Forbidden — broker is not on your team"));
+                }
+            }
+            declinerId = access.assignedBrokerId;
+        } else if (role === "Team Lead") {
+            // Team Lead may be the assignee themselves.
+            declinerId = req.user.userId;
+        } else {
+            return res.status(422).json(apiResponse(false, "No assigned broker to decline for"));
+        }
+    }
+
     try {
         const { assignmentEngine } = await import("../../assignment/assignment.engine.js");
-        const data = await assignmentEngine.declineShipment(id, req.user.userId);
+        const data = await assignmentEngine.declineShipment(id, declinerId);
         return res.json(apiResponse(true, "Shipment declined", data));
     } catch (err) {
         const message = err instanceof Error ? err.message : "Decline failed";
