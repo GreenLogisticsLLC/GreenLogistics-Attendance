@@ -60,6 +60,9 @@ const DOCUMENTS_PERMISSIONS: AccountingPermission[] = [
     // Documents team uploads + emails the customer invoice from the load profile.
     AccountingPermissions.BillingCreate,
     AccountingPermissions.BillingSend,
+    // Documents can also send a carrier invoice into the Carrier Payments queue
+    // (Payments team still executes the actual payout).
+    AccountingPermissions.CarrierPaymentsView,
     AccountingPermissions.NotesCreate,
     AccountingPermissions.AuditView,
 ];

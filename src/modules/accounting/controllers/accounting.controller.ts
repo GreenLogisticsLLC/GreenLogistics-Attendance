@@ -158,6 +158,18 @@ export async function accountingSendInvoiceController(req: AuthRequest, res: Res
     }
 }
 
+export async function accountingSendCarrierInvoiceController(req: AuthRequest, res: Response) {
+    try {
+        const id = String(req.params.id || "");
+        const data = await accountingService.sendCarrierInvoice(actorFrom(req), id);
+        return res.json(
+            apiResponse(true, "Carrier invoice sent — load moved to Carrier Payments", data)
+        );
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
 export async function accountingCustomerPaymentController(req: AuthRequest, res: Response) {
     try {
         const id = String(req.params.id || "");
