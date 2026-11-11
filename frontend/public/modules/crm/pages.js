@@ -654,6 +654,7 @@ window.GreenOSModules.crm = {
       }
       params.push("page=" + encodeURIComponent(String(page)));
       params.push("pageSize=" + encodeURIComponent(String(pageSize)));
+      params.push("lite=1");
       var q = params.length ? "?" + params.join("&") : "";
       var data = await this.api("/shipments" + q);
       if (!data.success) {

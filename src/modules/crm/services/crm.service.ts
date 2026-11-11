@@ -168,6 +168,10 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         delivery: e.delivery,
         status: lead.status as string,
         statusLabel: e.statusLabel,
+        brokerName: e.brokerName,
+        assignedBrokerId: (lead.assignedBrokerId as string | null) || null,
+        miles: (lead.miles as number | null) ?? null,
+        price: (lead.price as number | null) ?? null,
         isReassignment: Boolean(lead.isReassignment || lead.wasEverReassigned),
         wasEverReassigned: Boolean(lead.wasEverReassigned || lead.isReassignment),
         carrierMissingOnPickup: carrierMissingOnPickup({
@@ -200,10 +204,17 @@ const HANDOFF_HIDDEN = [
     "VOIDED",
 ];
 
+/** Soft caps so New/Other boards stay responsive as assignment history grows. */
+const HANDOFF_LOG_CAP = 2000;
+const HANDOFF_FLAGGED_CAP = 1500;
+
 /**
  * Owner and team boards. New is each first give (ASSIGNED).
  * Other is each pass (REASSIGNED). The same shipment can be in both,
  * once for the person who received it as New and once for who received it as Other.
+ *
+ * Performance: scan capped logs + light lead meta, paginate, then hydrate only
+ * the current page of full list columns (never every matching row).
  */
 async function listHandoffBoard(options: {
     assignmentKind: "new" | "other";
@@ -212,20 +223,47 @@ async function listHandoffBoard(options: {
     page?: number;
     pageSize?: number;
     limit?: number;
+    lite?: boolean;
 }) {
     const eventType = options.assignmentKind === "other" ? "REASSIGNED" : "ASSIGNED";
     const teamIds = options.teamLeadId ? await listTeamBrokerIds(options.teamLeadId) : null;
-    const logs = await prisma.assignmentLog.findMany({
-        where: {
-            eventType,
-            shipmentLeadId: { not: null },
-            assignedUserId: teamIds
-                ? { in: teamIds.length ? teamIds : ["__none__"] }
-                : { not: null },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { shipmentLeadId: true, assignedUserId: true, createdAt: true },
-    });
+    const [logs, flagged] = await Promise.all([
+        prisma.assignmentLog.findMany({
+            where: {
+                eventType,
+                shipmentLeadId: { not: null },
+                assignedUserId: teamIds
+                    ? { in: teamIds.length ? teamIds : ["__none__"] }
+                    : { not: null },
+            },
+            orderBy: { createdAt: "desc" },
+            select: { shipmentLeadId: true, assignedUserId: true, createdAt: true },
+            take: HANDOFF_LOG_CAP,
+        }),
+        prisma.shipmentLead.findMany({
+            where: {
+                ...(options.assignmentKind === "new"
+                    ? { isReassignment: false, wasEverReassigned: false }
+                    : { OR: [{ isReassignment: true }, { wasEverReassigned: true }] }),
+                status: { notIn: HANDOFF_HIDDEN },
+                ...(teamIds
+                    ? { assignedBrokerId: { in: teamIds.length ? teamIds : ["__none__"] } }
+                    : {}),
+                AND: [notGeneratedLoadWhere()],
+            },
+            orderBy: { updatedAt: "desc" },
+            take: HANDOFF_FLAGGED_CAP,
+            select: {
+                shipmentLeadId: true,
+                assignedBrokerId: true,
+                assignedAt: true,
+                receivedAt: true,
+                createdAt: true,
+                status: true,
+                loadNumber: true,
+            },
+        }),
+    ]);
     const handoffs = latestHandoffs(
         logs.map((log) => ({
             shipmentId: log.shipmentLeadId || "",
@@ -234,19 +272,12 @@ async function listHandoffBoard(options: {
         }))
     );
     const known = new Set(handoffs.map((row) => `${row.shipmentId}\0${row.brokerId}`));
-    const flagged = await prisma.shipmentLead.findMany({
-        where: {
-            ...(options.assignmentKind === "new"
-                ? { isReassignment: false, wasEverReassigned: false }
-                : { OR: [{ isReassignment: true }, { wasEverReassigned: true }] }),
-            status: { notIn: HANDOFF_HIDDEN },
-            ...(teamIds
-                ? { assignedBrokerId: { in: teamIds.length ? teamIds : ["__none__"] } }
-                : {}),
-            AND: [notGeneratedLoadWhere()],
-        },
-        select: SHIPMENT_LIST_SELECT,
-    });
+    const metaById = new Map(
+        flagged.map((lead) => [
+            lead.shipmentLeadId,
+            { status: String(lead.status || ""), loadNumber: lead.loadNumber as string | null },
+        ])
+    );
     for (const lead of flagged) {
         const brokerId = String(lead.assignedBrokerId || "");
         if (!brokerId) continue;
@@ -261,22 +292,38 @@ async function listHandoffBoard(options: {
     }
     handoffs.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
-    const ids = [...new Set(handoffs.map((row) => row.shipmentId))];
-    const leads = ids.length
-        ? await prisma.shipmentLead.findMany({
-              where: { shipmentLeadId: { in: ids } },
-              select: SHIPMENT_LIST_SELECT,
-          })
-        : [];
-    const byId = new Map(leads.map((lead) => [lead.shipmentLeadId, lead]));
+    const missingMetaIds = [
+        ...new Set(
+            handoffs
+                .map((row) => row.shipmentId)
+                .filter((id) => id && !metaById.has(id))
+        ),
+    ];
+    if (missingMetaIds.length) {
+        // Chunk IN lists — SQLite/Postgres stay happy with thousands of ids.
+        const chunkSize = 400;
+        for (let i = 0; i < missingMetaIds.length; i += chunkSize) {
+            const chunk = missingMetaIds.slice(i, i + chunkSize);
+            const metaRows = await prisma.shipmentLead.findMany({
+                where: { shipmentLeadId: { in: chunk } },
+                select: { shipmentLeadId: true, status: true, loadNumber: true },
+            });
+            for (const lead of metaRows) {
+                metaById.set(lead.shipmentLeadId, {
+                    status: String(lead.status || ""),
+                    loadNumber: lead.loadNumber as string | null,
+                });
+            }
+        }
+    }
+
     const allowed = shipmentStatusFilter(options.statusGroup);
     const matched = handoffs.filter((row) => {
-        const lead = byId.get(row.shipmentId);
-        if (!lead) return false;
-        const status = String(lead.status || "");
-        if (HANDOFF_HIDDEN.includes(status)) return false;
-        if (isGeneratedLoad(lead)) return false;
-        if (allowed && !allowed.includes(status)) return false;
+        const meta = metaById.get(row.shipmentId);
+        if (!meta) return false;
+        if (HANDOFF_HIDDEN.includes(meta.status)) return false;
+        if (isGeneratedLoad(meta)) return false;
+        if (allowed && !allowed.includes(meta.status)) return false;
         return true;
     });
 
@@ -286,13 +333,49 @@ async function listHandoffBoard(options: {
     const skip = (page - 1) * pageSize;
     const total = matched.length;
     const slice = matched.slice(skip, skip + pageSize);
+    const pageIds = [...new Set(slice.map((row) => row.shipmentId))];
+    const pageLeads = pageIds.length
+        ? await prisma.shipmentLead.findMany({
+              where: { shipmentLeadId: { in: pageIds } },
+              select: SHIPMENT_LIST_SELECT,
+          })
+        : [];
+    const byId = new Map(pageLeads.map((lead) => [lead.shipmentLeadId, lead]));
     const brokers = await userMap(matched.map((row) => row.brokerId));
+    const lite = options.lite === true;
     const items = slice.map((row) => {
-        const lead = byId.get(row.shipmentId)!;
-        return enrichLead(
-            { ...lead, assignedBrokerId: row.brokerId, assignedAt: row.at },
-            brokers
-        );
+        const lead = byId.get(row.shipmentId);
+        if (!lead) {
+            return lite
+                ? {
+                      shipmentLeadId: row.shipmentId,
+                      greenOsShipmentId: null,
+                      shipmentTitle: "Shipment",
+                      customer: "—",
+                      pickup: "—",
+                      delivery: "—",
+                      status: metaById.get(row.shipmentId)?.status || "",
+                      statusLabel: statusLabel(metaById.get(row.shipmentId)?.status || ""),
+                      brokerName: brokerName(brokers.get(row.brokerId)),
+                      assignedBrokerId: row.brokerId,
+                      assignedAt: row.at,
+                  }
+                : enrichLead(
+                      {
+                          shipmentLeadId: row.shipmentId,
+                          status: metaById.get(row.shipmentId)?.status || "",
+                          assignedBrokerId: row.brokerId,
+                          assignedAt: row.at,
+                      },
+                      brokers
+                  );
+        }
+        const withHandoff = {
+            ...lead,
+            assignedBrokerId: row.brokerId,
+            assignedAt: row.at,
+        } as Record<string, unknown>;
+        return lite ? toBrokerListRow(withHandoff, brokers) : enrichLead(withHandoff, brokers);
     });
     const statusGroup = canonicalStatusGroup(options.statusGroup);
     return {
@@ -412,6 +495,7 @@ export class CrmService {
                     },
                     orderBy: { assignedAt: "desc" },
                     take: 15,
+                    select: SHIPMENT_LIST_SELECT,
                 }),
             ]);
             const [
@@ -457,11 +541,16 @@ export class CrmService {
 
         const [counts, brokers, unassignedRows, recentAssignedRows] = await Promise.all([
             countQueries,
-            this.getBrokerWorkload(options?.teamLeadId ? { teamLeadId: options.teamLeadId } : undefined),
+            // Dashboard only needs active counts + in-office — skip bid/response scans.
+            this.getBrokerWorkload({
+                ...(options?.teamLeadId ? { teamLeadId: options.teamLeadId } : {}),
+                summary: true,
+            }),
             prisma.shipmentLead.findMany({
                 where: unassignedWhere,
                 orderBy: { createdAt: "asc" },
                 take: 50,
+                select: SHIPMENT_LIST_SELECT,
             }),
             prisma.shipmentLead.findMany({
                 where: {
@@ -473,6 +562,7 @@ export class CrmService {
                 },
                 orderBy: { assignedAt: "desc" },
                 take: 30,
+                select: SHIPMENT_LIST_SELECT,
             }),
         ]);
         const [
@@ -606,6 +696,7 @@ export class CrmService {
                 page: options.page,
                 pageSize: options.pageSize,
                 limit: options.limit,
+                lite: options.lite === true,
             });
         }
 
