@@ -18,6 +18,27 @@ function retireCurrentPacketDocs(rows: Array<{ documentId: string; documentType:
     );
 }
 
+/** Archive is a no-op when a CURRENT row already holds this exact PDF checksum. */
+function shouldSkipPacketArchiveCreate(input: {
+    existingCurrentChecksum?: string | null;
+    loadChecksum: string;
+}): boolean {
+    return Boolean(input.existingCurrentChecksum) && input.existingCurrentChecksum === input.loadChecksum;
+}
+
+/** Carrier Documents tab: hide archived RC/BOL/POD clutter; keep CURRENT packet + all other docs. */
+function filterCarrierDocsForUi(
+    rows: Array<{ documentId: string; documentType: string; status: string }>
+) {
+    const packet = new Set(["RATE_CONFIRMATION", "BOL", "POD"]);
+    return rows.filter((d) => !packet.has(d.documentType) || d.status === "CURRENT");
+}
+
+/** Submit heal should not re-archive when sign-rc already left a CURRENT RC for this load. */
+function shouldHealArchive(hasCurrentRcForLoad: boolean): boolean {
+    return !hasCurrentRcForLoad;
+}
+
 /** Stamp must not demote the previous current RC until the signed PDF row exists. */
 function applyAtomicStampFlip(rows: Array<{ documentId: string; isCurrent: boolean }>, previousId: string, nextId: string) {
     // Generate PDF / create next first (caller responsibility), then flip.
@@ -81,4 +102,48 @@ test("portal sign must fail closed when stamp returns no document id", () => {
     const stampedDocumentId: string | null = null;
     const shouldReject = !stampedDocumentId;
     assert.equal(shouldReject, true);
+});
+
+test("archive skips create when CURRENT checksum already matches the load PDF", () => {
+    assert.equal(
+        shouldSkipPacketArchiveCreate({
+            existingCurrentChecksum: "abc",
+            loadChecksum: "abc",
+        }),
+        true
+    );
+    assert.equal(
+        shouldSkipPacketArchiveCreate({
+            existingCurrentChecksum: "abc",
+            loadChecksum: "xyz",
+        }),
+        false
+    );
+    assert.equal(
+        shouldSkipPacketArchiveCreate({
+            existingCurrentChecksum: null,
+            loadChecksum: "abc",
+        }),
+        false
+    );
+});
+
+test("submit heal archive only runs when CURRENT RC for the load is missing", () => {
+    assert.equal(shouldHealArchive(true), false);
+    assert.equal(shouldHealArchive(false), true);
+});
+
+test("carrier Documents UI hides archived RC/BOL/POD duplicates", () => {
+    const shown = filterCarrierDocsForUi([
+        { documentId: "1", documentType: "RATE_CONFIRMATION", status: "ARCHIVED" },
+        { documentId: "2", documentType: "RATE_CONFIRMATION", status: "CURRENT" },
+        { documentId: "3", documentType: "BOL", status: "ARCHIVED" },
+        { documentId: "4", documentType: "BOL", status: "CURRENT" },
+        { documentId: "5", documentType: "W9", status: "CURRENT" },
+        { documentId: "6", documentType: "W9", status: "ARCHIVED" },
+    ]);
+    assert.deepEqual(
+        shown.map((d) => d.documentId),
+        ["2", "4", "5", "6"]
+    );
 });
