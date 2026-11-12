@@ -58,26 +58,74 @@ window.GreenOSModules.accounting = {
     }
   },
 
+  authToken() {
+    var token = "";
+    try {
+      token = localStorage.getItem("gl_token") || sessionStorage.getItem("gl_token") || "";
+    } catch (e) {}
+    if (!token && window.GreenOSToken) token = window.GreenOSToken;
+    return token || "";
+  },
+
+  async parseApiJson(res) {
+    var text = "";
+    try {
+      text = await res.text();
+    } catch (e) {
+      return {
+        success: false,
+        message: "Empty response from server (" + res.status + ")",
+      };
+    }
+    if (!text) {
+      return {
+        success: false,
+        message: "Empty response from server (" + res.status + ")",
+      };
+    }
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      var snippet = String(text).replace(/\s+/g, " ").slice(0, 120);
+      return {
+        success: false,
+        message:
+          "Server returned non-JSON (" +
+          res.status +
+          ")" +
+          (snippet ? ": " + snippet : ""),
+      };
+    }
+  },
+
   async api(path, options) {
-    var token = localStorage.getItem("gl_token");
+    var token = this.authToken();
     var opts = options || {};
+    var headers = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers.Authorization = "Bearer " + token;
+      headers["X-GreenOS-Token"] = token;
+    }
+    var body = opts.body;
+    if (body && token && typeof body === "object") {
+      body = Object.assign({ sessionToken: token }, body);
+    }
     var res = await fetch("/api/accounting" + path, {
       method: opts.method || "GET",
       cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        Authorization: token ? "Bearer " + token : "",
-      },
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      headers: headers,
+      body: body ? JSON.stringify(body) : undefined,
     });
-    var json = await res.json().catch(function () {
-      return { success: false, message: "Bad response" };
-    });
+    var json = await this.parseApiJson(res);
     if (!res.ok && !json.message) {
       json.message = "Request failed (" + res.status + ")";
       json.success = false;
     }
+    if (json.success === undefined && res.ok) json.success = true;
+    if (!res.ok) json.success = false;
     return json;
   },
 
@@ -459,11 +507,7 @@ window.GreenOSModules.accounting = {
 
   async loadApi(path, opts) {
     opts = opts || {};
-    var token = "";
-    try {
-      token = localStorage.getItem("gl_token") || sessionStorage.getItem("gl_token") || "";
-    } catch (e) {}
-    if (!token && window.GreenOSToken) token = window.GreenOSToken;
+    var token = this.authToken();
     var headers = { Accept: "application/json", "Content-Type": "application/json" };
     if (token) {
       headers.Authorization = "Bearer " + token;
@@ -477,9 +521,7 @@ window.GreenOSModules.accounting = {
       headers: headers,
       body: body ? JSON.stringify(body) : undefined,
     });
-    var json = await res.json().catch(function () {
-      return { success: false, message: "Bad response" };
-    });
+    var json = await this.parseApiJson(res);
     if (!res.ok || json.success === false) {
       throw new Error(json.message || "Request failed (" + res.status + ")");
     }
@@ -912,21 +954,17 @@ window.GreenOSModules.accounting = {
   },
 
   async uploadLoadDoc(id, docType, file) {
-    var token = "";
-    try {
-      token = localStorage.getItem("gl_token") || sessionStorage.getItem("gl_token") || "";
-    } catch (e) {}
-    if (!token && window.GreenOSToken) token = window.GreenOSToken;
+    var self = this;
+    var token = self.authToken();
     if (!file) throw new Error("Choose a file to upload");
     if (!docType) throw new Error("Document type is missing");
+    if (!token) throw new Error("Not signed in — refresh the page and log in again");
     var form = new FormData();
     form.append("file", file);
-    if (token) form.append("sessionToken", token);
+    form.append("sessionToken", token);
     var headers = { Accept: "application/json" };
-    if (token) {
-      headers.Authorization = "Bearer " + token;
-      headers["X-GreenOS-Token"] = token;
-    }
+    headers.Authorization = "Bearer " + token;
+    headers["X-GreenOS-Token"] = token;
     var path =
       docType === "POD"
         ? "/" + encodeURIComponent(id) + "/documents/POD/upload"
@@ -937,9 +975,7 @@ window.GreenOSModules.accounting = {
       headers: headers,
       body: form,
     });
-    var json = await res.json().catch(function () {
-      return { success: false, message: "Bad response" };
-    });
+    var json = await self.parseApiJson(res);
     if (!res.ok || json.success === false) {
       throw new Error(json.message || "Upload failed (" + res.status + ")");
     }
@@ -2406,9 +2442,13 @@ window.GreenOSModules.accounting = {
     try {
       var res = await this.api(path, { method: "POST", body: body });
       if (!res.success) {
+        var failMsg = res.message || "Failed";
         if (msg) {
-          msg.textContent = res.message || "Failed";
+          msg.textContent = failMsg;
           msg.style.color = "#ef4444";
+        }
+        if (act === "send-invoice" || act === "send-carrier-invoice") {
+          alert(failMsg);
         }
         return;
       }
@@ -2428,9 +2468,13 @@ window.GreenOSModules.accounting = {
       }
       await self.openShipment(host, id);
     } catch (err) {
+      var catchMsg = err.message || "Failed";
       if (msg) {
-        msg.textContent = err.message || "Failed";
+        msg.textContent = catchMsg;
         msg.style.color = "#ef4444";
+      }
+      if (act === "send-invoice" || act === "send-carrier-invoice") {
+        alert(catchMsg);
       }
     }
   },

@@ -41,6 +41,38 @@ app.use((req, _res, next) => {
 
 app.use("/api", apiRouter);
 
+// API routes must never fall through to HTML — the Accounting UI treats HTML as "Bad response".
+app.use("/api", (req, res) => {
+    res.status(404).json({
+        success: false,
+        message: `API route not found: ${req.method} ${req.originalUrl}`,
+    });
+});
+
+app.use(
+    (
+        err: unknown,
+        req: express.Request,
+        res: express.Response,
+        _next: express.NextFunction
+    ) => {
+        const status =
+            err && typeof err === "object" && "status" in err
+                ? Number((err as { status?: number }).status) || 500
+                : 500;
+        const message = err instanceof Error ? err.message : "Server error";
+        if (req.path.startsWith("/api") || req.originalUrl.startsWith("/api")) {
+            if (!res.headersSent) {
+                res.status(status).json({ success: false, message });
+            }
+            return;
+        }
+        if (!res.headersSent) {
+            res.status(status).send(message);
+        }
+    }
+);
+
 const frontendPath = path.join(__dirname, "..", "frontend", "public");
 app.use(express.static(frontendPath));
 
