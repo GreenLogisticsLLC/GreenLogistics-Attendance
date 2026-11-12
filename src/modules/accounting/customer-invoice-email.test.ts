@@ -16,4 +16,6 @@ test("customer invoice email mentions delivery, thanks, and payment", () => {
     assert.match(mail.text, /INV-10043/);
     assert.match(mail.html, /successfully delivered/i);
     assert.match(mail.html, /\$3,200\.00/);
+    assert.match(mail.html, /background:#0b3d2e/);
+    assert.doesNotMatch(mail.html, /background:#16325c/);
 });
