@@ -21,6 +21,11 @@ window.GreenOSModules.accounting = {
   _onActivity: null,
   /** Load column sort: "asc" | "desc". */
   _loadSortDir: "asc",
+  /** Loads for Review / Verified: page index + size (50 | 100 | 200). */
+  _listPage: 0,
+  _listPageSize: 50,
+  _LIST_PAGE_SIZES: [50, 100, 200],
+  _LIST_PAGE_SIZE_KEY: "acc_list_page_size",
 
   /** Accounting never auto-refreshes — only after user clicks / navigation. */
   stopIdleRefresh() {
@@ -304,6 +309,7 @@ window.GreenOSModules.accounting = {
     var options = opts || {};
     var showQueue = !!options.showQueue;
     var countEl = options.countEl || null;
+    var paginate = !!options.paginate;
     var totalCount = allRows ? allRows.length : 0;
 
     function readFilters() {
@@ -317,8 +323,9 @@ window.GreenOSModules.accounting = {
       return next;
     }
 
-    function apply() {
+    function apply(resetPage) {
       self.setTableFilters(readFilters());
+      if (resetPage) self.setListPage(0);
       var filters = self.getTableFilters();
       var filtered = (allRows || []).filter(function (r) {
         return self.rowMatchesFilters(r, filters);
@@ -329,11 +336,17 @@ window.GreenOSModules.accounting = {
           showQueue: showQueue,
           skipFilterBar: true,
           allRows: allRows,
+          paginate: paginate,
         });
         self.bindOpenHandlers(body);
         self.bindLoadSortHandlers(body, function () {
-          apply();
+          apply(false);
         });
+      }
+      var pagerHost = body.querySelector("[data-acc-pager-host]");
+      if (pagerHost && paginate) {
+        pagerHost.innerHTML = self.listPagerHtml(filtered.length);
+        bindPager();
       }
       if (countEl) {
         countEl.textContent = self.filtersAreActive(filters)
@@ -342,10 +355,35 @@ window.GreenOSModules.accounting = {
       }
     }
 
+    function bindPager() {
+      var sizeSel = body.querySelector("[data-acc-page-size]");
+      if (sizeSel) {
+        sizeSel.addEventListener("change", function () {
+          self.setListPageSize(sizeSel.value);
+          apply(false);
+        });
+      }
+      body.querySelectorAll("[data-acc-page]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var act = btn.getAttribute("data-acc-page");
+          var page = self.getListPage();
+          if (act === "prev") self.setListPage(Math.max(0, page - 1));
+          else if (act === "next") self.setListPage(page + 1);
+          apply(false);
+        });
+      });
+    }
+
     body.querySelectorAll("[data-acc-filter]").forEach(function (input) {
-      input.addEventListener("input", apply);
-      input.addEventListener("change", apply);
-      input.addEventListener("keyup", apply);
+      input.addEventListener("input", function () {
+        apply(true);
+      });
+      input.addEventListener("change", function () {
+        apply(true);
+      });
+      input.addEventListener("keyup", function () {
+        apply(true);
+      });
     });
     var clearBtn = body.querySelector(".acc-filter-clear");
     if (clearBtn) {
@@ -353,12 +391,13 @@ window.GreenOSModules.accounting = {
         body.querySelectorAll("[data-acc-filter]").forEach(function (input) {
           input.value = "";
         });
-        apply();
+        apply(true);
       });
     }
     self.bindLoadSortHandlers(body, function () {
-      apply();
+      apply(false);
     });
+    if (paginate) bindPager();
   },
 
   loadSortHeaderHtml(label) {
@@ -546,6 +585,110 @@ window.GreenOSModules.accounting = {
     if (subPageId === "carrier-payments") return "carrier-payment";
     if (subPageId === "history") return "history";
     return "all";
+  },
+
+  /** Page size + vertical scroll on Loads for Review and Verified. */
+  listPagerEnabled(subPageId) {
+    var id = subPageId || this._subPageId;
+    return id === "document-review" || id === "verified";
+  },
+
+  getListPageSize() {
+    var allowed = this._LIST_PAGE_SIZES || [50, 100, 200];
+    var n = Number(this._listPageSize);
+    if (allowed.indexOf(n) >= 0) return n;
+    try {
+      n = Number(localStorage.getItem(this._LIST_PAGE_SIZE_KEY || "acc_list_page_size"));
+    } catch (e) {
+      n = 50;
+    }
+    if (allowed.indexOf(n) < 0) n = 50;
+    this._listPageSize = n;
+    return n;
+  },
+
+  setListPageSize(size) {
+    var allowed = this._LIST_PAGE_SIZES || [50, 100, 200];
+    var n = Number(size);
+    if (allowed.indexOf(n) < 0) n = 50;
+    this._listPageSize = n;
+    this._listPage = 0;
+    try {
+      localStorage.setItem(this._LIST_PAGE_SIZE_KEY || "acc_list_page_size", String(n));
+    } catch (e) {}
+    return n;
+  },
+
+  getListPage() {
+    var p = Number(this._listPage);
+    return Number.isFinite(p) && p > 0 ? Math.floor(p) : 0;
+  },
+
+  setListPage(page) {
+    var p = Number(page);
+    this._listPage = Number.isFinite(p) && p > 0 ? Math.floor(p) : 0;
+    return this._listPage;
+  },
+
+  listPagerHtml(totalFiltered) {
+    var self = this;
+    var total = Math.max(0, Number(totalFiltered) || 0);
+    var pageSize = self.getListPageSize();
+    var maxPage = total === 0 ? 0 : Math.max(0, Math.ceil(total / pageSize) - 1);
+    var page = self.getListPage();
+    if (page > maxPage) {
+      page = maxPage;
+      self._listPage = page;
+    }
+    var from = total === 0 ? 0 : page * pageSize + 1;
+    var to = Math.min(total, (page + 1) * pageSize);
+    var sizeOpts = (self._LIST_PAGE_SIZES || [50, 100, 200])
+      .map(function (n) {
+        return (
+          '<option value="' +
+          n +
+          '"' +
+          (n === pageSize ? " selected" : "") +
+          ">" +
+          n +
+          "</option>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="acc-list-pager" role="navigation" aria-label="Loads page size">' +
+      '<label class="acc-list-page-size">Show' +
+      '<select data-acc-page-size>' +
+      sizeOpts +
+      "</select>" +
+      "loads</label>" +
+      '<span class="acc-list-page-meta gos-muted">' +
+      (total === 0
+        ? "0 loads"
+        : "Showing " + from + "–" + to + " of " + total) +
+      "</span>" +
+      '<div class="acc-list-page-nav">' +
+      '<button type="button" class="btn-secondary" data-acc-page="prev"' +
+      (page <= 0 ? " disabled" : "") +
+      ">Prev</button>" +
+      '<button type="button" class="btn-secondary" data-acc-page="next"' +
+      (page >= maxPage ? " disabled" : "") +
+      ">Next</button>" +
+      "</div></div>"
+    );
+  },
+
+  sliceListPage(rows) {
+    var list = rows || [];
+    var pageSize = this.getListPageSize();
+    var maxPage = list.length === 0 ? 0 : Math.max(0, Math.ceil(list.length / pageSize) - 1);
+    var page = this.getListPage();
+    if (page > maxPage) {
+      page = maxPage;
+      this._listPage = page;
+    }
+    var start = page * pageSize;
+    return list.slice(start, start + pageSize);
   },
 
   /** KPI meta: waiting-for-accounting queues use bright urgency tones when count > 0. */
@@ -1195,6 +1338,7 @@ window.GreenOSModules.accounting = {
     var options = opts || {};
     var showQueue = !!options.showQueue;
     var skipFilterBar = !!options.skipFilterBar;
+    var paginate = !!options.paginate;
     var sourceRows = self.sortRowsByLoadNumber(options.allRows || rows || []);
     self._tableRows = sourceRows;
     var displayRows = rows || [];
@@ -1204,6 +1348,10 @@ window.GreenOSModules.accounting = {
       });
     } else {
       displayRows = self.sortRowsByLoadNumber(displayRows);
+    }
+    var filteredTotal = displayRows.length;
+    if (paginate) {
+      displayRows = self.sliceListPage(displayRows);
     }
     var head =
       self.loadSortHeaderHtml("Load") +
@@ -1275,15 +1423,23 @@ window.GreenOSModules.accounting = {
         '"><p class="gos-muted" style="margin:0.5rem 0">No loads match these filters.</p></td></tr>';
     }
     var tableOnly =
-      '<table class="emp-users-table"><thead><tr>' +
+      '<table class="emp-users-table acc-list-table"><thead><tr>' +
       head +
       "</tr></thead><tbody>" +
       bodyRows +
       "</tbody></table>";
     if (skipFilterBar) return tableOnly;
+    var wrapClass = paginate ? "emp-users-wrap acc-list-scroll" : "emp-users-wrap";
     return (
       self.filterBarHtml() +
-      '<div class="emp-users-wrap" data-acc-table-host>' +
+      (paginate
+        ? '<div class="acc-list-pager-host" data-acc-pager-host>' +
+          self.listPagerHtml(filteredTotal) +
+          "</div>"
+        : "") +
+      '<div class="' +
+      wrapClass +
+      '" data-acc-table-host>' +
       tableOnly +
       "</div>"
     );
@@ -1847,6 +2003,11 @@ window.GreenOSModules.accounting = {
     if (!body) return;
     var self = this;
     var filter = this.filterForSub(subPageId);
+    var paginate = self.listPagerEnabled(subPageId);
+    if (paginate) {
+      self.getListPageSize();
+      self.setListPage(0);
+    }
     body.innerHTML = '<p class="gos-muted">Loading shipments…</p>';
     try {
       var res = await this.api("/shipments?filter=" + encodeURIComponent(filter));
@@ -1861,9 +2022,13 @@ window.GreenOSModules.accounting = {
         return;
       }
       body.innerHTML =
-        self.shipmentsTableHtml(rows, { showQueue: false, allRows: rows }) +
+        self.shipmentsTableHtml(rows, {
+          showQueue: false,
+          allRows: rows,
+          paginate: paginate,
+        }) +
         '<div id="acc-detail" style="margin-top:1.25rem"></div>';
-      self.bindTableFilters(body, rows, { showQueue: false });
+      self.bindTableFilters(body, rows, { showQueue: false, paginate: paginate });
       self.bindOpenHandlers(body);
       if (self._selectedId) {
         self.openShipment(body.querySelector("#acc-detail"), self._selectedId);
