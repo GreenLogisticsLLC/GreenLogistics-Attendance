@@ -4563,6 +4563,35 @@ button.acc-doc-file {
   text-decoration: underline;
   cursor: pointer;
 }
+.acc-drop-file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  width: 100%;
+  margin: 0;
+}
+.acc-invoice-delete {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, #ef4444 45%, var(--gos-border));
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  color: #fca5a5;
+  border-radius: 7px;
+  padding: 0.2rem 0.55rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.acc-invoice-delete:hover {
+  background: color-mix(in srgb, #ef4444 22%, transparent);
+  color: #fecaca;
+}
+.acc-invoice-delete:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .acc-change-row td { background: rgba(255, 255, 255, 0.03); }
 
 .acc-pending-section {
