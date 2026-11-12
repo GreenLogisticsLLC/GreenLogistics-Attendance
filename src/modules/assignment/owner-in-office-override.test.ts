@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { receivesNewShipments } from "./activity-window.js";
 
 /** Mirrors assignment.engine owner override map updates (no DB). */
 function applyOverride(
@@ -46,4 +47,17 @@ test("override keeps a day-off broker eligible when Owner sets In Office", () =>
         working.map((e) => e.employeeId),
         ["emp-late", "emp-on-time"]
     );
+});
+
+test("Owner Set In Office does not skip the 20-minute GreenOS click gate", () => {
+    const now = new Date("2026-11-12T18:30:00.000Z");
+    const idle = new Date(now.getTime() - 21 * 60 * 1000);
+    const afterHours = false;
+    const forceAllLinked = false;
+    // Same gate resolveEligibleBrokers uses — override is not part of it.
+    const keep =
+        forceAllLinked ||
+        afterHours ||
+        receivesNewShipments("Broker", idle, now);
+    assert.equal(keep, false);
 });

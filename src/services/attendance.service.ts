@@ -234,8 +234,9 @@ export class AttendanceService {
 
     /**
      * Owner/Manager Set In Office from the main Live Board.
-     * Always puts the linked Broker/Team Lead on New + Other queues and lets
-     * them receive shipments (overrides day-off / idle GreenOS click gate).
+     * Puts the linked Broker/Team Lead on New + Other queues and overrides
+     * day-off. They still need a GreenOS click within 20 minutes to receive
+     * New / Other shipments while In Office.
      */
     async markEmployeeInOffice(employeeId: string) {
         const employee = await employeeRepository.findById(employeeId);
