@@ -241,6 +241,64 @@ export const carriersController = {
         }
     },
 
+    async uploadDocument(req: AuthRequest, res: Response) {
+        const file = (
+            req as AuthRequest & {
+                file?: { path: string; originalname?: string; mimetype?: string };
+            }
+        ).file;
+        try {
+            if (!file) {
+                return res.status(400).json({ success: false, message: "File is required" });
+            }
+            const documentType = String(
+                (req.body && (req.body.documentType || req.body.type)) || "INSURANCE"
+            );
+            const shipmentLeadId =
+                (req.body && (req.body.shipmentLeadId || req.body.loadId)) ||
+                (typeof req.query.shipmentLeadId === "string" ? req.query.shipmentLeadId : "") ||
+                "";
+            const data = await carrierService.staffUploadDocument(
+                String(req.params.id),
+                {
+                    documentType,
+                    originalName: file.originalname || "document.pdf",
+                    mimeType: file.mimetype || "application/octet-stream",
+                    tempPath: file.path,
+                    shipmentLeadId: shipmentLeadId || null,
+                },
+                actorFrom(req)
+            );
+            res.json({
+                success: true,
+                data,
+                message: data.replaced
+                    ? "COI replaced — bot is checking the new file. Approve Carrier again before Rate Confirmation."
+                    : "COI uploaded — bot is checking the file. Approve Carrier before Rate Confirmation.",
+            });
+        } catch (err) {
+            const multerErr = err as { code?: string; message?: string };
+            if (multerErr?.code === "LIMIT_FILE_SIZE") {
+                return res.status(400).json({
+                    success: false,
+                    message: "File too large (max 15 MB). Try a smaller PDF or photo.",
+                });
+            }
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Upload failed",
+            });
+        } finally {
+            if (file?.path) {
+                try {
+                    fs.unlinkSync(file.path);
+                } catch {
+                    /* temp already moved */
+                }
+            }
+        }
+    },
+
     async downloadDocument(req: AuthRequest, res: Response) {
         try {
             const { doc, absolutePath } = await carrierService.downloadDocument(
