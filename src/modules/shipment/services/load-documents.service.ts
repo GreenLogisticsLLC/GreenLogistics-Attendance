@@ -861,17 +861,27 @@ export class LoadDocumentsService {
         tempPath: string;
     }) {
         const docType = assertDocType(input.docType);
+        // Accounting (and Owner) may upload / replace the common load packet docs here.
+        // POD still prefers the dedicated POD route (signature checks), but Replace is allowed.
         const allowedUpload = new Set([
             "CUSTOMER_PAID_PROOF",
             "CARRIER_PAID_PROOF",
             "CUSTOMER_INVOICE",
             "CARRIER_INVOICE",
             "CUSTOMER_AGREEMENT",
+            "RATE_CONFIRMATION",
+            "BOL",
+            "POD",
+            "INSURANCE",
+            "W9",
+            "NOA",
+            "CARRIER_PACKET",
+            "ATTACHMENT",
         ]);
         if (!allowedUpload.has(docType)) {
             throw Object.assign(
                 new Error(
-                    "This upload is only for customer agreement, invoices, or payment proof documents"
+                    "This upload is only for customer/carrier invoices, agreements, proofs, or load packet documents"
                 ),
                 { status: 422 }
             );
@@ -945,20 +955,28 @@ export class LoadDocumentsService {
                 ? "CUSTOMER_INVOICE_GENERATED"
                 : "LOAD_CREATED";
 
-        await domainEventEngine.emit({
-            shipmentLeadId: input.shipmentLeadId,
-            eventType,
-            title: `${title} uploaded`,
-            message: `${title} saved on Load ${lead.loadNumber}`,
-            actorUserId: input.actorUserId,
-            payload: {
-                documentId: row.documentId,
-                docType,
-                version,
-                fileName,
-            },
-            timelineStage,
-        });
+        // File + DB row already saved — never fail the upload on timeline/side-effects.
+        await domainEventEngine
+            .emit({
+                shipmentLeadId: input.shipmentLeadId,
+                eventType,
+                title: `${title} uploaded`,
+                message: `${title} saved on Load ${lead.loadNumber}`,
+                actorUserId: input.actorUserId,
+                payload: {
+                    documentId: row.documentId,
+                    docType,
+                    version,
+                    fileName,
+                },
+                timelineStage,
+            })
+            .catch((err) => {
+                console.warn(
+                    "[uploadProof] document event skipped:",
+                    err instanceof Error ? err.message : err
+                );
+            });
 
         // Keep Accounting invoice metadata in sync so Send / filters see the upload.
         if (docType === "CUSTOMER_INVOICE" && !lead.invoiceNumber) {
@@ -977,32 +995,40 @@ export class LoadDocumentsService {
         }
 
         // Carrier invoice upload queues the load for Carrier Payments (AP).
+        // Never fail the file save if queue bookkeeping throws.
         if (docType === "CARRIER_INVOICE" && !lead.carrierPaidAt) {
-            const { canTransition } = await import("../shipment.lifecycle.js");
-            const nextStatus = canTransition(String(lead.status || ""), "CARRIER_PAYMENT")
-                ? "CARRIER_PAYMENT"
-                : undefined;
-            await prisma.shipmentLead.update({
-                where: { shipmentLeadId: input.shipmentLeadId },
-                data: {
-                    accountingReadyForCarrierPayment: true,
-                    ...(nextStatus ? { status: nextStatus } : {}),
-                },
-            });
-            await domainEventEngine.emit({
-                shipmentLeadId: input.shipmentLeadId,
-                eventType: "STATUS_CHANGED",
-                title: "Ready for Carrier Payment",
-                message: `Carrier invoice uploaded — Load ${lead.loadNumber} moved to Carrier Payments`,
-                actorUserId: input.actorUserId,
-                payload: {
-                    documentId: row.documentId,
-                    docType,
-                    accountingReadyForCarrierPayment: true,
-                    ...(nextStatus ? { status: nextStatus } : {}),
-                },
-                timelineStage: nextStatus || "LOAD_CREATED",
-            });
+            try {
+                const { canTransition } = await import("../shipment.lifecycle.js");
+                const nextStatus = canTransition(String(lead.status || ""), "CARRIER_PAYMENT")
+                    ? "CARRIER_PAYMENT"
+                    : undefined;
+                await prisma.shipmentLead.update({
+                    where: { shipmentLeadId: input.shipmentLeadId },
+                    data: {
+                        accountingReadyForCarrierPayment: true,
+                        ...(nextStatus ? { status: nextStatus } : {}),
+                    },
+                });
+                await domainEventEngine.emit({
+                    shipmentLeadId: input.shipmentLeadId,
+                    eventType: "STATUS_CHANGED",
+                    title: "Ready for Carrier Payment",
+                    message: `Carrier invoice uploaded — Load ${lead.loadNumber} moved to Carrier Payments`,
+                    actorUserId: input.actorUserId,
+                    payload: {
+                        documentId: row.documentId,
+                        docType,
+                        accountingReadyForCarrierPayment: true,
+                        ...(nextStatus ? { status: nextStatus } : {}),
+                    },
+                    timelineStage: nextStatus || "LOAD_CREATED",
+                });
+            } catch (err) {
+                console.warn(
+                    "[uploadProof] carrier invoice queue update skipped:",
+                    err instanceof Error ? err.message : err
+                );
+            }
         }
 
         return row;

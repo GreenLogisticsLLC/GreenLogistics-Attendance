@@ -10,8 +10,6 @@ import { loadTrackingRouter } from "../../tracking/routes/tracking.routes.js";
 
 export const loadRouter = Router();
 
-loadRouter.use(authMiddleware);
-
 const roles = requireRole(
     Roles.Administrator,
     Roles.Owner,
@@ -27,6 +25,42 @@ fs.mkdirSync(podUploadDir, { recursive: true });
 const podUpload = multer({
     dest: podUploadDir,
     limits: { fileSize: 15 * 1024 * 1024 },
+});
+
+/** Always return JSON for multer failures (HTML error pages become "Bad response" in the UI). */
+function podUploadSingle(
+    req: import("express").Request,
+    res: import("express").Response,
+    next: import("express").NextFunction
+) {
+    podUpload.single("file")(req, res, (err: unknown) => {
+        if (!err) return next();
+        const multerErr = err as { code?: string; message?: string; name?: string };
+        const tooLarge = multerErr.code === "LIMIT_FILE_SIZE";
+        return res.status(tooLarge ? 413 : 400).json({
+            success: false,
+            message: tooLarge
+                ? "File is too large (max 15 MB)"
+                : multerErr.message || "File upload failed",
+            code: multerErr.code || multerErr.name || "UPLOAD_ERROR",
+        });
+    });
+}
+
+function isDocumentUploadPath(req: import("express").Request): boolean {
+    return (
+        req.method === "POST" &&
+        /\/documents\/[^/]+\/upload\/?$/.test(String(req.path || ""))
+    );
+}
+
+/**
+ * Auth normally runs first. For multipart document uploads, multer must run first
+ * so FormData `sessionToken` is available when the Authorization header is missing.
+ */
+loadRouter.use((req, res, next) => {
+    if (isDocumentUploadPath(req)) return next();
+    return authMiddleware(req, res, next);
 });
 
 loadRouter.get("/", roles, (req, res) => loadController.list(req, res));
@@ -48,14 +82,16 @@ loadRouter.get("/:id/documents/history/:docType", roles, (req, res) =>
 );
 loadRouter.post(
     "/:id/documents/POD/upload",
+    podUploadSingle,
+    authMiddleware,
     roles,
-    podUpload.single("file"),
     (req, res) => loadController.uploadPod(req, res)
 );
 loadRouter.post(
     "/:id/documents/:docType/upload",
+    podUploadSingle,
+    authMiddleware,
     roles,
-    podUpload.single("file"),
     (req, res) => loadController.uploadPaymentProof(req, res)
 );
 loadRouter.post("/:id/documents/:docType/generate", roles, (req, res) =>
