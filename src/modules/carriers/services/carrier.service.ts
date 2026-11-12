@@ -523,8 +523,15 @@ export class CarrierService {
                 assignedBrokerId: carrier.assignedBrokerId,
             },
         ]);
+        // Packet audit copies (RC/BOL/POD): show CURRENT only — archived duplicates
+        // from older sign/heal runs clutter the Documents tab.
+        const packetTypes = new Set(["RATE_CONFIRMATION", "BOL", "POD"]);
+        const documents = (carrier.documents || []).filter(
+            (d) => !packetTypes.has(d.documentType) || d.status === "CURRENT"
+        );
         return {
             ...carrier,
+            documents,
             activeAgreementTemplate: template,
             isSuperseded: Boolean(enriched?.isSuperseded),
             isOfficialLoadCarrier: Boolean(enriched?.isOfficialLoadCarrier),
@@ -2159,6 +2166,9 @@ export class CarrierService {
      * Copy this load's signed RC (+ BOL if present) into Carrier Documents as an audit
      * archive, tagged with shipmentLeadId. Assign Carrier / packet review still ignore
      * RC/BOL/POD so they never leak onto the next load's checklist.
+     *
+     * Idempotent: if a CURRENT (or same-checksum) copy already exists for this load,
+     * do not create another version — sign + submit heal used to double every packet.
      */
     async archiveSignedRcBolPdfs(input: {
         carrierId: string;
@@ -2170,18 +2180,6 @@ export class CarrierService {
             rateConDocumentId: null,
             bolDocumentId: null,
         };
-
-        // One CURRENT RC/BOL/POD set per carrier in the UI — retire prior CURRENT
-        // rows (any load). Packet review still ignores these types via
-        // isCarrierPacketExcluded, so archived copies never leak into Assign Carrier.
-        await prisma.carrierDocument.updateMany({
-            where: {
-                carrierId: input.carrierId,
-                documentType: { in: ["RATE_CONFIRMATION", "BOL", "POD"] },
-                status: "CURRENT",
-            },
-            data: { status: "ARCHIVED" },
-        });
 
         for (const docType of ["RATE_CONFIRMATION", "BOL"] as const) {
             const loadDoc = await prisma.loadDocument.findFirst({
@@ -2196,6 +2194,56 @@ export class CarrierService {
             if (!loadDoc?.storedName) continue;
             const src = resolveLoadDocumentAbsolutePath(input.shipmentLeadId, loadDoc.storedName);
             if (!src) continue;
+
+            const buf = fs.readFileSync(src);
+            const checksum = crypto.createHash("sha256").update(buf).digest("hex");
+
+            const sameCurrent = await prisma.carrierDocument.findFirst({
+                where: {
+                    carrierId: input.carrierId,
+                    shipmentLeadId: input.shipmentLeadId,
+                    documentType: docType,
+                    status: "CURRENT",
+                    checksum,
+                },
+            });
+            if (sameCurrent) {
+                if (docType === "RATE_CONFIRMATION") out.rateConDocumentId = sameCurrent.documentId;
+                else out.bolDocumentId = sameCurrent.documentId;
+                continue;
+            }
+
+            const sameAny = await prisma.carrierDocument.findFirst({
+                where: {
+                    carrierId: input.carrierId,
+                    shipmentLeadId: input.shipmentLeadId,
+                    documentType: docType,
+                    checksum,
+                },
+                orderBy: { version: "desc" },
+            });
+
+            // One CURRENT RC/BOL set per carrier in the UI — retire other CURRENT rows
+            // of this type (any load), but keep the matching checksum row if we revive it.
+            await prisma.carrierDocument.updateMany({
+                where: {
+                    carrierId: input.carrierId,
+                    documentType: docType,
+                    status: "CURRENT",
+                    ...(sameAny ? { NOT: { documentId: sameAny.documentId } } : {}),
+                },
+                data: { status: "ARCHIVED" },
+            });
+
+            if (sameAny) {
+                const revived = await prisma.carrierDocument.update({
+                    where: { documentId: sameAny.documentId },
+                    data: { status: "CURRENT" },
+                });
+                if (docType === "RATE_CONFIRMATION") out.rateConDocumentId = revived.documentId;
+                else out.bolDocumentId = revived.documentId;
+                continue;
+            }
 
             const prev = await prisma.carrierDocument.findFirst({
                 where: {
@@ -2216,8 +2264,6 @@ export class CarrierService {
             const storageKey = `${docType}_v${version}_${Date.now()}_signed.pdf`;
             const absolutePath = path.join(dir, storageKey);
             fs.copyFileSync(src, absolutePath);
-            const buf = fs.readFileSync(absolutePath);
-            const checksum = crypto.createHash("sha256").update(buf).digest("hex");
 
             const created = await prisma.carrierDocument.create({
                 data: {
@@ -2587,6 +2633,7 @@ export class CarrierService {
             : carrier?.agreementSigns?.[0];
 
         // Heal stamped/archived RC before telling the broker the package is ready.
+        // Skip archive when sign-rc already copied the packet (avoids duplicate versions).
         if (
             isRcBol &&
             purposeNow !== ONBOARDING_PURPOSE.BOL_POD_PACKET &&
@@ -2601,12 +2648,23 @@ export class CarrierService {
                     signatureData: latestSign.signatureData,
                     signedAt: latestSign.signedAt,
                 });
-                await this.archiveSignedRcBolPdfs({
-                    carrierId: session.carrierId,
-                    shipmentLeadId: session.shipmentLeadId,
-                    sessionId: session.sessionId,
-                    uploadedBy: "SYSTEM",
+                const alreadyArchived = await prisma.carrierDocument.findFirst({
+                    where: {
+                        carrierId: session.carrierId,
+                        shipmentLeadId: session.shipmentLeadId,
+                        documentType: "RATE_CONFIRMATION",
+                        status: "CURRENT",
+                    },
+                    select: { documentId: true },
                 });
+                if (!alreadyArchived) {
+                    await this.archiveSignedRcBolPdfs({
+                        carrierId: session.carrierId,
+                        shipmentLeadId: session.shipmentLeadId,
+                        sessionId: session.sessionId,
+                        uploadedBy: "SYSTEM",
+                    });
+                }
             } catch (err) {
                 console.warn(
                     `[rc-sign] submit heal stamp/archive failed for ${session.shipmentLeadId}:`,
