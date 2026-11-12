@@ -134,10 +134,16 @@ export function buildSignedCustomerAgreementBrokerEmail(input: {
     signerName: string;
     signedAtLabel: string;
     loadNumber?: string | null;
+    /** Deep link that opens the related Load in Green OS. */
+    openInGreenOsUrl?: string | null;
 }): { subject: string; text: string; html: string } {
     const label = customerAgreementLabel(input.agreementType);
     const company = String(input.companyName || "").trim() || "Customer";
     const loadBit = String(input.loadNumber || "").trim();
+    const openUrl = String(input.openInGreenOsUrl || "").trim();
+    const openLabel = loadBit
+        ? `Open load ${loadBit} in Green OS`
+        : "Open load in Green OS";
     const subject = loadBit
         ? `Signed ${label} — ${company} (${loadBit})`
         : `Signed ${label} — ${company}`;
@@ -153,11 +159,15 @@ export function buildSignedCustomerAgreementBrokerEmail(input: {
         "",
         "The filled and signed PDF is attached.",
         "It is also saved on the Load under Accounting → Customer Documents → Customer Agreement.",
+        openUrl ? `${openLabel}: ${openUrl}` : "",
         "",
         "Green Logistics LLC",
     ]
         .filter((line) => line !== "")
         .join("\n");
+    const openBtn = openUrl
+        ? `<p style="margin:24px 0"><a href="${escapeHtml(openUrl)}" style="display:inline-block;background:#059669;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700">${escapeHtml(openLabel)}</a></p>`
+        : "";
     const html = `<!DOCTYPE html>
 <html><body style="font-family:Arial,Helvetica,sans-serif;color:#1d2a3a;line-height:1.55">
   <p><strong>Customer agreement signed</strong></p>
@@ -168,6 +178,7 @@ export function buildSignedCustomerAgreementBrokerEmail(input: {
   <strong>Signed at:</strong> ${escapeHtml(input.signedAtLabel)}<br/>
   <strong>Broker on document:</strong> ${escapeHtml(input.brokerName)}</p>
   <p>The filled and signed PDF is attached. It is also saved on the Load under <strong>Accounting → Customer Documents → Customer Agreement</strong>.</p>
+  ${openBtn}
   <p>Green Logistics LLC</p>
 </body></html>`;
     return { subject, text, html };

@@ -378,6 +378,7 @@ export class CarrierEmailService {
         carrierLegalName: string;
         mcNumber?: string | null;
         dotNumber?: string | null;
+        /** Deep link into Green OS (prefer the related Load when known). */
         carrierUrl: string;
         purposeLabel: string;
         docs: string[];
@@ -386,15 +387,29 @@ export class CarrierEmailService {
         signedBy?: string | null;
         signedAt?: string | null;
         replyToCarrierEmail?: string | null;
+        loadNumber?: string | null;
+        /** When set, CTA opens this Load instead of only the carrier card. */
+        openInGreenOsUrl?: string | null;
+        openInGreenOsLabel?: string | null;
     }) {
         const fields = input.packageFields || [];
-        const subject = `Carrier package completed — ${input.carrierLegalName}`;
+        const loadBit = String(input.loadNumber || "").trim();
+        const openUrl = String(input.openInGreenOsUrl || input.carrierUrl || "").trim();
+        const openLabel =
+            String(input.openInGreenOsLabel || "").trim() ||
+            (loadBit
+                ? `Open load ${loadBit} in Green OS`
+                : "Open carrier package in Green OS");
+        const subject = loadBit
+            ? `Carrier package completed — ${input.carrierLegalName} (${loadBit})`
+            : `Carrier package completed — ${input.carrierLegalName}`;
         const fieldText = fields.map((f) => `${f.label}: ${f.value || "—"}`).join("\n");
         const text = [
             `Green Logistics — carrier package returned to broker`,
             "",
             `Package: ${input.purposeLabel}`,
             `Carrier: ${input.carrierLegalName}`,
+            loadBit ? `Load: ${loadBit}` : "",
             `MC: ${input.mcNumber || "—"}`,
             `DOT: ${input.dotNumber || "—"}`,
             input.signedBy ? `Signed by: ${input.signedBy}` : "",
@@ -406,7 +421,7 @@ export class CarrierEmailService {
             "Documents / checklist:",
             ...input.docs.map((d) => `✓ ${d}`),
             "",
-            `Open carrier package in Green OS: ${input.carrierUrl}`,
+            `${openLabel}: ${openUrl}`,
             "",
             "Signed Rate Confirmation PDF: open the Load → Documents (look for Final Signed / Signed by carrier).",
             "Sensitive files (W-9, MC, NOA) are on the carrier card Documents tab.",
@@ -430,6 +445,7 @@ export class CarrierEmailService {
             ${emailBrandHeader("Carrier package completed")}
             <p style="margin:0 0 12px;color:#5b6b84;text-align:center">${esc(input.purposeLabel)}</p>
             <p><strong>${esc(input.carrierLegalName)}</strong><br/>
+            ${loadBit ? `Load: <strong>${esc(loadBit)}</strong><br/>` : ""}
             MC: ${esc(input.mcNumber || "—")} · DOT: ${esc(input.dotNumber || "—")}</p>
             ${
                 input.signedBy
@@ -443,8 +459,8 @@ export class CarrierEmailService {
             <h3 style="margin:18px 0 8px;font-size:15px">Received</h3>
             <ul>${input.docs.map((d) => `<li>✓ ${esc(d)}</li>`).join("")}</ul>
             <p style="margin:24px 0">
-              <a href="${esc(input.carrierUrl)}" style="background:#059669;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;font-weight:600">
-                Open carrier package in Green OS
+              <a href="${esc(openUrl)}" style="background:#059669;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block;font-weight:600">
+                ${esc(openLabel)}
               </a>
             </p>
             <p style="color:#5b6b84;font-size:13px">Signed Rate Confirmation is on the <strong>Load → Documents</strong> tab (Final Signed). MC / NOA / W-9 stay on the carrier card. This email is the broker notification only.</p>
@@ -555,8 +571,28 @@ export class CarrierEmailService {
         return `${config.publicAppUrl}/carrier/onboarding/${encodeURIComponent(token)}`;
     }
 
+    /** Opens the carrier card in Green OS (hash route + query fallback). */
     carrierRecordUrl(carrierId: string): string {
-        return `${config.publicAppUrl}/?module=carriers&carrierId=${encodeURIComponent(carrierId)}`;
+        const id = encodeURIComponent(String(carrierId || "").trim());
+        return `${config.publicAppUrl}/?module=carriers&carrierId=${id}#/carriers/${id}`;
+    }
+
+    /**
+     * Opens the related Load in Green OS (Documents tab by default).
+     * Shell reads shipmentLeadId + tab from the query string on boot.
+     */
+    loadRecordUrl(
+        shipmentLeadId: string,
+        opts?: { tab?: string | null; loadNumber?: string | null }
+    ): string {
+        const id = String(shipmentLeadId || "").trim();
+        const tab = String(opts?.tab || "documents").trim() || "documents";
+        const params = new URLSearchParams();
+        params.set("shipmentLeadId", id);
+        params.set("tab", tab);
+        const loadNo = String(opts?.loadNumber || "").trim();
+        if (loadNo) params.set("loadNumber", loadNo);
+        return `${config.publicAppUrl}/?${params.toString()}`;
     }
 
     fallbackAdminEmail(): string {

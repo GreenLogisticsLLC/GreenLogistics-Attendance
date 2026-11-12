@@ -14,6 +14,8 @@ test("broker signed-agreement email mentions attached PDF and Accounting", () =>
         signerName: "Alex Customer",
         signedAtLabel: "November 12, 2026, 6:58 PM",
         loadNumber: "GL10199",
+        openInGreenOsUrl:
+            "https://os.example.com/?shipmentLeadId=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee&tab=documents&loadNumber=GL10199",
     });
     assert.match(mail.subject, /Signed/);
     assert.match(mail.subject, /Acme Shipping/);
@@ -21,8 +23,11 @@ test("broker signed-agreement email mentions attached PDF and Accounting", () =>
     assert.match(mail.text, /Alex Customer/);
     assert.match(mail.text, /attached/i);
     assert.match(mail.text, /Accounting/);
+    assert.match(mail.text, /Open load GL10199 in Green OS/);
     assert.match(mail.html, /Customer Documents/);
     assert.match(mail.html, /Logan Harris/);
+    assert.match(mail.html, /Open load GL10199 in Green OS/);
+    assert.match(mail.html, /shipmentLeadId=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/);
 });
 
 test("FINAL_SIGNED is the change reason Accounting / Load Documents expect", () => {
