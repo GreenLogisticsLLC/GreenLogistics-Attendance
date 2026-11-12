@@ -62,8 +62,8 @@ export function buildCustomerInvoiceEmail(input: {
       <td align="center">
         <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #dbe4f0;">
           <tr>
-            <td style="background:#16325c;color:#ffffff;padding:22px 28px;">
-              <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;opacity:.8;">Green Logistics</div>
+            <td style="background:#0b3d2e;color:#ffffff;padding:22px 28px;">
+              <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;opacity:.85;">Green Logistics</div>
               <div style="font-size:22px;font-weight:700;margin-top:4px;">Your shipment was delivered</div>
             </td>
           </tr>
