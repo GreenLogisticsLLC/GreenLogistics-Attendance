@@ -26,6 +26,7 @@ import { isLoadCarrierApproved } from "../load-carrier-review.js";
 import { buildCarrierOperationalSummary } from "../../ai/operational/carrier-context.js";
 import { documentAiJobService } from "../../ai/documents/job.service.js";
 import type { CarrierOperationalSummary } from "../../ai/operational/types.js";
+import { carrierAmountFromRateConContent } from "../load-amounts.js";
 
 export function assertRateConfirmationCompliance(
     summary: Pick<CarrierOperationalSummary, "readiness" | "compliance">,
@@ -778,8 +779,22 @@ export class LoadDocumentsService {
                         .catch(() => null);
                 }
             }
-            // Rate Con Flat Rate stays on the PDF content only.
-            // Books (carrierRate / customerRate / profit) = Accounting + Owner.
+        }
+
+        // Agreed Rate Con Flat Rate becomes Carrier price (отдали) on the Load.
+        // Brokers cannot PATCH money fields, so generate/edit must sync books here.
+        if (docType === "RATE_CONFIRMATION") {
+            const amt = carrierAmountFromRateConContent(
+                content as unknown as Record<string, unknown>
+            );
+            if (amt != null && amt > 0) {
+                await prisma.shipmentLead
+                    .update({
+                        where: { shipmentLeadId: input.shipmentLeadId },
+                        data: { carrierRate: amt },
+                    })
+                    .catch(() => null);
+            }
         }
 
         return row;

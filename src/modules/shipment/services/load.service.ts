@@ -34,36 +34,23 @@ import { carrierMissingOnPickup } from "../carrier-missing-on-pickup.js";
 import { config } from "../../../config/env.js";
 import { AccountingDocStatus } from "../../accounting/accounting.constants.js";
 import { customerService } from "../../customers/services/customer.service.js";
+import {
+    carrierAmountFromRateConContent,
+    customerAmountFromInvoiceContent,
+    parseMoneyValue,
+} from "../load-amounts.js";
+
+export {
+    carrierAmountFromRateConContent,
+    customerAmountFromInvoiceContent,
+} from "../load-amounts.js";
 
 function money(n: number | null | undefined): number {
     return Number.isFinite(n as number) ? Number(n) : 0;
 }
 
-function parseMoneyValue(v: unknown): number | null {
-    if (v == null || v === "") return null;
-    const n = typeof v === "number" ? v : Number(String(v).replace(/[^0-9.-]/g, ""));
-    return Number.isFinite(n) ? n : null;
-}
-
 function looksLikeEmail(v: string): boolean {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
-}
-
-/** Prefer invoice total (what customer pays), not hourly rate. */
-export function customerAmountFromInvoiceContent(content: Record<string, unknown> | null | undefined): number | null {
-    if (!content) return null;
-    return (
-        parseMoneyValue(content.totalAmountDue) ??
-        parseMoneyValue(content.invoiceLineTotal) ??
-        parseMoneyValue(content.invoiceSubtotal) ??
-        parseMoneyValue(content.customerRate) ??
-        null
-    );
-}
-
-export function carrierAmountFromRateConContent(content: Record<string, unknown> | null | undefined): number | null {
-    if (!content) return null;
-    return parseMoneyValue(content.flatRate) ?? parseMoneyValue(content.carrierRate) ?? null;
 }
 
 /**
