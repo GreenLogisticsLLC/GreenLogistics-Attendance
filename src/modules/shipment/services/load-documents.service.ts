@@ -811,6 +811,20 @@ export class LoadDocumentsService {
             where: { documentId },
             data: { status: "ARCHIVED", isCurrent: false, changeReason: "ARCHIVED" },
         });
+        // Deleting an invoice from Accounting should clear the related queue flag
+        // so Send / Billing / Carrier Payments do not keep a removed file.
+        if (row.docType === "CUSTOMER_INVOICE" || row.docType === "CARRIER_INVOICE") {
+            await prisma.shipmentLead
+                .update({
+                    where: { shipmentLeadId: row.shipmentLeadId },
+                    data: {
+                        ...(row.docType === "CUSTOMER_INVOICE"
+                            ? { accountingReadyForBilling: false }
+                            : { accountingReadyForCarrierPayment: false }),
+                    },
+                })
+                .catch(() => null);
+        }
         await domainEventEngine.emit({
             shipmentLeadId: row.shipmentLeadId,
             eventType: "DOCUMENT_ARCHIVED",

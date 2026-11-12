@@ -915,6 +915,39 @@ window.GreenOSModules.accounting = {
     return "application/pdf,.pdf,image/*,.png,.jpg,.jpeg,.webp";
   },
 
+  /** Uploaded invoice filename + Delete (archives the load document). */
+  invoiceFileRowHtml(invoice, opts) {
+    opts = opts || {};
+    if (!invoice || !invoice.openUrl) {
+      return (
+        '<p class="gos-muted">' +
+        this.esc(opts.emptyText || "No invoice uploaded yet.") +
+        "</p>"
+      );
+    }
+    var canDelete = Boolean(opts.canDelete && invoice.documentId && invoice.source === "load");
+    return (
+      '<div class="acc-drop-file-row">' +
+      '<button type="button" class="acc-doc-file" data-url="' +
+      this.esc(invoice.openUrl) +
+      '" data-name="' +
+      this.esc(invoice.fileName || opts.fallbackName || "invoice.pdf") +
+      '" data-mime="' +
+      this.esc(invoice.mimeType || "application/pdf") +
+      '">' +
+      this.esc(invoice.fileName || opts.fallbackName || "Invoice") +
+      "</button>" +
+      (canDelete
+        ? '<button type="button" class="acc-invoice-delete" data-document-id="' +
+          this.esc(invoice.documentId) +
+          '" data-doc-type="' +
+          this.esc(invoice.docType || "") +
+          '" title="Delete invoice">Delete</button>'
+        : "") +
+      "</div>"
+    );
+  },
+
   /**
    * File picker that the user actually clicks (input overlays the button).
    * Programmatic .click()/showPicker() on clipped inputs is blocked in Chrome/Safari.
@@ -2107,17 +2140,11 @@ window.GreenOSModules.accounting = {
         "</section></div>" +
         '<div class="acc-invoice-grid">' +
         '<section class="acc-card acc-drop-card"><h3>Customer Invoice (For Billing)</h3>' +
-        (custInvoice && custInvoice.openUrl
-          ? '<p class="acc-drop-file"><button type="button" class="acc-doc-file" data-url="' +
-            self.esc(custInvoice.openUrl) +
-            '" data-name="' +
-            self.esc(custInvoice.fileName || "customer-invoice.pdf") +
-            '" data-mime="' +
-            self.esc(custInvoice.mimeType || "application/pdf") +
-            '">' +
-            self.esc(custInvoice.fileName || "Customer invoice") +
-            "</button></p>"
-          : '<p class="gos-muted">No customer invoice uploaded yet.</p>') +
+        self.invoiceFileRowHtml(custInvoice, {
+          emptyText: "No customer invoice uploaded yet.",
+          fallbackName: "Customer invoice",
+          canDelete: Boolean(perms.canCreateInvoice || perms.canSendInvoice),
+        }) +
         '<div class="acc-invoice-actions">' +
         self.invoiceUploadControlHtml("CUSTOMER_INVOICE", "+ Add Customer Invoice") +
         '<button type="button" class="btn-primary acc-send-btn" data-act="send-invoice"' +
@@ -2130,17 +2157,13 @@ window.GreenOSModules.accounting = {
         '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Send emails the invoice to the customer and moves this load into Billing (AR).</p>' +
         "</section>" +
         '<section class="acc-card acc-drop-card"><h3>Carrier Invoice (For Payment)</h3>' +
-        (carrInvoice && carrInvoice.openUrl
-          ? '<p class="acc-drop-file"><button type="button" class="acc-doc-file" data-url="' +
-            self.esc(carrInvoice.openUrl) +
-            '" data-name="' +
-            self.esc(carrInvoice.fileName || "carrier-invoice.pdf") +
-            '" data-mime="' +
-            self.esc(carrInvoice.mimeType || "application/pdf") +
-            '">' +
-            self.esc(carrInvoice.fileName || "Carrier invoice") +
-            "</button></p>"
-          : '<p class="gos-muted">No carrier invoice uploaded yet.</p>') +
+        self.invoiceFileRowHtml(carrInvoice, {
+          emptyText: "No carrier invoice uploaded yet.",
+          fallbackName: "Carrier invoice",
+          canDelete: Boolean(
+            perms.canSendCarrierInvoice || perms.canSendInvoice || perms.canCreateInvoice
+          ),
+        }) +
         '<div class="acc-invoice-actions">' +
         self.invoiceUploadControlHtml("CARRIER_INVOICE", "+ Add Carrier Invoice") +
         '<button type="button" class="btn-primary acc-send-btn" data-act="send-carrier-invoice"' +
@@ -2373,6 +2396,46 @@ window.GreenOSModules.accounting = {
             btn.getAttribute("data-mime"),
             btn.getAttribute("data-download") === "1"
           );
+        });
+      });
+
+      host.querySelectorAll(".acc-invoice-delete").forEach(function (btn) {
+        btn.addEventListener("click", async function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          var documentId = btn.getAttribute("data-document-id");
+          var docType = btn.getAttribute("data-doc-type") || "invoice";
+          if (!documentId) return;
+          if (
+            !window.confirm(
+              "Delete this " +
+                String(docType).replace(/_/g, " ").toLowerCase() +
+                "? You can upload a new file afterward."
+            )
+          ) {
+            return;
+          }
+          var msgEl = host.querySelector("#acc-msg");
+          btn.disabled = true;
+          if (msgEl) {
+            msgEl.textContent = "Deleting…";
+            msgEl.style.color = "";
+          }
+          try {
+            await self.loadApi(
+              "/" + encodeURIComponent(id) + "/documents/" + encodeURIComponent(documentId) + "/archive",
+              { method: "POST", body: {} }
+            );
+            self._profileFlash = "Invoice deleted. You can upload a new file.";
+            await self.openShipment(host, id);
+          } catch (err) {
+            btn.disabled = false;
+            if (msgEl) {
+              msgEl.textContent = err.message || "Delete failed";
+              msgEl.style.color = "#ef4444";
+            }
+            alert(err.message || "Delete failed");
+          }
         });
       });
 
