@@ -130,6 +130,8 @@ export type LoadDocumentContent = {
     pickupDate?: string | null;
     pickupTime?: string | null;
     pickupContact?: string | null;
+    /** Instructions shown on Rate Con under origin (gate code, dock, etc.). */
+    pickupNote?: string | null;
     deliveryDate?: string | null;
     deliveryTime?: string | null;
     deliveryContact?: string | null;
@@ -462,6 +464,15 @@ function renderRateConfirmationPdf(
     }
     fieldRow(doc, "CONTACT:", txt(c.deliveryContact), dx + 8, contactRowY, usable / 2 - 24);
     y += stopBoxH + 6;
+
+    // Pickup Note — between stops and Special Notes
+    drawBox(doc, left, y, usable, 30);
+    doc.font("Helvetica-Bold").fontSize(7.5).text("PICKUP NOTE:", left + 8, y + 3);
+    doc.font("Helvetica").fontSize(7.5).text(txt(c.pickupNote) || "—", left + 8, y + 14, {
+        width: usable - 16,
+        height: 12,
+    });
+    y += 34;
 
     // Special Notes — above Driver Information
     drawBox(doc, left, y, usable, 30);
