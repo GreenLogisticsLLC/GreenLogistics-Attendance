@@ -17,6 +17,7 @@ import { customerPaymentQuote } from "../../shipment/customer-payment.js";
 import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
 import { resolveLoadDocumentAbsolutePath } from "../../shipment/services/load-pdf.service.js";
 import { canTransition } from "../../shipment/shipment.lifecycle.js";
+import { preferRateConCarrierAmount } from "../../shipment/load-amounts.js";
 
 type Actor = {
     userId: string;
@@ -461,7 +462,39 @@ where: { loadNumber: { not: null } },
             ])
         );
 
+        // Prefer current Rate Con Flat Rate over a stale books carrierRate.
+        const rcByLead = new Map<string, string | null>();
+        if (rows.length) {
+            const rcDocs = await prisma.loadDocument.findMany({
+                where: {
+                    shipmentLeadId: { in: rows.map((r) => r.shipmentLeadId) },
+                    isCurrent: true,
+                    docType: "RATE_CONFIRMATION",
+                    status: { not: "ARCHIVED" },
+                },
+                select: { shipmentLeadId: true, contentJson: true },
+            });
+            for (const d of rcDocs) {
+                if (!rcByLead.has(d.shipmentLeadId)) {
+                    rcByLead.set(d.shipmentLeadId, d.contentJson);
+                }
+            }
+        }
+
         let list = rows.map((r) => {
+            let carrierRate = r.carrierRate;
+            const rcJson = rcByLead.get(r.shipmentLeadId);
+            if (rcJson) {
+                try {
+                    const amt = preferRateConCarrierAmount(
+                        carrierRate,
+                        JSON.parse(rcJson) as Record<string, unknown>
+                    );
+                    if (amt != null) carrierRate = amt;
+                } catch {
+                    /* ignore bad RC snapshot */
+                }
+            }
             const payment = customerPaymentQuote({
                 customerRate: r.customerRate,
                 accessorialCharges: r.accessorialCharges,
@@ -474,6 +507,7 @@ where: { loadNumber: { not: null } },
             const status = String(r.status || "").toUpperCase();
             return {
                 ...r,
+                carrierRate,
                 pickupDay,
                 deliveryDay,
                 brokerName: r.assignedBrokerId
@@ -484,9 +518,9 @@ where: { loadNumber: { not: null } },
                 customerPaymentWaived: payment.waived,
                 customerPays: customerOwes,
                 customerTotal: customerOwes,
-                carrierTotal: money(r.carrierRate),
+                carrierTotal: money(carrierRate),
                 outstandingCustomer: r.customerPaidAt ? 0 : customerOwes || 0,
-                outstandingCarrier: r.carrierPaidAt ? 0 : money(r.carrierRate) || 0,
+                outstandingCarrier: r.carrierPaidAt ? 0 : money(carrierRate) || 0,
                 isVoided: status === "VOIDED",
                 isReactivated: Boolean(r.accountingReactivatedAt) && status !== "VOIDED",
             };
@@ -643,8 +677,44 @@ where: { loadNumber: { not: null } },
             method: s.customerPaymentMethod,
             waiveFee: s.waiveCustomerPaymentFee,
         });
+        let carrierRate = s.carrierRate;
+        const rateCon = s.loadDocuments.find(
+            (doc) => String(doc.docType || "").toUpperCase() === "RATE_CONFIRMATION"
+        );
+        let rateConPaymentOption: string | null = null;
+        if (rateCon?.contentJson) {
+            try {
+                const content = JSON.parse(rateCon.contentJson) as Record<string, unknown>;
+                const amt = preferRateConCarrierAmount(carrierRate, content);
+                if (amt != null && amt > 0 && Number(carrierRate) !== amt) {
+                    carrierRate = amt;
+                    await prisma.shipmentLead
+                        .update({
+                            where: { shipmentLeadId },
+                            data: { carrierRate: amt },
+                        })
+                        .catch((err) => {
+                            console.error(
+                                `[rc-sync] accounting detail heal failed for ${shipmentLeadId}:`,
+                                err instanceof Error ? err.message : err
+                            );
+                            return null;
+                        });
+                } else if (amt != null) {
+                    carrierRate = amt;
+                }
+                rateConPaymentOption =
+                    String(
+                        (content.paymentOptionLabel as string | null | undefined) ||
+                            (content.paymentOption as string | null | undefined) ||
+                            ""
+                    ).trim() || null;
+            } catch {
+                /* ignore bad RC snapshot */
+            }
+        }
         const customerTotal = payment.total || 0;
-        const carrierTotal = money(s.carrierRate) || 0;
+        const carrierTotal = money(carrierRate) || 0;
 
         const pickupDay = s.opsPickupAt || s.pickupFrom || s.pickupTo || null;
         const deliveryDay = s.opsDeliveryAt || s.deliveryFrom || s.deliveryTo || null;
@@ -665,24 +735,6 @@ where: { loadNumber: { not: null } },
         const carrierInvoice = documents.find(
             (doc) => String(doc.docType || "").toUpperCase() === "CARRIER_INVOICE"
         );
-
-        let rateConPaymentOption: string | null = null;
-        const rateCon = s.loadDocuments.find(
-            (doc) => String(doc.docType || "").toUpperCase() === "RATE_CONFIRMATION"
-        );
-        if (rateCon?.contentJson) {
-            try {
-                const content = JSON.parse(rateCon.contentJson) as {
-                    paymentOption?: string | null;
-                    paymentOptionLabel?: string | null;
-                };
-                rateConPaymentOption =
-                    String(content.paymentOptionLabel || content.paymentOption || "").trim() ||
-                    null;
-            } catch {
-                /* ignore bad RC snapshot */
-            }
-        }
         const carrierPaymentOption =
             rateConPaymentOption ||
             carrierPaymentOptionLabel(carrierProfile?.paymentOption) ||
@@ -728,7 +780,7 @@ where: { loadNumber: { not: null } },
             },
             carrier: {
                 name: s.carrierName,
-                rate: money(s.carrierRate),
+                rate: money(carrierRate),
                 accessorials: null,
                 total: carrierTotal,
                 amountPaid: s.carrierPaidAt ? carrierTotal : 0,

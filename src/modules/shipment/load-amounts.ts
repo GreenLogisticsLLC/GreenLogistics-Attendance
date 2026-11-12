@@ -27,3 +27,16 @@ export function carrierAmountFromRateConContent(
     if (!content) return null;
     return parseMoneyValue(content.flatRate) ?? parseMoneyValue(content.carrierRate) ?? null;
 }
+
+/**
+ * Last Rate Con Flat Rate is the agreed carrier price.
+ * Prefer a positive RC amount over books `carrierRate` (which may be stale).
+ */
+export function preferRateConCarrierAmount(
+    booksCarrierRate: number | null | undefined,
+    rcContent: Record<string, unknown> | null | undefined
+): number | null {
+    const fromRc = carrierAmountFromRateConContent(rcContent);
+    if (fromRc != null && fromRc > 0) return fromRc;
+    return parseMoneyValue(booksCarrierRate);
+}

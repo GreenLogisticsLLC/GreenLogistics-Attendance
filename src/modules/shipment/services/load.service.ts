@@ -38,11 +38,13 @@ import {
     carrierAmountFromRateConContent,
     customerAmountFromInvoiceContent,
     parseMoneyValue,
+    preferRateConCarrierAmount,
 } from "../load-amounts.js";
 
 export {
     carrierAmountFromRateConContent,
     customerAmountFromInvoiceContent,
+    preferRateConCarrierAmount,
 } from "../load-amounts.js";
 
 function money(n: number | null | undefined): number {
@@ -297,14 +299,20 @@ export class LoadService {
         });
 
         // Read-only rate hints from docs — no sequential UPDATEs on list (was slow).
-        const needDoc = rows.filter((r) => r.customerRate == null || r.carrierRate == null);
+        // Always load current RC so a newer Flat Rate overlays a stale books carrierRate.
+        const needDoc = rows.filter((r) => r.customerRate == null || r.customerRate === 0);
         const docByLead = new Map<string, { inv?: string | null; rc?: string | null }>();
-        if (needDoc.length) {
+        const leadIds = rows.map((r) => r.shipmentLeadId);
+        if (leadIds.length) {
             const docs = await prisma.loadDocument.findMany({
                 where: {
-                    shipmentLeadId: { in: needDoc.map((r) => r.shipmentLeadId) },
+                    shipmentLeadId: { in: leadIds },
                     isCurrent: true,
-                    docType: { in: ["CUSTOMER_INVOICE", "RATE_CONFIRMATION"] },
+                    docType: {
+                        in: needDoc.length
+                            ? ["CUSTOMER_INVOICE", "RATE_CONFIRMATION"]
+                            : ["RATE_CONFIRMATION"],
+                    },
                 },
                 select: { shipmentLeadId: true, docType: true, contentJson: true },
             });
@@ -345,10 +353,13 @@ export class LoadService {
                         /* ignore */
                     }
                 }
-                if ((carrierRate == null || carrierRate === 0) && slot.rc) {
+                if (slot.rc) {
                     try {
-                        const amt = carrierAmountFromRateConContent(JSON.parse(slot.rc));
-                        if (amt != null && amt > 0) carrierRate = amt;
+                        const amt = preferRateConCarrierAmount(
+                            carrierRate,
+                            JSON.parse(slot.rc) as Record<string, unknown>
+                        );
+                        if (amt != null) carrierRate = amt;
                     } catch {
                         /* ignore */
                     }
@@ -476,8 +487,9 @@ export class LoadService {
             };
         }
 
-        // Backfill Customer / Carrier $ from invoice / Rate Con when DB rates are missing.
-        if (s.customerRate == null || s.customerRate === 0 || s.carrierRate == null || s.carrierRate === 0) {
+        // Backfill / heal books from invoice + current Rate Con.
+        // Last RC Flat Rate always wins over a stale non-zero carrierRate.
+        {
             const patch: { customerRate?: number; carrierRate?: number } = {};
             for (const d of documents as Array<{ docType: string; contentJson?: string | null }>) {
                 if (!d.contentJson) continue;
@@ -491,13 +503,15 @@ export class LoadService {
                         const amt = customerAmountFromInvoiceContent(content);
                         if (amt != null && amt > 0) patch.customerRate = amt;
                     }
-                    if (
-                        (s.carrierRate == null || s.carrierRate === 0) &&
-                        d.docType === "RATE_CONFIRMATION" &&
-                        !patch.carrierRate
-                    ) {
+                    if (d.docType === "RATE_CONFIRMATION" && !patch.carrierRate) {
                         const amt = carrierAmountFromRateConContent(content);
-                        if (amt != null && amt > 0) patch.carrierRate = amt;
+                        if (
+                            amt != null &&
+                            amt > 0 &&
+                            (s.carrierRate == null || Number(s.carrierRate) !== amt)
+                        ) {
+                            patch.carrierRate = amt;
+                        }
                     }
                 } catch {
                     /* ignore */
@@ -506,7 +520,13 @@ export class LoadService {
             if (Object.keys(patch).length) {
                 await prisma.shipmentLead
                     .update({ where: { shipmentLeadId }, data: patch })
-                    .catch(() => null);
+                    .catch((err) => {
+                        console.error(
+                            `[rc-sync] getLoadDetails heal failed for ${shipmentLeadId}:`,
+                            err instanceof Error ? err.message : err
+                        );
+                        return null;
+                    });
                 Object.assign(s, patch);
             }
         }

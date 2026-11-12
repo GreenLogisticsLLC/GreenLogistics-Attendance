@@ -4213,7 +4213,13 @@ window.GreenOSModules["dispatch"] = {
       '<label>Weight * <input id="rc-weight" value="' + self.esc(g.weight || "") + '" required></label>' +
       '<label>Commodity * <input id="rc-commodity" value="' + self.esc(g.commodity || "") + '" required></label>' +
       "<label>Flat Rate $USD *" +
-      self.moneyFieldHtml("rc-rate", p.carrierRate || "", "1000.00") +
+      self.moneyFieldHtml(
+        "rc-rate",
+        // Last RC Flat Rate wins — brokers have carrierRate redacted on pricing,
+        // so reopen must seed from current Rate Con content, not books.
+        pick("flatRate", pick("carrierRate", p.carrierRate || "")),
+        "1000.00"
+      ) +
       "</label>" +
       '<label class="full">Origin (pickup address) * <input id="rc-origin" value="' +
       self.esc(pick("pickupAddress", place(g.pickup))) +
