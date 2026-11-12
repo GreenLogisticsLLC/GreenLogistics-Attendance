@@ -4890,6 +4890,7 @@ tr.acc-row-carrier-pay button.acc-load-link {
   width: 100%;
   margin-top: 0.35rem;
 }
+/* Fallback (non-overlay) — keep out of layout but clickable via associated control. */
 .acc-file-input {
   position: absolute;
   width: 1px;
@@ -4902,13 +4903,37 @@ tr.acc-row-carrier-pay button.acc-load-link {
   border: 0;
   opacity: 0;
 }
-.acc-invoice-add-label {
+/* Real click target: input covers the whole Add/Upload button so the OS file dialog opens. */
+.acc-invoice-add-label,
+.acc-doc-upload-label {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: auto;
   cursor: pointer;
   margin: 0;
+  overflow: hidden;
+}
+.acc-file-input.acc-file-input--overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  clip: auto;
+  overflow: hidden;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 0;
+  z-index: 2;
+}
+.acc-invoice-add-label > span,
+.acc-doc-upload-label > span {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
 }
 .acc-send-btn {
   min-width: 7.5rem;
@@ -5098,6 +5123,7 @@ tr.acc-row-carrier-pay button.acc-load-link {
   align-items: center;
 }
 .acc-doc-upload-btn,
+.acc-doc-upload-label,
 .acc-doc-icon {
   appearance: none;
   border: 1px solid var(--gos-border);
