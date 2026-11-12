@@ -104,6 +104,77 @@ export function customerAgreementSubtitle(type: CustomerAgreementType): string {
         : "Individual Shipment Agreement";
 }
 
+export type CustomerAgreementShipmentPrefill = {
+    loadNumber?: string | null;
+    greenOsShipmentId?: string | null;
+    shipmentTitle?: string | null;
+    commodity?: string | null;
+    pieces?: number | string | null;
+    weight?: string | null;
+    equipment?: string | null;
+    specialInstructions?: string | null;
+    pickupCity?: string | null;
+    pickupState?: string | null;
+    pickupZip?: string | null;
+    deliveryCity?: string | null;
+    deliveryState?: string | null;
+    deliveryZip?: string | null;
+    pickupFrom?: Date | string | null;
+    deliveryFrom?: Date | string | null;
+    customerRate?: number | string | null;
+    price?: number | string | null;
+    customerPaymentMethod?: string | null;
+    customerPaymentLabel?: string | null;
+    customerName?: string | null;
+    customerEmail?: string | null;
+    customerPhone?: string | null;
+};
+
+function fmtMoney(value: unknown): string {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return "";
+    return n % 1 === 0 ? String(n) : n.toFixed(2);
+}
+
+function fmtPlace(city?: string | null, state?: string | null, zip?: string | null): string {
+    const cityState = [String(city || "").trim(), String(state || "").trim().toUpperCase()]
+        .filter(Boolean)
+        .join(", ");
+    return [cityState, String(zip || "").trim()].filter(Boolean).join(" ").trim();
+}
+
+function fmtDateTime(value?: Date | string | null, timezone = "America/Los_Angeles"): string {
+    if (!value) return "";
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value).trim();
+    try {
+        return new Intl.DateTimeFormat("en-US", {
+            timeZone: timezone,
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+        }).format(d);
+    } catch {
+        return d.toISOString().slice(0, 16).replace("T", " ");
+    }
+}
+
+/** Merge only non-empty values; never overwrite a filled key with blank. */
+export function mergeAgreementFields(
+    base: Record<string, string>,
+    extra: Record<string, string | null | undefined>
+): Record<string, string> {
+    const out = { ...base };
+    for (const [key, raw] of Object.entries(extra)) {
+        const val = String(raw ?? "").trim();
+        if (!val) continue;
+        if (!String(out[key] || "").trim()) out[key] = val;
+    }
+    return out;
+}
+
 export function prefillCustomerAgreementFields(input: {
     agreementType: CustomerAgreementType;
     companyName?: string | null;
@@ -114,29 +185,65 @@ export function prefillCustomerAgreementFields(input: {
     city?: string | null;
     state?: string | null;
     zip?: string | null;
+    shipment?: CustomerAgreementShipmentPrefill | null;
+    timezone?: string;
 }): Record<string, string> {
     const cityStateZip = [input.city, input.state, input.zip].filter(Boolean).join(", ");
     const addr = String(input.billingAddress || "").trim();
+    const ship = input.shipment || null;
+    const timezone = input.timezone || "America/Los_Angeles";
+
     if (input.agreementType === "LONG_TIME") {
-        return {
-            legalCompanyName: String(input.companyName || ""),
-            authorizedRepresentative: String(input.contactName || ""),
+        return mergeAgreementFields(
+            {
+                legalCompanyName: String(input.companyName || ship?.customerName || ""),
+                authorizedRepresentative: String(input.contactName || ""),
+                businessAddress: addr,
+                cityStateZip,
+                email: String(input.email || ship?.customerEmail || ""),
+                phone: String(input.phone || ship?.customerPhone || ""),
+                customerCompanySign: String(input.companyName || ship?.customerName || ""),
+                customerRepSign: String(input.contactName || ""),
+            },
+            {}
+        );
+    }
+
+    const total = fmtMoney(ship?.customerRate ?? ship?.price);
+    const half = total ? fmtMoney(Number(total) / 2) : "";
+    const payment =
+        String(ship?.customerPaymentLabel || "").trim() ||
+        String(ship?.customerPaymentMethod || "").trim();
+
+    return mergeAgreementFields(
+        {
+            fullLegalName: String(input.contactName || input.companyName || ship?.customerName || ""),
+            companyName: String(input.companyName || ship?.customerName || ""),
             businessAddress: addr,
             cityStateZip,
-            email: String(input.email || ""),
-            phone: String(input.phone || ""),
-            customerCompanySign: String(input.companyName || ""),
-            customerRepSign: String(input.contactName || ""),
-        };
-    }
-    return {
-        fullLegalName: String(input.contactName || input.companyName || ""),
-        companyName: String(input.companyName || ""),
-        businessAddress: addr,
-        cityStateZip,
-        email: String(input.email || ""),
-        phone: String(input.phone || ""),
-        customerFullName: String(input.contactName || ""),
-        customerCompany: String(input.companyName || ""),
-    };
+            email: String(input.email || ship?.customerEmail || ""),
+            phone: String(input.phone || ship?.customerPhone || ""),
+            customerFullName: String(input.contactName || ship?.customerName || ""),
+            customerCompany: String(input.companyName || ship?.customerName || ""),
+        },
+        {
+            shipmentRef: String(ship?.loadNumber || ship?.greenOsShipmentId || "").trim(),
+            commodity: String(ship?.commodity || ship?.shipmentTitle || "").trim(),
+            quantity:
+                ship?.pieces == null || ship?.pieces === ""
+                    ? ""
+                    : String(ship.pieces),
+            totalWeight: String(ship?.weight || "").trim(),
+            pickupAddress: fmtPlace(ship?.pickupCity, ship?.pickupState, ship?.pickupZip),
+            pickupDateTime: fmtDateTime(ship?.pickupFrom, timezone),
+            deliveryAddress: fmtPlace(ship?.deliveryCity, ship?.deliveryState, ship?.deliveryZip),
+            deliveryDateTime: fmtDateTime(ship?.deliveryFrom, timezone),
+            equipment: String(ship?.equipment || "").trim(),
+            additionalInstructions: String(ship?.specialInstructions || "").trim(),
+            totalCharge: total,
+            paymentMethod: payment,
+            firstPayment: half,
+            finalPayment: half,
+        }
+    );
 }
