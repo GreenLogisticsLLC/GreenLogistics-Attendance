@@ -788,12 +788,21 @@ export class LoadDocumentsService {
                 content as unknown as Record<string, unknown>
             );
             if (amt != null && amt > 0) {
-                await prisma.shipmentLead
-                    .update({
+                try {
+                    await prisma.shipmentLead.update({
                         where: { shipmentLeadId: input.shipmentLeadId },
                         data: { carrierRate: amt },
-                    })
-                    .catch(() => null);
+                    });
+                } catch (err) {
+                    console.error(
+                        `[rc-sync] failed to write carrierRate=${amt} for ${input.shipmentLeadId}:`,
+                        err instanceof Error ? err.message : err
+                    );
+                    throw Object.assign(
+                        new Error("Rate Confirmation saved but Carrier price could not be updated"),
+                        { status: 500, code: "RC_CARRIER_RATE_SYNC_FAILED" }
+                    );
+                }
             }
         }
 
