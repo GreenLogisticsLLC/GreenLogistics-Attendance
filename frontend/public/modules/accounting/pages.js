@@ -846,12 +846,10 @@ window.GreenOSModules.accounting = {
             '" data-download="1" title="Download">Download</button>';
         }
         if (doc.source === "load") {
-          actions +=
-            '<button type="button" class="acc-doc-upload-btn" data-doc-type="' +
-            self.esc(doc.docType) +
-            '">' +
-            (ready ? "Replace" : "Upload") +
-            "</button>";
+          actions += self.docUploadControlHtml(
+            doc.docType,
+            ready ? "Replace" : "Upload"
+          );
         }
         return (
           '<li class="acc-doc-row">' +
@@ -907,7 +905,10 @@ window.GreenOSModules.accounting = {
     return "application/pdf,.pdf,image/*,.png,.jpg,.jpeg,.webp";
   },
 
-  /** Visually-hidden file input + label (HTML hidden blocks programmatic .click() in some browsers). */
+  /**
+   * File picker that the user actually clicks (input overlays the button).
+   * Programmatic .click()/showPicker() on clipped inputs is blocked in Chrome/Safari.
+   */
   invoiceUploadControlHtml(docType, labelText) {
     var id =
       "acc-file-" +
@@ -915,18 +916,45 @@ window.GreenOSModules.accounting = {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-");
     return (
+      '<label class="btn-secondary acc-invoice-add-label" for="' +
+      this.esc(id) +
+      '">' +
       '<input type="file" id="' +
       this.esc(id) +
-      '" class="acc-file-input" data-doc-type="' +
+      '" class="acc-file-input acc-file-input--overlay" data-doc-type="' +
       this.esc(docType) +
       '" accept="' +
       this.esc(this.invoiceFileAccept()) +
       '">' +
-      '<label for="' +
-      this.esc(id) +
-      '" class="btn-secondary acc-invoice-add-label">' +
+      "<span>" +
       this.esc(labelText) +
-      "</label>"
+      "</span></label>"
+    );
+  },
+
+  /** Compact Upload/Replace control for document rows (same overlay pattern). */
+  docUploadControlHtml(docType, labelText) {
+    var id =
+      "acc-doc-file-" +
+      String(docType || "doc")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-") +
+      "-" +
+      String(Math.random()).slice(2, 8);
+    return (
+      '<label class="acc-doc-upload-btn acc-doc-upload-label" for="' +
+      this.esc(id) +
+      '">' +
+      '<input type="file" id="' +
+      this.esc(id) +
+      '" class="acc-file-input acc-file-input--overlay" data-doc-type="' +
+      this.esc(docType) +
+      '" accept="' +
+      this.esc(this.invoiceFileAccept()) +
+      '">' +
+      "<span>" +
+      this.esc(labelText || "Upload") +
+      "</span></label>"
     );
   },
 
@@ -937,20 +965,22 @@ window.GreenOSModules.accounting = {
     } catch (e) {
       /* ignore */
     }
+    // Prefer native click — showPicker often fails on opacity/clipped inputs.
+    try {
+      input.click();
+      return true;
+    } catch (e1) {
+      /* try showPicker */
+    }
     try {
       if (typeof input.showPicker === "function") {
         input.showPicker();
         return true;
       }
-    } catch (e) {
-      /* fall through to click() */
-    }
-    try {
-      input.click();
-      return true;
     } catch (e2) {
       return false;
     }
+    return false;
   },
 
   async uploadLoadDoc(id, docType, file) {
@@ -1979,7 +2009,8 @@ window.GreenOSModules.accounting = {
         "</strong></div></section>" +
         '<section class="acc-card acc-status-card acc-status-pod"><h3>POD Status</h3>' +
         self.pill(String(pod.status || "PENDING").toUpperCase(), pod.document ? "ok" : "warn") +
-        '<button type="button" class="btn-secondary acc-doc-upload-btn" data-doc-type="POD">Upload POD</button></section>' +
+        self.docUploadControlHtml("POD", "Upload POD") +
+        "</section>" +
         '<section class="acc-card acc-status-card acc-status-carrier-pay"><h3>Carrier Payment Status</h3>' +
         self.pill(carrPayStatus, carrPayTone) +
         '<div class="acc-carrier-pay-meta">Outstanding: <strong>' +
@@ -2151,9 +2182,6 @@ window.GreenOSModules.accounting = {
         toolbar +
         "</div>" +
         '<p id="acc-msg" class="gos-muted" style="margin-top:0.75rem"></p>' +
-        '<input type="file" id="acc-generic-file" class="acc-file-input" accept="' +
-        self.esc(self.invoiceFileAccept()) +
-        '">' +
         "</div>";
 
       function closeProfile() {
@@ -2180,44 +2208,12 @@ window.GreenOSModules.accounting = {
         });
       });
 
-      var genericFile = host.querySelector("#acc-generic-file");
-      var pendingDocType = null;
-      function pickDocFile(docType, preferredInput) {
-        pendingDocType = docType || null;
-        var dedicated =
-          preferredInput ||
-          (docType
-            ? host.querySelector('.acc-file-input[data-doc-type="' + docType + '"]')
-            : null);
-        var target = dedicated || genericFile;
-        if (!self.openFilePicker(target)) {
-          alert("Could not open the file picker. Try again or use a different browser.");
-        }
-      }
-      host.querySelectorAll(".acc-doc-upload-btn").forEach(function (btn) {
-        btn.addEventListener("click", function (ev) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          pickDocFile(btn.getAttribute("data-doc-type"));
-        });
-      });
-      // Label+input should open the picker natively; back it with JS for stubborn browsers.
-      host.querySelectorAll(".acc-invoice-add-label").forEach(function (label) {
-        label.addEventListener("click", function (ev) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          var forId = label.getAttribute("for");
-          var input = forId ? document.getElementById(forId) : null;
-          pickDocFile(
-            (input && input.getAttribute("data-doc-type")) || null,
-            input
-          );
-        });
-      });
+      // Overlay <input type="file"> inside each Add/Upload label — no preventDefault.
+      // (JS preventDefault + clipped input.click()/showPicker was silently blocking the dialog.)
       function handleFileInput(input) {
         input.addEventListener("change", async function () {
           var file = input.files && input.files[0];
-          var docType = input.getAttribute("data-doc-type") || pendingDocType;
+          var docType = input.getAttribute("data-doc-type");
           if (!file || !docType) {
             input.value = "";
             return;
@@ -2230,12 +2226,13 @@ window.GreenOSModules.accounting = {
           try {
             await self.uploadLoadDoc(id, docType, file);
             input.value = "";
-            pendingDocType = null;
             if (docType === "CARRIER_INVOICE") {
               self._profileFlash =
                 "Carrier invoice uploaded. Click Send to move this load into Carrier Payments.";
             } else if (docType === "CUSTOMER_INVOICE") {
               self._profileFlash = "Customer invoice uploaded.";
+            } else if (docType === "CUSTOMER_AGREEMENT") {
+              self._profileFlash = "Customer agreement uploaded.";
             }
             await self.openShipment(host, id);
           } catch (err) {
