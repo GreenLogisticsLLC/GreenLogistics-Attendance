@@ -4,6 +4,7 @@ import {
     arrivalIsDayOff,
     arrivedAfterDayOffCutoff,
     dayOffEmployeeIdsFromRows,
+    formatTime,
     formatYerevanTime,
     zonedDateTime,
 } from "./helpers.js";
@@ -30,6 +31,13 @@ test("day off starts 5 Nov 2026, so earlier late arrivals are not counted", () =
     assert.equal(arrivalIsDayOff(lateBefore), false);
     assert.equal(arrivalIsDayOff(lateAfter), true);
     assert.equal(formatYerevanTime(early), "16:57:00");
+});
+
+test("Live Board First Entry uses Yerevan wall clock, not LA −1h", () => {
+    // 17:02 Yerevan — previously shown as ~04:02 via formatTime (LA + −1h).
+    const firstEntry = zonedDateTime("2026-11-12", "17:02", ye);
+    assert.equal(formatYerevanTime(firstEntry), "17:02:00");
+    assert.notEqual(formatTime(firstEntry), "17:02:00");
 });
 
 test("a late arrival stays out of the office-day queue", () => {

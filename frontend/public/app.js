@@ -590,14 +590,13 @@ function formatLateHhMm(minutes) {
     return `late ${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-/** Attendance event clocks: time only, office TZ, −1h vs stamped absolute. */
+/** Attendance event clocks: HH:MM:SS in Asia/Yerevan (matches Live Board header). */
 function formatAttendanceClock(iso) {
     if (!iso) return "—";
-    const raw = new Date(iso);
-    if (Number.isNaN(raw.getTime())) return "—";
-    const d = new Date(raw.getTime() - 60 * 60 * 1000);
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
     return d.toLocaleTimeString("en-GB", {
-        timeZone: "America/Los_Angeles",
+        timeZone: "Asia/Yerevan",
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",

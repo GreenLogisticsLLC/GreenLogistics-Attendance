@@ -6,7 +6,7 @@ import {
     addDaysToDateString,
     diffMinutes,
     formatDateTime,
-    formatTime,
+    formatYerevanTime,
     getAttendanceDayBounds,
     getAttendanceWorkDate,
     getAttendanceWorkHoursBounds,
@@ -223,8 +223,9 @@ export class DashboardService {
                 department: emp.department,
                 position: emp.position,
                 scheduledStart: formatDateTime(session?.scheduledStart ?? null) || "—",
-                firstEntry: formatTime(session?.firstEntry ?? null),
-                lastExit: formatTime(session?.lastExit ?? null),
+                // Live Board clocks match the Yerevan header clock (same as reports).
+                firstEntry: formatYerevanTime(session?.firstEntry ?? null),
+                lastExit: formatYerevanTime(session?.lastExit ?? null),
                 currentStatus: session?.currentStatus ?? "SCHEDULED",
                 late: lateStatus.late,
                 lateMinutes: lateStatus.lateMinutes,
@@ -235,7 +236,7 @@ export class DashboardService {
                 breakAllowanceMinutes: ATTENDANCE_BREAK_ALLOWANCE_MINUTES,
                 overtimeInOfficeMinutes,
                 exitCount: session?.exitCount ?? 0,
-                lastActivity: formatTime(session?.lastActivity ?? null),
+                lastActivity: formatYerevanTime(session?.lastActivity ?? null),
             });
         }
 
