@@ -84,6 +84,63 @@ export class CustomerAgreementInviteService {
         const tokenHash = hashToken(rawToken);
         const sentAt = new Date();
         const expiresAt = new Date(sentAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+        let shipmentLeadId = String(input.shipmentLeadId || "").trim() || null;
+        let shipmentPrefill: Parameters<typeof prefillCustomerAgreementFields>[0]["shipment"] = null;
+        const leadSelect = {
+            shipmentLeadId: true,
+            loadNumber: true,
+            greenOsShipmentId: true,
+            shipmentTitle: true,
+            commodity: true,
+            pieces: true,
+            weight: true,
+            equipment: true,
+            specialInstructions: true,
+            pickupCity: true,
+            pickupState: true,
+            pickupZip: true,
+            deliveryCity: true,
+            deliveryState: true,
+            deliveryZip: true,
+            pickupFrom: true,
+            deliveryFrom: true,
+            customerRate: true,
+            price: true,
+            customerPaymentMethod: true,
+            customerName: true,
+            customerEmail: true,
+            customerPhone: true,
+            waiveCustomerPaymentFee: true,
+        } as const;
+        let lead = shipmentLeadId
+            ? await prisma.shipmentLead.findUnique({
+                  where: { shipmentLeadId },
+                  select: leadSelect,
+              })
+            : null;
+        if (!lead) {
+            lead = await prisma.shipmentLead.findFirst({
+                where: {
+                    directCustomerId: input.customerId,
+                    loadNumber: { not: null },
+                },
+                orderBy: { updatedAt: "desc" },
+                select: leadSelect,
+            });
+            if (lead?.shipmentLeadId) shipmentLeadId = lead.shipmentLeadId;
+        }
+        if (lead) {
+            const { customerPaymentQuote } = await import("../../shipment/customer-payment.js");
+            const pay = customerPaymentQuote({
+                customerRate: lead.customerRate,
+                method: lead.customerPaymentMethod,
+                waiveFee: lead.waiveCustomerPaymentFee,
+            });
+            shipmentPrefill = {
+                ...lead,
+                customerPaymentLabel: pay.label,
+            };
+        }
         const fields = prefillCustomerAgreementFields({
             agreementType: input.agreementType,
             companyName: input.companyName,
@@ -94,8 +151,9 @@ export class CustomerAgreementInviteService {
             city: input.city,
             state: input.state,
             zip: input.zip,
+            shipment: shipmentPrefill,
+            timezone: config.timezone,
         });
-        const shipmentLeadId = String(input.shipmentLeadId || "").trim() || null;
 
         await prisma.customerAgreementInvite.updateMany({
             where: {
