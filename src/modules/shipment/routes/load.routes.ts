@@ -22,9 +22,12 @@ const roles = requireRole(
 
 const podUploadDir = path.join(os.tmpdir(), "greenos-pod-uploads");
 fs.mkdirSync(podUploadDir, { recursive: true });
+/** Keep in sync with nginx client_max_body_size (tools/nginx/greenos-upload-size.conf). */
+export const LOAD_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
+
 const podUpload = multer({
     dest: podUploadDir,
-    limits: { fileSize: 15 * 1024 * 1024 },
+    limits: { fileSize: LOAD_UPLOAD_MAX_BYTES },
 });
 
 /** Always return JSON for multer failures (HTML error pages become "Bad response" in the UI). */
@@ -40,7 +43,7 @@ function podUploadSingle(
         return res.status(tooLarge ? 413 : 400).json({
             success: false,
             message: tooLarge
-                ? "File is too large (max 15 MB)"
+                ? "File is too large (max 50 MB). Compress the PDF or use a smaller scan, then try again."
                 : multerErr.message || "File upload failed",
             code: multerErr.code || multerErr.name || "UPLOAD_ERROR",
         });
