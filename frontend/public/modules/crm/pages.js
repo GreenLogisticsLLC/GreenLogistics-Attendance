@@ -826,6 +826,12 @@ window.GreenOSModules.crm = {
             "<th>Pickup</th><th>Delivery</th>" +
             "<th>Miles</th><th>Equipment</th><th>Price</th><th>Status</th><th>Priority</th>" +
             "<th>Created</th><th>Updated</th>" +
+            (function () {
+              var me = (window.GreenOS && window.GreenOS.user) || window.GreenOSUser || {};
+              return me.role === "Owner" || me.role === "Manager" || me.role === "Administrator"
+                ? "<th>Delete</th>"
+                : "";
+            })() +
             '</tr></thead><tbody id="crm-ship-body"></tbody></table></div>' +
             '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0.75rem 0 0">' +
             '<span class="gos-muted crm-ship-page-meta">' +
@@ -874,9 +880,15 @@ window.GreenOSModules.crm = {
           );
         });
       });
+      var canDeleteShip = (function () {
+        var me = (window.GreenOS && window.GreenOS.user) || window.GreenOSUser || {};
+        return me.role === "Owner" || me.role === "Manager" || me.role === "Administrator";
+      })();
       if (!rows.length) {
         tbody.innerHTML =
-          '<tr><td colspan="' + (arrivalTabs ? "14" : "13") + '">' +
+          '<tr><td colspan="' +
+          ((arrivalTabs ? 14 : 13) + (canDeleteShip ? 1 : 0)) +
+          '">' +
           (statusGroup
             ? "No shipments with this status"
             : options.onlyMine
@@ -992,6 +1004,14 @@ window.GreenOSModules.crm = {
             "<td>" +
             fmt(s.updatedAt) +
             "</td>" +
+            (canDeleteShip
+              ? '<td class="gos-delete-cell">' +
+                '<button type="button" class="btn-secondary gos-delete-ship-btn" data-delete="' +
+                esc(s.shipmentLeadId) +
+                '" data-label="' +
+                esc(s.loadNumber || s.greenOsShipmentId || s.shipmentTitle || "this load") +
+                '">Delete</button></td>'
+              : "") +
             "</tr>"
           );
         })
@@ -1000,6 +1020,47 @@ window.GreenOSModules.crm = {
       tbody.querySelectorAll("tr[data-id]").forEach(function (tr) {
         tr.addEventListener("click", function () {
           window.GreenOSModules.crm.openShipmentCard(root, tr.getAttribute("data-id"));
+        });
+      });
+      tbody.querySelectorAll(".gos-delete-cell").forEach(function (cell) {
+        cell.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+        });
+      });
+      tbody.querySelectorAll(".gos-delete-ship-btn").forEach(function (btn) {
+        btn.addEventListener("click", async function (ev) {
+          ev.stopPropagation();
+          var id = btn.getAttribute("data-delete");
+          var label = btn.getAttribute("data-label") || "this load";
+          if (!id) return;
+          if (
+            !confirm(
+              "Delete " + label + "? This permanently removes the load from GreenOS."
+            )
+          ) {
+            return;
+          }
+          btn.disabled = true;
+          try {
+            var token = localStorage.getItem("gl_token");
+            var res = await fetch("/api/crm/shipments/" + encodeURIComponent(id), {
+              method: "DELETE",
+              headers: {
+                Accept: "application/json",
+                Authorization: token ? "Bearer " + token : "",
+              },
+            });
+            var json = await res.json().catch(function () {
+              return { success: false, message: "Bad response" };
+            });
+            if (!json || json.success === false) {
+              throw new Error((json && json.message) || "Could not delete");
+            }
+            window.GreenOSModules.crm.renderShipments(body, root, brokerId, options);
+          } catch (err) {
+            alert(err.message || err);
+            btn.disabled = false;
+          }
         });
       });
       tbody.querySelectorAll(".gos-decline-btn").forEach(function (btn) {
