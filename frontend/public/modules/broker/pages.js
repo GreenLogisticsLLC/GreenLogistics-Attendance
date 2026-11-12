@@ -171,6 +171,20 @@ window.GreenOSModules.broker = {
       });
   },
 
+  role() {
+    return (
+      (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
+      (window.GreenOSUser && window.GreenOSUser.role) ||
+      ""
+    );
+  },
+
+  /** Main account (Owner) and Manager may hard-delete a load from the board. */
+  canDeleteShipment() {
+    var r = this.role();
+    return r === "Owner" || r === "Manager" || r === "Administrator";
+  },
+
   async api(path, options) {
     var token = localStorage.getItem("gl_token");
     var url = String(path || "");
@@ -410,8 +424,9 @@ window.GreenOSModules.broker = {
       '<div class="table-wrap crm-ship-scroll"><table class="crm-table"><thead><tr>' +
       "<th>#</th><th>Shipment</th><th>Customer</th><th>Pickup</th><th>Delivery</th><th>Status</th><th>Bid</th><th>Updates</th><th>Bid Submitted</th><th>Received</th>" +
       (self._opsView ? '<th class="gos-give-head">Give to</th>' : "") +
+      (self.canDeleteShipment() ? "<th>Delete</th>" : "") +
       '</tr></thead><tbody id="broker-ship-body"><tr><td colspan="' +
-      (self._opsView ? "11" : "10") +
+      ((self._opsView ? 11 : 10) + (self.canDeleteShipment() ? 1 : 0)) +
       '">Loading…</td></tr></tbody></table></div>' +
       '<div class="crm-ship-pager" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;margin:0.75rem 0 0">' +
       '<p class="gos-muted broker-ship-sync" style="margin:0">Loading…</p>' +
@@ -614,7 +629,9 @@ window.GreenOSModules.broker = {
       var tabLabel = tabLabelFor(tab);
       if (!visibleRows.length) {
         tbody.innerHTML =
-          '<tr><td colspan="' + (self._opsView ? "11" : "10") + '">' +
+          '<tr><td colspan="' +
+          ((self._opsView ? 11 : 10) + (self.canDeleteShipment() ? 1 : 0)) +
+          '">' +
           (query
             ? "No shipments found for ZIP " + esc(query)
             : "No " + tabLabel.toLowerCase() + " loads yet") +
@@ -717,6 +734,14 @@ window.GreenOSModules.broker = {
                 '<button type="button" class="btn-secondary gos-transfer-btn" data-transfer="' +
                 esc(s.shipmentLeadId) +
                 '" disabled>Transfer</button></div></td>'
+              : "") +
+            (self.canDeleteShipment()
+              ? '<td class="gos-delete-cell">' +
+                '<button type="button" class="btn-secondary gos-delete-ship-btn" data-delete="' +
+                esc(s.shipmentLeadId) +
+                '" data-label="' +
+                esc(s.loadNumber || s.greenOsShipmentId || s.shipmentTitle || "this load") +
+                '">Delete</button></td>'
               : "") +
             "</tr>"
           );
@@ -823,6 +848,41 @@ window.GreenOSModules.broker = {
             });
             if (!json || json.success === false) {
               throw new Error((json && json.message) || "Could not transfer");
+            }
+            paint(true);
+          } catch (err) {
+            alert(err.message || err);
+            btn.disabled = false;
+          }
+        });
+      });
+      tbody.querySelectorAll(".gos-delete-cell").forEach(function (cell) {
+        cell.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+        });
+      });
+      tbody.querySelectorAll(".gos-delete-ship-btn").forEach(function (btn) {
+        btn.addEventListener("click", async function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (!self.canDeleteShipment()) return;
+          var id = btn.getAttribute("data-delete");
+          var label = btn.getAttribute("data-label") || "this load";
+          if (!id) return;
+          if (
+            !confirm(
+              "Delete " + label + "? This permanently removes the load from GreenOS."
+            )
+          ) {
+            return;
+          }
+          btn.disabled = true;
+          try {
+            var json = await self.api("/shipments/" + encodeURIComponent(id), {
+              method: "DELETE",
+            });
+            if (!json || json.success === false) {
+              throw new Error((json && json.message) || "Could not delete");
             }
             paint(true);
           } catch (err) {

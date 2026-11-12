@@ -36,6 +36,7 @@ import {
 } from "../controllers/crm.controller.js";
 import { crmBrokerShipmentStatsController } from "../controllers/broker-shipment-stats.controller.js";
 import { crmReassignShipmentController } from "../controllers/crm-reassign.controller.js";
+import { crmDeleteShipmentController } from "../controllers/crm-delete-shipment.controller.js";
 import { crmEventsSseController } from "../controllers/crm-events.controller.js";
 
 export const crmRouter = Router();
@@ -96,6 +97,11 @@ crmRouter.post(
     "/shipments/:id/reassign",
     requireRole(Roles.Owner, Roles.Manager, Roles.Administrator),
     crmReassignShipmentController
+);
+crmRouter.delete(
+    "/shipments/:id",
+    requireRole(Roles.Owner, Roles.Manager, Roles.Administrator),
+    crmDeleteShipmentController
 );
 crmRouter.get("/brokers", crmRoles, crmListBrokersController);
 crmRouter.get("/brokers/:id", crmRoles, crmBrokerWorkspaceController);

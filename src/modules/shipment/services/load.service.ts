@@ -990,7 +990,7 @@ export class LoadService {
             where: { shipmentLeadId },
             select: { shipmentLeadId: true, loadNumber: true },
         });
-        if (!shipment?.loadNumber) {
+        if (!shipment) {
             throw Object.assign(new Error("Load not found"), { status: 404 });
         }
         const unlink = async (sql: string) => {
