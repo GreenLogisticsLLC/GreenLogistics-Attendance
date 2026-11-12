@@ -170,6 +170,7 @@ export class CustomerService {
         companyName: string;
         agreementType: CustomerAgreementType;
         customerId: string;
+        shipmentLeadId?: string | null;
         contactName?: string | null;
         phone?: string | null;
         billingAddress?: string | null;
@@ -203,6 +204,7 @@ export class CustomerService {
                 city: input.city,
                 state: input.state,
                 zip: input.zip,
+                shipmentLeadId: input.shipmentLeadId,
             });
             const sentDateLabel = new Intl.DateTimeFormat("en-US", {
                 timeZone: config.timezone || "America/Los_Angeles",
@@ -401,6 +403,7 @@ export class CustomerService {
                 companyName: customerName || customer.companyName,
                 agreementType,
                 customerId: customer.customerId,
+                shipmentLeadId: loaded.shipmentLeadId,
                 contactName: customer.contactName,
                 phone: str(body.customerPhone) || customer.phone,
                 billingAddress: customer.billingAddress,
@@ -546,6 +549,7 @@ export class CustomerService {
                 companyName: customerName,
                 agreementType,
                 customerId: directCustomerId,
+                shipmentLeadId,
                 phone: customerPhone,
             });
         }

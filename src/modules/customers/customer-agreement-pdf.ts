@@ -46,7 +46,20 @@ function signatureBuffer(dataUrl?: string | null): Buffer | null {
     }
 }
 
-function resolveCompanySignaturePng(): string | null {
+function normalizeBrokerName(name: string | null | undefined): string {
+    return String(name || "")
+        .toLowerCase()
+        .replace(/[^a-z]/g, "");
+}
+
+/** Only Spartak has a stored handwritten PNG for customer agreements. */
+export function brokerUsesSpartakSignature(name: string | null | undefined): boolean {
+    const compact = normalizeBrokerName(name);
+    return compact === "spartakkazaryan" || compact === "spartakkozaryan";
+}
+
+function resolveBrokerSignaturePng(brokerName: string | null | undefined): string | null {
+    if (!brokerUsesSpartakSignature(brokerName)) return null;
     const here = path.dirname(fileURLToPath(import.meta.url));
     const candidates = [
         path.resolve(here, "../carriers/assets/spartak-kazaryan-signature.png"),
@@ -222,28 +235,30 @@ export async function buildCustomerAgreementPdf(
         y = drawFieldLine(doc, "Title", brokerTitle, y, left, width);
         doc.y = y + 4;
         doc.font("Helvetica-Bold").fontSize(9).fillColor("#111827").text("Signature");
-        // Name first, then handwritten signature below — never overlap the employee name.
+        // Signature must match the sending broker's name — never stamp another person's image.
         const nameTop = doc.y + 4;
         doc.font("Times-Italic").fontSize(14).fillColor("#0f172a").text(input.brokerName, left, nameTop, {
             width: width * 0.55,
         });
-        const companySig = resolveCompanySignaturePng();
+        const brokerSig = resolveBrokerSignaturePng(input.brokerName);
         const sigTop = Math.max(doc.y, nameTop + 18) + 10;
         let sigBottom = sigTop + 28;
-        if (companySig) {
+        if (brokerSig) {
             try {
-                doc.image(companySig, left, sigTop, { height: 42, fit: [width * 0.5, 48] });
+                doc.image(brokerSig, left, sigTop, { height: 42, fit: [width * 0.5, 48] });
                 sigBottom = sigTop + 48;
             } catch {
-                /* keep spacing */
+                /* keep italic name as the signature */
+                sigBottom = sigTop + 8;
             }
         } else {
-            doc.moveTo(left, sigTop + 22)
-                .lineTo(left + width * 0.5, sigTop + 22)
+            // Other brokers sign as their printed name only (same rule as Rate Confirmation).
+            doc.moveTo(left, sigTop + 8)
+                .lineTo(left + width * 0.55, sigTop + 8)
                 .strokeColor("#94a3b8")
                 .lineWidth(0.7)
                 .stroke();
-            sigBottom = sigTop + 28;
+            sigBottom = sigTop + 14;
         }
         doc.y = sigBottom + 8;
         drawFieldLine(doc, "Date", sendDate, doc.y, left, width * 0.45);

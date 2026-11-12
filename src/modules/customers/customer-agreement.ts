@@ -127,6 +127,52 @@ export function buildCustomerAgreementEmail(input: {
     return { subject, text, html };
 }
 
+export function buildSignedCustomerAgreementBrokerEmail(input: {
+    companyName?: string | null;
+    agreementType: CustomerAgreementType;
+    brokerName: string;
+    signerName: string;
+    signedAtLabel: string;
+    loadNumber?: string | null;
+}): { subject: string; text: string; html: string } {
+    const label = customerAgreementLabel(input.agreementType);
+    const company = String(input.companyName || "").trim() || "Customer";
+    const loadBit = String(input.loadNumber || "").trim();
+    const subject = loadBit
+        ? `Signed ${label} — ${company} (${loadBit})`
+        : `Signed ${label} — ${company}`;
+    const text = [
+        `Customer agreement signed`,
+        "",
+        `Agreement: ${label}`,
+        `Customer: ${company}`,
+        loadBit ? `Load: ${loadBit}` : "",
+        `Signed by: ${input.signerName}`,
+        `Signed at: ${input.signedAtLabel}`,
+        `Broker on document: ${input.brokerName}`,
+        "",
+        "The filled and signed PDF is attached.",
+        "It is also saved on the Load under Accounting → Customer Documents → Customer Agreement.",
+        "",
+        "Green Logistics LLC",
+    ]
+        .filter((line) => line !== "")
+        .join("\n");
+    const html = `<!DOCTYPE html>
+<html><body style="font-family:Arial,Helvetica,sans-serif;color:#1d2a3a;line-height:1.55">
+  <p><strong>Customer agreement signed</strong></p>
+  <p><strong>Agreement:</strong> ${escapeHtml(label)}<br/>
+  <strong>Customer:</strong> ${escapeHtml(company)}<br/>
+  ${loadBit ? `<strong>Load:</strong> ${escapeHtml(loadBit)}<br/>` : ""}
+  <strong>Signed by:</strong> ${escapeHtml(input.signerName)}<br/>
+  <strong>Signed at:</strong> ${escapeHtml(input.signedAtLabel)}<br/>
+  <strong>Broker on document:</strong> ${escapeHtml(input.brokerName)}</p>
+  <p>The filled and signed PDF is attached. It is also saved on the Load under <strong>Accounting → Customer Documents → Customer Agreement</strong>.</p>
+  <p>Green Logistics LLC</p>
+</body></html>`;
+    return { subject, text, html };
+}
+
 function escapeHtml(s: string): string {
     return String(s || "")
         .replace(/&/g, "&amp;")

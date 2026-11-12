@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { prisma } from "../../../config/database.js";
@@ -1044,6 +1045,99 @@ export class LoadDocumentsService {
                 );
             }
         }
+
+        return row;
+    }
+
+    /**
+     * Persist a portal-signed customer agreement PDF onto the Load so Accounting
+     * Customer Documents shows READY with View / Download.
+     */
+    async storeSignedCustomerAgreement(input: {
+        shipmentLeadId: string;
+        pdf: Buffer;
+        fileName?: string;
+        actorUserId?: string | null;
+    }) {
+        const shipmentLeadId = String(input.shipmentLeadId || "").trim();
+        if (!shipmentLeadId || !input.pdf?.length) {
+            throw Object.assign(new Error("Signed agreement PDF is missing"), { status: 422 });
+        }
+        const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!lead) throw Object.assign(new Error("Load not found"), { status: 404 });
+        if (!lead.loadNumber) {
+            throw Object.assign(new Error("Create Load first — documents belong only to a Load"), {
+                status: 422,
+            });
+        }
+
+        const docType = "CUSTOMER_AGREEMENT";
+        const last = await prisma.loadDocument.findFirst({
+            where: { shipmentLeadId, docType },
+            orderBy: { version: "desc" },
+        });
+        const version = (last?.version || 0) + 1;
+        const storedName = `${docType}_v${version}_${Date.now()}.pdf`;
+        const dir = path.join(LOAD_DOCS_ROOT, shipmentLeadId);
+        fs.mkdirSync(dir, { recursive: true });
+        const dest = path.join(dir, storedName);
+        fs.writeFileSync(dest, input.pdf);
+        const fileName =
+            String(input.fileName || "").trim() ||
+            `Customer-Agreement-${lead.loadNumber}-signed.pdf`;
+        const title = `${LOAD_DOC_TYPE_LABELS[docType] || "Customer Agreement"} v${version}`;
+        const documentId = crypto.randomUUID();
+        const fileUrl = `/api/loads/${shipmentLeadId}/documents/${documentId}/download`;
+
+        const row = await prisma.$transaction(async (tx) => {
+            if (last?.isCurrent) {
+                await tx.loadDocument.update({
+                    where: { documentId: last.documentId },
+                    data: { isCurrent: false },
+                });
+            }
+            return tx.loadDocument.create({
+                data: {
+                    documentId,
+                    shipmentLeadId,
+                    docType,
+                    version,
+                    changeReason: "FINAL_SIGNED",
+                    title,
+                    status: "READY",
+                    isCurrent: true,
+                    fileName,
+                    mimeType: "application/pdf",
+                    storedName,
+                    fileUrl,
+                    fileSize: input.pdf.length,
+                    createdById: input.actorUserId || null,
+                },
+            });
+        });
+
+        await domainEventEngine
+            .emit({
+                shipmentLeadId,
+                eventType: "DOCUMENT_GENERATED",
+                title: `${title} (Final Signed)`,
+                message: `Customer signed agreement saved on Load ${lead.loadNumber}`,
+                actorUserId: input.actorUserId || undefined,
+                payload: {
+                    documentId: row.documentId,
+                    docType,
+                    version,
+                    changeReason: "FINAL_SIGNED",
+                    fileUrl: row.fileUrl,
+                },
+                timelineStage: "LOAD_CREATED",
+            })
+            .catch((err) => {
+                console.warn(
+                    "[storeSignedCustomerAgreement] event skipped:",
+                    err instanceof Error ? err.message : err
+                );
+            });
 
         return row;
     }

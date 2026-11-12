@@ -442,6 +442,7 @@ model ShipmentLead {
   brokerResponseProblems BrokerResponseProblem[]
   loadLateProblems      LoadLateProblem[]
   opsComments           ShipmentOpsComment[]
+  customerAgreementInvites CustomerAgreementInvite[]
   carrierProfile        Carrier?                @relation(fields: [carrierProfileId], references: [carrierId], onDelete: SetNull)
   directCustomer        DirectCustomer?         @relation(fields: [directCustomerId], references: [customerId], onDelete: SetNull)
 
@@ -854,6 +855,8 @@ model DirectCustomer {
 model CustomerAgreementInvite {
   inviteId                 String         @id @default(uuid()) @map("invite_id")
   customerId               String         @map("customer_id")
+  /// Load this invite was sent from (Accounting Customer Agreement attaches here after sign).
+  shipmentLeadId           String?        @map("shipment_lead_id")
   /// USHIP_ONETIME | LONG_TIME
   agreementType            String         @map("agreement_type")
   tokenHash                String         @unique @map("token_hash")
@@ -872,8 +875,10 @@ model CustomerAgreementInvite {
   createdAt                DateTime       @default(now()) @map("created_at")
   updatedAt                DateTime       @updatedAt @map("updated_at")
   customer                 DirectCustomer @relation(fields: [customerId], references: [customerId], onDelete: Cascade)
+  shipmentLead             ShipmentLead?  @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: SetNull)
 
   @@index([customerId])
+  @@index([shipmentLeadId])
   @@index([status])
   @@index([expiresAt])
   @@map("customer_agreement_invites")
