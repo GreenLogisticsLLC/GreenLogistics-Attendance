@@ -4,8 +4,9 @@ export const GREEN_OS_ACTIVITY_MS = 20 * 60 * 1000;
 const ACTIVITY_ROLES = new Set(["Broker", "Team Lead"]);
 
 /**
- * Null activity means this account has not opened the tracked client yet — keep the old In Office rule.
- * Once a click is recorded, 20 minutes without another click removes them from New and Other assignment.
+ * Broker / Team Lead must have a GreenOS click within 20 minutes.
+ * Null activity = never signed in / never clicked → not eligible (In Office alone is not enough).
+ * Owner "Set In Office" does not bypass this — idle staff stay out of New and Other.
  */
 export function receivesNewShipments(
     role: string,
@@ -13,6 +14,6 @@ export function receivesNewShipments(
     now: Date
 ): boolean {
     if (!ACTIVITY_ROLES.has(role)) return true;
-    if (!activityAt) return true;
+    if (!activityAt) return false;
     return now.getTime() - activityAt.getTime() < GREEN_OS_ACTIVITY_MS;
 }

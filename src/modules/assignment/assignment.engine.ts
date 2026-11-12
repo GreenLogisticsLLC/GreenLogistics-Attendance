@@ -1127,8 +1127,8 @@ export class AssignmentEngine {
     /**
      * Attendance card ENTRY → In Office → join end of assignment queue.
      * Attendance card EXIT → Out of Office → leave queue immediately.
-     * Owner/Manager "Set In Office" passes ownerOverride so day-off and idle
-     * GreenOS clicks do not keep the broker out of New / Other.
+     * Owner/Manager "Set In Office" passes ownerOverride so a day-off arrival
+     * can still join; the 20-minute GreenOS click gate still applies.
      */
     async onBrokerEnteredOffice(
         employeeId: string,
@@ -1811,12 +1811,10 @@ export class AssignmentEngine {
 
         for (const user of users) {
             const employeeId = this.resolveEmployeeIdSync(user, activeEmployees);
-            const override =
-                Boolean(employeeId) && ownerOverrides.has(employeeId as string);
+            // Owner Set In Office may bypass day-off later — never the 20-minute click gate.
             if (
                 !options?.forceAllLinked &&
                 !afterHours &&
-                !override &&
                 !receivesNewShipments(user.role.roleName, user.greenOsActivityAt, now)
             ) {
                 continue;
