@@ -36,6 +36,13 @@
       if (window.GreenOSRealtime && typeof window.GreenOSRealtime.connect === "function") {
         window.GreenOSRealtime.connect();
       }
+      if (this.openDeepLinkFromQuery()) {
+        if (this.role() === "Broker") {
+          this.initAgentWidget();
+        }
+        this.startBrokerTeamRhythm();
+        return;
+      }
       const fromUrl = this.parseRoute();
       const start =
         fromUrl.module && this.canAccessModule(fromUrl.module)
@@ -53,6 +60,81 @@
         this.initAgentWidget();
       }
       this.startBrokerTeamRhythm();
+    },
+
+    /**
+     * Email / notification deep links:
+     *   ?shipmentLeadId=<uuid>&tab=documents
+     *   ?module=carriers&carrierId=<uuid>
+     * Opens the related Load (preferred) or carrier card, then cleans the query.
+     */
+    openDeepLinkFromQuery() {
+      let params;
+      try {
+        params = new URLSearchParams(window.location.search || "");
+      } catch (e) {
+        return false;
+      }
+      const loadId = String(
+        params.get("shipmentLeadId") ||
+          params.get("loadId") ||
+          params.get("openLoad") ||
+          ""
+      ).trim();
+      const carrierId = String(params.get("carrierId") || "").trim();
+      const moduleHint = String(params.get("module") || "").trim().toLowerCase();
+      const tab = String(params.get("tab") || "").trim() || "documents";
+      const uuidRe =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      const openedLoad = loadId && uuidRe.test(loadId);
+      const openedCarrier =
+        !openedLoad && carrierId && uuidRe.test(carrierId) &&
+        (moduleHint === "carriers" || !moduleHint || moduleHint === "carrier");
+
+      if (!openedLoad && !openedCarrier) return false;
+
+      try {
+        const url = new URL(window.location.href);
+        [
+          "shipmentLeadId",
+          "loadId",
+          "openLoad",
+          "tab",
+          "loadNumber",
+          "carrierId",
+          "module",
+        ].forEach(function (key) {
+          url.searchParams.delete(key);
+        });
+        window.history.replaceState(window.history.state || {}, "", url.pathname + url.search + url.hash);
+      } catch (e) {
+        /* ignore */
+      }
+
+      if (openedLoad) {
+        if (typeof window.GreenOSOpenLoad === "function") {
+          window.GreenOSOpenLoad(loadId, tab);
+        } else if (
+          window.GreenOSModules &&
+          window.GreenOSModules.loads &&
+          typeof window.GreenOSModules.loads.openById === "function"
+        ) {
+          window.GreenOSModules.loads.openById(loadId, tab);
+        } else {
+          this.navigate("loads", "active-loads", {
+            replace: true,
+            detail: { type: "load", id: loadId, tab: tab },
+          });
+        }
+        return true;
+      }
+
+      this.navigate("carriers", null, {
+        replace: true,
+        detail: { type: "carrier", id: carrierId },
+      });
+      return true;
     },
 
     stopBrokerTeamRhythm() {

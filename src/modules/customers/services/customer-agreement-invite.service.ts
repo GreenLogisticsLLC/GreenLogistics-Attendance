@@ -419,6 +419,15 @@ export class CustomerAgreementInviteService {
                     error: "Broker Gmail is not connected — signed PDF was not emailed to the broker.",
                 };
             } else {
+                const openInGreenOsUrl = loadRef?.shipmentLeadId
+                    ? `${config.publicAppUrl}/?shipmentLeadId=${encodeURIComponent(
+                          loadRef.shipmentLeadId
+                      )}&tab=documents${
+                          loadRef.loadNumber
+                              ? `&loadNumber=${encodeURIComponent(loadRef.loadNumber)}`
+                              : ""
+                      }`
+                    : null;
                 const mail = buildSignedCustomerAgreementBrokerEmail({
                     companyName: refreshed.customer.companyName,
                     agreementType: refreshed.agreementType,
@@ -426,6 +435,7 @@ export class CustomerAgreementInviteService {
                     signerName,
                     signedAtLabel: fmtSignedAt(signedAt),
                     loadNumber: loadRef?.loadNumber || null,
+                    openInGreenOsUrl,
                 });
                 const filename = customerAgreementFilename(refreshed.agreementType).replace(
                     /\.docx$/i,

@@ -2620,6 +2620,23 @@ export class CarrierService {
         if (carrier?.assignedBroker) {
             const dest = this.brokerEmail(carrier.assignedBroker);
             warning = dest.warning;
+            let loadNumber: string | null = null;
+            let openInGreenOsUrl = carrierEmailService.carrierRecordUrl(carrier.carrierId);
+            let openInGreenOsLabel = "Open carrier package in Green OS";
+            if (session.shipmentLeadId) {
+                const lead = await prisma.shipmentLead.findUnique({
+                    where: { shipmentLeadId: session.shipmentLeadId },
+                    select: { loadNumber: true },
+                });
+                loadNumber = lead?.loadNumber || null;
+                openInGreenOsUrl = carrierEmailService.loadRecordUrl(session.shipmentLeadId, {
+                    tab: "documents",
+                    loadNumber,
+                });
+                openInGreenOsLabel = loadNumber
+                    ? `Open load ${loadNumber} in Green OS`
+                    : "Open load in Green OS";
+            }
             try {
                 const sent = await carrierEmailService.sendBrokerPackageReady({
                     to: dest.email,
@@ -2628,6 +2645,9 @@ export class CarrierService {
                     mcNumber: carrier.mcNumber,
                     dotNumber: carrier.dotNumber,
                     carrierUrl: carrierEmailService.carrierRecordUrl(carrier.carrierId),
+                    openInGreenOsUrl,
+                    openInGreenOsLabel,
+                    loadNumber,
                     purposeLabel:
                         purposeNow === ONBOARDING_PURPOSE.RC_SIGN_PACKET
                             ? "Rate Confirmation signed by carrier"
@@ -2673,8 +2693,12 @@ export class CarrierService {
                 title: "Carrier package ready",
                 message: `${carrier.legalName} submitted ${
                     isRcBol ? "RC/BOL" : "agreement documents"
-                }.`,
-                meta: { carrierId: carrier.carrierId },
+                }${loadNumber ? ` · ${loadNumber}` : ""}.`,
+                meta: {
+                    carrierId: carrier.carrierId,
+                    shipmentLeadId: session.shipmentLeadId || null,
+                    loadNumber,
+                },
             });
         } else {
             warning = "No assigned broker — filled package saved in Green OS only";
