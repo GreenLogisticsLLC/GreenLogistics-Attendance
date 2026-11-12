@@ -86,6 +86,16 @@ window.GreenOSModules.accounting = {
     try {
       return JSON.parse(text);
     } catch (e) {
+      if (
+        res.status === 413 ||
+        /413|Request Entity Too Large|entity too large/i.test(text)
+      ) {
+        return {
+          success: false,
+          message:
+            "File is too large for the server (max 50 MB). Compress the PDF or use a smaller scan, then try again.",
+        };
+      }
       var snippet = String(text).replace(/\s+/g, " ").slice(0, 120);
       return {
         success: false,
@@ -989,6 +999,15 @@ window.GreenOSModules.accounting = {
     if (!file) throw new Error("Choose a file to upload");
     if (!docType) throw new Error("Document type is missing");
     if (!token) throw new Error("Not signed in — refresh the page and log in again");
+    // Keep in sync with nginx + multer (50 MB).
+    var maxBytes = 50 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      throw new Error(
+        "File is too large (" +
+          (file.size / (1024 * 1024)).toFixed(1) +
+          " MB). Max is 50 MB — compress the PDF or use a smaller scan."
+      );
+    }
     var form = new FormData();
     form.append("file", file);
     form.append("sessionToken", token);

@@ -204,6 +204,11 @@ jobs:
           echo "$HEALTH_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); o=d.get('openai') or {}; assert o.get('model') and o.get('keySuffix'), f'health missing openai runtime: {d}'; print('openai_ok', o.get('model'), o.get('keySuffix'))"
           curl --fail http://localhost:3847/api/health
 
+          # Nginx default body size is 1m — Accounting invoice PDFs hit HTML 413 before Node.
+          echo "=== nginx upload size (client_max_body_size 50m) ==="
+          chmod +x tools/nginx/install-upload-size.sh
+          bash tools/nginx/install-upload-size.sh || echo "WARN: nginx upload size install failed (Node limit still 50MB)"
+
           # One-shot: wipe all shipment/load history when marker file is present on main.
           if [ -f ops/RUN_CLEAN_SLATE_SHIPMENTS ]; then
             echo "=== ONE-SHOT clean slate shipments (marker present) ==="

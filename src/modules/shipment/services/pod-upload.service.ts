@@ -303,8 +303,8 @@ export async function uploadPodFile(input: {
     }
 
     const buf = fs.readFileSync(input.tempPath);
-    if (!buf.length || buf.length > 15 * 1024 * 1024) {
-        throw Object.assign(new Error("File empty or too large (max 15 MB)"), { status: 400 });
+    if (!buf.length || buf.length > 50 * 1024 * 1024) {
+        throw Object.assign(new Error("File empty or too large (max 50 MB)"), { status: 400 });
     }
 
     let bolContent: Record<string, unknown> = {};
