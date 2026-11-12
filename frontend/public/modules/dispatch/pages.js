@@ -239,6 +239,26 @@ window.GreenOSModules["dispatch"] = {
         ? "Document bot marked every file <strong>Approved</strong> — still click <strong>Approve Carrier</strong> after you review. Rate Confirmation stays locked until then."
         : "Document bot shows <strong>Approved</strong> or <strong>Not Approved</strong> for each file. Open docs to review, then click <strong>Approve Carrier</strong>. Rate Confirmation stays locked until the broker confirms.";
 
+    function insuranceCoiUploadHtml(place) {
+      if (!c.carrierProfileId) return "";
+      var suffix = place === "bottom" ? "-bottom" : "";
+      return (
+        '<div class="ld-coi-insurance-upload" data-place="' +
+        place +
+        '" style="margin:0.35rem 0 0.75rem;padding:0.75rem;border:1px dashed rgba(148,163,184,0.45);border-radius:10px;display:flex;flex-wrap:wrap;gap:0.65rem;align-items:center">' +
+        '<label class="btn-secondary" style="width:auto;cursor:pointer;margin:0">' +
+        "Upload COI from Insurance company" +
+        '<input type="file" id="ld-coi-insurance-file' +
+        suffix +
+        '" accept=".pdf,image/*,application/pdf" hidden />' +
+        "</label>" +
+        '<span class="gos-muted" style="flex:1 1 14rem">Replaces the Certificate of Holder from the carrier. Our bot re-checks the new file — then click <strong>Approve Carrier</strong> again before Generate Rate Confirmation.</span>' +
+        '<span class="gos-muted ld-coi-insurance-status" id="ld-coi-insurance-status' +
+        suffix +
+        '" style="flex:1 1 100%"></span>' +
+        "</div>"
+      );
+    }
     function approveActionsHtml(place) {
       if (!c.carrierProfileId) return "";
       var suffix = place === "bottom" ? "-bottom" : "";
@@ -254,7 +274,8 @@ window.GreenOSModules["dispatch"] = {
           suffix +
           '">Open full carrier record</button>' +
           '<span class="gos-muted" style="flex:1 1 12rem">Carrier approved for this load — continue to Rate Confirmation.</span>' +
-          "</div>"
+          "</div>" +
+          insuranceCoiUploadHtml(place)
         );
       }
       return (
@@ -268,7 +289,8 @@ window.GreenOSModules["dispatch"] = {
         suffix +
         '">Open full carrier record</button>' +
         '<span class="gos-muted" style="flex:1 1 12rem">Required even when the bot shows Approved on every file. Then Generate Rate Confirmation unlocks.</span>' +
-        "</div>"
+        "</div>" +
+        insuranceCoiUploadHtml(place)
       );
     }
 
@@ -283,6 +305,11 @@ window.GreenOSModules["dispatch"] = {
             var verdictCell = doc
               ? self.carrierDocBotVerdictHtml(slot.ai, { brokerApproved: loadApproved })
               : '<span class="ld-carrier-doc-verdict is-pending">Missing</span>';
+            var isCoi =
+              String(slot.key || "").toUpperCase() === "COI" ||
+              String(slot.label || "")
+                .toLowerCase()
+                .indexOf("certificate of holder") >= 0;
             var actionsCell = doc
               ? '<div class="ld-carrier-doc-actions">' +
                 '<button type="button" class="btn-primary ld-review-doc-open" data-source="' +
@@ -291,8 +318,20 @@ window.GreenOSModules["dispatch"] = {
                 self.esc(doc.documentId) +
                 '" data-name="' +
                 self.esc(doc.originalFilename || slot.label + ".pdf") +
-                '">Open</button></div>'
-              : '<span class="gos-muted">Not on file</span>';
+                '">Open</button>' +
+                (isCoi
+                  ? '<label class="btn-secondary" style="width:auto;cursor:pointer;margin:0">' +
+                    "Replace COI" +
+                    '<input type="file" class="ld-coi-slot-file" accept=".pdf,image/*,application/pdf" hidden />' +
+                    "</label>"
+                  : "") +
+                "</div>"
+              : isCoi
+                ? '<label class="btn-secondary" style="width:auto;cursor:pointer;margin:0">' +
+                  "Upload COI" +
+                  '<input type="file" class="ld-coi-slot-file" accept=".pdf,image/*,application/pdf" hidden />' +
+                  "</label>"
+                : '<span class="gos-muted">Not on file</span>';
             return (
               '<article class="ld-carrier-doc-item">' +
               '<div class="ld-carrier-doc-meta">' +
@@ -493,6 +532,63 @@ window.GreenOSModules["dispatch"] = {
         }
       });
     });
+
+    async function uploadInsuranceCoi(file, statusEl) {
+      if (!file) return;
+      var loadId = (reloadTab && reloadTab.loadId) || self._loadId;
+      if (!carrierId) throw new Error("Carrier profile missing");
+      if (!loadId) throw new Error("Load id missing");
+      if (statusEl) statusEl.textContent = "Uploading COI…";
+      var fd = new FormData();
+      fd.append("file", file);
+      fd.append("documentType", "INSURANCE");
+      fd.append("shipmentLeadId", loadId);
+      var res = await fetch(
+        "/api/carriers/" + encodeURIComponent(carrierId) + "/documents",
+        {
+          method: "POST",
+          headers: self.authHeaders(),
+          body: fd,
+        }
+      );
+      var json = await res.json().catch(function () {
+        return {};
+      });
+      if (!res.ok || json.success === false) {
+        throw new Error(json.message || "COI upload failed");
+      }
+      if (statusEl) {
+        statusEl.textContent =
+          json.message ||
+          "COI replaced. Bot is checking — Approve Carrier again before Generate RC.";
+      }
+      var host = document.querySelector("#load-tms-body");
+      var tab = (reloadTab && reloadTab.tab) || self._tab || "carrier";
+      if (host && typeof self.openLoad === "function") {
+        await self.openLoad(host, loadId, tab);
+      }
+    }
+
+    root
+      .querySelectorAll("#ld-coi-insurance-file, #ld-coi-insurance-file-bottom, .ld-coi-slot-file")
+      .forEach(function (input) {
+        input.addEventListener("change", async function () {
+          var file = input.files && input.files[0];
+          input.value = "";
+          if (!file) return;
+          var wrap = input.closest(".ld-coi-insurance-upload");
+          var statusEl =
+            (wrap && wrap.querySelector(".ld-coi-insurance-status")) ||
+            root.querySelector("#ld-coi-insurance-status") ||
+            root.querySelector("#ld-coi-insurance-status-bottom");
+          try {
+            await uploadInsuranceCoi(file, statusEl);
+          } catch (err) {
+            if (statusEl) statusEl.textContent = "";
+            alert(err.message || err);
+          }
+        });
+      });
   },
 
   authToken() {

@@ -2773,6 +2773,164 @@ export class CarrierService {
         };
     }
 
+    /**
+     * Staff upload for the carrier packet (Load screen).
+     * Replaces CURRENT COI/Insurance, queues Document AI, and clears broker
+     * Approve Carrier on the linked load so RC stays locked until re-approve.
+     */
+    async staffUploadDocument(
+        carrierId: string,
+        input: {
+            documentType: string;
+            originalName: string;
+            mimeType: string;
+            tempPath: string;
+            shipmentLeadId?: string | null;
+        },
+        actor: Actor
+    ) {
+        await this.assertCarrierAccess(carrierId, actor);
+        const documentType = normalizePortalDocType(input.documentType);
+        const allowed = [
+            "MC_AUTHORITY",
+            "NOA",
+            "W9",
+            "INSURANCE",
+            "COI",
+            "BROKER_CARRIER_AGREEMENT",
+            "CARRIER_PROFILE",
+            "OTHER",
+        ];
+        if (!allowed.includes(documentType)) {
+            throw Object.assign(new Error("Invalid document type"), { status: 400 });
+        }
+
+        // Certificate of Holder slot accepts both INSURANCE and legacy COI rows.
+        const archiveTypes =
+            documentType === "INSURANCE" || documentType === "COI"
+                ? ["INSURANCE", "COI"]
+                : [documentType];
+        const storeType = documentType === "COI" ? "INSURANCE" : documentType;
+
+        const current = await prisma.carrierDocument.findMany({
+            where: {
+                carrierId,
+                documentType: { in: archiveTypes },
+                status: "CURRENT",
+            },
+            orderBy: { version: "desc" },
+        });
+        const maxRow = await prisma.carrierDocument.findFirst({
+            where: { carrierId, documentType: { in: archiveTypes } },
+            orderBy: { version: "desc" },
+            select: { version: true },
+        });
+        const version = (maxRow?.version || 0) + 1;
+        if (current.length) {
+            await prisma.carrierDocument.updateMany({
+                where: {
+                    documentId: { in: current.map((row) => row.documentId) },
+                },
+                data: { status: "ARCHIVED" },
+            });
+        }
+
+        const stored = carrierStorageService.storeFromTemp({
+            carrierId,
+            documentType: storeType,
+            originalName: input.originalName,
+            mimeType: input.mimeType,
+            tempPath: input.tempPath,
+            version,
+        });
+
+        const shipmentLeadId = String(input.shipmentLeadId || "").trim() || null;
+        const doc = await prisma.carrierDocument.create({
+            data: {
+                carrierId,
+                shipmentLeadId,
+                documentType: storeType,
+                originalFilename: input.originalName,
+                storageKey: stored.storageKey,
+                mimeType: input.mimeType || "application/octet-stream",
+                fileSize: stored.fileSize,
+                checksum: stored.checksum,
+                uploadedBy: actor.userId || "STAFF",
+                status: "CURRENT",
+                version,
+            },
+        });
+
+        await this.emitEvent({
+            carrierId,
+            sessionId: null,
+            shipmentLeadId,
+            action: current.length ? "DOCUMENT_REPLACED" : "DOCUMENT_UPLOADED",
+            title: current.length
+                ? `${storeType} replaced by staff`
+                : `${storeType} uploaded by staff`,
+            message: input.originalName,
+            actorType: "STAFF",
+            actorId: actor.userId || null,
+            ip: actor.ip,
+            userAgent: actor.userAgent,
+            metadata: {
+                documentId: doc.documentId,
+                version,
+                shipmentLeadId,
+                source: "LOAD_INSURANCE_COI_UPLOAD",
+            },
+        });
+
+        let aiJob: { jobId: string; status: string } | null = null;
+        const botActorId = actor.userId || null;
+        if (botActorId) {
+            try {
+                const { documentAiJobService } = await import(
+                    "../../ai/documents/job.service.js"
+                );
+                aiJob = await documentAiJobService.enqueueCarrierUpload({
+                    documentId: doc.documentId,
+                    actorUserId: botActorId,
+                });
+            } catch (err) {
+                console.warn(
+                    `[doc-ai] staff COI enqueue failed for ${doc.documentId}`,
+                    err instanceof Error ? err.message : err
+                );
+            }
+        }
+
+        // New COI must be re-approved by the broker before Generate RC unlocks.
+        if (shipmentLeadId) {
+            await prisma.shipmentLead.updateMany({
+                where: {
+                    shipmentLeadId,
+                    OR: [
+                        { carrierProfileId: carrierId },
+                        { loadCarrierApprovedProfileId: carrierId },
+                    ],
+                },
+                data: {
+                    loadCarrierApprovedAt: null,
+                    loadCarrierApprovedById: null,
+                    loadCarrierApprovedProfileId: null,
+                },
+            });
+        }
+
+        return {
+            documentId: doc.documentId,
+            documentType: doc.documentType,
+            version: doc.version,
+            originalFilename: doc.originalFilename,
+            uploadedAt: doc.uploadedAt,
+            replaced: current.length > 0,
+            approvalCleared: Boolean(shipmentLeadId),
+            aiJob,
+        };
+    }
+
     async downloadDocument(carrierId: string, documentId: string, actor: Actor) {
         await this.assertCarrierAccess(carrierId, actor);
         const doc = await prisma.carrierDocument.findFirst({
