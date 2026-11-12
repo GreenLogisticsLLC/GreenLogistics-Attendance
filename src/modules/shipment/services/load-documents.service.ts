@@ -210,6 +210,7 @@ export class LoadDocumentsService {
             pickupDate: fmtDate(pickupAt),
             pickupTime: pickupTimeLabel,
             pickupContact: null,
+            pickupNote: null,
             deliveryDate: fmtDate(deliveryAt),
             deliveryTime: deliveryTimeLabel,
             deliveryContact: null,
