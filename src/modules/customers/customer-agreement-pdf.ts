@@ -52,19 +52,31 @@ function normalizeBrokerName(name: string | null | undefined): string {
         .replace(/[^a-z]/g, "");
 }
 
-/** Only Spartak has a stored handwritten PNG for customer agreements. */
+/** Handwritten PNGs keyed by normalized broker name (customer agreements). */
+const BROKER_SIGNATURE_FILES: Record<string, string> = {
+    spartakkazaryan: "spartak-kazaryan-signature.png",
+    spartakkozaryan: "spartak-kazaryan-signature.png",
+    loganharris: "logan-harris-signature.png",
+};
+
+export function brokerHasStoredSignature(name: string | null | undefined): boolean {
+    return Boolean(BROKER_SIGNATURE_FILES[normalizeBrokerName(name)]);
+}
+
+/** @deprecated use brokerHasStoredSignature — kept for existing tests */
 export function brokerUsesSpartakSignature(name: string | null | undefined): boolean {
     const compact = normalizeBrokerName(name);
     return compact === "spartakkazaryan" || compact === "spartakkozaryan";
 }
 
 function resolveBrokerSignaturePng(brokerName: string | null | undefined): string | null {
-    if (!brokerUsesSpartakSignature(brokerName)) return null;
+    const file = BROKER_SIGNATURE_FILES[normalizeBrokerName(brokerName)];
+    if (!file) return null;
     const here = path.dirname(fileURLToPath(import.meta.url));
     const candidates = [
-        path.resolve(here, "../carriers/assets/spartak-kazaryan-signature.png"),
-        path.join(process.cwd(), "src/modules/carriers/assets/spartak-kazaryan-signature.png"),
-        path.join(process.cwd(), "dist/modules/carriers/assets/spartak-kazaryan-signature.png"),
+        path.resolve(here, `../carriers/assets/${file}`),
+        path.join(process.cwd(), `src/modules/carriers/assets/${file}`),
+        path.join(process.cwd(), `dist/modules/carriers/assets/${file}`),
     ];
     for (const p of candidates) {
         if (fs.existsSync(p)) return p;
