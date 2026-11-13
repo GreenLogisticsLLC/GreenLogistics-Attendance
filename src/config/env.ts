@@ -163,4 +163,33 @@ export const config = {
             10
         ),
     },
+    /**
+     * PayPal Checkout (Orders v2) — server-side only.
+     * PAYPAL_MODE=sandbox|live (default sandbox).
+     * Getters read process.env so tests / late env injection work.
+     */
+    paypal: {
+        get mode(): "live" | "sandbox" {
+            return (process.env.PAYPAL_MODE || "sandbox").trim().toLowerCase() === "live"
+                ? "live"
+                : "sandbox";
+        },
+        get clientId() {
+            return (process.env.PAYPAL_CLIENT_ID || "").trim();
+        },
+        get clientSecret() {
+            return (process.env.PAYPAL_CLIENT_SECRET || "").trim();
+        },
+        get webhookId() {
+            return (process.env.PAYPAL_WEBHOOK_ID || "").trim();
+        },
+        get apiBaseUrl() {
+            return this.mode === "live"
+                ? "https://api-m.paypal.com"
+                : "https://api-m.sandbox.paypal.com";
+        },
+        get configured() {
+            return Boolean(this.clientId && this.clientSecret);
+        },
+    },
 };

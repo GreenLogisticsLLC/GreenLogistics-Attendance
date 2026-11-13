@@ -443,6 +443,7 @@ model ShipmentLead {
   loadLateProblems      LoadLateProblem[]
   opsComments           ShipmentOpsComment[]
   customerAgreementInvites CustomerAgreementInvite[]
+  paypalCustomerOrders  PayPalCustomerOrder[]
   carrierProfile        Carrier?                @relation(fields: [carrierProfileId], references: [carrierId], onDelete: SetNull)
   directCustomer        DirectCustomer?         @relation(fields: [directCustomerId], references: [customerId], onDelete: SetNull)
 
@@ -1273,4 +1274,61 @@ model AiAction {
   @@index([expiresAt])
   @@index([createdAt])
   @@map("ai_actions")
+}
+
+/// PayPal Checkout order for customer payment on a ShipmentLead (no separate Invoice entity).
+/// Amount is always snapshotted from customerPaymentQuote at create time.
+model PayPalCustomerOrder {
+  paypalCustomerOrderId     String       @id @default(uuid()) @map("paypal_customer_order_id")
+  shipmentLeadId            String       @map("shipment_lead_id")
+  /// PayPal Orders v2 id (e.g. 5O190127TN364715T).
+  paypalOrderId             String       @unique @map("paypal_order_id")
+  /// Green OS invoice number snapshot (from ShipmentLead.invoiceNumber / derived).
+  invoiceNumber             String?      @map("invoice_number")
+  /// Optional link to the current CUSTOMER_INVOICE LoadDocument at create time.
+  customerInvoiceDocumentId String?      @map("customer_invoice_document_id")
+  customerName              String?      @map("customer_name")
+  customerEmail             String?      @map("customer_email")
+  /// Snapshot of outstanding total in USD (server-computed).
+  amountUsd                 Float        @map("amount_usd")
+  currency                  String       @default("USD")
+  /// CREATED | PAYER_ACTION_REQUIRED | APPROVED | COMPLETED | VOIDED | CANCELLED | FAILED
+  status                    String       @default("CREATED")
+  approvalUrl               String?      @map("approval_url")
+  captureId                 String?      @map("capture_id")
+  /// Prevents duplicate create for same shipment+amount while an open order exists.
+  idempotencyKey            String       @unique @map("idempotency_key")
+  createdByUserId           String?      @map("created_by_user_id")
+  lastEmailSentAt           DateTime?    @map("last_email_sent_at")
+  lastEmailSentTo           String?      @map("last_email_sent_to")
+  paidAt                    DateTime?    @map("paid_at")
+  rawCreateJson             String?      @map("raw_create_json")
+  rawCaptureJson            String?      @map("raw_capture_json")
+  createdAt                 DateTime     @default(now()) @map("created_at")
+  updatedAt                 DateTime     @updatedAt @map("updated_at")
+  shipmentLead              ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+
+  @@index([shipmentLeadId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("paypal_customer_orders")
+}
+
+/// PayPal webhook delivery log — duplicate event ids are ignored.
+model PayPalWebhookEvent {
+  paypalWebhookEventId String   @id @default(uuid()) @map("paypal_webhook_event_id")
+  /// PayPal event id (unique per delivery).
+  eventId              String   @unique @map("event_id")
+  eventType            String   @map("event_type")
+  paypalOrderId        String?  @map("paypal_order_id")
+  resourceId           String?  @map("resource_id")
+  processed            Boolean  @default(false)
+  processResult        String?  @map("process_result")
+  rawPayloadJson       String   @map("raw_payload_json")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  @@index([eventType])
+  @@index([paypalOrderId])
+  @@index([createdAt])
+  @@map("paypal_webhook_events")
 }
