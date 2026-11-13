@@ -944,7 +944,9 @@ export class LoadDocumentsService {
             orderBy: { version: "desc" },
         });
         const version = (last?.version || 0) + 1;
-        if (last?.isCurrent) {
+        // Extra Accounting attachments stack — do not replace prior ATTACHMENT files.
+        const keepPriorCurrent = docType === "ATTACHMENT";
+        if (last?.isCurrent && !keepPriorCurrent) {
             await prisma.loadDocument.update({
                 where: { documentId: last.documentId },
                 data: { isCurrent: false },
@@ -964,14 +966,18 @@ export class LoadDocumentsService {
         }
         const stat = fs.statSync(dest);
         const fileName = path.basename(input.originalName || storedName);
-        const title = `${LOAD_DOC_TYPE_LABELS[docType] || docType} v${version}`;
+        const title =
+            docType === "ATTACHMENT"
+                ? fileName || `${LOAD_DOC_TYPE_LABELS[docType] || docType} v${version}`
+                : `${LOAD_DOC_TYPE_LABELS[docType] || docType} v${version}`;
 
         const row = await prisma.loadDocument.create({
             data: {
                 shipmentLeadId: input.shipmentLeadId,
                 docType,
                 version,
-                changeReason: version === 1 ? "UPLOADED" : "REPLACED",
+                changeReason:
+                    keepPriorCurrent || version === 1 ? "UPLOADED" : "REPLACED",
                 title,
                 status: "READY",
                 isCurrent: true,

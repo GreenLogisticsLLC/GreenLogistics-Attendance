@@ -4995,7 +4995,8 @@ tr.acc-row-carrier-pay button.acc-load-link {
 }
 /* Real click target: input covers the whole Add/Upload button so the OS file dialog opens. */
 .acc-invoice-add-label,
-.acc-doc-upload-label {
+.acc-doc-upload-label,
+.acc-doc-add-label {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -5020,7 +5021,8 @@ tr.acc-row-carrier-pay button.acc-load-link {
   z-index: 2;
 }
 .acc-invoice-add-label > span,
-.acc-doc-upload-label > span {
+.acc-doc-upload-label > span,
+.acc-doc-add-label > span {
   position: relative;
   z-index: 1;
   pointer-events: none;
@@ -5162,6 +5164,29 @@ tr.acc-row-carrier-pay button.acc-load-link {
   list-style: none;
   margin: 0;
   padding: 0;
+}
+.acc-doc-add-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 0.55rem;
+  padding-top: 0.45rem;
+}
+.acc-doc-add-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--gos-accent);
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.15rem;
+  border: none;
+  background: transparent;
+}
+.acc-doc-add-label:hover {
+  text-decoration: underline;
 }
 .acc-doc-verify-row {
   display: flex;

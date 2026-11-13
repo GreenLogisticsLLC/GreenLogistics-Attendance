@@ -311,6 +311,36 @@ test("accounting shipment documents open as PDF and include carrier uploads", ()
     assert.equal(rows.some((row) => row.docType === "DISPATCH_SHEET"), false);
 });
 
+test("accounting ADD DOCUMENTS attachments keep separate labels", () => {
+    const rows = buildAccountingDocuments({
+        shipmentLeadId: "ship-2",
+        loadDocs: [
+            {
+                documentId: "att-1",
+                docType: "ATTACHMENT",
+                status: "READY",
+                fileName: "extra-scan-1.pdf",
+                fileUrl: "/uploads/loads/ship-2/a1.pdf",
+                mimeType: "application/pdf",
+            },
+            {
+                documentId: "att-2",
+                docType: "ATTACHMENT",
+                status: "READY",
+                fileName: "extra-scan-2.pdf",
+                fileUrl: "/uploads/loads/ship-2/a2.pdf",
+                mimeType: "application/pdf",
+            },
+        ],
+        carrierDocs: [],
+    });
+    const attachments = rows.filter((row) => row.docType === "ATTACHMENT");
+    assert.equal(attachments.length, 2);
+    assert.equal(attachments[0].label, "Attachment · extra-scan-1.pdf");
+    assert.equal(attachments[1].label, "Attachment · extra-scan-2.pdf");
+    assert.ok(attachments.every((row) => Boolean(row.openUrl)));
+});
+
 test("TEST 13: Existing Broker/Ops modules remain available; Accounting isolated", () => {
     assert.equal(canAccessModule(Roles.Broker, "broker"), true);
     assert.equal(canAccessModule(Roles.Manager, "crm"), true);

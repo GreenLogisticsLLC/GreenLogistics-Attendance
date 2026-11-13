@@ -998,7 +998,9 @@ window.GreenOSModules.accounting = {
             self.esc(doc.mimeType || "application/pdf") +
             '" data-download="1" title="Download">Download</button>';
         }
-        if (doc.source === "load") {
+        // Extra Accounting attachments are added via ADD DOCUMENTS (multi-file);
+        // do not offer Replace (that would confuse stacked ATTACHMENT files).
+        if (doc.source === "load" && String(doc.docType || "").toUpperCase() !== "ATTACHMENT") {
           actions += self.docUploadControlHtml(
             doc.docType,
             ready ? "Replace" : "Upload"
@@ -1141,6 +1143,23 @@ window.GreenOSModules.accounting = {
       "<span>" +
       this.esc(labelText || "Upload") +
       "</span></label>"
+    );
+  },
+
+  /** Multi-file ADD DOCUMENTS control under the Documents list. */
+  addDocumentsControlHtml() {
+    var id = "acc-add-docs-" + String(Math.random()).slice(2, 8);
+    return (
+      '<div class="acc-doc-add-row">' +
+      '<label class="acc-doc-add-label" for="' +
+      this.esc(id) +
+      '" title="Upload one or more extra files to this load">' +
+      '<input type="file" id="' +
+      this.esc(id) +
+      '" class="acc-file-input acc-file-input--overlay" data-doc-type="ATTACHMENT" multiple accept="' +
+      this.esc(this.invoiceFileAccept()) +
+      '">' +
+      "<span>ADD DOCUMENTS</span></label></div>"
     );
   },
 
@@ -2378,6 +2397,7 @@ window.GreenOSModules.accounting = {
         " on this load</span></div><ul class=\"acc-doc-list\">" +
         docsHtml +
         "</ul>" +
+        self.addDocumentsControlHtml() +
         (verifyCarrBtn
           ? '<div class="acc-doc-verify-row">' + verifyCarrBtn + "</div>"
           : "") +
@@ -2499,19 +2519,24 @@ window.GreenOSModules.accounting = {
       // (JS preventDefault + clipped input.click()/showPicker was silently blocking the dialog.)
       function handleFileInput(input) {
         input.addEventListener("change", async function () {
-          var file = input.files && input.files[0];
+          var files = input.files ? Array.prototype.slice.call(input.files) : [];
           var docType = input.getAttribute("data-doc-type");
-          if (!file || !docType) {
+          if (!files.length || !docType) {
             input.value = "";
             return;
           }
           var msg = host.querySelector("#acc-msg");
           if (msg) {
-            msg.textContent = "Uploading " + docType.replace(/_/g, " ").toLowerCase() + "…";
+            msg.textContent =
+              files.length > 1
+                ? "Uploading " + files.length + " documents…"
+                : "Uploading " + docType.replace(/_/g, " ").toLowerCase() + "…";
             msg.style.color = "";
           }
           try {
-            await self.uploadLoadDoc(id, docType, file);
+            for (var fi = 0; fi < files.length; fi++) {
+              await self.uploadLoadDoc(id, docType, files[fi]);
+            }
             input.value = "";
             if (docType === "CARRIER_INVOICE") {
               self._profileFlash =
@@ -2520,6 +2545,11 @@ window.GreenOSModules.accounting = {
               self._profileFlash = "Customer invoice uploaded.";
             } else if (docType === "CUSTOMER_AGREEMENT") {
               self._profileFlash = "Customer agreement uploaded.";
+            } else if (docType === "ATTACHMENT") {
+              self._profileFlash =
+                files.length > 1
+                  ? files.length + " documents added to this load."
+                  : "Document added to this load.";
             }
             await self.openShipment(host, id);
           } catch (err) {
