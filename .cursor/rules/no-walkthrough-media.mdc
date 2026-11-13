@@ -1,0 +1,10 @@
+---
+description: Never create screenshots/videos unless user explicitly asks
+alwaysApply: true
+---
+
+# No walkthrough media by default
+
+Do **not** create screenshots, photos, screen recordings, or demo videos unless the user explicitly asks for them in the current message.
+
+Prefer short written change summaries. Use automated tests / API / logs when verification is needed. Do not spend tokens on GUI walkthroughs or media artifacts by default.
