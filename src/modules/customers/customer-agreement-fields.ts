@@ -10,7 +10,16 @@ export type AgreementFieldDef = {
     label: string;
     section: string;
     multiline?: boolean;
+    /** When set, portal renders a <select> instead of a free-text input. */
+    options?: string[];
 };
+
+export const PAYMENT_SCHEDULE_SPLIT_50_50 = "50% / 50% (pickup + delivery)";
+export const PAYMENT_SCHEDULE_FULL_AFTER_PICKUP = "Full payment after pickup";
+export const PAYMENT_SCHEDULE_OPTIONS = [
+    PAYMENT_SCHEDULE_SPLIT_50_50,
+    PAYMENT_SCHEDULE_FULL_AFTER_PICKUP,
+] as const;
 
 export function customerAgreementFields(type: CustomerAgreementType): AgreementFieldDef[] {
     if (type === "LONG_TIME") {
@@ -85,8 +94,14 @@ export function customerAgreementFields(type: CustomerAgreementType): AgreementF
             section: "Price and payment",
         },
         { key: "paymentMethod", label: "Payment Method", section: "Price and payment" },
-        { key: "firstPayment", label: "First Payment 50% (USD)", section: "Price and payment" },
-        { key: "finalPayment", label: "Final Payment 50% (USD)", section: "Price and payment" },
+        {
+            key: "paymentSchedule",
+            label: "Payment Schedule",
+            section: "Price and payment",
+            options: [...PAYMENT_SCHEDULE_OPTIONS],
+        },
+        { key: "firstPayment", label: "First Payment (USD)", section: "Price and payment" },
+        { key: "finalPayment", label: "Final Payment (USD)", section: "Price and payment" },
         { key: "customerFullName", label: "Full Name (signature block)", section: "Customer signature" },
         { key: "customerCompany", label: "Company (signature block)", section: "Customer signature" },
     ];
@@ -130,10 +145,52 @@ export type CustomerAgreementShipmentPrefill = {
     customerPhone?: string | null;
 };
 
-function fmtMoney(value: unknown): string {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return "";
-    return n % 1 === 0 ? String(n) : n.toFixed(2);
+/** Always prefix with $ when a positive amount is present. */
+export function fmtMoney(value: unknown): string {
+    const raw = String(value ?? "")
+        .trim()
+        .replace(/^\$/, "")
+        .replace(/,/g, "");
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) return "";
+    if (n === 0) return "$0";
+    const body = n % 1 === 0 ? String(n) : n.toFixed(2);
+    return `$${body}`;
+}
+
+/** Split total into first/final amounts for the chosen payment schedule. */
+export function paymentAmountsForSchedule(
+    totalRaw: unknown,
+    scheduleRaw?: string | null
+): { firstPayment: string; finalPayment: string; paymentSchedule: string } {
+    const total = fmtMoney(totalRaw);
+    const schedule = String(scheduleRaw || "").trim() || PAYMENT_SCHEDULE_SPLIT_50_50;
+    const isFullAfterPickup =
+        schedule === PAYMENT_SCHEDULE_FULL_AFTER_PICKUP ||
+        /full\s*payment\s*after\s*pickup/i.test(schedule);
+    if (!total) {
+        return {
+            paymentSchedule: isFullAfterPickup
+                ? PAYMENT_SCHEDULE_FULL_AFTER_PICKUP
+                : PAYMENT_SCHEDULE_SPLIT_50_50,
+            firstPayment: "",
+            finalPayment: "",
+        };
+    }
+    if (isFullAfterPickup) {
+        return {
+            paymentSchedule: PAYMENT_SCHEDULE_FULL_AFTER_PICKUP,
+            firstPayment: "$0",
+            finalPayment: total,
+        };
+    }
+    const n = Number(String(total).replace(/^\$/, ""));
+    const half = fmtMoney(n / 2);
+    return {
+        paymentSchedule: PAYMENT_SCHEDULE_SPLIT_50_50,
+        firstPayment: half,
+        finalPayment: half,
+    };
 }
 
 function fmtPlace(city?: string | null, state?: string | null, zip?: string | null): string {
@@ -210,7 +267,7 @@ export function prefillCustomerAgreementFields(input: {
     }
 
     const total = fmtMoney(ship?.customerRate ?? ship?.price);
-    const half = total ? fmtMoney(Number(total) / 2) : "";
+    const payParts = paymentAmountsForSchedule(total, PAYMENT_SCHEDULE_SPLIT_50_50);
     const payment =
         String(ship?.customerPaymentLabel || "").trim() ||
         String(ship?.customerPaymentMethod || "").trim();
@@ -242,8 +299,9 @@ export function prefillCustomerAgreementFields(input: {
             additionalInstructions: String(ship?.specialInstructions || "").trim(),
             totalCharge: total,
             paymentMethod: payment,
-            firstPayment: half,
-            finalPayment: half,
+            paymentSchedule: payParts.paymentSchedule,
+            firstPayment: payParts.firstPayment,
+            finalPayment: payParts.finalPayment,
         }
     );
 }

@@ -230,8 +230,8 @@ const USHIP_ONETIME_SECTIONS: CustomerAgreementSection[] = [
     {
         title: "4. Transportation Price and Payment",
         lines: [
-            "Payment Schedule: First Payment 50%, due immediately after pickup and confirmation that the shipment has been loaded. Final Payment 50%, due upon delivery and before unloading where legally permissible and agreed by the parties. The parties may agree to a different payment schedule in writing before dispatch.",
-            "4.1. The Customer agrees to pay the full transportation amount according to the agreed schedule.",
+            "Payment Schedule (choose one on the agreement form): (A) 50% / 50% — First Payment 50% due immediately after pickup and confirmation that the shipment has been loaded; Final Payment 50% due upon delivery and before unloading where legally permissible and agreed by the parties; or (B) Full payment after pickup — 100% of the agreed transportation charge due immediately after pickup and confirmation that the shipment has been loaded. The selected schedule on this form controls for this shipment.",
+            "4.1. The Customer agrees to pay the full transportation amount according to the agreed schedule selected on this form.",
             "4.2. Payment must be made using the payment method confirmed by the parties.",
             "4.3. For direct-payment transactions, accepted methods may include Zelle, Venmo, Cash App, PayPal, bank transfer, or another mutually approved method.",
             "4.4. For uShip Payments transactions, all applicable uShip payment procedures must be followed. No payment code may be requested before delivery.",

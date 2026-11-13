@@ -34,6 +34,8 @@ test("uShip OneTime agreement includes shipment-specific clauses", () => {
     assert.match(blob, /No payment code may be requested before delivery/);
     assert.match(blob, /uShip cancellation process/);
     assert.match(blob, /this shipment/i);
+    assert.match(blob, /Full payment after pickup/i);
+    assert.match(blob, /50%\s*\/\s*50%/i);
 });
 
 test("Long Time and uShip OneTime bodies are distinct", () => {

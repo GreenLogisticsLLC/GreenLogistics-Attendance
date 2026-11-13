@@ -15,7 +15,8 @@
     h2 { margin:1rem 0 .55rem; font-size:1.05rem; color:var(--accent); }
     .muted { color:var(--muted); font-size:.95rem; line-height:1.45; }
     label { display:block; font-weight:700; margin:.65rem 0 .25rem; }
-    input, textarea { width:100%; padding:.65rem .7rem; border-radius:10px; border:1px solid var(--line); background:#0b1220; color:var(--text); font:inherit; }
+    input, textarea, select { width:100%; padding:.65rem .7rem; border-radius:10px; border:1px solid var(--line); background:#0b1220; color:var(--text); font:inherit; }
+    select { appearance:auto; }
     textarea { min-height: 78px; resize: vertical; }
     .grid { display:grid; gap:.35rem 1rem; }
     @media (min-width:720px) { .grid.two { grid-template-columns: 1fr 1fr; } }
@@ -140,9 +141,48 @@
     var formHtml = Object.keys(sections).map(function (section) {
       var fields = sections[section].map(function (f) {
         var val = esc((state.fields && state.fields[f.key]) || "");
-        var tag = f.multiline
-          ? '<textarea data-field="' + esc(f.key) + '"' + (state.alreadySigned ? " readonly" : "") + ">" + val + "</textarea>"
-          : '<input data-field="' + esc(f.key) + '" value="' + val + '"' + (state.alreadySigned ? " readonly" : "") + " />";
+        var tag;
+        if (f.options && f.options.length) {
+          tag =
+            '<select data-field="' +
+            esc(f.key) +
+            '"' +
+            (state.alreadySigned ? " disabled" : "") +
+            ">" +
+            f.options
+              .map(function (opt) {
+                var o = String(opt || "");
+                return (
+                  '<option value="' +
+                  esc(o) +
+                  '"' +
+                  (o === String((state.fields && state.fields[f.key]) || "") ? " selected" : "") +
+                  ">" +
+                  esc(o) +
+                  "</option>"
+                );
+              })
+              .join("") +
+            "</select>";
+        } else if (f.multiline) {
+          tag =
+            '<textarea data-field="' +
+            esc(f.key) +
+            '"' +
+            (state.alreadySigned ? " readonly" : "") +
+            ">" +
+            val +
+            "</textarea>";
+        } else {
+          tag =
+            '<input data-field="' +
+            esc(f.key) +
+            '" value="' +
+            val +
+            '"' +
+            (state.alreadySigned ? " readonly" : "") +
+            " />";
+        }
         return "<label>" + esc(f.label) + "</label>" + tag;
       }).join("");
       return "<div class='card'><h2>" + esc(section) + "</h2><div class='grid'>" + fields + "</div></div>";
@@ -190,8 +230,55 @@
 
     if (!state.alreadySigned) {
       setupSig();
+      function moneyWithDollar(raw) {
+        var s = String(raw || "").trim().replace(/^\$/, "").replace(/,/g, "");
+        if (!s) return "";
+        var n = Number(s);
+        if (!isFinite(n) || n < 0) return String(raw || "").trim();
+        if (n === 0) return "$0";
+        return "$" + (n % 1 === 0 ? String(n) : n.toFixed(2));
+      }
+      function syncPaymentSplit() {
+        var scheduleEl = document.querySelector('[data-field="paymentSchedule"]');
+        var totalEl = document.querySelector('[data-field="totalCharge"]');
+        var firstEl = document.querySelector('[data-field="firstPayment"]');
+        var finalEl = document.querySelector('[data-field="finalPayment"]');
+        if (!scheduleEl || !totalEl || !firstEl || !finalEl) return;
+        var total = moneyWithDollar(totalEl.value);
+        if (total) totalEl.value = total;
+        var schedule = String(scheduleEl.value || "");
+        var full = /full\s*payment\s*after\s*pickup/i.test(schedule);
+        if (!total) {
+          firstEl.value = "";
+          finalEl.value = "";
+          return;
+        }
+        if (full) {
+          firstEl.value = "$0";
+          finalEl.value = total;
+          return;
+        }
+        var n = Number(String(total).replace(/^\$/, ""));
+        var half = moneyWithDollar(n / 2);
+        firstEl.value = half;
+        finalEl.value = half;
+      }
+      ["totalCharge", "firstPayment", "finalPayment"].forEach(function (key) {
+        var el = document.querySelector('[data-field="' + key + '"]');
+        if (!el) return;
+        el.addEventListener("blur", function () {
+          el.value = moneyWithDollar(el.value);
+          if (key === "totalCharge") syncPaymentSplit();
+        });
+      });
+      var scheduleEl = document.querySelector('[data-field="paymentSchedule"]');
+      if (scheduleEl) {
+        scheduleEl.addEventListener("change", syncPaymentSplit);
+        syncPaymentSplit();
+      }
       $("btn-save").onclick = async function () {
         try {
+          syncPaymentSplit();
           await api("/save", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -207,6 +294,7 @@
           if (!String($("sig-name").value || "").trim()) throw new Error("Enter your full name for the signature.");
           if (isBlankSig()) throw new Error("Please draw your signature.");
           if (!$("sig-agree").checked) throw new Error("Please check the acknowledgment box.");
+          syncPaymentSplit();
           var data = await api("/sign", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
