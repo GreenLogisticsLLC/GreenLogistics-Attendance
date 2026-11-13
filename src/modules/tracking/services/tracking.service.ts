@@ -12,6 +12,7 @@ import {
 } from "../providers/carrier-view/mapper.js";
 import { carrierViewUserMessage } from "../providers/carrier-view/errors.js";
 import { carrierViewClient } from "../providers/carrier-view/client.js";
+import { runtimeLog } from "../../../utils/runtime-log.js";
 
 /** In-memory SMS cooldown — prevents accidental double-sends (CarrierView SMS is not idempotent). */
 const SMS_COOLDOWN_MS = 60_000;
@@ -703,9 +704,15 @@ export class TrackingService {
             where: { provider: "carrier_view", providerLoadId },
         });
         if (!tracking) {
-            console.warn(
-                `[CARRIERVIEW_WEBHOOK] unknown CarrierView load ${providerLoadId} — acknowledged`
-            );
+            // Expected when CarrierView emits positions for loads never linked in GreenOS.
+            // Contract: acknowledge (HTTP 200) so CV does not retry forever; do not invent shipments.
+            runtimeLog("INFO", {
+                module: "carrierview-webhook",
+                category: "UNKNOWN_LOAD_ACKNOWLEDGED",
+                message: "unknown CarrierView load — acknowledged (no GreenOS tracking)",
+                providerId: providerLoadId,
+                retryEligible: false,
+            });
             await this.markEvent(event?.eventId, "IGNORED", "shipment not found");
             return { ok: true, ignored: true };
         }
@@ -765,11 +772,25 @@ export class TrackingService {
 
         if (!tracking && eventName === "load_added") {
             // Orphan CarrierView load — log only (cannot invent Green OS shipment)
+            runtimeLog("INFO", {
+                module: "carrierview-webhook",
+                category: "UNKNOWN_LOAD_ACKNOWLEDGED",
+                message: "load_added for unknown CarrierView load — acknowledged",
+                providerId: providerLoadId,
+                retryEligible: false,
+            });
             await this.markEvent(event?.eventId, "IGNORED", "no matching Green OS tracking");
             return { ok: true, ignored: true };
         }
 
         if (!tracking) {
+            runtimeLog("INFO", {
+                module: "carrierview-webhook",
+                category: "UNKNOWN_LOAD_ACKNOWLEDGED",
+                message: "status event for unknown CarrierView load — acknowledged",
+                providerId: providerLoadId,
+                retryEligible: false,
+            });
             await this.markEvent(event?.eventId, "IGNORED", "tracking not found");
             return { ok: true, ignored: true };
         }
@@ -818,6 +839,13 @@ export class TrackingService {
 
         if (!tracking) {
             // Keep raw event for reconciliation — do not lose message
+            runtimeLog("INFO", {
+                module: "carrierview-webhook",
+                category: "UNKNOWN_LOAD_ACKNOWLEDGED",
+                message: "chat for unknown CarrierView load — acknowledged, raw retained",
+                providerId: providerLoadId,
+                retryEligible: false,
+            });
             await this.markEvent(event?.eventId, "IGNORED", "shipment not found — raw retained");
             return { ok: true, ignored: true };
         }

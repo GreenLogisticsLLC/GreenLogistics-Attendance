@@ -97,7 +97,16 @@ ensure_greenos_healthy() {
 
   log "WARN health check FAILED — self-heal: npm ci (if needed), build, pm2 restart"
   cd "$APP_DIR"
-  if [[ ! -d node_modules ]] || [[ ! -x node_modules/.bin/tsc ]] || [[ ! -f node_modules/dotenv/package.json ]]; then
+  # Stop greenos before touching node_modules so a live process cannot load a
+  # half-deleted express tree (ERR_MODULE_NOT_FOUND).
+  if pm2 describe "$PM2_APP" >>"$LOG_FILE" 2>&1; then
+    log "STEP pm2 stop ${PM2_APP} before self-heal deps"
+    pm2 stop "$PM2_APP" >>"$LOG_FILE" 2>&1 || true
+  fi
+  if [[ ! -d node_modules ]] \
+    || [[ ! -x node_modules/.bin/tsc ]] \
+    || [[ ! -f node_modules/dotenv/package.json ]] \
+    || [[ ! -f node_modules/express/package.json ]]; then
     log "STEP self-heal npm ci (node_modules missing or incomplete)"
     if ! npm ci >>"$LOG_FILE" 2>&1; then
       log "WARN self-heal npm ci failed — trying npm install"
@@ -116,6 +125,12 @@ ensure_greenos_healthy() {
   fi
   if ! npm run build >>"$LOG_FILE" 2>&1; then
     log "ERROR self-heal npm run build failed"
+    set -e
+    return 1
+  fi
+  log "STEP validate-runtime (express + dist)"
+  if ! node scripts/validate-runtime.mjs >>"$LOG_FILE" 2>&1; then
+    log "ERROR validate-runtime failed — refusing pm2 restart"
     set -e
     return 1
   fi
@@ -189,12 +204,17 @@ rollback() {
     log "ERROR rollback git reset --hard failed"
     return 1
   }
+  pm2 stop "$PM2_APP" >>"$LOG_FILE" 2>&1 || true
   if ! npm ci >>"$LOG_FILE" 2>&1; then
     log "ERROR rollback npm ci failed"
     return 1
   fi
   if ! npm run build >>"$LOG_FILE" 2>&1; then
     log "ERROR rollback npm run build failed"
+    return 1
+  fi
+  if ! node scripts/validate-runtime.mjs >>"$LOG_FILE" 2>&1; then
+    log "ERROR rollback validate-runtime failed"
     return 1
   fi
   pm2_restart_or_start || {
@@ -210,12 +230,16 @@ set +e
   set -euo pipefail
   log "STEP git reset --hard ${REMOTE}/${BRANCH}"
   git reset --hard "${REMOTE}/${BRANCH}" >>"$LOG_FILE" 2>&1
+  log "STEP pm2 stop ${PM2_APP} before npm ci (avoid live MODULE_NOT_FOUND)"
+  pm2 stop "$PM2_APP" >>"$LOG_FILE" 2>&1 || true
   log "STEP npm ci"
   npm ci >>"$LOG_FILE" 2>&1
   log "STEP npm run db:push"
   npm run db:push >>"$LOG_FILE" 2>&1
   log "STEP npm run build"
   npm run build >>"$LOG_FILE" 2>&1
+  log "STEP validate-runtime (express + dist)"
+  node scripts/validate-runtime.mjs >>"$LOG_FILE" 2>&1
   # shellcheck disable=SC1091
   if [[ -f "${APP_DIR}/tools/pm2-greenos-env.sh" ]]; then
     source "${APP_DIR}/tools/pm2-greenos-env.sh" "${APP_DIR}/.env"

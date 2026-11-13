@@ -1,13 +1,21 @@
 import { prisma } from "../../../config/database.js";
 import { processDocumentJob } from "./processor.js";
+import { runtimeLog } from "../../../utils/runtime-log.js";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 let didRequeueRedNoa = false;
 
+function isPermanentPdfFailure(errorMessage: string | null | undefined): boolean {
+    return /INVALID_PDF_STRUCTURE|invalid pdf structure|pdf header missing|missing %%EOF/i.test(
+        String(errorMessage || "")
+    );
+}
+
 /**
  * After extractor/OCR fixes, re-run CURRENT NOA docs that previously got RED
  * so carriers do not have to re-upload the same file.
+ * Skip permanently malformed PDFs — they need manual re-upload, not infinite retries.
  */
 async function requeueRedNoaOnce() {
     if (didRequeueBadNoaFlag()) return;
@@ -26,6 +34,7 @@ async function requeueRedNoaOnce() {
             },
         });
         let queued = 0;
+        let skippedPermanent = 0;
         for (const doc of currentNoa) {
             const latest = await prisma.aiDocumentJob.findFirst({
                 where: { documentId: doc.documentId, documentSource: "CARRIER" },
@@ -34,6 +43,10 @@ async function requeueRedNoaOnce() {
             });
             if (!latest?.validation || latest.validation.trafficLight !== "RED") continue;
             if (latest.status === "QUEUED" || latest.status === "PROCESSING") continue;
+            if (isPermanentPdfFailure(latest.errorMessage)) {
+                skippedPermanent += 1;
+                continue;
+            }
             const carrier = await prisma.carrier.findUnique({
                 where: { carrierId: doc.carrierId },
                 select: { assignedBrokerId: true },
@@ -54,9 +67,30 @@ async function requeueRedNoaOnce() {
             });
             queued += 1;
         }
-        if (queued) console.log(`[doc-ai] re-queued ${queued} RED NOA document(s) for re-check`);
+        if (queued) {
+            runtimeLog("INFO", {
+                module: "doc-ai",
+                category: "RED_NOA_REQUEUE",
+                message: `re-queued ${queued} RED NOA document(s) for re-check`,
+                retryEligible: true,
+            });
+        }
+        if (skippedPermanent) {
+            runtimeLog("INFO", {
+                module: "doc-ai",
+                category: "INVALID_PDF_SKIP_REQUEUE",
+                message: `skipped ${skippedPermanent} permanently invalid PDF NOA(s)`,
+                retryEligible: false,
+            });
+        }
     } catch (err) {
-        console.warn("[doc-ai] RED NOA requeue failed:", err);
+        runtimeLog("WARNING", {
+            module: "doc-ai",
+            category: "RED_NOA_REQUEUE_FAILED",
+            message: "RED NOA requeue failed",
+            retryEligible: true,
+            detail: err instanceof Error ? err.message : String(err),
+        });
     }
 }
 
@@ -84,7 +118,7 @@ export function startDocumentAiScheduler(intervalMs = 15_000) {
             for (const j of queued) {
                 await processDocumentJob(j.jobId);
             }
-            // Retry stuck PROCESSING older than 10 minutes
+            // Retry stuck PROCESSING older than 10 minutes (never permanent PDF failures).
             const stale = await prisma.aiDocumentJob.findMany({
                 where: {
                     status: "PROCESSING",
@@ -92,16 +126,23 @@ export function startDocumentAiScheduler(intervalMs = 15_000) {
                     attempts: { lt: 3 },
                 },
                 take: 2,
-                select: { jobId: true },
+                select: { jobId: true, errorMessage: true },
             });
             for (const j of stale) {
+                if (isPermanentPdfFailure(j.errorMessage)) continue;
                 await prisma.aiDocumentJob.update({
                     where: { jobId: j.jobId },
                     data: { status: "QUEUED" },
                 });
             }
         } catch (err) {
-            console.warn("[doc-ai] scheduler tick error:", err);
+            runtimeLog("WARNING", {
+                module: "doc-ai",
+                category: "SCHEDULER_TICK_ERROR",
+                message: "scheduler tick error",
+                retryEligible: true,
+                detail: err instanceof Error ? err.message : String(err),
+            });
         } finally {
             running = false;
         }
@@ -111,5 +152,10 @@ export function startDocumentAiScheduler(intervalMs = 15_000) {
     }, intervalMs);
     // warm start
     tick().catch(() => null);
-    console.log(`[doc-ai] scheduler started (every ${intervalMs}ms)`);
+    runtimeLog("INFO", {
+        module: "doc-ai",
+        category: "SCHEDULER_STARTED",
+        message: `scheduler started (every ${intervalMs}ms)`,
+        retryEligible: false,
+    });
 }

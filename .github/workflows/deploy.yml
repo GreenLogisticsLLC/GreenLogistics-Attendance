@@ -76,6 +76,11 @@ jobs:
               rmdir node_modules 2>/dev/null || true
             fi
           }
+          # Never delete node_modules while greenos is still running — that caused
+          # ERR_MODULE_NOT_FOUND for express/index.js under live PM2 workers.
+          echo "=== stop PM2 greenos before dependency swap ==="
+          pm2 stop greenos 2>/dev/null || true
+          sleep 1
           rm -rf node_modules.trash.* 2>/dev/null || true
           wipe_node_modules || true
           rm -f .npm-lock 2>/dev/null || true
@@ -90,14 +95,21 @@ jobs:
             fi
           }
           install_deps
-          # Race/corruption check — dotenv must exist for db:push scripts.
-          if [ ! -f node_modules/dotenv/package.json ] || [ ! -f node_modules/@prisma/client/package.json ]; then
+          # Race/corruption check — dotenv + express must exist before restart.
+          if [ ! -f node_modules/dotenv/package.json ] \
+            || [ ! -f node_modules/@prisma/client/package.json ] \
+            || [ ! -f node_modules/express/package.json ]; then
             echo "WARN: node_modules incomplete after install — wiping and retrying once"
             wipe_node_modules || true
             install_deps
           fi
           if [ ! -f node_modules/dotenv/package.json ]; then
             echo "ERROR: dotenv still missing after retry"
+            ls -la node_modules | head -50 || true
+            exit 1
+          fi
+          if [ ! -f node_modules/express/package.json ]; then
+            echo "ERROR: express still missing after retry — refusing PM2 start"
             ls -la node_modules | head -50 || true
             exit 1
           fi
@@ -175,6 +187,8 @@ jobs:
           fi
 
           npm run build
+          # Refuse restart if Express / dist entry cannot resolve (MODULE_NOT_FOUND guard).
+          node scripts/validate-runtime.mjs
           git rev-parse --short HEAD > frontend/public/deploy-version.txt
           chmod +x tools/pm2-greenos-env.sh
           install -m 755 tools/contabo-autodeploy/greenos-autodeploy.sh /usr/local/bin/greenos-autodeploy.sh 2>/dev/null || true
