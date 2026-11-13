@@ -20,6 +20,9 @@ $NPM ci
 log "prisma generate + tsc build..."
 $NPM run deploy:build
 
+log "validate runtime (express + dist)..."
+node scripts/validate-runtime.mjs
+
 log "database schema push (no seed)..."
 npx prisma db push --skip-generate
 
