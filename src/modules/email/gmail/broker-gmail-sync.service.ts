@@ -19,6 +19,11 @@ import {
     normalizeUshipTitle,
     titlesFromQuestionAnsweredEmail,
 } from "../parsers/uship/uship-qa-match.js";
+import {
+    isPermanentGmailMissingError,
+    runtimeLog,
+} from "../../../utils/runtime-log.js";
+import { isBrokerGmailTerminalMethod } from "./broker-gmail-classify.js";
 
 const USHIP_QUERY =
     "from:(uship.com OR email.uship.com OR notifications.uship.com OR mail.uship.com) newer_than:21d";
@@ -495,6 +500,10 @@ export class BrokerGmailSyncService {
         });
         let rematched = 0;
         for (const row of rows) {
+            // Saved-search alerts and permanently missing Gmail IDs stay ignored.
+            if (isBrokerGmailTerminalMethod(row.matchMethod)) continue;
+            if (isNewListingAlertSubject(row.subject)) continue;
+
             const body = `${row.bodyText || ""}\n${row.snippet || ""}`;
             let shipmentLeadId = row.shipmentLeadId;
             let method = row.matchMethod;
@@ -572,8 +581,13 @@ export class BrokerGmailSyncService {
                         },
                     });
                     if (existing) {
+                        // Terminal classifications — never rematch.
+                        if (isBrokerGmailTerminalMethod(existing.matchMethod)) {
+                            ignored += 1;
+                            continue;
+                        }
                         // Previously stored unmatched — try again with improved matcher/detector.
-                        if (!existing.shipmentLeadId) {
+                        if (!existing.shipmentLeadId && !isNewListingAlertSubject(existing.subject)) {
                             const body = `${existing.bodyText || ""}\n${existing.snippet || ""}`;
                             const refs = await extractUshipRefs({
                                 subject: existing.subject,
@@ -613,13 +627,74 @@ export class BrokerGmailSyncService {
                         continue;
                     }
 
-                    const raw = await this.fetchRaw(gmail, gmailMessageId);
+                    let raw: RawEmailMessage;
+                    try {
+                        raw = await this.fetchRaw(gmail, gmailMessageId);
+                    } catch (fetchErr) {
+                        if (isPermanentGmailMissingError(fetchErr)) {
+                            // Record stub so we never retry a deleted/archived message forever.
+                            await prisma.brokerMailboxMessage.create({
+                                data: {
+                                    userId: account.userId,
+                                    brokerGmailId: account.brokerGmailId,
+                                    gmailMessageId,
+                                    fromAddress: "unknown@gmail.missing",
+                                    subject: "(gmail message not found)",
+                                    snippet: "GMAIL_NOT_FOUND",
+                                    bodyText: null,
+                                    receivedAt: new Date(),
+                                    matchMethod: "GMAIL_NOT_FOUND",
+                                },
+                            });
+                            ignored += 1;
+                            runtimeLog("INFO", {
+                                module: "broker-gmail",
+                                category: "GMAIL_NOT_FOUND",
+                                message: `message permanently missing — recorded and skipped`,
+                                providerId: gmailMessageId,
+                                retryEligible: false,
+                                detail: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
+                            });
+                            continue;
+                        }
+                        throw fetchErr;
+                    }
                     const bodyText = raw.bodyText || "";
                     const bodyHtmlPlain = raw.bodyHtml ? stripHtml(raw.bodyHtml) : "";
                     const body = `${bodyText}\n${bodyHtmlPlain}\n${raw.snippet || ""}`;
 
                     if (!isUshipRelated(raw.fromAddress, raw.subject, body)) {
                         ignored += 1;
+                        continue;
+                    }
+
+                    // Broker saved-search / Instant Alert copies are marketplace notifications.
+                    // Company inbox creates shipments; broker mailbox must not invent duplicates.
+                    if (isNewListingAlertSubject(raw.subject)) {
+                        await prisma.brokerMailboxMessage.create({
+                            data: {
+                                userId: account.userId,
+                                brokerGmailId: account.brokerGmailId,
+                                gmailMessageId,
+                                gmailThreadId: raw.gmailThreadId,
+                                fromAddress: raw.fromAddress,
+                                subject: raw.subject,
+                                snippet: raw.snippet,
+                                bodyText: body.slice(0, 20000) || null,
+                                receivedAt: raw.receivedAt,
+                                matchMethod: "SAVED_SEARCH_ALERT",
+                            },
+                        });
+                        ignored += 1;
+                        synced += 1;
+                        runtimeLog("INFO", {
+                            module: "broker-gmail",
+                            category: "SAVED_SEARCH_ALERT_IGNORED",
+                            message: `saved-search / Instant Alert ignored (company intake owns creation)`,
+                            providerId: gmailMessageId,
+                            retryEligible: false,
+                            detail: raw.subject.slice(0, 120),
+                        });
                         continue;
                     }
 
@@ -669,18 +744,39 @@ export class BrokerGmailSyncService {
                             matchMethod: match.method,
                         });
                     } else {
-                        console.warn(
-                            `[BROKER GMAIL] unmatched uShip mail for ${account.gmailAddress}: "${raw.subject.slice(0, 120)}"`
-                        );
+                        runtimeLog("INFO", {
+                            module: "broker-gmail",
+                            category: "USHIP_UNMATCHED",
+                            message: `unmatched uShip lifecycle mail (no shipment link yet)`,
+                            providerId: gmailMessageId,
+                            retryEligible: true,
+                            detail: raw.subject.slice(0, 120),
+                        });
                     }
 
                     synced += 1;
                 } catch (err) {
+                    if (isPermanentGmailMissingError(err)) {
+                        ignored += 1;
+                        runtimeLog("INFO", {
+                            module: "broker-gmail",
+                            category: "GMAIL_NOT_FOUND",
+                            message: `message permanently missing`,
+                            providerId: gmailMessageId,
+                            retryEligible: false,
+                            detail: err instanceof Error ? err.message : String(err),
+                        });
+                        continue;
+                    }
                     errors += 1;
-                    console.warn(
-                        `[BROKER GMAIL] message ${gmailMessageId} failed:`,
-                        err instanceof Error ? err.message : err
-                    );
+                    runtimeLog("WARNING", {
+                        module: "broker-gmail",
+                        category: "MESSAGE_SYNC_FAILED",
+                        message: `message sync failed`,
+                        providerId: gmailMessageId,
+                        retryEligible: true,
+                        detail: err instanceof Error ? err.message : String(err),
+                    });
                 }
             }
 
