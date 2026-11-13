@@ -38,6 +38,7 @@ export const carriersController = {
             const data = await carrierService.list(actorFrom(req), {
                 status: req.query.status ? String(req.query.status) : undefined,
                 q: req.query.q ? String(req.query.q) : undefined,
+                brokerId: req.query.brokerId ? String(req.query.brokerId) : undefined,
             });
             res.json({ success: true, data });
         } catch (err) {
