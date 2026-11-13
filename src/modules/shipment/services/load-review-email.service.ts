@@ -3,10 +3,16 @@ import { sendCorporateMail } from "../../../services/email.service.js";
 const REVIEW_SENDER_EMAIL = "accounting@greengrouplogistics.com";
 const REVIEW_SENDER = `Green Logistics Accounting <${REVIEW_SENDER_EMAIL}>`;
 
+/** Brand emerald — same family as logo / Green OS CTAs (not navy blue). */
+const BRAND_GREEN = "#059669";
+
+/** Official Google wordmark for email clients (absolute HTTPS). */
+const GOOGLE_LOGO_URL =
+    "https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_92x30dp.png";
+
 export const REVIEW_LINKS = [
     {
         label: "Google",
-        icon: "⭐",
         url: "https://g.page/r/CYnYasDBg-hSEAE/review",
         cta: "Leave feedback on Google",
     },
@@ -49,7 +55,7 @@ export function buildReviewEmail(input: {
         "",
         "Leave feedback on Google:",
         "",
-        ...REVIEW_LINKS.map((l) => `${l.icon} ${l.cta}: ${l.url}`),
+        ...REVIEW_LINKS.map((l) => `${l.cta}: ${l.url}`),
         "",
         "Thank you again for working with Green Logistics. We truly value our relationship with you and look forward to working together again in the future!",
         "",
@@ -60,9 +66,10 @@ export function buildReviewEmail(input: {
     const linkRows = REVIEW_LINKS.map(
         (l) =>
             `<tr>
-              <td style="padding:8px 0;">
-                <a href="${esc(l.url)}" style="display:inline-block;background:#16325c;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 14px;font-weight:600;">
-                  ${l.icon} ${esc(l.cta)}
+              <td style="padding:10px 0;">
+                <a href="${esc(l.url)}" style="display:inline-block;background:${BRAND_GREEN};color:#ffffff;text-decoration:none;border-radius:12px;padding:16px 22px;font-weight:700;font-size:18px;line-height:1.3;">
+                  <img src="${esc(GOOGLE_LOGO_URL)}" width="74" height="24" alt="Google" style="display:inline-block;vertical-align:middle;border:0;margin-right:12px;background:#ffffff;padding:4px 8px;border-radius:6px;" />
+                  <span style="display:inline-block;vertical-align:middle;">${esc(l.cta)}</span>
                 </a>
               </td>
             </tr>`
@@ -76,8 +83,8 @@ export function buildReviewEmail(input: {
       <td align="center">
         <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #dbe4f0;">
           <tr>
-            <td style="background:#16325c;color:#ffffff;padding:22px 28px;">
-              <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;opacity:.8;">Green Logistics</div>
+            <td style="background:${BRAND_GREEN};color:#ffffff;padding:22px 28px;">
+              <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;opacity:.85;">Green Logistics</div>
               <div style="font-size:22px;font-weight:700;margin-top:4px;">Thank you for working with us</div>
             </td>
           </tr>
@@ -97,7 +104,7 @@ export function buildReviewEmail(input: {
                 appreciate it if you could take a moment to share your experience with us online. Your review helps our team
                 grow and also helps other ${esc(who)}s feel confident choosing Green Logistics.
               </p>
-              <p style="margin:18px 0 8px;font-weight:700;">Leave feedback on Google:</p>
+              <p style="margin:22px 0 12px;font-weight:700;font-size:18px;">Leave feedback on Google:</p>
               <table role="presentation" cellspacing="0" cellpadding="0">${linkRows}</table>
               <p style="margin:22px 0 14px;line-height:1.6;">
                 Thank you again for working with Green Logistics. We truly value our relationship with you
