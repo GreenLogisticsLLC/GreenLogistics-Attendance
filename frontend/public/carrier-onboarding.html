@@ -256,6 +256,7 @@
       '<label><input type="radio" name="pay" value="QUICK_3"' + (pay==="QUICK_3"?" checked":"") + '> Quick Pay 3% (3-5 business days, ACH)</label>' +
       '<label><input type="radio" name="pay" value="QUICK_5"' + (pay==="QUICK_5"?" checked":"") + '> Quick Pay 5% (24hrs)</label>' +
       '<label><input type="radio" name="pay" value="FACTORING"' + (pay==="FACTORING"?" checked":"") + '> Factoring company</label>' +
+      '<label><input type="radio" name="pay" value="OTHER"' + (pay==="OTHER"?" checked":"") + '> Other</label>' +
       '</div><label class="full" style="grid-column:1/-1;margin-top:0.5rem">Factoring company name <span class="muted">(required if Factoring is selected)</span><input id="f-factor" value="' + esc(c.factoringCompanyName) + '"></label>' +
       '<div class="actions"><button type="button" class="btn-secondary" id="btn-save">Save Progress</button><button type="button" class="btn-primary" id="btn-next">Continue</button></div><p id="msg" class="muted"></p></div>';
   }

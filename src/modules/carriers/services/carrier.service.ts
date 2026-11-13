@@ -1630,7 +1630,7 @@ export class CarrierService {
                 );
             }
             const pay = String(merged.paymentOption || "").toUpperCase();
-            if (!["STANDARD", "QUICK_3", "QUICK_5", "FACTORING"].includes(pay)) {
+            if (!["STANDARD", "QUICK_3", "QUICK_5", "FACTORING", "OTHER"].includes(pay)) {
                 throw Object.assign(new Error("Payment option is required"), { status: 400 });
             }
             data.paymentOption = pay;

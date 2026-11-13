@@ -667,6 +667,8 @@ window.GreenOSModules["dispatch"] = {
         return "Quick Pay 5% (24hrs)";
       case "FACTORING":
         return "Factoring company";
+      case "OTHER":
+        return "Other";
       default:
         return code ? String(code) : "";
     }
