@@ -2156,7 +2156,11 @@ window.GreenOSModules.accounting = {
       var paypalStatusTone =
         paypalStatus === "COMPLETED" || paypalStatus === "CAPTURED"
           ? "ok"
-          : paypalStatus === "FAILED" || paypalStatus === "VOIDED" || paypalStatus === "CANCELLED"
+          : paypalStatus === "FAILED" ||
+              paypalStatus === "DENIED" ||
+              paypalStatus === "REFUNDED" ||
+              paypalStatus === "VOIDED" ||
+              paypalStatus === "CANCELLED"
             ? "bad"
             : paypal
               ? "warn"

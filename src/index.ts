@@ -34,9 +34,10 @@ app.use(
     express.json({
         limit: "3mb",
         verify: (req, _res, buf) => {
-            const url = String(req.originalUrl || req.url || "");
+            const request = req as express.Request & { rawBody?: string };
+            const url = String(request.originalUrl || request.url || "");
             if (url.includes("/webhooks/paypal")) {
-                (req as express.Request & { rawBody?: string }).rawBody = buf.toString("utf8");
+                request.rawBody = buf.toString("utf8");
             }
         },
     })

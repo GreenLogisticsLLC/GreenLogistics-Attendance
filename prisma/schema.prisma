@@ -1292,10 +1292,17 @@ model PayPalCustomerOrder {
   /// Snapshot of outstanding total in USD (server-computed).
   amountUsd                 Float        @map("amount_usd")
   currency                  String       @default("USD")
-  /// CREATED | PAYER_ACTION_REQUIRED | APPROVED | COMPLETED | VOIDED | CANCELLED | FAILED
+  /// CREATED | APPROVED | CAPTURE_PENDING | COMPLETED | DENIED | FAILED | CANCELLED | REFUNDED
   status                    String       @default("CREATED")
   approvalUrl               String?      @map("approval_url")
   captureId                 String?      @map("capture_id")
+  /// Stable PayPal-Request-Id used for every retry of this order's capture.
+  captureRequestId          String?      @unique @map("capture_request_id")
+  captureStartedAt          DateTime?    @map("capture_started_at")
+  captureCompletedAt        DateTime?    @map("capture_completed_at")
+  refundId                  String?      @map("refund_id")
+  refundedAt                DateTime?    @map("refunded_at")
+  failureReason             String?      @map("failure_reason")
   /// Prevents duplicate create for same shipment+amount while an open order exists.
   idempotencyKey            String       @unique @map("idempotency_key")
   createdByUserId           String?      @map("created_by_user_id")

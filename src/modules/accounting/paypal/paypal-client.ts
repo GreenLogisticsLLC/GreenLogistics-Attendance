@@ -11,6 +11,10 @@ export type PayPalOrderResult = {
     id: string;
     status: string;
     approvalUrl: string | null;
+    captureId: string | null;
+    captureStatus: string | null;
+    amountValue: string | null;
+    currencyCode: string | null;
     raw: unknown;
 };
 
@@ -18,6 +22,9 @@ export type PayPalCaptureResult = {
     id: string;
     status: string;
     captureId: string | null;
+    captureStatus: string | null;
+    amountValue: string | null;
+    currencyCode: string | null;
     raw: unknown;
 };
 
@@ -118,6 +125,24 @@ function pickApprovalUrl(order: {
     return approve?.href || null;
 }
 
+type PayPalCaptureResource = {
+    id?: string;
+    status?: string;
+    amount?: { value?: string; currency_code?: string };
+};
+
+function pickCapture(order: {
+    purchase_units?: Array<{
+        payments?: { captures?: PayPalCaptureResource[] };
+    }>;
+}): PayPalCaptureResource | null {
+    return (
+        order.purchase_units
+            ?.flatMap((unit) => unit.payments?.captures || [])
+            .find((capture) => capture.id) || null
+    );
+}
+
 export async function createPayPalOrder(input: {
     amountUsd: number;
     currency?: string;
@@ -182,6 +207,9 @@ export async function createPayPalOrder(input: {
         id?: string;
         status?: string;
         links?: Array<{ rel?: string; href?: string }>;
+        purchase_units?: Array<{
+            payments?: { captures?: PayPalCaptureResource[] };
+        }>;
     };
     if (!json.id) {
         throw Object.assign(new Error("PayPal did not return an order id"), {
@@ -189,10 +217,15 @@ export async function createPayPalOrder(input: {
             code: "PAYPAL_ORDER_MISSING",
         });
     }
+    const capture = pickCapture(json);
     return {
         id: json.id,
         status: String(json.status || "CREATED"),
         approvalUrl: pickApprovalUrl(json),
+        captureId: capture?.id || null,
+        captureStatus: capture?.status || null,
+        amountValue: capture?.amount?.value || null,
+        currencyCode: capture?.amount?.currency_code || null,
         raw: json,
     };
 }
@@ -206,40 +239,54 @@ export async function getPayPalOrder(paypalOrderId: string): Promise<PayPalOrder
         id?: string;
         status?: string;
         links?: Array<{ rel?: string; href?: string }>;
+        purchase_units?: Array<{
+            payments?: { captures?: PayPalCaptureResource[] };
+        }>;
     };
+    const capture = pickCapture(json);
     return {
         id: String(json.id || paypalOrderId),
         status: String(json.status || ""),
         approvalUrl: pickApprovalUrl(json),
+        captureId: capture?.id || null,
+        captureStatus: capture?.status || null,
+        amountValue: capture?.amount?.value || null,
+        currencyCode: capture?.amount?.currency_code || null,
         raw: json,
     };
 }
 
-export async function capturePayPalOrder(paypalOrderId: string): Promise<PayPalCaptureResult> {
+export async function capturePayPalOrder(
+    paypalOrderId: string,
+    captureRequestId: string
+): Promise<PayPalCaptureResult> {
     const token = await getPayPalAccessToken();
     const json = (await paypalFetch(
         `/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}/capture`,
         {
             method: "POST",
             accessToken: token,
-            headers: { Prefer: "return=representation" },
+            headers: {
+                Prefer: "return=representation",
+                "PayPal-Request-Id": captureRequestId,
+            },
             body: "{}",
         }
     )) as {
         id?: string;
         status?: string;
         purchase_units?: Array<{
-            payments?: { captures?: Array<{ id?: string; status?: string }> };
+            payments?: { captures?: PayPalCaptureResource[] };
         }>;
     };
-    const capture =
-        json.purchase_units?.[0]?.payments?.captures?.find((c) => c.id) ||
-        json.purchase_units?.[0]?.payments?.captures?.[0] ||
-        null;
+    const capture = pickCapture(json);
     return {
         id: String(json.id || paypalOrderId),
         status: String(json.status || ""),
         captureId: capture?.id || null,
+        captureStatus: capture?.status || null,
+        amountValue: capture?.amount?.value || null,
+        currencyCode: capture?.amount?.currency_code || null,
         raw: json,
     };
 }

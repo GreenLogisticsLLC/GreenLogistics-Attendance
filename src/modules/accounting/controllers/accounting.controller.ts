@@ -235,9 +235,10 @@ export async function accountingPayPalSendController(req: AuthRequest, res: Resp
 export async function paypalWebhookController(req: AuthRequest, res: Response) {
     try {
         const { payPalCheckoutService } = await import("../paypal/paypal-checkout.service.js");
+        const requestWithRawBody = req as AuthRequest & { rawBody?: string };
         const rawBody =
-            typeof (req as { rawBody?: string }).rawBody === "string"
-                ? (req as { rawBody: string }).rawBody
+            typeof requestWithRawBody.rawBody === "string"
+                ? requestWithRawBody.rawBody
                 : typeof req.body === "string"
                   ? req.body
                   : JSON.stringify(req.body || {});

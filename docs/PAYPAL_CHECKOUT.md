@@ -32,6 +32,11 @@ New tables (no duplicate Customer/Invoice models):
 
 Amount is always taken from `customerPaymentQuote` on the shipment (customer rate + accessorials + optional 3% fee), never from the request body.
 
+Capture retries persist one stable `captureRequestId` (`PayPal-Request-Id`) plus
+`captureStartedAt` / `captureCompletedAt`. An atomic database claim allows only
+one concurrent request to call PayPal Capture; other requests perform read-only
+reconciliation.
+
 ```bash
 npx prisma db push
 # or your usual migrate path
@@ -53,6 +58,32 @@ Webhook URL to register in PayPal Sandbox:
 `https://<PUBLIC_APP_URL>/api/webhooks/paypal`
 
 Suggested event types: `CHECKOUT.ORDER.APPROVED`, `CHECKOUT.ORDER.COMPLETED`, `CHECKOUT.ORDER.VOIDED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`.
+
+Webhook handling **never calls the Capture API**. `PAYMENT.CAPTURE.COMPLETED` is
+signature-verified, matched to the persisted order/capture, checked against a
+read-only PayPal Order response, and validated for exact amount + USD currency.
+Event IDs are processed idempotently.
+
+## Payment states
+
+```text
+CREATED ──customer approves──> APPROVED
+APPROVED ──atomic capture claim──> CAPTURE_PENDING
+CAPTURE_PENDING ──verified capture status=COMPLETED,
+                   matching amount + USD──> COMPLETED ──refund──> REFUNDED
+CAPTURE_PENDING ──PayPal denied──> DENIED
+CAPTURE_PENDING ──validation/permanent error──> FAILED
+CREATED / APPROVED ──void/cancel──> CANCELLED
+```
+
+Only `COMPLETED` sets the shipment to `CUSTOMER_PAID`. A capture ID by itself is
+never payment proof. Refund processing changes the order to `REFUNDED`, clears
+the received-payment timestamp, and sets shipment status to
+`CUSTOMER_REFUNDED`.
+
+The existing manual payment endpoint remains permission-gated by
+`CustomerPaymentsRecord`. It rejects PayPal-method loads and active PayPal
+orders; it is not a PayPal fallback.
 
 ## UI
 

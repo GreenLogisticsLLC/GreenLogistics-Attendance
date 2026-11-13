@@ -754,9 +754,11 @@ where: { loadNumber: { not: null } },
                 actor.accountingSubRole,
                 AccountingPermissions.CustomerPaymentsRecord
             );
-        let paypalPayment = null as Awaited<
-            ReturnType<typeof payPalCheckoutService.getLatestForShipment>
-        > & { createdByName?: string | null };
+        let paypalPayment:
+            | (Awaited<
+                  ReturnType<typeof payPalCheckoutService.getLatestForShipment>
+              > & { createdByName?: string | null })
+            | null = null;
         try {
             const latest = await payPalCheckoutService.getLatestForShipment(shipmentLeadId);
             if (latest) {
@@ -1407,8 +1409,27 @@ where: { loadNumber: { not: null } },
         assertPerm(actor, AccountingPermissions.CustomerPaymentsRecord);
         const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!s) throw notFound("Shipment not found");
+        if (s.customerPaidAt) {
+            throw badRequest("Customer payment is already recorded");
+        }
         if (!s.accountingReadyForBilling && !s.invoiceNumber) {
             throw badRequest("Shipment must be Ready for Billing before recording payment");
+        }
+        const latestPayPal = await prisma.payPalCustomerOrder.findFirst({
+            where: { shipmentLeadId },
+            orderBy: { createdAt: "desc" },
+        });
+        if (
+            String(s.customerPaymentMethod || "").toUpperCase() === "PAYPAL" ||
+            (latestPayPal &&
+                !["CANCELLED", "DENIED", "FAILED", "REFUNDED"].includes(
+                    String(latestPayPal.status || "").toUpperCase()
+                ))
+        ) {
+            throw badRequest(
+                "PayPal payments cannot be recorded manually. Use verified PayPal capture status.",
+                "PAYPAL_MANUAL_PAYMENT_BLOCKED"
+            );
         }
         const now = new Date();
         const updated = await prisma.shipmentLead.update({
