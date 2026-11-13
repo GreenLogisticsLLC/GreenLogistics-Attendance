@@ -8,6 +8,7 @@ import {
     fingerprintPosition,
     formatCvDate,
     normalizeCarrierViewPosition,
+    parseCvTimestamp,
 } from "../providers/carrier-view/mapper.js";
 import { carrierViewUserMessage } from "../providers/carrier-view/errors.js";
 import { carrierViewClient } from "../providers/carrier-view/client.js";
@@ -65,9 +66,8 @@ function applyLoadSnapshot(normalized: NormalizedTrackingLoad) {
                   lastLatitude: normalized.lastPosition.latitude,
                   lastLongitude: normalized.lastPosition.longitude,
                   lastAddress: normalized.lastPosition.address,
-                  lastPositionAt: normalized.lastPosition.timestamp
-                      ? new Date(normalized.lastPosition.timestamp)
-                      : new Date(),
+                  lastPositionAt:
+                      parseCvTimestamp(normalized.lastPosition.timestamp) || new Date(),
                   movementType: normalized.lastPosition.movementType,
               }
             : {}),
@@ -145,7 +145,7 @@ async function storePosition(trackingId: string, shipmentLeadId: string, pos: No
                 stoppedDuration: pos.stoppedDuration,
                 driveDuration: pos.driveDuration,
                 pausedDuration: pos.pausedDuration,
-                providerTimestamp: pos.timestamp ? new Date(pos.timestamp) : null,
+                providerTimestamp: parseCvTimestamp(pos.timestamp),
                 fingerprint: fp,
             },
         });
@@ -159,7 +159,7 @@ async function storePosition(trackingId: string, shipmentLeadId: string, pos: No
             lastLatitude: pos.latitude,
             lastLongitude: pos.longitude,
             lastAddress: pos.address,
-            lastPositionAt: pos.timestamp ? new Date(pos.timestamp) : new Date(),
+            lastPositionAt: parseCvTimestamp(pos.timestamp) || new Date(),
             movementType: pos.movementType,
             driverPhone: pos.driverPhone || undefined,
             driverIsLate: (pos.lateSeconds || 0) > 0 ? true : undefined,
@@ -401,7 +401,19 @@ export class TrackingService {
         const row = await this.getActiveTracking(shipmentLeadId);
         if (!row) throw Object.assign(new Error("No active tracking for this Load"), { status: 404 });
         const provider = getTrackingProvider(row.provider);
-        const normalized = await provider.getLoad(row.providerLoadId);
+        let normalized = await provider.getLoad(row.providerLoadId);
+        // GET /loads/{id} sometimes omits last_position — fall back to dedicated endpoint.
+        if (!normalized.lastPosition) {
+            try {
+                const pos = await provider.getLastPosition(row.providerLoadId, shipmentLeadId);
+                if (pos) normalized = { ...normalized, lastPosition: pos };
+            } catch (err) {
+                console.warn(
+                    "[CARRIERVIEW_TRACKING] last-position fallback failed:",
+                    carrierViewUserMessage(err)
+                );
+            }
+        }
         const updated = await prisma.shipmentTracking.update({
             where: { trackingId: row.trackingId },
             data: applyLoadSnapshot(normalized),
@@ -853,7 +865,22 @@ export class TrackingService {
         if (load.distance_left_meters != null) {
             data.distanceLeftMeters = Number(load.distance_left_meters);
         }
-        if (load.track_driver != null) data.driverAppStatus = String(load.track_driver);
+        if (load.track_driver != null) {
+            const td = load.track_driver;
+            if (typeof td === "object" && td && !Array.isArray(td)) {
+                const o = td as Record<string, unknown>;
+                data.driverAppStatus =
+                    o.status != null
+                        ? String(o.status)
+                        : o.state != null
+                          ? String(o.state)
+                          : o.phone != null
+                            ? `phone:${o.phone}`
+                            : undefined;
+            } else {
+                data.driverAppStatus = String(td);
+            }
+        }
         if (Object.keys(data).length) {
             await prisma.shipmentTracking.update({ where: { trackingId }, data });
         }
@@ -870,7 +897,19 @@ export class TrackingService {
         let updated = 0;
         for (const row of active) {
             try {
-                const normalized = await getTrackingProvider("carrier_view").getLoad(row.providerLoadId);
+                const provider = getTrackingProvider("carrier_view");
+                let normalized = await provider.getLoad(row.providerLoadId);
+                if (!normalized.lastPosition) {
+                    try {
+                        const pos = await provider.getLastPosition(
+                            row.providerLoadId,
+                            row.shipmentLeadId
+                        );
+                        if (pos) normalized = { ...normalized, lastPosition: pos };
+                    } catch {
+                        /* keep load snapshot even if last-position fails */
+                    }
+                }
                 await prisma.shipmentTracking.update({
                     where: { trackingId: row.trackingId },
                     data: applyLoadSnapshot(normalized),

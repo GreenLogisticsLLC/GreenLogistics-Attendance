@@ -8,6 +8,7 @@ import {
     fingerprintPosition,
     normalizeCarrierViewLoad,
     normalizeCarrierViewPosition,
+    parseCvTimestamp,
     toCarrierViewCreateBody,
     toCarrierViewPatchBody,
 } from "./mapper.js";
@@ -17,6 +18,7 @@ import {
     CarrierViewLoadNotFound,
     CarrierViewValidationError,
     CarrierViewDriverOptedOut,
+    carrierViewUserMessage,
 } from "./errors.js";
 
 describe("CarrierView error mapping", () => {
@@ -115,6 +117,32 @@ describe("CarrierView mapper", () => {
         assert.equal(pos!.lateSeconds, 12);
     });
 
+    it("parses CarrierView unix-second created_at_utc into ISO", () => {
+        const pos = normalizeCarrierViewPosition(
+            {
+                latitude: 34.75,
+                longitude: -92.29,
+                created_at_utc: 1791366300,
+            },
+            { shipmentId: "s1", providerLoadId: "18342" }
+        );
+        assert.ok(pos);
+        assert.equal(pos!.timestamp, new Date(1791366300 * 1000).toISOString());
+        const parsed = parseCvTimestamp(pos!.timestamp);
+        assert.ok(parsed);
+        assert.equal(parsed!.getTime(), 1791366300 * 1000);
+    });
+
+    it("parseCvTimestamp accepts seconds, ms, and ISO", () => {
+        assert.equal(parseCvTimestamp(null), null);
+        assert.equal(parseCvTimestamp(""), null);
+        assert.equal(parseCvTimestamp(1791366300)!.getTime(), 1791366300 * 1000);
+        assert.equal(parseCvTimestamp("1791366300")!.getTime(), 1791366300 * 1000);
+        assert.equal(parseCvTimestamp(1791366300000)!.getTime(), 1791366300000);
+        const iso = "2026-03-15T12:00:00.000Z";
+        assert.equal(parseCvTimestamp(iso)!.toISOString(), iso);
+    });
+
     it("normalizes load and stores CarrierView id", () => {
         const load = normalizeCarrierViewLoad({
             id: 529,
@@ -126,11 +154,32 @@ describe("CarrierView mapper", () => {
             driver_is_late: false,
             time_left_sec: 3600,
             distance_left_meters: 50000,
+            track_driver: { phone: "+15551234567", last_request_time_utc: 1791366300 },
+            last_position: {
+                latitude: 34.75,
+                longitude: -92.29,
+                created_at_utc: 1791366300,
+            },
         });
         assert.equal(load.providerLoadId, "529");
         assert.equal(load.externalLoadRef, "GL100001");
         assert.equal(load.trackingUrl, "https://track.example/1");
         assert.equal(load.routeStarted, true);
+        assert.equal(load.driverAppStatus, "phone:+15551234567");
+        assert.ok(load.lastPosition);
+        assert.equal(load.lastPosition!.latitude, 34.75);
+        assert.equal(load.lastPosition!.timestamp, new Date(1791366300 * 1000).toISOString());
+    });
+
+    it("surfaces message_type validation hints for UI", () => {
+        const err = mapCarrierViewError("required_fields_errors", {
+            message_type: "The 'message_type' field is required.",
+        });
+        assert.ok(err instanceof CarrierViewValidationError);
+        assert.match(
+            carrierViewUserMessage(err),
+            /message_type: The 'message_type' field is required/
+        );
     });
 
     it("fingerprints positions for dedupe", () => {

@@ -171,15 +171,18 @@ export class CarrierViewClient {
     }
 
     sendChatMessage(id: string | number, message: string) {
+        // CarrierView chat payloads use `text` in webhooks; send both keys for API compatibility.
         return this.request("POST", `/api/loads/${encodeURIComponent(String(id))}/chat-message`, {
             message,
+            text: message,
         });
     }
 
     sendTextMessage(
         id: string | number,
-        body: { type: string; message?: string }
+        body: { message_type: string; message?: string }
     ) {
+        // CarrierView validates `message_type` (not `type`) on POST …/text-message.
         return this.request("POST", `/api/loads/${encodeURIComponent(String(id))}/text-message`, body);
     }
 }
