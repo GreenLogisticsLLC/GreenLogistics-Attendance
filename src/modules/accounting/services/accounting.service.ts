@@ -18,6 +18,8 @@ import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
 import { resolveLoadDocumentAbsolutePath } from "../../shipment/services/load-pdf.service.js";
 import { canTransition } from "../../shipment/shipment.lifecycle.js";
 import { preferRateConCarrierAmount } from "../../shipment/load-amounts.js";
+import { payPalCheckoutService } from "../paypal/paypal-checkout.service.js";
+import { config } from "../../../config/env.js";
 
 type Actor = {
     userId: string;
@@ -741,6 +743,39 @@ where: { loadNumber: { not: null } },
             carrierProfile?.paymentOption ||
             null;
 
+        const canManagePayPal =
+            hasAccountingPermission(
+                actor.role,
+                actor.accountingSubRole,
+                AccountingPermissions.BillingSend
+            ) ||
+            hasAccountingPermission(
+                actor.role,
+                actor.accountingSubRole,
+                AccountingPermissions.CustomerPaymentsRecord
+            );
+        let paypalPayment = null as Awaited<
+            ReturnType<typeof payPalCheckoutService.getLatestForShipment>
+        > & { createdByName?: string | null };
+        try {
+            const latest = await payPalCheckoutService.getLatestForShipment(shipmentLeadId);
+            if (latest) {
+                let createdByName: string | null = null;
+                if (latest.createdByUserId) {
+                    const u = await prisma.user.findUnique({
+                        where: { userId: latest.createdByUserId },
+                        select: { firstName: true, lastName: true, email: true },
+                    });
+                    createdByName = u
+                        ? `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email || null
+                        : null;
+                }
+                paypalPayment = { ...latest, createdByName };
+            }
+        } catch {
+            paypalPayment = null;
+        }
+
         return {
             identity: {
                 shipmentLeadId: s.shipmentLeadId,
@@ -880,6 +915,12 @@ where: { loadNumber: { not: null } },
                         actor.accountingSubRole,
                         AccountingPermissions.CarrierPaymentsExecute
                     ),
+                canManagePayPalLinks: canManagePayPal,
+            },
+            paypalPayment,
+            paypal: {
+                mode: config.paypal.mode,
+                configured: config.paypal.configured,
             },
         };
     }

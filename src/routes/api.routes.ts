@@ -74,6 +74,7 @@ import { customerRouter } from "../modules/customers/routes/customer.routes.js";
 import { customerAgreementPublicRouter } from "../modules/customers/routes/customer-agreement-public.routes.js";
 import { geoRouter } from "../modules/geo/geo.routes.js";
 import { accountingRouter } from "../modules/accounting/routes/accounting.routes.js";
+import { paypalWebhookController } from "../modules/accounting/controllers/accounting.controller.js";
 import { searchRouter } from "../modules/search/search.routes.js";
 
 export const apiRouter = Router();
@@ -93,6 +94,9 @@ apiRouter.use("/customers", customerRouter);
 apiRouter.use("/customer-agreement", customerAgreementPublicRouter);
 apiRouter.use("/geo", geoRouter);
 apiRouter.use("/accounting", accountingRouter);
+
+/** PayPal webhooks — no JWT; signature verified via PayPal verify-webhook-signature API. */
+apiRouter.post("/webhooks/paypal", paypalWebhookController);
 apiRouter.use("/search", searchRouter);
 apiRouter.use("/carrier-onboarding", carrierOnboardingPublicRouter);
 

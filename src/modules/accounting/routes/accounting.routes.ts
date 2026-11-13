@@ -13,6 +13,9 @@ import {
     accountingDashboardController,
     accountingGetShipmentController,
     accountingListShipmentsController,
+    accountingPayPalGenerateController,
+    accountingPayPalSendController,
+    accountingPayPalStatusController,
     accountingReadyBillingController,
     accountingReadyCarrierPayController,
     accountingRejectDocumentsController,
@@ -89,6 +92,23 @@ accountingRouter.post(
     "/shipments/:id/customer-payment",
     requireAccountingPermission(AccountingPermissions.CustomerPaymentsRecord),
     accountingCustomerPaymentController
+);
+
+/** PayPal Checkout — amount is server-side from customerPaymentQuote (never from body). */
+accountingRouter.post(
+    "/shipments/:id/paypal/generate",
+    requireAccountingPermission(AccountingPermissions.BillingSend),
+    accountingPayPalGenerateController
+);
+accountingRouter.post(
+    "/shipments/:id/paypal/status",
+    requireAccountingPermission(AccountingPermissions.BillingSend),
+    accountingPayPalStatusController
+);
+accountingRouter.post(
+    "/shipments/:id/paypal/send",
+    requireAccountingPermission(AccountingPermissions.BillingSend),
+    accountingPayPalSendController
 );
 accountingRouter.post(
     "/carrier-payments/:id",

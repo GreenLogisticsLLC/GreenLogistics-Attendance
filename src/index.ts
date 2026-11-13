@@ -30,7 +30,17 @@ const app = express();
 app.set("trust proxy", 1);
 
 app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] }));
-app.use(express.json({ limit: "3mb" }));
+app.use(
+    express.json({
+        limit: "3mb",
+        verify: (req, _res, buf) => {
+            const url = String(req.originalUrl || req.url || "");
+            if (url.includes("/webhooks/paypal")) {
+                (req as express.Request & { rawBody?: string }).rawBody = buf.toString("utf8");
+            }
+        },
+    })
+);
 
 app.use((req, _res, next) => {
     if (req.path.includes("/webhook/attendance") && req.method === "POST") {

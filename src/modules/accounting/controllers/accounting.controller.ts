@@ -190,3 +190,63 @@ export async function accountingCarrierPaymentController(req: AuthRequest, res: 
         return res.status(errStatus(err)).json(errPayload(err));
     }
 }
+
+export async function accountingPayPalGenerateController(req: AuthRequest, res: Response) {
+    try {
+        const id = String(req.params.id || "");
+        const { payPalCheckoutService } = await import("../paypal/paypal-checkout.service.js");
+        const data = await payPalCheckoutService.generatePaymentLink(actorFrom(req), id);
+        return res.json(apiResponse(true, "PayPal payment link ready", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
+export async function accountingPayPalStatusController(req: AuthRequest, res: Response) {
+    try {
+        const id = String(req.params.id || "");
+        const { payPalCheckoutService } = await import("../paypal/paypal-checkout.service.js");
+        const data = await payPalCheckoutService.refreshStatus(actorFrom(req), id);
+        return res.json(apiResponse(true, "PayPal payment status", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
+export async function accountingPayPalSendController(req: AuthRequest, res: Response) {
+    try {
+        const id = String(req.params.id || "");
+        const { payPalCheckoutService } = await import("../paypal/paypal-checkout.service.js");
+        const data = await payPalCheckoutService.sendPaymentLinkEmail(actorFrom(req), id);
+        return res.json(
+            apiResponse(
+                true,
+                data.emailTo
+                    ? `PayPal payment link emailed to ${data.emailTo}`
+                    : "PayPal payment link emailed",
+                data
+            )
+        );
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
+export async function paypalWebhookController(req: AuthRequest, res: Response) {
+    try {
+        const { payPalCheckoutService } = await import("../paypal/paypal-checkout.service.js");
+        const rawBody =
+            typeof (req as { rawBody?: string }).rawBody === "string"
+                ? (req as { rawBody: string }).rawBody
+                : typeof req.body === "string"
+                  ? req.body
+                  : JSON.stringify(req.body || {});
+        const data = await payPalCheckoutService.handleWebhook({
+            headers: req.headers as Record<string, string | string[] | undefined>,
+            rawBody,
+        });
+        return res.status(200).json({ success: true, ...data });
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
