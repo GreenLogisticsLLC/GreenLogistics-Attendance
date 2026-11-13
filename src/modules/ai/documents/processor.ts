@@ -9,9 +9,11 @@ import { extractFieldsForType, type ExtractedField } from "./extract.js";
 import type { W9Marks } from "./w9-marks.js";
 import type { McCertificate } from "./mc-certificate.js";
 import { extractDocumentText } from "./text-extract.js";
+import { assertValidPdfOrThrow } from "./pdf-validate.js";
 import { analyzeSignaturesFromText, analyzeSignatureWithVision, type SignatureResult } from "./signature.js";
 import { validateDocument } from "./validate.js";
 import { aiGateway } from "../services/ai-gateway.js";
+import { isPermanentInvalidPdfError, runtimeLog } from "../../../utils/runtime-log.js";
 
 export type ProcessJobResult = {
     jobId: string;
@@ -299,6 +301,9 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
             !fields.some((f) => f.fieldKey === "documentTitle" && f.valueText);
         if (noaTitleMissing && aiGateway.isConfigured()) {
             try {
+                if (path.extname(file.absPath).toLowerCase() === ".pdf") {
+                    assertValidPdfOrThrow(file.absPath);
+                }
                 const { renderPdfFirstEmbeddedImagePng } = await import("./pdf-enrich.js");
                 const { extractNoaFieldsWithVision } = await import("./vision-extract.js");
                 const png = await renderPdfFirstEmbeddedImagePng(file.absPath);
@@ -312,10 +317,20 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
                     }
                 }
             } catch (err) {
-                console.warn(
-                    "[doc-ai] NOA vision fallback failed:",
-                    err instanceof Error ? err.message : err
-                );
+                if (isPermanentInvalidPdfError(err)) {
+                    throw Object.assign(
+                        new Error(err instanceof Error ? err.message : "Invalid PDF structure"),
+                        { code: "INVALID_PDF_STRUCTURE", permanent: true, status: 422 }
+                    );
+                }
+                runtimeLog("WARNING", {
+                    module: "doc-ai",
+                    category: "NOA_VISION_FALLBACK_FAILED",
+                    message: "NOA vision fallback failed",
+                    shipmentId: file.shipmentLeadId,
+                    retryEligible: true,
+                    detail: err instanceof Error ? err.message : String(err),
+                });
             }
         }
 
@@ -457,13 +472,25 @@ export async function processDocumentJob(jobId: string): Promise<ProcessJobResul
         };
     } catch (err) {
         const msg = err instanceof Error ? err.message : "Document AI processing failed";
-        console.warn(`[doc-ai] job ${jobId} failed:`, msg);
+        const permanent = isPermanentInvalidPdfError(err) || (err as { permanent?: boolean })?.permanent === true;
+        const category = permanent ? "INVALID_PDF_STRUCTURE" : "DOC_AI_JOB_FAILED";
+        runtimeLog(permanent ? "WARNING" : "ERROR", {
+            module: "doc-ai",
+            category,
+            message: `job ${jobId} failed`,
+            shipmentId: job.shipmentLeadId,
+            retryEligible: !permanent && (job.attempts || 0) < 3,
+            detail: msg,
+        });
+        const errorMessage = permanent
+            ? `INVALID_PDF_STRUCTURE: ${msg}`.slice(0, 1000)
+            : msg.slice(0, 1000);
         await prisma.aiDocumentJob
             .update({
                 where: { jobId },
                 data: {
                     status: "FAILED",
-                    errorMessage: msg.slice(0, 1000),
+                    errorMessage,
                     completedAt: new Date(),
                 },
             })

@@ -2,6 +2,8 @@ import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
 import { extractPdfAcroFormSupplement, ocrPdfFirstPageImage } from "./pdf-enrich.js";
+import { assertValidPdfOrThrow } from "./pdf-validate.js";
+import { isPermanentInvalidPdfError, runtimeLog } from "../../../utils/runtime-log.js";
 
 export type TextExtractResult = {
     text: string;
@@ -25,6 +27,8 @@ export async function extractDocumentText(filePath: string): Promise<TextExtract
     }
 
     if (ext === ".pdf") {
+        // Structural gate before pdf-parse / OCR — permanent malformed PDFs throw.
+        assertValidPdfOrThrow(filePath);
         try {
             const buf = fs.readFileSync(filePath);
             const pdfParse = require("pdf-parse/lib/pdf-parse.js") as (
@@ -58,7 +62,19 @@ export async function extractDocumentText(filePath: string): Promise<TextExtract
                 adequate: text.length >= 80,
             };
         } catch (err) {
-            console.warn("[doc-ai] pdf text extract failed:", err instanceof Error ? err.message : err);
+            if (isPermanentInvalidPdfError(err)) {
+                throw Object.assign(
+                    new Error(err instanceof Error ? err.message : "Invalid PDF structure"),
+                    { code: "INVALID_PDF_STRUCTURE", permanent: true, status: 422 }
+                );
+            }
+            runtimeLog("WARNING", {
+                module: "doc-ai",
+                category: "PDF_EXTRACT_FAILED",
+                message: "pdf text extract failed (non-permanent)",
+                retryEligible: true,
+                detail: err instanceof Error ? err.message : String(err),
+            });
             return { text: "", pageCount: null, method: "empty", adequate: false };
         }
     }
