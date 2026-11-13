@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CUSTOMER_AGREEMENT_TYPES } from "./customer-agreement.js";
 import {
+    PAYMENT_SCHEDULE_FULL_AFTER_PICKUP,
+    PAYMENT_SCHEDULE_SPLIT_50_50,
+    fmtMoney,
     mergeAgreementFields,
+    paymentAmountsForSchedule,
     prefillCustomerAgreementFields,
 } from "./customer-agreement-fields.js";
 
@@ -54,11 +58,29 @@ test("USHIP OneTime prefill copies load shipment and payment fields", () => {
     assert.match(fields.deliveryAddress, /Los Angeles, CA 90014/);
     assert.ok(fields.pickupDateTime);
     assert.ok(fields.deliveryDateTime);
-    assert.equal(fields.totalCharge, "500");
-    assert.equal(fields.firstPayment, "250");
-    assert.equal(fields.finalPayment, "250");
+    assert.equal(fields.totalCharge, "$500");
+    assert.equal(fields.firstPayment, "$250");
+    assert.equal(fields.finalPayment, "$250");
+    assert.equal(fields.paymentSchedule, PAYMENT_SCHEDULE_SPLIT_50_50);
     assert.equal(fields.paymentMethod, "Zelle");
     assert.equal(fields.additionalInstructions, "Call before pickup");
+});
+
+test("fmtMoney always prefixes dollar sign", () => {
+    assert.equal(fmtMoney(3000), "$3000");
+    assert.equal(fmtMoney("1500"), "$1500");
+    assert.equal(fmtMoney("$500"), "$500");
+    assert.equal(fmtMoney(0), "$0");
+});
+
+test("paymentAmountsForSchedule supports 50/50 and full after pickup", () => {
+    const split = paymentAmountsForSchedule(3000, PAYMENT_SCHEDULE_SPLIT_50_50);
+    assert.equal(split.firstPayment, "$1500");
+    assert.equal(split.finalPayment, "$1500");
+    const full = paymentAmountsForSchedule(3000, PAYMENT_SCHEDULE_FULL_AFTER_PICKUP);
+    assert.equal(full.firstPayment, "$0");
+    assert.equal(full.finalPayment, "$3000");
+    assert.equal(full.paymentSchedule, PAYMENT_SCHEDULE_FULL_AFTER_PICKUP);
 });
 
 test("LONG_TIME prefill stays on customer identity fields", () => {
