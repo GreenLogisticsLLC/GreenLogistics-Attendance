@@ -171,100 +171,197 @@ window.GreenOSModules.carriers = {
     }
   },
 
+  brokerFilterOptions(rows) {
+    var map = {};
+    (rows || []).forEach(function (r) {
+      var b = r && r.assignedBroker;
+      if (!b || !b.userId) return;
+      var name = [b.firstName, b.lastName].filter(Boolean).join(" ").trim() || b.email || b.userId;
+      map[b.userId] = name;
+    });
+    return Object.keys(map)
+      .map(function (id) {
+        return { userId: id, name: map[id] };
+      })
+      .sort(function (a, b) {
+        return String(a.name).localeCompare(String(b.name));
+      });
+  },
+
   async showList(main) {
     var self = this;
     main.innerHTML = '<p class="gos-muted">Loading carriers…</p>';
     try {
-      var rows = await self.api("/");
-      if (!rows.length) {
+      // Always load the full set so the Broker filter options stay complete.
+      var allRows = await self.api("/");
+      self._allCarrierRows = allRows;
+      if (!allRows.length) {
         main.innerHTML =
           '<p class="gos-muted">No carriers yet. Click <strong>Add Carrier</strong> to create one and send a secure onboarding link.</p>';
         return;
       }
-      var role =
-        (window.GreenOSUser && (window.GreenOSUser.role || window.GreenOSUser.roleName)) || "";
-      var canDelete = role === "Owner" || role === "Administrator";
-      main.innerHTML =
-        '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
-        "<th>Carrier</th><th>MC</th><th>DOT</th><th>Email</th><th>Status</th><th>Broker</th><th></th>" +
-        '</tr></thead><tbody>' +
-        rows.map(function (r) {
-          var broker = r.assignedBroker
-            ? self.esc(r.assignedBroker.firstName + " " + r.assignedBroker.lastName)
-            : "—";
-          var nameStyle = r.isSuperseded
-            ? ' style="color:var(--gos-danger,#dc2626)"'
-            : "";
-          var nameTitle = r.isSuperseded
-            ? ' title="Replaced by a newer carrier registration — not the official hauler for the load"'
-            : r.isOfficialLoadCarrier
-              ? ' title="Official carrier for an assigned load"'
-              : "";
-          return (
-            "<tr>" +
-            "<td><strong" +
-            nameStyle +
-            nameTitle +
-            ">" +
-            self.esc(r.legalName) +
-            "</strong>" +
-            (r.isSuperseded
-              ? ' <span class="gos-muted" style="font-size:0.75rem;color:var(--gos-danger,#dc2626)">(replaced)</span>'
-              : "") +
-            "</td>" +
-            "<td>" + self.esc(r.mcNumber) + "</td>" +
-            "<td>" + self.esc(r.dotNumber) + "</td>" +
-            "<td>" + self.esc(r.email) + "</td>" +
-            "<td>" + self.esc(r.onboardingStatus) + "</td>" +
-            "<td>" + broker + "</td>" +
-            '<td><button type="button" class="btn-secondary" data-open="' +
-            self.esc(r.carrierId) +
-            '">Open</button>' +
-            (canDelete
-              ? '<button type="button" class="btn-secondary" data-delete="' +
-                self.esc(r.carrierId) +
-                '" data-name="' +
-                self.esc(r.legalName) +
-                '" style="margin-left:0.35rem;color:#f07178;border-color:#f07178">Delete</button>'
-              : "") +
-            "</td>" +
-            "</tr>"
-          );
-        }).join("") +
-        "</tbody></table></div>";
-      if (rows.some(function (r) { return r.isSuperseded; })) {
-        main.insertAdjacentHTML(
-          "afterbegin",
-          '<p class="gos-muted" style="margin:0 0 0.75rem">Names in <span style="color:var(--gos-danger,#dc2626);font-weight:600">red</span> were replaced by a newer carrier registration (carrier change). Each carrier keeps only its own Documents.</p>'
-        );
-      }
-      main.querySelectorAll("[data-open]").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-          self._carrierId = btn.getAttribute("data-open");
-          self._tab = "overview";
-          self.showDetail(main, self._carrierId);
-        });
-      });
-      main.querySelectorAll("[data-delete]").forEach(function (btn) {
-        btn.addEventListener("click", async function (ev) {
-          ev.stopPropagation();
-          var id = btn.getAttribute("data-delete");
-          var name = btn.getAttribute("data-name") || "this carrier";
-          if (!id || !confirm("Delete " + name + "? The registration, documents, and onboarding link are removed.")) return;
-          btn.disabled = true;
-          try {
-            await self.api("/" + encodeURIComponent(id), { method: "DELETE" });
-            self._carrierId = null;
-            await self.showList(main);
-          } catch (err) {
-            alert(err.message || err);
-            btn.disabled = false;
-          }
-        });
-      });
+      self.renderCarrierList(main, allRows);
     } catch (e) {
-      main.innerHTML = '<p class="error">' + self.esc(e.message) + "</p>";
+      main.innerHTML = '<p class="gos-muted">' + self.esc(e.message || e) + "</p>";
     }
+  },
+
+  renderCarrierList(main, allRows) {
+    var self = this;
+    var role =
+      (window.GreenOSUser && (window.GreenOSUser.role || window.GreenOSUser.roleName)) ||
+      (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) ||
+      "";
+    var canDelete = role === "Owner" || role === "Administrator";
+    var brokerFilter = String(self._brokerFilter || "");
+    var brokers = self.brokerFilterOptions(allRows);
+    var hasUnassigned = allRows.some(function (r) {
+      return !(r.assignedBroker && r.assignedBroker.userId);
+    });
+    var rows = allRows;
+    if (brokerFilter === "unassigned") {
+      rows = allRows.filter(function (r) {
+        return !(r.assignedBroker && r.assignedBroker.userId);
+      });
+    } else if (brokerFilter) {
+      rows = allRows.filter(function (r) {
+        return r.assignedBroker && r.assignedBroker.userId === brokerFilter;
+      });
+    }
+    var filterHtml =
+      '<div class="cr-broker-filter" style="display:flex;flex-wrap:wrap;gap:0.65rem;align-items:center;margin:0 0 0.75rem">' +
+      '<label style="display:flex;gap:0.45rem;align-items:center;margin:0">' +
+      "<span>Broker</span>" +
+      '<select id="cr-broker-filter" aria-label="Filter carriers by broker">' +
+      '<option value="">All brokers</option>' +
+      (hasUnassigned ? '<option value="unassigned">Unassigned</option>' : "") +
+      brokers
+        .map(function (b) {
+          return (
+            '<option value="' +
+            self.esc(b.userId) +
+            '"' +
+            (brokerFilter === b.userId ? " selected" : "") +
+            ">" +
+            self.esc(b.name) +
+            "</option>"
+          );
+        })
+        .join("") +
+      "</select></label>" +
+      '<span class="gos-muted">' +
+      rows.length +
+      " of " +
+      allRows.length +
+      "</span></div>";
+
+    main.innerHTML =
+      filterHtml +
+      (allRows.some(function (r) {
+        return r.isSuperseded;
+      })
+        ? '<p class="gos-muted" style="margin:0 0 0.75rem">Names in <span style="color:var(--gos-danger,#dc2626);font-weight:600">red</span> were replaced by a newer carrier registration (carrier change). Each carrier keeps only its own Documents.</p>'
+        : "") +
+      (rows.length
+        ? '<div class="table-wrap"><table class="crm-table"><thead><tr>' +
+          "<th>Carrier</th><th>MC</th><th>DOT</th><th>Email</th><th>Status</th><th>Broker</th><th></th>" +
+          "</tr></thead><tbody>" +
+          rows
+            .map(function (r) {
+              var broker = r.assignedBroker
+                ? self.esc(r.assignedBroker.firstName + " " + r.assignedBroker.lastName)
+                : "—";
+              var nameStyle = r.isSuperseded
+                ? ' style="color:var(--gos-danger,#dc2626)"'
+                : "";
+              var nameTitle = r.isSuperseded
+                ? ' title="Replaced by a newer carrier registration — not the official hauler for the load"'
+                : r.isOfficialLoadCarrier
+                  ? ' title="Official carrier for an assigned load"'
+                  : "";
+              return (
+                "<tr>" +
+                "<td><strong" +
+                nameStyle +
+                nameTitle +
+                ">" +
+                self.esc(r.legalName) +
+                "</strong>" +
+                (r.isSuperseded
+                  ? ' <span class="gos-muted" style="font-size:0.75rem;color:var(--gos-danger,#dc2626)">(replaced)</span>'
+                  : "") +
+                "</td>" +
+                "<td>" +
+                self.esc(r.mcNumber) +
+                "</td>" +
+                "<td>" +
+                self.esc(r.dotNumber) +
+                "</td>" +
+                "<td>" +
+                self.esc(r.email) +
+                "</td>" +
+                "<td>" +
+                self.esc(r.onboardingStatus) +
+                "</td>" +
+                "<td>" +
+                broker +
+                "</td>" +
+                '<td><button type="button" class="btn-secondary" data-open="' +
+                self.esc(r.carrierId) +
+                '">Open</button>' +
+                (canDelete
+                  ? '<button type="button" class="btn-secondary" data-delete="' +
+                    self.esc(r.carrierId) +
+                    '" data-name="' +
+                    self.esc(r.legalName) +
+                    '" style="margin-left:0.35rem;color:#f07178;border-color:#f07178">Delete</button>'
+                  : "") +
+                "</td>" +
+                "</tr>"
+              );
+            })
+            .join("") +
+          "</tbody></table></div>"
+        : '<p class="gos-muted">No carriers for this broker.</p>');
+
+    var sel = main.querySelector("#cr-broker-filter");
+    if (sel) {
+      if (brokerFilter === "unassigned") sel.value = "unassigned";
+      sel.addEventListener("change", function () {
+        self._brokerFilter = String(sel.value || "");
+        self.renderCarrierList(main, self._allCarrierRows || allRows);
+      });
+    }
+    main.querySelectorAll("[data-open]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        self._carrierId = btn.getAttribute("data-open");
+        self._tab = "overview";
+        self.showDetail(main, self._carrierId);
+      });
+    });
+    main.querySelectorAll("[data-delete]").forEach(function (btn) {
+      btn.addEventListener("click", async function (ev) {
+        ev.stopPropagation();
+        var id = btn.getAttribute("data-delete");
+        var name = btn.getAttribute("data-name") || "this carrier";
+        if (
+          !id ||
+          !confirm(
+            "Delete " + name + "? The registration, documents, and onboarding link are removed."
+          )
+        )
+          return;
+        btn.disabled = true;
+        try {
+          await self.api("/" + encodeURIComponent(id), { method: "DELETE" });
+          self._carrierId = null;
+          await self.showList(main);
+        } catch (err) {
+          alert(err.message || err);
+          btn.disabled = false;
+        }
+      });
+    });
   },
 
   showCreate(main) {

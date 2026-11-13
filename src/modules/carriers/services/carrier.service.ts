@@ -170,10 +170,19 @@ export class CarrierService {
         return carrier;
     }
 
-    async list(actor: Actor, query: { status?: string; q?: string }) {
+    async list(
+        actor: Actor,
+        query: { status?: string; q?: string; brokerId?: string }
+    ) {
         void actor;
         const where: Record<string, unknown> = {};
         if (query.status) where.onboardingStatus = query.status;
+        const brokerId = String(query.brokerId || "").trim();
+        if (brokerId === "unassigned" || brokerId === "__none__") {
+            where.assignedBrokerId = null;
+        } else if (brokerId) {
+            where.assignedBrokerId = brokerId;
+        }
         if (query.q) {
             const q = String(query.q).trim();
             where.OR = [
