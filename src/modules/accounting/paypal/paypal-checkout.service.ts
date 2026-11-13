@@ -1,11 +1,11 @@
 import { createHash } from "crypto";
+import type { PayPalCustomerOrder } from "@prisma/client";
 import { prisma } from "../../../config/database.js";
 import {
     AccountingPermissions,
     hasAccountingPermission,
     type AccountingSubRole,
 } from "../../../auth/accounting.js";
-import { Roles } from "../../../auth/roles.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { customerPaymentQuote } from "../../shipment/customer-payment.js";
 import {
@@ -14,6 +14,12 @@ import {
     getPayPalOrder,
     verifyPayPalWebhookSignature,
 } from "./paypal-client.js";
+import {
+    runClaimedCapture,
+    stateForPayPalStatus,
+    verifyCompletedCapture,
+    type CaptureEvidence,
+} from "./paypal-payment-safety.js";
 import { sendPayPalPaymentEmail } from "./paypal-payment-email.js";
 import { config } from "../../../config/env.js";
 
@@ -28,6 +34,7 @@ const OPEN_STATUSES = new Set([
     "PAYER_ACTION_REQUIRED",
     "SAVED",
     "APPROVED",
+    "CAPTURE_PENDING",
 ]);
 
 function forbid(message: string, code = "ACCOUNTING_FORBIDDEN") {
@@ -74,6 +81,12 @@ function mapRow(row: {
     status: string;
     approvalUrl: string | null;
     captureId: string | null;
+    captureRequestId: string | null;
+    captureStartedAt: Date | null;
+    captureCompletedAt: Date | null;
+    refundId: string | null;
+    refundedAt: Date | null;
+    failureReason: string | null;
     createdByUserId: string | null;
     lastEmailSentAt: Date | null;
     lastEmailSentTo: string | null;
@@ -93,6 +106,12 @@ function mapRow(row: {
         approvalUrl: row.approvalUrl,
         paymentUrl: row.approvalUrl,
         captureId: row.captureId,
+        captureRequestId: row.captureRequestId,
+        captureStartedAt: row.captureStartedAt,
+        captureCompletedAt: row.captureCompletedAt,
+        refundId: row.refundId,
+        refundedAt: row.refundedAt,
+        failureReason: row.failureReason,
         createdByUserId: row.createdByUserId,
         lastEmailSentAt: row.lastEmailSentAt,
         lastEmailSentTo: row.lastEmailSentTo,
@@ -106,14 +125,17 @@ function mapRow(row: {
 
 async function writeAudit(input: {
     actor?: Actor | null;
+    auditUserId?: string | null;
     action: string;
     shipmentLeadId: string;
     newValue?: unknown;
 }) {
+    const userId = input.actor?.userId || input.auditUserId;
+    if (!userId || userId === "paypal-webhook") return;
     try {
         await prisma.auditLog.create({
             data: {
-                userId: input.actor?.userId || "system",
+                userId,
                 module: "ACCOUNTING",
                 action: input.action,
                 entityName: "PayPalCustomerOrder",
@@ -278,11 +300,20 @@ export class PayPalCheckoutService {
         const updated = await prisma.payPalCustomerOrder.update({
             where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
             data: {
-                status: remote.status || row.status,
+                status:
+                    String(remote.captureStatus || "").toUpperCase() === "COMPLETED"
+                        ? "CAPTURE_PENDING"
+                        : String(remote.status || "").toUpperCase() === "COMPLETED"
+                          ? "CAPTURE_PENDING"
+                          : stateForPayPalStatus(remote.status),
                 approvalUrl: remote.approvalUrl || row.approvalUrl,
             },
         });
-        if (String(remote.status || "").toUpperCase() === "APPROVED" && !updated.paidAt) {
+        if (
+            !updated.paidAt &&
+            (String(remote.status || "").toUpperCase() === "APPROVED" ||
+                String(remote.captureStatus || "").toUpperCase() === "COMPLETED")
+        ) {
             await this.captureAndMarkPaid(updated.paypalOrderId, actor);
             const fresh = await prisma.payPalCustomerOrder.findUnique({
                 where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
@@ -340,77 +371,281 @@ export class PayPalCheckoutService {
         return { ...mapRow(updated), emailTo: to, emailFrom: mail.from };
     }
 
-    async captureAndMarkPaid(paypalOrderId: string, actor?: Actor | null) {
-        const row = await prisma.payPalCustomerOrder.findUnique({
-            where: { paypalOrderId },
-        });
-        if (!row) throw notFound("PayPal order not found");
-        if (row.paidAt) return mapRow(row);
+    private captureRequestId(paypalOrderId: string): string {
+        return createHash("sha256")
+            .update(`greenos-paypal-capture|${paypalOrderId}`)
+            .digest("hex")
+            .slice(0, 48);
+    }
 
-        const capture = await capturePayPalOrder(paypalOrderId);
-        const status = String(capture.status || "").toUpperCase();
-        if (status !== "COMPLETED" && !capture.captureId) {
-            await prisma.payPalCustomerOrder.update({
-                where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
-                data: {
-                    status: capture.status || row.status,
-                    rawCaptureJson: JSON.stringify(capture.raw),
-                },
-            });
+    /**
+     * This is the only path that marks a PayPal payment received. It requires
+     * strict COMPLETED capture evidence with exact USD amount equality.
+     */
+    private async finalizeCompletedCapture(input: {
+        row: PayPalCustomerOrder;
+        evidence: CaptureEvidence;
+        raw: unknown;
+        actor?: Actor | null;
+    }) {
+        if (input.row.status === "REFUNDED" || input.row.refundedAt) {
             throw badRequest(
-                `PayPal capture did not complete (status ${capture.status || "unknown"})`,
-                "PAYPAL_CAPTURE_INCOMPLETE"
+                "A refunded PayPal payment cannot be marked completed",
+                "PAYPAL_CAPTURE_REFUNDED"
             );
         }
-
+        const verified = verifyCompletedCapture(input.evidence, {
+            amountUsd: input.row.amountUsd,
+            currency: input.row.currency,
+        });
         const now = new Date();
-        const updated = await prisma.payPalCustomerOrder.update({
-            where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
-            data: {
-                status: "COMPLETED",
-                captureId: capture.captureId,
-                paidAt: now,
-                rawCaptureJson: JSON.stringify(capture.raw),
-            },
-        });
-
-        const lead = await prisma.shipmentLead.findUnique({
-            where: { shipmentLeadId: row.shipmentLeadId },
-        });
-        if (lead && !lead.customerPaidAt) {
-            await prisma.shipmentLead.update({
-                where: { shipmentLeadId: row.shipmentLeadId },
+        const result = await prisma.$transaction(async (tx) => {
+            const current = await tx.payPalCustomerOrder.findUnique({
+                where: { paypalCustomerOrderId: input.row.paypalCustomerOrderId },
+            });
+            if (!current) throw notFound("PayPal order not found");
+            if (current.status === "REFUNDED" || current.refundedAt) {
+                throw badRequest(
+                    "A refunded PayPal payment cannot be marked completed",
+                    "PAYPAL_CAPTURE_REFUNDED"
+                );
+            }
+            const updated = await tx.payPalCustomerOrder.update({
+                where: { paypalCustomerOrderId: current.paypalCustomerOrderId },
                 data: {
-                    customerPaidAt: now,
-                    customerPaidById: actor?.userId || lead.customerPaidById || null,
-                    paymentStatus: "CUSTOMER_PAID",
-                    paymentDate: now,
-                    accountingReadyForBilling: true,
+                    status: "COMPLETED",
+                    captureId: verified.captureId,
+                    captureCompletedAt: current.captureCompletedAt || now,
+                    paidAt: current.paidAt || now,
+                    failureReason: null,
+                    rawCaptureJson: JSON.stringify(input.raw),
                 },
             });
+            const lead = await tx.shipmentLead.findUnique({
+                where: { shipmentLeadId: current.shipmentLeadId },
+            });
+            if (lead && !lead.customerPaidAt) {
+                await tx.shipmentLead.update({
+                    where: { shipmentLeadId: current.shipmentLeadId },
+                    data: {
+                        customerPaidAt: now,
+                        customerPaidById:
+                            input.actor?.userId && input.actor.userId !== "paypal-webhook"
+                                ? input.actor.userId
+                                : lead.customerPaidById || null,
+                        paymentStatus: "CUSTOMER_PAID",
+                        paymentDate: now,
+                        accountingReadyForBilling: true,
+                    },
+                });
+            }
+            return { updated, newlyPaid: Boolean(lead && !lead.customerPaidAt) };
+        });
+
+        if (result.newlyPaid) {
             await domainEventEngine
                 .emit({
-                    shipmentLeadId: row.shipmentLeadId,
+                    shipmentLeadId: input.row.shipmentLeadId,
                     eventType: "CUSTOMER_PAYMENT_RECEIVED",
                     title: "Customer Paid (PayPal)",
-                    message: `PayPal capture ${capture.captureId || capture.id} completed`,
-                    actorUserId: actor?.userId,
+                    message: `PayPal capture ${verified.captureId} completed`,
+                    actorUserId:
+                        input.actor?.userId === "paypal-webhook"
+                            ? undefined
+                            : input.actor?.userId,
                     payload: {
-                        paypalOrderId,
-                        captureId: capture.captureId,
-                        amountUsd: row.amountUsd,
+                        paypalOrderId: input.row.paypalOrderId,
+                        captureId: verified.captureId,
+                        amountUsd: verified.amountUsd,
+                        currency: verified.currency,
                         via: "paypal",
                     },
                 })
                 .catch(() => null);
         }
         await writeAudit({
-            actor: actor || null,
+            actor:
+                input.actor?.userId === "paypal-webhook" ? null : input.actor || null,
+            auditUserId: input.row.createdByUserId,
             action: "PAYPAL_CAPTURE_COMPLETED",
-            shipmentLeadId: row.shipmentLeadId,
-            newValue: { paypalOrderId, captureId: capture.captureId, status },
+            shipmentLeadId: input.row.shipmentLeadId,
+            newValue: {
+                paypalOrderId: input.row.paypalOrderId,
+                captureId: verified.captureId,
+                status: "COMPLETED",
+                amountUsd: verified.amountUsd,
+                currency: verified.currency,
+            },
+        });
+        return mapRow(result.updated);
+    }
+
+    private async reconcileCapture(
+        row: PayPalCustomerOrder,
+        actor?: Actor | null
+    ) {
+        const remote = await getPayPalOrder(row.paypalOrderId);
+        if (String(remote.captureStatus || "").toUpperCase() === "COMPLETED") {
+            return this.finalizeCompletedCapture({
+                row,
+                evidence: {
+                    captureId: remote.captureId,
+                    status: remote.captureStatus,
+                    amountValue: remote.amountValue,
+                    currencyCode: remote.currencyCode,
+                },
+                raw: remote.raw,
+                actor,
+            });
+        }
+        const state =
+            row.status === "CAPTURE_PENDING" &&
+            String(remote.status || "").toUpperCase() === "APPROVED"
+                ? "CAPTURE_PENDING"
+                : String(remote.status || "").toUpperCase() === "COMPLETED"
+                  ? "CAPTURE_PENDING"
+                  : stateForPayPalStatus(remote.captureStatus || remote.status);
+        const updated = await prisma.payPalCustomerOrder.update({
+            where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+            data: {
+                status: state,
+                approvalUrl: remote.approvalUrl || row.approvalUrl,
+                captureId: remote.captureId || row.captureId,
+                rawCaptureJson: JSON.stringify(remote.raw),
+            },
         });
         return mapRow(updated);
+    }
+
+    async captureAndMarkPaid(paypalOrderId: string, actor?: Actor | null) {
+        let row = await prisma.payPalCustomerOrder.findUnique({
+            where: { paypalOrderId },
+        });
+        if (!row) throw notFound("PayPal order not found");
+        if (row.status === "REFUNDED" || row.refundedAt) {
+            throw badRequest("PayPal payment was refunded", "PAYPAL_CAPTURE_REFUNDED");
+        }
+        if (row.status === "COMPLETED" && row.paidAt) return mapRow(row);
+
+        const remote = await getPayPalOrder(paypalOrderId);
+        if (String(remote.captureStatus || "").toUpperCase() === "COMPLETED") {
+            return this.finalizeCompletedCapture({
+                row,
+                evidence: {
+                    captureId: remote.captureId,
+                    status: remote.captureStatus,
+                    amountValue: remote.amountValue,
+                    currencyCode: remote.currencyCode,
+                },
+                raw: remote.raw,
+                actor,
+            });
+        }
+
+        const remoteState = stateForPayPalStatus(remote.status);
+        if (remoteState !== "APPROVED" && row.status !== "CAPTURE_PENDING") {
+            const updated = await prisma.payPalCustomerOrder.update({
+                where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+                data: { status: remoteState, rawCaptureJson: JSON.stringify(remote.raw) },
+            });
+            return mapRow(updated);
+        }
+
+        if (row.status !== "CAPTURE_PENDING") {
+            row = await prisma.payPalCustomerOrder.update({
+                where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+                data: { status: "APPROVED" },
+            });
+        }
+
+        const requestId = row.captureRequestId || this.captureRequestId(paypalOrderId);
+        const staleBefore = new Date(Date.now() - 30_000);
+        const claim = await prisma.payPalCustomerOrder.updateMany({
+            where: {
+                paypalCustomerOrderId: row.paypalCustomerOrderId,
+                paidAt: null,
+                refundedAt: null,
+                OR: [
+                    { status: "APPROVED" },
+                    {
+                        status: "CAPTURE_PENDING",
+                        captureStartedAt: { lte: staleBefore },
+                    },
+                ],
+            },
+            data: {
+                status: "CAPTURE_PENDING",
+                captureRequestId: requestId,
+                captureStartedAt: new Date(),
+                failureReason: null,
+            },
+        });
+
+        return runClaimedCapture({
+            claim: async () => claim.count === 1,
+            reconcile: async () => {
+                const current = await prisma.payPalCustomerOrder.findUnique({
+                    where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+                });
+                if (!current) throw notFound("PayPal order not found");
+                return this.reconcileCapture(current, actor);
+            },
+            capture: async () => {
+                try {
+                    const capture = await capturePayPalOrder(paypalOrderId, requestId);
+                    const captureState = capture.captureStatus
+                        ? stateForPayPalStatus(capture.captureStatus)
+                        : "FAILED";
+                    if (
+                        String(capture.captureStatus || "").toUpperCase() !== "COMPLETED"
+                    ) {
+                        const updated = await prisma.payPalCustomerOrder.update({
+                            where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+                            data: {
+                                status: captureState,
+                                captureId: capture.captureId,
+                                failureReason: `Capture status ${capture.captureStatus || capture.status || "unknown"}`,
+                                rawCaptureJson: JSON.stringify(capture.raw),
+                            },
+                        });
+                        return mapRow(updated);
+                    }
+                    return this.finalizeCompletedCapture({
+                        row,
+                        evidence: {
+                            captureId: capture.captureId,
+                            status: capture.captureStatus,
+                            amountValue: capture.amountValue,
+                            currencyCode: capture.currencyCode,
+                        },
+                        raw: capture.raw,
+                        actor,
+                    });
+                } catch (err) {
+                    const code = (err as { code?: string })?.code;
+                    const validationFailure =
+                        code === "PAYPAL_CAPTURE_NOT_COMPLETED" ||
+                        code === "PAYPAL_CAPTURE_ID_MISSING" ||
+                        code === "PAYPAL_CAPTURE_CURRENCY_MISMATCH" ||
+                        code === "PAYPAL_CAPTURE_AMOUNT_MISMATCH";
+                    await prisma.payPalCustomerOrder
+                        .update({
+                            where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+                            data: {
+                                status: validationFailure
+                                    ? "FAILED"
+                                    : "CAPTURE_PENDING",
+                                failureReason:
+                                    err instanceof Error
+                                        ? err.message.slice(0, 500)
+                                        : "PayPal capture request failed",
+                            },
+                        })
+                        .catch(() => null);
+                    throw err;
+                }
+            },
+        });
     }
 
     async handleWebhook(input: {
@@ -431,6 +666,7 @@ export class PayPalCheckoutService {
             resource?: {
                 id?: string;
                 status?: string;
+                amount?: { value?: string; currency_code?: string };
                 supplementary_data?: { related_ids?: { order_id?: string } };
                 purchase_units?: Array<{
                     payments?: { captures?: Array<{ id?: string }> };
@@ -467,7 +703,7 @@ export class PayPalCheckoutService {
             paypalOrderId = byCapture?.paypalOrderId || null;
         }
 
-        const eventRow = await prisma.payPalWebhookEvent.upsert({
+        let eventRow = await prisma.payPalWebhookEvent.upsert({
             where: { eventId },
             create: {
                 eventId,
@@ -484,53 +720,182 @@ export class PayPalCheckoutService {
                 rawPayloadJson: input.rawBody,
             },
         });
+        if (eventRow.processResult === "PROCESSING") {
+            return { duplicate: true, eventId, eventType, result: "processing" };
+        }
+        if (eventRow.processResult?.startsWith("error:")) {
+            eventRow = await prisma.payPalWebhookEvent.update({
+                where: { paypalWebhookEventId: eventRow.paypalWebhookEventId },
+                data: { processResult: null },
+            });
+        }
+        const claim = await prisma.payPalWebhookEvent.updateMany({
+            where: {
+                paypalWebhookEventId: eventRow.paypalWebhookEventId,
+                processed: false,
+                processResult: null,
+            },
+            data: { processResult: "PROCESSING" },
+        });
+        if (claim.count !== 1) {
+            return { duplicate: true, eventId, eventType, result: "processing" };
+        }
 
         let result = "ignored";
         try {
-            if (
-                eventType === "CHECKOUT.ORDER.APPROVED" ||
-                eventType === "CHECKOUT.ORDER.COMPLETED"
-            ) {
+            if (eventType === "CHECKOUT.ORDER.APPROVED") {
                 if (!paypalOrderId) throw badRequest("Webhook missing PayPal order id");
-                await this.captureAndMarkPaid(paypalOrderId, {
-                    userId: "paypal-webhook",
-                    role: Roles.Accounting,
-                    accountingSubRole: null,
+                await prisma.payPalCustomerOrder.updateMany({
+                    where: {
+                        paypalOrderId,
+                        paidAt: null,
+                        refundedAt: null,
+                    },
+                    data: { status: "APPROVED", failureReason: null },
                 });
-                result = "captured";
+                result = "approved";
+            } else if (eventType === "CHECKOUT.ORDER.COMPLETED") {
+                if (!paypalOrderId) throw badRequest("Webhook missing PayPal order id");
+                // Order-level completion alone is not payment proof. The signed
+                // capture event (or GET reconciliation) supplies capture evidence.
+                await prisma.payPalCustomerOrder.updateMany({
+                    where: {
+                        paypalOrderId,
+                        paidAt: null,
+                        refundedAt: null,
+                    },
+                    data: { status: "CAPTURE_PENDING" },
+                });
+                result = "awaiting_capture_confirmation";
             } else if (eventType === "PAYMENT.CAPTURE.COMPLETED") {
-                if (paypalOrderId) {
-                    const row = await prisma.payPalCustomerOrder.findUnique({
-                        where: { paypalOrderId },
-                    });
-                    if (row && !row.paidAt) {
-                        await this.captureAndMarkPaid(paypalOrderId, {
-                            userId: "paypal-webhook",
-                            role: Roles.Accounting,
-                            accountingSubRole: null,
-                        });
-                        result = "captured";
-                    } else {
-                        result = "already_paid_or_missing";
-                    }
-                } else {
-                    result = "no_order_id";
+                const captureId = String(resource.id || "").trim();
+                if (!paypalOrderId || !captureId) {
+                    throw badRequest("Capture webhook missing order id or capture id");
                 }
-            } else if (
-                eventType === "CHECKOUT.ORDER.VOIDED" ||
-                eventType === "PAYMENT.CAPTURE.DENIED" ||
-                eventType === "PAYMENT.CAPTURE.REFUNDED"
-            ) {
+                const row = await prisma.payPalCustomerOrder.findUnique({
+                    where: { paypalOrderId },
+                });
+                if (!row) throw notFound("PayPal order not found");
+
+                // Validate signed webhook evidence before any GreenOS state update.
+                verifyCompletedCapture(
+                    {
+                        captureId,
+                        status: resource.status,
+                        amountValue: resource.amount?.value,
+                        currencyCode: resource.amount?.currency_code,
+                    },
+                    { amountUsd: row.amountUsd, currency: row.currency }
+                );
+
+                // GET is read-only and verifies that the capture belongs to the
+                // expected PayPal order. Webhook handling never calls Capture.
+                const remote = await getPayPalOrder(paypalOrderId);
+                if (remote.id !== paypalOrderId || remote.captureId !== captureId) {
+                    throw badRequest(
+                        "PayPal capture does not belong to the expected order",
+                        "PAYPAL_CAPTURE_ORDER_MISMATCH"
+                    );
+                }
+                await this.finalizeCompletedCapture({
+                    row,
+                    evidence: {
+                        captureId: remote.captureId,
+                        status: remote.captureStatus,
+                        amountValue: remote.amountValue,
+                        currencyCode: remote.currencyCode,
+                    },
+                    raw: payload,
+                    actor: {
+                        userId: "paypal-webhook",
+                        role: "Accounting",
+                        accountingSubRole: null,
+                    },
+                });
+                result = row.paidAt ? "already_completed" : "completed";
+            } else if (eventType === "PAYMENT.CAPTURE.PENDING") {
                 if (paypalOrderId) {
                     await prisma.payPalCustomerOrder.updateMany({
-                        where: { paypalOrderId, paidAt: null },
+                        where: { paypalOrderId, paidAt: null, refundedAt: null },
+                        data: { status: "CAPTURE_PENDING" },
+                    });
+                }
+                result = "capture_pending";
+            } else if (eventType === "PAYMENT.CAPTURE.DENIED") {
+                if (paypalOrderId) {
+                    await prisma.payPalCustomerOrder.updateMany({
+                        where: { paypalOrderId, paidAt: null, refundedAt: null },
                         data: {
-                            status:
-                                eventType === "CHECKOUT.ORDER.VOIDED" ? "VOIDED" : "FAILED",
+                            status: "DENIED",
+                            failureReason: "PayPal capture denied",
                         },
                     });
-                    result = "status_updated";
                 }
+                result = "denied";
+            } else if (eventType === "CHECKOUT.ORDER.VOIDED") {
+                if (paypalOrderId) {
+                    await prisma.payPalCustomerOrder.updateMany({
+                        where: { paypalOrderId, paidAt: null, refundedAt: null },
+                        data: { status: "CANCELLED" },
+                    });
+                }
+                result = "cancelled";
+            } else if (eventType === "PAYMENT.CAPTURE.REFUNDED") {
+                if (!paypalOrderId) {
+                    throw badRequest("Refund webhook missing PayPal order id");
+                }
+                const row = await prisma.payPalCustomerOrder.findUnique({
+                    where: { paypalOrderId },
+                });
+                if (!row) throw notFound("PayPal order not found");
+                const currency = String(resource.amount?.currency_code || "").toUpperCase();
+                const refundAmount = Number(resource.amount?.value);
+                if (
+                    currency !== "USD" ||
+                    !Number.isFinite(refundAmount) ||
+                    refundAmount <= 0 ||
+                    Math.round(refundAmount * 100) > Math.round(row.amountUsd * 100)
+                ) {
+                    throw badRequest(
+                        "Refund amount or currency is invalid",
+                        "PAYPAL_REFUND_AMOUNT_INVALID"
+                    );
+                }
+                const now = new Date();
+                await prisma.$transaction([
+                    prisma.payPalCustomerOrder.update({
+                        where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+                        data: {
+                            status: "REFUNDED",
+                            refundId: resource.id || eventId,
+                            refundedAt: now,
+                            failureReason: null,
+                        },
+                    }),
+                    prisma.shipmentLead.update({
+                        where: { shipmentLeadId: row.shipmentLeadId },
+                        data: {
+                            customerPaidAt: null,
+                            customerPaidById: null,
+                            paymentDate: null,
+                            paymentStatus: "CUSTOMER_REFUNDED",
+                        },
+                    }),
+                ]);
+                await writeAudit({
+                    actor: null,
+                    auditUserId: row.createdByUserId,
+                    action: "PAYPAL_CAPTURE_REFUNDED",
+                    shipmentLeadId: row.shipmentLeadId,
+                    newValue: {
+                        paypalOrderId,
+                        captureId: row.captureId,
+                        refundId: resource.id || eventId,
+                        refundAmount,
+                        currency,
+                    },
+                });
+                result = "refunded";
             }
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);

@@ -115,7 +115,8 @@ test("getPayPalOrder and capturePayPalOrder parse remote payloads", async () => 
     await withPayPalEnv(async () => {
         clearPayPalTokenCache();
         let call = 0;
-        globalThis.fetch = (async () => {
+        let captureRequestId: string | null = null;
+        globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
             call += 1;
             if (call === 1) {
                 const json = { access_token: "tok-y", expires_in: 3600 };
@@ -141,11 +142,25 @@ test("getPayPalOrder and capturePayPalOrder parse remote payloads", async () => 
                     json: async () => json,
                 } as Response;
             }
+            captureRequestId = new Headers(init?.headers || {}).get("PayPal-Request-Id");
             const json = {
                 id: "ORDER-2",
                 status: "COMPLETED",
                 purchase_units: [
-                    { payments: { captures: [{ id: "CAP-9", status: "COMPLETED" }] } },
+                    {
+                        payments: {
+                            captures: [
+                                {
+                                    id: "CAP-9",
+                                    status: "COMPLETED",
+                                    amount: {
+                                        value: "123.45",
+                                        currency_code: "USD",
+                                    },
+                                },
+                            ],
+                        },
+                    },
                 ],
             };
             return {
@@ -160,8 +175,12 @@ test("getPayPalOrder and capturePayPalOrder parse remote payloads", async () => 
         const got = await getPayPalOrder("ORDER-2");
         assert.equal(got.status, "APPROVED");
         // Token still cached from call 1 — next call is capture.
-        const cap = await capturePayPalOrder("ORDER-2");
+        const cap = await capturePayPalOrder("ORDER-2", "capture-idem-2");
         assert.equal(cap.status, "COMPLETED");
         assert.equal(cap.captureId, "CAP-9");
+        assert.equal(cap.captureStatus, "COMPLETED");
+        assert.equal(cap.amountValue, "123.45");
+        assert.equal(cap.currencyCode, "USD");
+        assert.equal(captureRequestId, "capture-idem-2");
     });
 });
