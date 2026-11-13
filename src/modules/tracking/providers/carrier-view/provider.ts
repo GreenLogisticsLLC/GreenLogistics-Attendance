@@ -135,7 +135,9 @@ export class CarrierViewProvider implements TrackingProvider {
         if (input.type === "custom" && input.message && input.message.length > 480) {
             throw new CarrierViewValidationError({ message: "max 480 characters" });
         }
-        const body: { type: string; message?: string } = { type: input.type };
+        const body: { message_type: string; message?: string } = {
+            message_type: input.type,
+        };
         if (input.type === "custom") body.message = input.message || "";
         await carrierViewClient.sendTextMessage(input.providerLoadId, body);
     }

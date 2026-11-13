@@ -29,6 +29,42 @@ export function fingerprintEvent(parts: Record<string, unknown>): string {
     return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 }
 
+/**
+ * CarrierView timestamps may be unix seconds (docs), unix ms, or ISO strings.
+ * Always return a Date, or null when unparseable — never Invalid Date.
+ */
+export function parseCvTimestamp(raw: unknown): Date | null {
+    if (raw == null || raw === "") return null;
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+        const ms = raw < 1e12 ? raw * 1000 : raw;
+        const d = new Date(ms);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const s = String(raw).trim();
+    if (!s) return null;
+    if (/^\d+(\.\d+)?$/.test(s)) {
+        const n = Number(s);
+        if (!Number.isFinite(n)) return null;
+        const ms = n < 1e12 ? n * 1000 : n;
+        const d = new Date(ms);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function trackDriverStatus(trackDriver: unknown): string | null {
+    if (trackDriver == null) return null;
+    if (typeof trackDriver === "object" && !Array.isArray(trackDriver)) {
+        const o = trackDriver as Record<string, unknown>;
+        if (o.status != null) return String(o.status);
+        if (o.state != null) return String(o.state);
+        if (o.phone != null) return `phone:${o.phone}`;
+        return null;
+    }
+    return String(trackDriver);
+}
+
 export function normalizeCarrierViewPosition(
     position: Record<string, unknown> | null | undefined,
     meta: { shipmentId: string; providerLoadId: string }
@@ -37,6 +73,7 @@ export function normalizeCarrierViewPosition(
     const lat = Number(position.latitude);
     const lng = Number(position.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    const when = parseCvTimestamp(position.created_at_utc ?? position.created_at);
     return {
         shipmentId: meta.shipmentId,
         provider: CARRIER_VIEW_PROVIDER,
@@ -53,12 +90,8 @@ export function normalizeCarrierViewPosition(
         stoppedDuration: position.stopped_duration != null ? Number(position.stopped_duration) : null,
         driveDuration: position.drive_duration != null ? Number(position.drive_duration) : null,
         pausedDuration: position.paused_duration != null ? Number(position.paused_duration) : null,
-        timestamp:
-            position.created_at_utc != null
-                ? String(position.created_at_utc)
-                : position.created_at != null
-                  ? String(position.created_at)
-                  : null,
+        // ISO so downstream `new Date(timestamp)` is always valid.
+        timestamp: when ? when.toISOString() : null,
     };
 }
 
@@ -92,7 +125,7 @@ export function normalizeCarrierViewLoad(
         timeLeftSec: load.time_left_sec != null ? Number(load.time_left_sec) : null,
         distanceLeftMeters:
             load.distance_left_meters != null ? Number(load.distance_left_meters) : null,
-        driverAppStatus: load.track_driver != null ? String(load.track_driver) : null,
+        driverAppStatus: trackDriverStatus(load.track_driver),
         lastPosition: last,
         locations: load.locations ?? null,
         statuses: load.statuses ?? null,
