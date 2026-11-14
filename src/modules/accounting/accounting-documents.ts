@@ -121,12 +121,17 @@ export function buildAccountingDocuments(input: {
         const hasFile = Boolean(doc.fileUrl);
         if (hasFile) loadTypesWithFile.add(docType);
         const fileName = doc.fileName || null;
+        const baseLabel = accountingDocLabel(docType);
+        const label =
+            docType === "ATTACHMENT" && fileName
+                ? `${baseLabel} · ${fileName}`
+                : baseLabel;
         loadRows.push({
             documentId: doc.documentId,
             source: "load",
             uploadedBy: "Broker",
             docType,
-            label: accountingDocLabel(docType),
+            label,
             status: doc.status || "",
             fileName,
             mimeType: accountingViewMime(doc.mimeType, fileName, "load"),
