@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+    amountsMatchUsd,
     decideWebhookLifecycleTransition,
     isPayPalTerminalState,
+    isPayPalWebhookProcessingLeaseStale,
+    isReusableOpenPayPalAttempt,
     paypalAttemptIdempotencyKey,
     runClaimedCapture,
     stateForPayPalStatus,
@@ -133,6 +136,65 @@ test("retry-chain idempotency keys are deterministic and unique per attempt", ()
     assert.notEqual(paypalAttemptIdempotencyKey(base, 1), base);
     assert.notEqual(paypalAttemptIdempotencyKey(base, 1), paypalAttemptIdempotencyKey(base, 2));
     assert.notEqual(paypalAttemptIdempotencyKey(base, 2), paypalAttemptIdempotencyKey(base, 3));
+});
+
+test("webhook PROCESSING lease becomes stale after TTL", () => {
+    const now = new Date("2026-11-16T12:00:00.000Z");
+    assert.equal(isPayPalWebhookProcessingLeaseStale(null, now), true);
+    assert.equal(
+        isPayPalWebhookProcessingLeaseStale(new Date("2026-11-16T11:59:00.000Z"), now, 120_000),
+        false
+    );
+    assert.equal(
+        isPayPalWebhookProcessingLeaseStale(new Date("2026-11-16T11:57:00.000Z"), now, 120_000),
+        true
+    );
+});
+
+test("reusable open attempt requires env amount currency and non-terminal status", () => {
+    const base = {
+        status: "APPROVED",
+        approvalUrl: "https://www.sandbox.paypal.com/checkoutnow?token=X",
+        environment: "sandbox",
+        amountUsd: 100,
+        currency: "USD",
+        invoiceNumber: "INV-1",
+    };
+    assert.equal(
+        isReusableOpenPayPalAttempt({
+            row: base,
+            checkoutEnv: "sandbox",
+            amountUsd: 100,
+            invoiceNumber: "INV-1",
+        }),
+        true
+    );
+    assert.equal(
+        isReusableOpenPayPalAttempt({
+            row: { ...base, environment: "live" },
+            checkoutEnv: "sandbox",
+            amountUsd: 100,
+        }),
+        false
+    );
+    assert.equal(
+        isReusableOpenPayPalAttempt({
+            row: { ...base, amountUsd: 50 },
+            checkoutEnv: "sandbox",
+            amountUsd: 100,
+        }),
+        false
+    );
+    assert.equal(
+        isReusableOpenPayPalAttempt({
+            row: { ...base, status: "REVERSED", reversedAt: new Date() },
+            checkoutEnv: "sandbox",
+            amountUsd: 100,
+        }),
+        false
+    );
+    assert.equal(amountsMatchUsd(100, 100.01), false);
+    assert.equal(amountsMatchUsd(100, 100), true);
 });
 
 test("terminal lifecycle decisions keep REVERSED final and record refund facts", () => {

@@ -124,13 +124,28 @@ the received-payment timestamp, and sets shipment status to
 `attemptKey(n) = sha256(logicalBase|attempt|n)[:48]` for `n ≥ 1`
 
 Generate walks `n = 0,1,2,…` until it finds an open attempt (reuse) or a free key
-(create). Closed attempts (`REVERSED` / `REFUNDED` / `COMPLETED` / `DENIED` /
-`FAILED` / `CANCELLED`) keep their key forever. Concurrent Generate / timeout
-retries converge via unique `idempotency_key` + PayPal `PayPal-Request-Id`.
+(create). An open attempt is reused only when **shipment + environment + amount +
+currency** (and invoice when present) match — never a Sandbox link for LIVE, or
+an old amount after the quote changes. Closed attempts (`REVERSED` / `REFUNDED` /
+`COMPLETED` / `DENIED` / `FAILED` / `CANCELLED`) keep their key forever.
+Concurrent Generate / timeout retries converge via unique `idempotency_key` +
+PayPal `PayPal-Request-Id`. After 64 closed attempts Generate returns
+`PAYPAL_RETRY_CHAIN_EXHAUSTED` without corrupting history.
 
 Capture finalization uses conditional `updateMany` (non-terminal only). Shipment
 `CUSTOMER_PAID` is blocked when status is already `CUSTOMER_REVERSED` /
 `CUSTOMER_REFUNDED`.
+
+### Webhook claim / crash recovery
+
+Deliveries are claimed with `processResult=PROCESSING` + `processingStartedAt`.
+`processed=true` is set **only after** the business transaction succeeds. Failed
+handlers store `error:…` and clear the lease so PayPal retries (non-2xx). A
+crash-abandoned `PROCESSING` lease older than **120s** is reclaimed by the next
+delivery. A **fresh** lease held by another worker returns `retryable: true` and
+HTTP **503** (not 200) so PayPal retries instead of treating the event as done.
+
+This is **PayPal Checkout (Orders v2)** — not the PayPal Invoicing API.
 
 Independent Accounting actions (manual notes, document uploads, clearing review
 flags in UI later) are out of scope for these webhook guards.
@@ -170,11 +185,12 @@ Do **not** flip LIVE in this PR. When management approves:
 1. Create a Live PayPal REST app; copy `PAYPAL_LIVE_CLIENT_ID` / `PAYPAL_LIVE_CLIENT_SECRET`.
 2. Register webhook URL `https://<PUBLIC_APP_URL>/api/webhooks/paypal` on the **Live** app; copy `PAYPAL_LIVE_WEBHOOK_ID` (include `PAYMENT.CAPTURE.REVERSED`).
 3. Keep Sandbox vars intact; set Live vars alongside them.
-4. Run `npx prisma db push` (additive columns: `environment`, `reversal_id`, `reversed_at`, `needs_accounting_review`).
-5. Restart the Node process so env vars load.
-6. Verify dual webhook: Sandbox + Live deliveries both return 200; invalid signatures 401.
-7. Only then set `PAYPAL_MODE=live` for Checkout (webhooks already verify both).
-8. Smoke-test one small real payment + refund path under Accounting supervision.
+4. Back up Contabo SQLite/Postgres **before** merge/deploy.
+5. Run `npx prisma db push` (additive: `environment`, `reversal_id`, `reversed_at`, `needs_accounting_review`, webhook `environment`, `processing_started_at`).
+6. Restart the Node process so env vars load (Contabo deploy does PM2 restart).
+7. Verify dual webhook: completed deliveries return 200; in-flight PROCESSING returns 503; invalid signatures 401.
+8. Only then set `PAYPAL_MODE=live` for Checkout (webhooks already verify both).
+9. Smoke-test one small real payment + refund path under Accounting supervision.
 
 ## Out of scope (Phase 1)
 

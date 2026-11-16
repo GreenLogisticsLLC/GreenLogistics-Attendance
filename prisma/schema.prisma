@@ -1342,12 +1342,15 @@ model PayPalWebhookEvent {
   resourceId           String?  @map("resource_id")
   processed            Boolean  @default(false)
   processResult        String?  @map("process_result")
+  /// When processResult=PROCESSING, lease start time for stale reclaim after crashes.
+  processingStartedAt  DateTime? @map("processing_started_at")
   rawPayloadJson       String   @map("raw_payload_json")
   createdAt            DateTime @default(now()) @map("created_at")
 
   @@index([eventType])
   @@index([environment])
   @@index([paypalOrderId])
+  @@index([processed])
   @@index([createdAt])
   @@map("paypal_webhook_events")
 }

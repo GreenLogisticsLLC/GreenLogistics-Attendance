@@ -234,6 +234,74 @@ export const SHIPMENT_PAID_BLOCKING_STATUSES = [
     "CUSTOMER_REFUNDED",
 ] as const;
 
+/**
+ * Webhook PROCESSING lease TTL. After this age a crash-abandoned claim may be
+ * reclaimed by a redelivery. Fresh leases block concurrent workers and return
+ * retryable HTTP so PayPal retries instead of acknowledging success.
+ */
+export const PAYPAL_WEBHOOK_PROCESSING_LEASE_MS = 120_000;
+
+export function isPayPalWebhookProcessingLeaseStale(
+    processingStartedAt: Date | null | undefined,
+    now: Date = new Date(),
+    leaseMs: number = PAYPAL_WEBHOOK_PROCESSING_LEASE_MS
+): boolean {
+    if (!processingStartedAt) return true;
+    const started = processingStartedAt.getTime();
+    if (!Number.isFinite(started)) return true;
+    return now.getTime() - started >= leaseMs;
+}
+
+export function amountsMatchUsd(
+    a: number | null | undefined,
+    b: number | null | undefined
+): boolean {
+    if (a == null || b == null) return false;
+    return Math.round(Number(a) * 100) === Math.round(Number(b) * 100);
+}
+
+/** Open attempt may be reused only when env + amount + currency (+ invoice) match. */
+export function isReusableOpenPayPalAttempt(input: {
+    row: {
+        status: string | null | undefined;
+        approvalUrl?: string | null;
+        environment?: string | null;
+        amountUsd?: number | null;
+        currency?: string | null;
+        invoiceNumber?: string | null;
+        reversedAt?: Date | null;
+        refundedAt?: Date | null;
+    };
+    checkoutEnv: string;
+    amountUsd: number;
+    currency?: string;
+    invoiceNumber?: string | null;
+}): boolean {
+    const { row } = input;
+    if (!row.approvalUrl) return false;
+    if (isClosedPayPalAttempt(row)) return false;
+    const status = String(row.status || "").toUpperCase();
+    const open = new Set([
+        "CREATED",
+        "PAYER_ACTION_REQUIRED",
+        "SAVED",
+        "APPROVED",
+        "CAPTURE_PENDING",
+    ]);
+    if (!open.has(status)) return false;
+    const rowEnv = String(row.environment || "sandbox").toLowerCase();
+    if (rowEnv !== String(input.checkoutEnv || "").toLowerCase()) return false;
+    if (!amountsMatchUsd(row.amountUsd, input.amountUsd)) return false;
+    const currency = String(input.currency || "USD").toUpperCase();
+    if (String(row.currency || "USD").toUpperCase() !== currency) return false;
+    const wantInvoice = String(input.invoiceNumber || "").trim();
+    if (wantInvoice) {
+        const have = String(row.invoiceNumber || "").trim();
+        if (have && have !== wantInvoice) return false;
+    }
+    return true;
+}
+
 export function decideWebhookLifecycleTransition(input: {
     row: PayPalLifecycleRow;
     eventType: string;

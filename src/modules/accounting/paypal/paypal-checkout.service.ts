@@ -18,9 +18,12 @@ import {
     decideWebhookLifecycleTransition,
     isClosedPayPalAttempt,
     isPayPalTerminalState,
+    isPayPalWebhookProcessingLeaseStale,
     isRefundedTerminal,
+    isReusableOpenPayPalAttempt,
     isReversedTerminal,
     nonTerminalPayPalOrderWhere,
+    PAYPAL_WEBHOOK_PROCESSING_LEASE_MS,
     paypalAttemptIdempotencyKey,
     runClaimedCapture,
     SHIPMENT_PAID_BLOCKING_STATUSES,
@@ -204,6 +207,7 @@ export class PayPalCheckoutService {
                 "Customer payment amount is missing. Save Customer Rate (and payment option) first."
             );
         }
+        const amountUsd = quote.total;
 
         const invoiceDoc = await prisma.loadDocument.findFirst({
             where: {
@@ -224,7 +228,7 @@ export class PayPalCheckoutService {
             .update(
                 [
                     shipmentLeadId,
-                    centsKey(quote.total),
+                    centsKey(amountUsd),
                     invoiceNumber || "",
                     config.paypal.mode,
                 ].join("|")
@@ -248,31 +252,47 @@ export class PayPalCheckoutService {
                 where: { idempotencyKey },
             });
             if (existing) {
-                if (OPEN_STATUSES.has(existing.status) && existing.approvalUrl) {
+                if (
+                    isReusableOpenPayPalAttempt({
+                        row: existing,
+                        checkoutEnv,
+                        amountUsd,
+                        currency: "USD",
+                        invoiceNumber,
+                    })
+                ) {
                     return mapRow(existing);
                 }
-                if (isClosedPayPalAttempt(existing)) {
-                    continue;
-                }
-                if (existing.approvalUrl) {
-                    return mapRow(existing);
-                }
+                // Closed or incompatible occupant of this key — advance the chain.
+                continue;
             }
 
-            // Re-check shipment-level open attempt (covers different amounts).
-            const openExisting = await prisma.payPalCustomerOrder.findFirst({
+            // Reuse only when shipment + env + amount + currency (+ invoice) match.
+            const openCandidates = await prisma.payPalCustomerOrder.findMany({
                 where: {
                     shipmentLeadId,
+                    environment: checkoutEnv,
+                    currency: "USD",
                     status: { in: Array.from(OPEN_STATUSES) },
                 },
                 orderBy: { createdAt: "desc" },
+                take: 25,
             });
-            if (openExisting?.approvalUrl) {
+            const openExisting = openCandidates.find((candidate) =>
+                isReusableOpenPayPalAttempt({
+                    row: candidate,
+                    checkoutEnv,
+                    amountUsd,
+                    currency: "USD",
+                    invoiceNumber,
+                })
+            );
+            if (openExisting) {
                 return mapRow(openExisting);
             }
 
             const created = await createPayPalOrder({
-                amountUsd: quote.total,
+                amountUsd,
                 currency: "USD",
                 invoiceNumber,
                 description: `Green Logistics ${s.loadNumber || shipmentLeadId.slice(0, 8)}`,
@@ -298,7 +318,7 @@ export class PayPalCheckoutService {
                         customerInvoiceDocumentId: invoiceDoc?.documentId || null,
                         customerName: s.customerName,
                         customerEmail: s.customerEmail,
-                        amountUsd: quote.total,
+                        amountUsd,
                         currency: "USD",
                         status: created.status || "CREATED",
                         approvalUrl: created.approvalUrl,
@@ -319,13 +339,26 @@ export class PayPalCheckoutService {
                         where: { paypalOrderId: created.id },
                     }));
                 if (raced) {
-                    if (OPEN_STATUSES.has(raced.status) || raced.approvalUrl) {
+                    if (
+                        isReusableOpenPayPalAttempt({
+                            row: raced,
+                            checkoutEnv,
+                            amountUsd,
+                            currency: "USD",
+                            invoiceNumber,
+                        })
+                    ) {
                         return mapRow(raced);
                     }
                     if (isClosedPayPalAttempt(raced)) {
                         continue;
                     }
-                    return mapRow(raced);
+                    // PayPal-Request-Id converged on the same remote order id.
+                    if (raced.paypalOrderId === created.id) {
+                        return mapRow(raced);
+                    }
+                    // Incompatible unique-key occupant — try the next attempt slot.
+                    continue;
                 }
                 throw err;
             }
@@ -906,6 +939,7 @@ export class PayPalCheckoutService {
         if (existing?.processed) {
             return {
                 duplicate: true,
+                retryable: false,
                 eventId,
                 eventType,
                 environment: existing.environment || webhookEnvironment,
@@ -935,6 +969,8 @@ export class PayPalCheckoutService {
                 paypalOrderId,
                 resourceId: resource.id || null,
                 processed: false,
+                processResult: null,
+                processingStartedAt: null,
                 rawPayloadJson: input.rawBody,
             },
             update: {
@@ -945,32 +981,61 @@ export class PayPalCheckoutService {
                 rawPayloadJson: input.rawBody,
             },
         });
-        if (eventRow.processResult === "PROCESSING") {
+
+        // Clear failed attempts so they can be claimed again.
+        if (eventRow.processResult?.startsWith("error:")) {
+            eventRow = await prisma.payPalWebhookEvent.update({
+                where: { paypalWebhookEventId: eventRow.paypalWebhookEventId },
+                data: { processResult: null, processingStartedAt: null },
+            });
+        }
+
+        const now = new Date();
+        const staleBefore = new Date(now.getTime() - PAYPAL_WEBHOOK_PROCESSING_LEASE_MS);
+        const freshProcessing =
+            eventRow.processResult === "PROCESSING" &&
+            !isPayPalWebhookProcessingLeaseStale(
+                eventRow.processingStartedAt,
+                now,
+                PAYPAL_WEBHOOK_PROCESSING_LEASE_MS
+            );
+        if (freshProcessing) {
+            // Another worker holds a live lease — ask PayPal to retry (do not 200-ack).
             return {
-                duplicate: true,
+                duplicate: false,
+                retryable: true,
                 eventId,
                 eventType,
                 environment: webhookEnvironment,
                 result: "processing",
             };
         }
-        if (eventRow.processResult?.startsWith("error:")) {
-            eventRow = await prisma.payPalWebhookEvent.update({
-                where: { paypalWebhookEventId: eventRow.paypalWebhookEventId },
-                data: { processResult: null },
-            });
-        }
+
+        // Atomic claim: idle rows, or stale PROCESSING after crash.
         const claim = await prisma.payPalWebhookEvent.updateMany({
             where: {
                 paypalWebhookEventId: eventRow.paypalWebhookEventId,
                 processed: false,
-                processResult: null,
+                OR: [
+                    { processResult: null },
+                    {
+                        processResult: "PROCESSING",
+                        OR: [
+                            { processingStartedAt: null },
+                            { processingStartedAt: { lte: staleBefore } },
+                        ],
+                    },
+                ],
             },
-            data: { processResult: "PROCESSING" },
+            data: {
+                processResult: "PROCESSING",
+                processingStartedAt: now,
+            },
         });
         if (claim.count !== 1) {
             return {
-                duplicate: true,
+                duplicate: false,
+                retryable: true,
                 eventId,
                 eventType,
                 environment: webhookEnvironment,
@@ -1046,7 +1111,8 @@ export class PayPalCheckoutService {
                             "PAYPAL_CAPTURE_ORDER_MISMATCH"
                         );
                     }
-                    await this.finalizeCompletedCapture({
+                    const priorPaidAt = row.paidAt;
+                    const finalized = await this.finalizeCompletedCapture({
                         row,
                         evidence: {
                             captureId: remote.captureId,
@@ -1061,7 +1127,18 @@ export class PayPalCheckoutService {
                             accountingSubRole: null,
                         },
                     });
-                    result = row.paidAt ? "already_completed" : "completed";
+                    // Derive ack from post-finalize DB state, not the pre-handler snapshot.
+                    if (isReversedTerminal(finalized)) {
+                        result = "aborted_terminal_reversed";
+                    } else if (isRefundedTerminal(finalized)) {
+                        result = "aborted_terminal_refunded";
+                    } else if (finalized.paidAt) {
+                        result = priorPaidAt ? "already_completed" : "completed";
+                    } else if (finalized.status === "COMPLETED") {
+                        result = "completed_needs_review";
+                    } else {
+                        result = "capture_finalize_noop";
+                    }
                 }
             } else if (eventType === "PAYMENT.CAPTURE.PENDING") {
                 if (paypalOrderId) {
@@ -1366,21 +1443,27 @@ export class PayPalCheckoutService {
             const message = err instanceof Error ? err.message : String(err);
             await prisma.payPalWebhookEvent.update({
                 where: { paypalWebhookEventId: eventRow.paypalWebhookEventId },
-                data: { processResult: `error:${message}` },
+                data: {
+                    processResult: `error:${message}`.slice(0, 500),
+                    processingStartedAt: null,
+                },
             });
             throw err;
         }
 
+        // Mark completed only after the business transaction succeeded.
         await prisma.payPalWebhookEvent.update({
             where: { paypalWebhookEventId: eventRow.paypalWebhookEventId },
             data: {
                 processed: true,
                 processResult: result,
+                processingStartedAt: null,
                 environment: webhookEnvironment,
             },
         });
         return {
             duplicate: false,
+            retryable: false,
             eventId,
             eventType,
             environment: webhookEnvironment,
