@@ -6,6 +6,7 @@ import { ACTIVE_STATUSES } from "../crm.constants.js";
 import {
     AUTO_PIPELINE_STATUSES,
     compareShipmentsForBoard,
+    compareShipmentsForAccepted,
 } from "../../shipment/shipment.constants.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
@@ -152,6 +153,7 @@ const SHIPMENT_LIST_SELECT = {
     wasEverReassigned: true,
     brokerReplyDeadline: true,
     quoteSentAt: true,
+    acceptedAt: true,
     createdAt: true,
     updatedAt: true,
     receivedAt: true,
@@ -170,6 +172,8 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         statusLabel: e.statusLabel,
         brokerName: e.brokerName,
         assignedBrokerId: (lead.assignedBrokerId as string | null) || null,
+        acceptedAt: (lead.acceptedAt as Date | string | null) || null,
+        updatedAt: (lead.updatedAt as Date | string | null) || null,
         miles: (lead.miles as number | null) ?? null,
         price: (lead.price as number | null) ?? null,
         isReassignment: Boolean(lead.isReassignment || lead.wasEverReassigned),
@@ -828,11 +832,19 @@ export class CrmService {
         let rows: Array<Record<string, unknown>>;
         if (priorityBoard) {
             // Sort keys only — full list columns load for the current page.
+            const acceptedBoard = options?.assignmentKind === "accepted";
             const sortKeys = await prisma.shipmentLead.findMany({
                 where,
-                select: { shipmentLeadId: true, status: true, updatedAt: true },
+                select: {
+                    shipmentLeadId: true,
+                    status: true,
+                    updatedAt: true,
+                    ...(acceptedBoard ? { acceptedAt: true } : {}),
+                },
             });
-            sortKeys.sort(compareShipmentsForBoard);
+            sortKeys.sort(
+                acceptedBoard ? compareShipmentsForAccepted : compareShipmentsForBoard
+            );
             total = sortKeys.length;
             const pageIds = sortKeys.slice(skip, skip + pageSize).map((row) => row.shipmentLeadId);
             if (!pageIds.length) {

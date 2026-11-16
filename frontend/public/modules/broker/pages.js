@@ -110,7 +110,7 @@ window.GreenOSModules.broker = {
     var body = root.querySelector("#broker-body");
     var scope = this._opsView
       ? { brokerId: this._opsView.brokerId, mine: false }
-      : { brokerId: "", mine: false };
+      : { brokerId: "", mine: true };
     if (active.id === "shipments") self.renderShipments(body, root, scope);
     else if (active.id === "customer-respond") self.renderCustomerRespond(body, root);
     else if (active.id === "loads") self.renderLoads(body, root);
@@ -444,6 +444,7 @@ window.GreenOSModules.broker = {
         ev.stopPropagation();
         self._shipmentsTab = btn.getAttribute("data-ship-tab") || "new";
         self._shipmentsPage = 1;
+        self._shipmentsCache = null;
         self.renderShipments(body, root, {
           brokerId: self._scopeBrokerId || "",
           mine: Boolean(self._personalMine),
@@ -560,6 +561,18 @@ window.GreenOSModules.broker = {
     }
 
     function sortRows(rows) {
+      var tab = self._shipmentsTab || "new";
+      // Accepted: newest Accept first — New-board priority buries WORKING under Bid/Reply.
+      if (tab === "accepted") {
+        return rows.slice().sort(function (a, b) {
+          var ta = new Date(a.acceptedAt || a.updatedAt || 0).getTime();
+          var tb = new Date(b.acceptedAt || b.updatedAt || 0).getTime();
+          if (tb !== ta) return tb - ta;
+          var wa = String(a.status || "") === "WORKING" ? 0 : 1;
+          var wb = String(b.status || "") === "WORKING" ? 0 : 1;
+          return wa - wb;
+        });
+      }
       // Waiting → Open in uShip → BROKER REPLY → Bid Submitted → Shipment Accepted → rest
       var priority = {
         AWAITING_ACCEPTANCE: 0,
