@@ -134,6 +134,40 @@ export function compareShipmentsForBoard(
     return tb - ta;
 }
 
+/**
+ * Accepted tab: newest broker Accept first (not New-board priority).
+ * New-board order buries WORKING under BROKER REPLY / Bid Submitted, so a
+ * fresh Accept can fall off page 1 and look "missing" on the broker desk.
+ */
+export function compareShipmentsForAccepted(
+    a: {
+        status?: string | null;
+        acceptedAt?: Date | string | null;
+        updatedAt?: Date | string | null;
+    },
+    b: {
+        status?: string | null;
+        acceptedAt?: Date | string | null;
+        updatedAt?: Date | string | null;
+    }
+): number {
+    const ta = a.acceptedAt
+        ? new Date(a.acceptedAt).getTime()
+        : a.updatedAt
+          ? new Date(a.updatedAt).getTime()
+          : 0;
+    const tb = b.acceptedAt
+        ? new Date(b.acceptedAt).getTime()
+        : b.updatedAt
+          ? new Date(b.updatedAt).getTime()
+          : 0;
+    if (tb !== ta) return tb - ta;
+    // Prefer Shipment Accepted (WORKING) over later pipeline rows when tied.
+    const wa = String(a.status || "").toUpperCase() === "WORKING" ? 0 : 1;
+    const wb = String(b.status || "").toUpperCase() === "WORKING" ? 0 : 1;
+    return wa - wb;
+}
+
 export const STATUS_LABELS: Record<string, string> = {
     NEW: "New",
     UNASSIGNED: "Unassigned",

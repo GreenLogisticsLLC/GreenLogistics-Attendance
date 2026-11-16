@@ -2074,6 +2074,23 @@ window.GreenOSModules.crm = {
           alert((res && res.message) || "Could not accept shipment");
           return;
         }
+        // Land on Accepted so the broker sees the shipment they just took.
+        var brokerMod = window.GreenOSModules && window.GreenOSModules.broker;
+        if (brokerMod) {
+          brokerMod._shipmentsTab = "accepted";
+          brokerMod._shipmentsPage = 1;
+          brokerMod._shipmentsCache = null;
+          var shipBody = document.getElementById("broker-body") || document.querySelector("#broker-body");
+          var shipRoot = document.getElementById("broker-root") || document.querySelector("[data-module='broker']") || document;
+          if (typeof brokerMod.renderShipments === "function" && shipBody) {
+            brokerMod.renderShipments(shipBody, shipRoot, {
+              brokerId: brokerMod._scopeBrokerId || "",
+              mine: Boolean(brokerMod._personalMine),
+            });
+          } else if (typeof window.GreenOSBrokerReloadShipments === "function") {
+            window.GreenOSBrokerReloadShipments();
+          }
+        }
         window.GreenOSModules.crm.openShipmentCard(document, id, res.data || null);
       });
       modal.querySelector("#crm-decline")?.addEventListener("click", async function () {
