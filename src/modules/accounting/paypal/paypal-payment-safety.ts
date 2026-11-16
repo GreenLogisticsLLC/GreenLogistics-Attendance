@@ -7,6 +7,7 @@ export const PAYPAL_PAYMENT_STATES = [
     "FAILED",
     "CANCELLED",
     "REFUNDED",
+    "REVERSED",
 ] as const;
 
 export type PayPalPaymentState = (typeof PAYPAL_PAYMENT_STATES)[number];
@@ -105,6 +106,8 @@ export function stateForPayPalStatus(status: string | null | undefined): PayPalP
         case "REFUNDED":
         case "PARTIALLY_REFUNDED":
             return "REFUNDED";
+        case "REVERSED":
+            return "REVERSED";
         case "FAILED":
             return "FAILED";
         default:

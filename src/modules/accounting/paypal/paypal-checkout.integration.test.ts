@@ -407,6 +407,52 @@ test("refund webhook changes payment and shipment to refunded state", async () =
     assert.equal(lead?.paymentStatus, "CUSTOMER_REFUNDED");
 });
 
+test("PAYMENT.CAPTURE.REVERSED clears paid and flags Accounting review", async () => {
+    const { shipment } = await createPayment({ status: "COMPLETED", paid: true });
+    installPayPalMock({});
+    const first = await payPalCheckoutService.handleWebhook({
+        headers: webhookHeaders,
+        rawBody: JSON.stringify({
+            id: "WH-EVENT-REVERSE",
+            event_type: "PAYMENT.CAPTURE.REVERSED",
+            resource: {
+                id: "CAP-TEST",
+                status: "REVERSED",
+                amount: { value: "100.00", currency_code: "USD" },
+                supplementary_data: { related_ids: { order_id: "ORDER-TEST" } },
+            },
+        }),
+    });
+    assert.equal(first.result, "reversed");
+    assert.equal(first.environment, "sandbox");
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REVERSED");
+    assert.equal(payment?.needsAccountingReview, true);
+    assert.ok(payment?.reversedAt);
+    assert.equal(payment?.paidAt, null);
+    assert.equal(lead?.customerPaidAt, null);
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+
+    const replay = await payPalCheckoutService.handleWebhook({
+        headers: webhookHeaders,
+        rawBody: JSON.stringify({
+            id: "WH-EVENT-REVERSE",
+            event_type: "PAYMENT.CAPTURE.REVERSED",
+            resource: {
+                id: "CAP-TEST",
+                status: "REVERSED",
+                supplementary_data: { related_ids: { order_id: "ORDER-TEST" } },
+            },
+        }),
+    });
+    assert.equal(replay.duplicate, true);
+});
+
 test("manual payment endpoint rejects unauthorized role and PayPal bypass", async () => {
     const { shipment } = await createPayment();
     await assert.rejects(

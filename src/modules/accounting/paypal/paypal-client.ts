@@ -1,3 +1,11 @@
+import {
+    assertPayPalEnvConfigured,
+    getActivePayPalEnv,
+    getPayPalEnv,
+    listWebhookCapablePayPalEnvs,
+    type PayPalEnvironment,
+    type PayPalEnvCredentials,
+} from "./paypal-env.js";
 import { config } from "../../../config/env.js";
 
 type TokenCache = {
@@ -5,7 +13,10 @@ type TokenCache = {
     expiresAtMs: number;
 };
 
-let tokenCache: TokenCache | null = null;
+const tokenCacheByEnv: Record<PayPalEnvironment, TokenCache | null> = {
+    sandbox: null,
+    live: null,
+};
 
 export type PayPalOrderResult = {
     id: string;
@@ -16,6 +27,7 @@ export type PayPalOrderResult = {
     amountValue: string | null;
     currencyCode: string | null;
     raw: unknown;
+    environment: PayPalEnvironment;
 };
 
 export type PayPalCaptureResult = {
@@ -26,25 +38,20 @@ export type PayPalCaptureResult = {
     amountValue: string | null;
     currencyCode: string | null;
     raw: unknown;
+    environment: PayPalEnvironment;
 };
 
-function apiBase(): string {
-    return config.paypal.apiBaseUrl;
-}
+export type PayPalWebhookVerifyResult = {
+    verified: boolean;
+    environment: PayPalEnvironment | null;
+    reason?: string;
+};
 
-function assertConfigured() {
-    if (!config.paypal.configured) {
-        throw Object.assign(
-            new Error(
-                "PayPal is not configured. Set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (PAYPAL_MODE=sandbox)."
-            ),
-            { status: 503, code: "PAYPAL_NOT_CONFIGURED" }
-        );
-    }
-}
-
-async function paypalFetch(path: string, init: RequestInit & { accessToken?: string } = {}) {
-    assertConfigured();
+async function paypalFetch(
+    env: PayPalEnvCredentials,
+    path: string,
+    init: RequestInit & { accessToken?: string } = {}
+) {
     const headers = new Headers(init.headers || {});
     headers.set("Accept", "application/json");
     if (init.accessToken) {
@@ -53,7 +60,7 @@ async function paypalFetch(path: string, init: RequestInit & { accessToken?: str
     if (init.body && !headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json");
     }
-    const res = await fetch(`${apiBase()}${path}`, {
+    const res = await fetch(`${env.apiBaseUrl}${path}`, {
         ...init,
         headers,
     });
@@ -71,23 +78,29 @@ async function paypalFetch(path: string, init: RequestInit & { accessToken?: str
                 : text.slice(0, 240);
         throw Object.assign(
             new Error(`PayPal API ${res.status}: ${detail || res.statusText}`),
-            { status: 502, code: "PAYPAL_API_ERROR", paypalStatus: res.status, paypalBody: json }
+            {
+                status: 502,
+                code: "PAYPAL_API_ERROR",
+                paypalStatus: res.status,
+                paypalEnvironment: env.environment,
+            }
         );
     }
     return json;
 }
 
-export async function getPayPalAccessToken(forceRefresh = false): Promise<string> {
-    assertConfigured();
+export async function getPayPalAccessToken(
+    environment: PayPalEnvironment = getActivePayPalEnv().environment,
+    forceRefresh = false
+): Promise<string> {
+    const env = assertPayPalEnvConfigured(environment);
     const now = Date.now();
-    if (!forceRefresh && tokenCache && tokenCache.expiresAtMs > now + 30_000) {
-        return tokenCache.accessToken;
+    const cached = tokenCacheByEnv[environment];
+    if (!forceRefresh && cached && cached.expiresAtMs > now + 30_000) {
+        return cached.accessToken;
     }
-    const basic = Buffer.from(
-        `${config.paypal.clientId}:${config.paypal.clientSecret}`,
-        "utf8"
-    ).toString("base64");
-    const res = await fetch(`${apiBase()}/v1/oauth2/token`, {
+    const basic = Buffer.from(`${env.clientId}:${env.clientSecret}`, "utf8").toString("base64");
+    const res = await fetch(`${env.apiBaseUrl}/v1/oauth2/token`, {
         method: "POST",
         headers: {
             Authorization: `Basic ${basic}`,
@@ -104,13 +117,13 @@ export async function getPayPalAccessToken(forceRefresh = false): Promise<string
     if (!res.ok || !json.access_token) {
         throw Object.assign(
             new Error(
-                `PayPal OAuth failed: ${json.error_description || res.statusText || res.status}`
+                `PayPal OAuth failed (${environment}): ${json.error_description || res.statusText || res.status}`
             ),
-            { status: 502, code: "PAYPAL_OAUTH_FAILED" }
+            { status: 502, code: "PAYPAL_OAUTH_FAILED", paypalEnvironment: environment }
         );
     }
     const expiresIn = Number(json.expires_in) || 3200;
-    tokenCache = {
+    tokenCacheByEnv[environment] = {
         accessToken: json.access_token,
         expiresAtMs: now + expiresIn * 1000,
     };
@@ -143,6 +156,10 @@ function pickCapture(order: {
     );
 }
 
+function activeOr(environment?: PayPalEnvironment): PayPalEnvironment {
+    return environment || getActivePayPalEnv().environment;
+}
+
 export async function createPayPalOrder(input: {
     amountUsd: number;
     currency?: string;
@@ -152,8 +169,11 @@ export async function createPayPalOrder(input: {
     returnUrl?: string;
     cancelUrl?: string;
     idempotencyKey: string;
+    environment?: PayPalEnvironment;
 }): Promise<PayPalOrderResult> {
-    const token = await getPayPalAccessToken();
+    const environment = activeOr(input.environment);
+    const env = assertPayPalEnvConfigured(environment);
+    const token = await getPayPalAccessToken(environment);
     const amount = Number(input.amountUsd);
     if (!Number.isFinite(amount) || amount <= 0) {
         throw Object.assign(new Error("PayPal amount must be greater than zero"), {
@@ -188,14 +208,12 @@ export async function createPayPalOrder(input: {
             user_action: "PAY_NOW",
             shipping_preference: "NO_SHIPPING",
             return_url:
-                input.returnUrl ||
-                `${config.publicAppUrl}/accounting?paypal=return`,
+                input.returnUrl || `${config.publicAppUrl}/accounting?paypal=return`,
             cancel_url:
-                input.cancelUrl ||
-                `${config.publicAppUrl}/accounting?paypal=cancel`,
+                input.cancelUrl || `${config.publicAppUrl}/accounting?paypal=cancel`,
         },
     };
-    const json = (await paypalFetch("/v2/checkout/orders", {
+    const json = (await paypalFetch(env, "/v2/checkout/orders", {
         method: "POST",
         accessToken: token,
         headers: {
@@ -227,15 +245,24 @@ export async function createPayPalOrder(input: {
         amountValue: capture?.amount?.value || null,
         currencyCode: capture?.amount?.currency_code || null,
         raw: json,
+        environment,
     };
 }
 
-export async function getPayPalOrder(paypalOrderId: string): Promise<PayPalOrderResult> {
-    const token = await getPayPalAccessToken();
-    const json = (await paypalFetch(`/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}`, {
-        method: "GET",
-        accessToken: token,
-    })) as {
+export async function getPayPalOrder(
+    paypalOrderId: string,
+    environment: PayPalEnvironment = getActivePayPalEnv().environment
+): Promise<PayPalOrderResult> {
+    const env = assertPayPalEnvConfigured(environment);
+    const token = await getPayPalAccessToken(environment);
+    const json = (await paypalFetch(
+        env,
+        `/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}`,
+        {
+            method: "GET",
+            accessToken: token,
+        }
+    )) as {
         id?: string;
         status?: string;
         links?: Array<{ rel?: string; href?: string }>;
@@ -253,15 +280,19 @@ export async function getPayPalOrder(paypalOrderId: string): Promise<PayPalOrder
         amountValue: capture?.amount?.value || null,
         currencyCode: capture?.amount?.currency_code || null,
         raw: json,
+        environment,
     };
 }
 
 export async function capturePayPalOrder(
     paypalOrderId: string,
-    captureRequestId: string
+    captureRequestId: string,
+    environment: PayPalEnvironment = getActivePayPalEnv().environment
 ): Promise<PayPalCaptureResult> {
-    const token = await getPayPalAccessToken();
+    const env = assertPayPalEnvConfigured(environment);
+    const token = await getPayPalAccessToken(environment);
     const json = (await paypalFetch(
+        env,
         `/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}/capture`,
         {
             method: "POST",
@@ -288,21 +319,57 @@ export async function capturePayPalOrder(
         amountValue: capture?.amount?.value || null,
         currencyCode: capture?.amount?.currency_code || null,
         raw: json,
+        environment,
     };
 }
 
-/** Official PayPal webhook signature verification. */
-export async function verifyPayPalWebhookSignature(input: {
+async function verifyWebhookAgainstEnv(
+    env: PayPalEnvCredentials,
+    input: {
+        transmissionId: string;
+        transmissionTime: string;
+        certUrl: string;
+        authAlgo: string;
+        transmissionSig: string;
+        webhookEvent: unknown;
+    }
+): Promise<boolean> {
+    const token = await getPayPalAccessToken(env.environment);
+    const json = (await paypalFetch(env, "/v1/notifications/verify-webhook-signature", {
+        method: "POST",
+        accessToken: token,
+        body: JSON.stringify({
+            transmission_id: input.transmissionId,
+            transmission_time: input.transmissionTime,
+            cert_url: input.certUrl,
+            auth_algo: input.authAlgo,
+            transmission_sig: input.transmissionSig,
+            webhook_id: env.webhookId,
+            webhook_event: input.webhookEvent,
+        }),
+    })) as { verification_status?: string };
+    return String(json.verification_status || "").toUpperCase() === "SUCCESS";
+}
+
+/**
+ * Dual-environment webhook verification.
+ * Does not trust PAYPAL_MODE — tries each webhook-capable env with its own
+ * credentials, API base, and webhook id (never mixed).
+ */
+export async function verifyPayPalWebhookSignatureDetailed(input: {
     headers: Record<string, string | string[] | undefined>;
     rawBody: string;
-}): Promise<boolean> {
-    assertConfigured();
-    if (!config.paypal.webhookId) {
+}): Promise<PayPalWebhookVerifyResult> {
+    const capable = listWebhookCapablePayPalEnvs();
+    if (!capable.length) {
         throw Object.assign(
-            new Error("PAYPAL_WEBHOOK_ID is not configured — cannot verify webhooks"),
+            new Error(
+                "No PayPal webhook environment is configured — set PAYPAL_SANDBOX_WEBHOOK_ID (or legacy PAYPAL_WEBHOOK_ID) and/or PAYPAL_LIVE_WEBHOOK_ID with matching client credentials"
+            ),
             { status: 503, code: "PAYPAL_WEBHOOK_ID_MISSING" }
         );
     }
+
     const h = input.headers;
     const pick = (name: string) => {
         const v = h[name] ?? h[name.toLowerCase()];
@@ -314,32 +381,66 @@ export async function verifyPayPalWebhookSignature(input: {
     const authAlgo = pick("paypal-auth-algo");
     const transmissionSig = pick("paypal-transmission-sig");
     if (!transmissionId || !transmissionTime || !certUrl || !authAlgo || !transmissionSig) {
-        return false;
+        return { verified: false, environment: null, reason: "missing_transmission_headers" };
     }
     let webhookEvent: unknown;
     try {
         webhookEvent = JSON.parse(input.rawBody);
     } catch {
-        return false;
+        return { verified: false, environment: null, reason: "invalid_json" };
     }
-    const token = await getPayPalAccessToken();
-    const json = (await paypalFetch("/v1/notifications/verify-webhook-signature", {
-        method: "POST",
-        accessToken: token,
-        body: JSON.stringify({
-            transmission_id: transmissionId,
-            transmission_time: transmissionTime,
-            cert_url: certUrl,
-            auth_algo: authAlgo,
-            transmission_sig: transmissionSig,
-            webhook_id: config.paypal.webhookId,
-            webhook_event: webhookEvent,
-        }),
-    })) as { verification_status?: string };
-    return String(json.verification_status || "").toUpperCase() === "SUCCESS";
+
+    // Prefer cert-url hint (sandbox vs live host) but always fall back to the other env.
+    const certHint: PayPalEnvironment | null = /sandbox/i.test(String(certUrl || ""))
+        ? "sandbox"
+        : /api\.paypal\.com|api-m\.paypal\.com/i.test(String(certUrl || ""))
+          ? "live"
+          : null;
+    const ordered = [...capable].sort((a, b) => {
+        if (!certHint) return 0;
+        if (a.environment === certHint) return -1;
+        if (b.environment === certHint) return 1;
+        return 0;
+    });
+
+    for (const env of ordered) {
+        try {
+            const ok = await verifyWebhookAgainstEnv(env, {
+                transmissionId,
+                transmissionTime,
+                certUrl,
+                authAlgo,
+                transmissionSig,
+                webhookEvent,
+            });
+            if (ok) {
+                return { verified: true, environment: env.environment };
+            }
+        } catch {
+            // Try the other environment; do not leak tokens or secrets.
+            continue;
+        }
+    }
+    return { verified: false, environment: null, reason: "signature_mismatch" };
 }
 
-/** Test helper — clear cached OAuth token. */
-export function clearPayPalTokenCache() {
-    tokenCache = null;
+/** Back-compat boolean wrapper (active dual verification under the hood). */
+export async function verifyPayPalWebhookSignature(input: {
+    headers: Record<string, string | string[] | undefined>;
+    rawBody: string;
+}): Promise<boolean> {
+    const result = await verifyPayPalWebhookSignatureDetailed(input);
+    return result.verified;
 }
+
+/** Test helper — clear cached OAuth tokens for one or all environments. */
+export function clearPayPalTokenCache(environment?: PayPalEnvironment) {
+    if (environment) {
+        tokenCacheByEnv[environment] = null;
+        return;
+    }
+    tokenCacheByEnv.sandbox = null;
+    tokenCacheByEnv.live = null;
+}
+
+export { getPayPalEnv, getActivePayPalEnv };

@@ -6,22 +6,37 @@ Accounting can open a shipment, generate a **real PayPal Checkout** payment link
 
 ## Environment
 
+Dual-environment credentials (preferred):
+
 ```bash
-PAYPAL_MODE=sandbox
+PAYPAL_MODE=sandbox          # active Checkout selector (default sandbox)
+PAYPAL_SANDBOX_CLIENT_ID=...
+PAYPAL_SANDBOX_CLIENT_SECRET=...
+PAYPAL_SANDBOX_WEBHOOK_ID=...
+PAYPAL_LIVE_CLIENT_ID=...      # optional until LIVE go-live
+PAYPAL_LIVE_CLIENT_SECRET=...
+PAYPAL_LIVE_WEBHOOK_ID=...
+PUBLIC_APP_URL=https://your-public-host   # used for return/cancel URLs
+```
+
+Legacy aliases still work and map to **Sandbox only** (never LIVE):
+
+```bash
 PAYPAL_CLIENT_ID=...
 PAYPAL_CLIENT_SECRET=...
-PAYPAL_WEBHOOK_ID=...   # from PayPal Developer Dashboard → Sandbox app → Webhooks
-PUBLIC_APP_URL=https://your-public-host   # used for return/cancel URLs
+PAYPAL_WEBHOOK_ID=...
 ```
 
 Corporate SMTP (existing Accounting mail) must already work for **Send to Customer**.
 
-Credentials stay **server-side only** (`src/config/env.ts` → `config.paypal`). Never put secrets in the frontend.
+Credentials stay **server-side only** (`src/config/env.ts` → `config.paypal`). Never put secrets in the frontend. Missing LIVE credentials must not break Sandbox; missing Sandbox must not silently use LIVE for Checkout.
 
-| Mode | API base |
-|------|----------|
-| sandbox (default) | `https://api-m.sandbox.paypal.com` |
+| Environment | API base |
+|-------------|----------|
+| sandbox (default Checkout) | `https://api-m.sandbox.paypal.com` |
 | live | `https://api-m.paypal.com` |
+
+`POST /api/webhooks/paypal` verifies signatures against **each configured webhook environment** (Sandbox and/or LIVE) using that environment’s own credentials + webhook id. `PAYPAL_MODE` does **not** decide which webhook is valid.
 
 ## Database
 
@@ -57,12 +72,17 @@ Webhook URL to register in PayPal Sandbox:
 
 `https://<PUBLIC_APP_URL>/api/webhooks/paypal`
 
-Suggested event types: `CHECKOUT.ORDER.APPROVED`, `CHECKOUT.ORDER.COMPLETED`, `CHECKOUT.ORDER.VOIDED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`.
+Suggested event types: `CHECKOUT.ORDER.APPROVED`, `CHECKOUT.ORDER.COMPLETED`, `CHECKOUT.ORDER.VOIDED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.PENDING`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`, `PAYMENT.CAPTURE.REVERSED`.
 
 Webhook handling **never calls the Capture API**. `PAYMENT.CAPTURE.COMPLETED` is
 signature-verified, matched to the persisted order/capture, checked against a
 read-only PayPal Order response, and validated for exact amount + USD currency.
-Event IDs are processed idempotently.
+Event IDs are processed idempotently. Verified environment is stored on
+`PayPalWebhookEvent.environment`.
+
+`PAYMENT.CAPTURE.REVERSED` clears `CUSTOMER_PAID`, sets order status `REVERSED`,
+flags `needsAccountingReview`, and sets shipment `paymentStatus=CUSTOMER_REVERSED`
+(no automatic re-charge).
 
 ## Payment states
 
@@ -73,13 +93,15 @@ CAPTURE_PENDING ──verified capture status=COMPLETED,
                    matching amount + USD──> COMPLETED ──refund──> REFUNDED
 CAPTURE_PENDING ──PayPal denied──> DENIED
 CAPTURE_PENDING ──validation/permanent error──> FAILED
+COMPLETED ──refund──> REFUNDED
+COMPLETED ──capture reversed──> REVERSED (Accounting review)
 CREATED / APPROVED ──void/cancel──> CANCELLED
 ```
 
 Only `COMPLETED` sets the shipment to `CUSTOMER_PAID`. A capture ID by itself is
 never payment proof. Refund processing changes the order to `REFUNDED`, clears
 the received-payment timestamp, and sets shipment status to
-`CUSTOMER_REFUNDED`.
+`CUSTOMER_REFUNDED`. Reversal never marks paid; it flags Accounting review.
 
 The existing manual payment endpoint remains permission-gated by
 `CustomerPaymentsRecord`. It rejects PayPal-method loads and active PayPal
@@ -108,6 +130,19 @@ Shows invoice number, customer, amount, order id, URL, created by/at, status.
 8. Replay the same webhook body → `duplicate: true`, no double-pay.
 9. Cancel checkout in PayPal → order not marked paid; regenerate if needed after void/fail.
 10. Unset credentials → generate returns PayPal-not-configured (503).
+
+## Remaining LIVE activation steps (ops — not this PR)
+
+Do **not** flip LIVE in this PR. When management approves:
+
+1. Create a Live PayPal REST app; copy `PAYPAL_LIVE_CLIENT_ID` / `PAYPAL_LIVE_CLIENT_SECRET`.
+2. Register webhook URL `https://<PUBLIC_APP_URL>/api/webhooks/paypal` on the **Live** app; copy `PAYPAL_LIVE_WEBHOOK_ID` (include `PAYMENT.CAPTURE.REVERSED`).
+3. Keep Sandbox vars intact; set Live vars alongside them.
+4. Run `npx prisma db push` (additive columns: `environment`, `reversal_id`, `reversed_at`, `needs_accounting_review`).
+5. Restart the Node process so env vars load.
+6. Verify dual webhook: Sandbox + Live deliveries both return 200; invalid signatures 401.
+7. Only then set `PAYPAL_MODE=live` for Checkout (webhooks already verify both).
+8. Smoke-test one small real payment + refund path under Accounting supervision.
 
 ## Out of scope (Phase 1)
 

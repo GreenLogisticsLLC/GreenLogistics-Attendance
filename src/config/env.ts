@@ -165,8 +165,9 @@ export const config = {
     },
     /**
      * PayPal Checkout (Orders v2) — server-side only.
-     * PAYPAL_MODE=sandbox|live (default sandbox).
-     * Getters read process.env so tests / late env injection work.
+     * PAYPAL_MODE=sandbox|live selects the active Checkout environment (default sandbox).
+     * Dedicated SANDBOX_* / LIVE_* vars preferred; legacy PAYPAL_CLIENT_* map to Sandbox only.
+     * LIVE never falls back to Sandbox credentials (and Sandbox never uses LIVE).
      */
     paypal: {
         get mode(): "live" | "sandbox" {
@@ -174,22 +175,67 @@ export const config = {
                 ? "live"
                 : "sandbox";
         },
+        /** @deprecated Prefer sandbox/live getters; legacy alias for active Checkout env. */
         get clientId() {
-            return (process.env.PAYPAL_CLIENT_ID || "").trim();
+            return this.active.clientId;
         },
+        /** @deprecated Prefer sandbox/live getters; legacy alias for active Checkout env. */
         get clientSecret() {
-            return (process.env.PAYPAL_CLIENT_SECRET || "").trim();
+            return this.active.clientSecret;
         },
+        /** @deprecated Prefer sandbox/live getters; legacy alias for active Checkout env. */
         get webhookId() {
-            return (process.env.PAYPAL_WEBHOOK_ID || "").trim();
+            return this.active.webhookId;
         },
         get apiBaseUrl() {
-            return this.mode === "live"
-                ? "https://api-m.paypal.com"
-                : "https://api-m.sandbox.paypal.com";
+            return this.active.apiBaseUrl;
         },
         get configured() {
-            return Boolean(this.clientId && this.clientSecret);
+            return this.active.configured;
+        },
+        get sandbox() {
+            const clientId = (
+                process.env.PAYPAL_SANDBOX_CLIENT_ID ||
+                process.env.PAYPAL_CLIENT_ID ||
+                ""
+            ).trim();
+            const clientSecret = (
+                process.env.PAYPAL_SANDBOX_CLIENT_SECRET ||
+                process.env.PAYPAL_CLIENT_SECRET ||
+                ""
+            ).trim();
+            const webhookId = (
+                process.env.PAYPAL_SANDBOX_WEBHOOK_ID ||
+                process.env.PAYPAL_WEBHOOK_ID ||
+                ""
+            ).trim();
+            return {
+                environment: "sandbox" as const,
+                clientId,
+                clientSecret,
+                webhookId,
+                apiBaseUrl: "https://api-m.sandbox.paypal.com",
+                configured: Boolean(clientId && clientSecret),
+                webhookConfigured: Boolean(clientId && clientSecret && webhookId),
+            };
+        },
+        get live() {
+            // LIVE never inherits legacy PAYPAL_CLIENT_* (those map to Sandbox only).
+            const clientId = (process.env.PAYPAL_LIVE_CLIENT_ID || "").trim();
+            const clientSecret = (process.env.PAYPAL_LIVE_CLIENT_SECRET || "").trim();
+            const webhookId = (process.env.PAYPAL_LIVE_WEBHOOK_ID || "").trim();
+            return {
+                environment: "live" as const,
+                clientId,
+                clientSecret,
+                webhookId,
+                apiBaseUrl: "https://api-m.paypal.com",
+                configured: Boolean(clientId && clientSecret),
+                webhookConfigured: Boolean(clientId && clientSecret && webhookId),
+            };
+        },
+        get active() {
+            return this.mode === "live" ? this.live : this.sandbox;
         },
     },
 };

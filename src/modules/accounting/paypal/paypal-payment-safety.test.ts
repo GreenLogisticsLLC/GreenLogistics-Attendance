@@ -120,4 +120,5 @@ test("PayPal state normalization is explicit", () => {
     assert.equal(stateForPayPalStatus("DENIED"), "DENIED");
     assert.equal(stateForPayPalStatus("VOIDED"), "CANCELLED");
     assert.equal(stateForPayPalStatus("REFUNDED"), "REFUNDED");
+    assert.equal(stateForPayPalStatus("REVERSED"), "REVERSED");
 });
