@@ -43,6 +43,8 @@ export const AccountingPermissions = {
     CarrierPaymentsExecute: "accounting.carrier_payments.execute",
     NotesCreate: "accounting.notes.create",
     AuditView: "accounting.audit.view",
+    /** Owner/Admin only — Invoice Pricing / Payment Settings. */
+    PaymentSettingsManage: "accounting.payment_settings.manage",
 } as const;
 
 export type AccountingPermission =

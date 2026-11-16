@@ -125,6 +125,19 @@ export async function accountingAddNoteController(req: AuthRequest, res: Respons
     }
 }
 
+export async function accountingPreviewInvoicePricingController(
+    req: AuthRequest,
+    res: Response
+) {
+    try {
+        const id = String(req.params.id || "");
+        const data = await accountingService.previewInvoicePricing(actorFrom(req), id);
+        return res.json(apiResponse(true, "Invoice pricing preview", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
 export async function accountingCreateInvoiceController(req: AuthRequest, res: Response) {
     try {
         const id = String(req.params.id || "");
@@ -132,8 +145,36 @@ export async function accountingCreateInvoiceController(req: AuthRequest, res: R
             invoiceNumber: req.body?.invoiceNumber,
             invoiceDate: req.body?.invoiceDate,
             dueDate: req.body?.dueDate,
+            confirmPricing: Boolean(req.body?.confirmPricing),
         });
         return res.json(apiResponse(true, "Invoice created", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
+export async function accountingGetInvoicePricingSettingsController(
+    req: AuthRequest,
+    res: Response
+) {
+    try {
+        const data = await accountingService.getInvoicePricingSettings(actorFrom(req));
+        return res.json(apiResponse(true, "Invoice pricing settings", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
+export async function accountingUpdateInvoicePricingSettingsController(
+    req: AuthRequest,
+    res: Response
+) {
+    try {
+        const data = await accountingService.updateInvoicePricingSettings(
+            actorFrom(req),
+            req.body || {}
+        );
+        return res.json(apiResponse(true, "Invoice pricing settings saved", data));
     } catch (err) {
         return res.status(errStatus(err)).json(errPayload(err));
     }

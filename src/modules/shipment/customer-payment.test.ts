@@ -5,35 +5,85 @@ import {
     customerPaymentQuote,
     normalizeCustomerPaymentMethod,
 } from "./customer-payment.js";
+import { parseInvoicePricingSettings } from "../accounting/invoice-pricing.js";
 
-test("payment option names and the four methods that add 3 percent", () => {
+test("payment option names normalize without PayPal-only surcharge labels", () => {
     assert.equal(normalizeCustomerPaymentMethod("venmo"), "VENMO");
     assert.equal(normalizeCustomerPaymentMethod("credit card"), "CREDIT_CARD");
     assert.equal(normalizeCustomerPaymentMethod("cash app"), "CASHAPP");
     assert.equal(normalizeCustomerPaymentMethod("wire"), "WIRE");
     assert.equal(normalizeCustomerPaymentMethod(""), null);
 
+    // Default policy: fee disabled → no handling fee for any method.
     const venmo = customerPaymentQuote({ customerRate: 5000, method: "VENMO" });
-    assert.equal(venmo.label, "Venmo +3%");
-    assert.equal(venmo.fee, 150);
-    assert.equal(venmo.total, 5150);
+    assert.equal(venmo.label, "Venmo");
+    assert.equal(venmo.fee, 0);
+    assert.equal(venmo.total, 5000);
 
-    const card = customerPaymentQuote({ customerRate: 5000, accessorialCharges: 100, method: "CREDIT_CARD" });
-    assert.equal(card.fee, 150);
-    assert.equal(card.total, 5250);
+    const paypal = customerPaymentQuote({ customerRate: 5000, method: "PAYPAL" });
+    assert.equal(paypal.label, "PayPal");
+    assert.equal(paypal.fee, 0);
+    assert.equal(paypal.total, 5000);
 
     const wire = customerPaymentQuote({ customerRate: 5000, method: "WIRE" });
     assert.equal(wire.fee, 0);
     assert.equal(wire.total, 5000);
-
-    const waived = customerPaymentQuote({ customerRate: 5000, method: "PAYPAL", waiveFee: true });
-    assert.equal(waived.waived, true);
-    assert.equal(waived.fee, 0);
-    assert.equal(waived.total, 5000);
-    assert.equal(waived.label, "PayPal");
 });
 
-test("accounting, owner, manager, and administrator can waive the 3 percent", () => {
+test("enabled handling fee applies equally to PayPal and Wire", () => {
+    const pricing = parseInvoicePricingSettings({
+        enabled: true,
+        feeType: "percentage",
+        percentageValue: 3,
+        policyAcknowledgedAt: "2026-01-01T00:00:00.000Z",
+        version: 2,
+    });
+    const paypal = customerPaymentQuote({
+        customerRate: 5000,
+        accessorialCharges: 100,
+        method: "PAYPAL",
+        pricing,
+    });
+    const wire = customerPaymentQuote({
+        customerRate: 5000,
+        accessorialCharges: 100,
+        method: "WIRE",
+        pricing,
+    });
+    assert.equal(paypal.fee, 153); // 3% of subtotal 5100
+    assert.equal(wire.fee, 153);
+    assert.equal(paypal.total, wire.total);
+    assert.equal(paypal.subtotal, 5100);
+    assert.ok(paypal.lineItems.some((li) => li.code === "HANDLING_FEE"));
+});
+
+test("locked invoice snapshot ignores later settings changes", () => {
+    const liveOff = parseInvoicePricingSettings({ enabled: false, feeType: "none" });
+    const quote = customerPaymentQuote({
+        customerRate: 1000,
+        method: "PAYPAL",
+        pricing: liveOff,
+        pricingSnapshot: {
+            version: 9,
+            enabled: true,
+            feeType: "fixed",
+            configuredValue: 40,
+            feeAmountUsd: 40,
+            subtotalUsd: 1000,
+            totalUsd: 1040,
+            currency: "USD",
+            lineItemLabel: "Handling fee",
+            waived: false,
+            capturedAt: "2026-01-02T00:00:00.000Z",
+        },
+    });
+    assert.equal(quote.fromSnapshot, true);
+    assert.equal(quote.fee, 40);
+    assert.equal(quote.total, 1040);
+    assert.equal(quote.pricingVersion, 9);
+});
+
+test("accounting, owner, manager, and administrator can waive the handling fee", () => {
     assert.equal(canWaiveCustomerPaymentFee("Accounting"), true);
     assert.equal(canWaiveCustomerPaymentFee("Owner"), true);
     assert.equal(canWaiveCustomerPaymentFee("Manager"), true);

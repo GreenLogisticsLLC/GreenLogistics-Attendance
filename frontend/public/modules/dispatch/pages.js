@@ -1172,10 +1172,10 @@ window.GreenOSModules["dispatch"] = {
   customerPaymentOptions(selected) {
     var methods = [
       ["WIRE", "Wire"],
-      ["VENMO", "Venmo +3%"],
-      ["PAYPAL", "PayPal +3%"],
-      ["CREDIT_CARD", "Credit card +3%"],
-      ["CASHAPP", "Cash App +3%"],
+      ["VENMO", "Venmo"],
+      ["PAYPAL", "PayPal"],
+      ["CREDIT_CARD", "Credit card"],
+      ["CASHAPP", "Cash App"],
       ["ZELLE", "Zelle"],
       ["ACH", "ACH"],
     ];

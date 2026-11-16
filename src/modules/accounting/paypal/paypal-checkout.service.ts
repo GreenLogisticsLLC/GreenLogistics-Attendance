@@ -8,6 +8,7 @@ import {
 } from "../../../auth/accounting.js";
 import { domainEventEngine } from "../../shipment/services/domain-event.engine.js";
 import { customerPaymentQuote } from "../../shipment/customer-payment.js";
+import { loadInvoicePricingSettings } from "../invoice-pricing.js";
 import {
     capturePayPalOrder,
     createPayPalOrder,
@@ -196,11 +197,15 @@ export class PayPalCheckoutService {
             throw badRequest("Customer is already marked paid on this load");
         }
 
+        const pricing = await loadInvoicePricingSettings();
         const quote = customerPaymentQuote({
             customerRate: s.customerRate,
             accessorialCharges: s.accessorialCharges,
             method: s.customerPaymentMethod,
             waiveFee: s.waiveCustomerPaymentFee,
+            pricing,
+            pricingSnapshot: (s as { invoicePricingSnapshotJson?: string | null })
+                .invoicePricingSnapshotJson,
         });
         if (quote.total == null || quote.total <= 0) {
             throw badRequest(

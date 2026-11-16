@@ -11,16 +11,19 @@ import {
     accountingCreateInvoiceController,
     accountingCustomerPaymentController,
     accountingDashboardController,
+    accountingGetInvoicePricingSettingsController,
     accountingGetShipmentController,
     accountingListShipmentsController,
     accountingPayPalGenerateController,
     accountingPayPalSendController,
     accountingPayPalStatusController,
+    accountingPreviewInvoicePricingController,
     accountingReadyBillingController,
     accountingReadyCarrierPayController,
     accountingRejectDocumentsController,
     accountingSendInvoiceController,
     accountingSendCarrierInvoiceController,
+    accountingUpdateInvoicePricingSettingsController,
     accountingVerifyDocumentsController,
     accountingVerifyFinancialsController,
 } from "../controllers/accounting.controller.js";
@@ -73,6 +76,21 @@ accountingRouter.post(
     accountingAddNoteController
 );
 
+accountingRouter.get(
+    "/settings/invoice-pricing",
+    requireAccountingPermission(AccountingPermissions.BillingView),
+    accountingGetInvoicePricingSettingsController
+);
+accountingRouter.put(
+    "/settings/invoice-pricing",
+    requireAccountingPermission(AccountingPermissions.PaymentSettingsManage),
+    accountingUpdateInvoicePricingSettingsController
+);
+accountingRouter.get(
+    "/shipments/:id/invoice/pricing-preview",
+    requireAccountingPermission(AccountingPermissions.BillingView),
+    accountingPreviewInvoicePricingController
+);
 accountingRouter.post(
     "/shipments/:id/invoice",
     requireAccountingPermission(AccountingPermissions.BillingCreate),

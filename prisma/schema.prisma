@@ -389,8 +389,20 @@ model ShipmentLead {
   customerRate          Float?                  @map("customer_rate")
   /// How the customer pays this load: WIRE | VENMO | PAYPAL | CREDIT_CARD | CASHAPP | ZELLE | ACH.
   customerPaymentMethod String?                 @map("customer_payment_method")
-  /// Accounting can turn off the 3% fee without changing the payment method.
+  /// Accounting can waive the configured handling fee without changing the payment method.
   waiveCustomerPaymentFee Boolean               @default(false) @map("waive_customer_payment_fee")
+  /// Locked Invoice Pricing policy version when the customer invoice was recorded.
+  invoicePricingVersion     Int?                @map("invoice_pricing_version")
+  /// none | percentage | fixed — snapshotted at invoice create.
+  invoiceFeeType            String?             @map("invoice_fee_type")
+  /// Configured % or fixed USD value at invoice create.
+  invoiceFeeConfiguredValue Float?              @map("invoice_fee_configured_value")
+  /// Calculated handling fee USD at invoice create (immutable thereafter).
+  invoiceFeeAmountUsd       Float?              @map("invoice_fee_amount_usd")
+  invoiceSubtotalUsd        Float?              @map("invoice_subtotal_usd")
+  invoiceTotalUsd           Float?              @map("invoice_total_usd")
+  /// Full JSON snapshot of invoice pricing (policy + amounts) for audit/immutability.
+  invoicePricingSnapshotJson String?            @map("invoice_pricing_snapshot_json")
   carrierRate           Float?                  @map("carrier_rate")
   fuelSurcharge         Float?                  @map("fuel_surcharge")
   accessorialCharges    Float?                  @map("accessorial_charges")

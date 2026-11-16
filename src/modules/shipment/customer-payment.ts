@@ -1,13 +1,26 @@
-/** How the customer pays a load. Four methods add 3% on top of the customer rate. */
+/**
+ * Customer payment methods + quote helpers.
+ *
+ * Handling fees come from Invoice Pricing settings (Accounting → Payment Settings).
+ * They are method-neutral and DISABLED by default — never a PayPal-only surcharge.
+ */
+
+import {
+    buildInvoicePricingBreakdown,
+    defaultInvoicePricingSettings,
+    parseInvoicePricingSnapshot,
+    type InvoicePricingSettings,
+    type InvoicePricingSnapshot,
+} from "../accounting/invoice-pricing.js";
 
 export const CUSTOMER_PAYMENT_METHODS = [
-    { id: "WIRE", label: "Wire", feeRate: 0 },
-    { id: "VENMO", label: "Venmo +3%", feeRate: 0.03 },
-    { id: "PAYPAL", label: "PayPal +3%", feeRate: 0.03 },
-    { id: "CREDIT_CARD", label: "Credit card +3%", feeRate: 0.03 },
-    { id: "CASHAPP", label: "Cash App +3%", feeRate: 0.03 },
-    { id: "ZELLE", label: "Zelle", feeRate: 0 },
-    { id: "ACH", label: "ACH", feeRate: 0 },
+    { id: "WIRE", label: "Wire" },
+    { id: "VENMO", label: "Venmo" },
+    { id: "PAYPAL", label: "PayPal" },
+    { id: "CREDIT_CARD", label: "Credit card" },
+    { id: "CASHAPP", label: "Cash App" },
+    { id: "ZELLE", label: "Zelle" },
+    { id: "ACH", label: "ACH" },
 ] as const;
 
 export type CustomerPaymentMethodId = (typeof CUSTOMER_PAYMENT_METHODS)[number]["id"];
@@ -24,31 +37,25 @@ export function normalizeCustomerPaymentMethod(value: unknown): CustomerPaymentM
     return BY_ID.has(key as CustomerPaymentMethodId) ? (key as CustomerPaymentMethodId) : null;
 }
 
-function money(value: unknown): number {
-    if (value == null || value === "") return 0;
-    const n = typeof value === "number" ? value : Number(value);
-    return Number.isFinite(n) ? n : 0;
-}
-
-function hasAmount(value: unknown): boolean {
-    if (value == null || value === "") return false;
-    return Number.isFinite(typeof value === "number" ? value : Number(value));
-}
-
-function cents(value: number): number {
-    return Math.round(value * 100) / 100;
-}
-
 export type CustomerPaymentQuote = {
     method: CustomerPaymentMethodId | null;
     label: string | null;
+    /** @deprecated Prefer feeConfiguredValue + feeType from invoice pricing. */
     feeRate: number;
     fee: number;
     waived: boolean;
     rate: number | null;
     accessorials: number;
-    /** Rate + accessorials + the 3% fee, unless Accounting waived the fee. */
+    /** Rate + accessorials + handling fee (unless waived / disabled). */
     total: number | null;
+    subtotal: number | null;
+    feeType: "none" | "percentage" | "fixed";
+    feeConfiguredValue: number;
+    pricingVersion: number;
+    lineItemLabel: string;
+    lineItems: Array<{ code: string; label: string; amountUsd: number }>;
+    /** True when totals came from a locked invoice snapshot. */
+    fromSnapshot: boolean;
 };
 
 export function customerPaymentQuote(input: {
@@ -56,24 +63,47 @@ export function customerPaymentQuote(input: {
     accessorialCharges?: unknown;
     method?: unknown;
     waiveFee?: boolean | null;
+    /** Live Invoice Pricing settings. Defaults to disabled (no fee). */
+    pricing?: InvoicePricingSettings | null;
+    /** Locked snapshot from a recorded invoice — wins over live settings. */
+    pricingSnapshot?: InvoicePricingSnapshot | string | null;
 }): CustomerPaymentQuote {
     const methodId = normalizeCustomerPaymentMethod(input.method);
     const method = methodId ? BY_ID.get(methodId)! : null;
-    const knownRate = hasAmount(input.customerRate);
-    const rate = knownRate ? money(input.customerRate) : null;
-    const accessorials = money(input.accessorialCharges);
-    const feeRate = method && !input.waiveFee ? method.feeRate : 0;
-    const fee = rate == null ? 0 : cents(rate * feeRate);
-    const total = rate == null && !accessorials ? null : cents((rate || 0) + accessorials + fee);
+    const settings = input.pricing || defaultInvoicePricingSettings();
+    const snapshot =
+        typeof input.pricingSnapshot === "string" || input.pricingSnapshot
+            ? parseInvoicePricingSnapshot(input.pricingSnapshot)
+            : null;
+
+    const breakdown = buildInvoicePricingBreakdown({
+        customerRate: input.customerRate,
+        accessorialCharges: input.accessorialCharges,
+        waiveFee: input.waiveFee,
+        settings,
+        snapshot,
+    });
+
+    // feeRate kept for older UI: percentage as fraction, else 0.
+    const feeRate =
+        breakdown.feeType === "percentage" ? breakdown.configuredValue / 100 : 0;
+
     return {
         method: methodId,
-        label: method ? (input.waiveFee ? method.label.replace(/ \+3%$/, "") : method.label) : null,
+        label: method ? method.label : null,
         feeRate,
-        fee,
-        waived: Boolean(input.waiveFee && method && method.feeRate > 0),
-        rate,
-        accessorials,
-        total,
+        fee: breakdown.feeAmountUsd,
+        waived: breakdown.waived,
+        rate: breakdown.rateUsd,
+        accessorials: breakdown.accessorialsUsd,
+        total: breakdown.totalUsd,
+        subtotal: breakdown.subtotalUsd,
+        feeType: breakdown.feeType,
+        feeConfiguredValue: breakdown.configuredValue,
+        pricingVersion: breakdown.pricingVersion,
+        lineItemLabel: breakdown.lineItemLabel,
+        lineItems: breakdown.lineItems,
+        fromSnapshot: Boolean(snapshot),
     };
 }
 
