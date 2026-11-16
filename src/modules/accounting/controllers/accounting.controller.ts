@@ -246,8 +246,14 @@ export async function paypalWebhookController(req: AuthRequest, res: Response) {
             headers: req.headers as Record<string, string | string[] | undefined>,
             rawBody,
         });
+        // Fresh PROCESSING lease held by another worker → 503 so PayPal retries.
+        // Completed / duplicate deliveries → 200 (do not re-execute).
+        if (data?.retryable) {
+            return res.status(503).json({ success: false, ...data });
+        }
         return res.status(200).json({ success: true, ...data });
     } catch (err) {
+        // Handler failures leave processResult=error: and must be retried by PayPal.
         return res.status(errStatus(err)).json(errPayload(err));
     }
 }

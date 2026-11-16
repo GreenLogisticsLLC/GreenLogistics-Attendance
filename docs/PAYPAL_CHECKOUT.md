@@ -6,22 +6,37 @@ Accounting can open a shipment, generate a **real PayPal Checkout** payment link
 
 ## Environment
 
+Dual-environment credentials (preferred):
+
 ```bash
-PAYPAL_MODE=sandbox
+PAYPAL_MODE=sandbox          # active Checkout selector (default sandbox)
+PAYPAL_SANDBOX_CLIENT_ID=...
+PAYPAL_SANDBOX_CLIENT_SECRET=...
+PAYPAL_SANDBOX_WEBHOOK_ID=...
+PAYPAL_LIVE_CLIENT_ID=...      # optional until LIVE go-live
+PAYPAL_LIVE_CLIENT_SECRET=...
+PAYPAL_LIVE_WEBHOOK_ID=...
+PUBLIC_APP_URL=https://your-public-host   # used for return/cancel URLs
+```
+
+Legacy aliases still work and map to **Sandbox only** (never LIVE):
+
+```bash
 PAYPAL_CLIENT_ID=...
 PAYPAL_CLIENT_SECRET=...
-PAYPAL_WEBHOOK_ID=...   # from PayPal Developer Dashboard → Sandbox app → Webhooks
-PUBLIC_APP_URL=https://your-public-host   # used for return/cancel URLs
+PAYPAL_WEBHOOK_ID=...
 ```
 
 Corporate SMTP (existing Accounting mail) must already work for **Send to Customer**.
 
-Credentials stay **server-side only** (`src/config/env.ts` → `config.paypal`). Never put secrets in the frontend.
+Credentials stay **server-side only** (`src/config/env.ts` → `config.paypal`). Never put secrets in the frontend. Missing LIVE credentials must not break Sandbox; missing Sandbox must not silently use LIVE for Checkout.
 
-| Mode | API base |
-|------|----------|
-| sandbox (default) | `https://api-m.sandbox.paypal.com` |
+| Environment | API base |
+|-------------|----------|
+| sandbox (default Checkout) | `https://api-m.sandbox.paypal.com` |
 | live | `https://api-m.paypal.com` |
+
+`POST /api/webhooks/paypal` verifies signatures against **each configured webhook environment** (Sandbox and/or LIVE) using that environment’s own credentials + webhook id. `PAYPAL_MODE` does **not** decide which webhook is valid.
 
 ## Database
 
@@ -57,12 +72,17 @@ Webhook URL to register in PayPal Sandbox:
 
 `https://<PUBLIC_APP_URL>/api/webhooks/paypal`
 
-Suggested event types: `CHECKOUT.ORDER.APPROVED`, `CHECKOUT.ORDER.COMPLETED`, `CHECKOUT.ORDER.VOIDED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`.
+Suggested event types: `CHECKOUT.ORDER.APPROVED`, `CHECKOUT.ORDER.COMPLETED`, `CHECKOUT.ORDER.VOIDED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.PENDING`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`, `PAYMENT.CAPTURE.REVERSED`.
 
 Webhook handling **never calls the Capture API**. `PAYMENT.CAPTURE.COMPLETED` is
 signature-verified, matched to the persisted order/capture, checked against a
 read-only PayPal Order response, and validated for exact amount + USD currency.
-Event IDs are processed idempotently.
+Event IDs are processed idempotently. Verified environment is stored on
+`PayPalWebhookEvent.environment`.
+
+`PAYMENT.CAPTURE.REVERSED` clears `CUSTOMER_PAID`, sets order status `REVERSED`,
+flags `needsAccountingReview`, and sets shipment `paymentStatus=CUSTOMER_REVERSED`
+(no automatic re-charge).
 
 ## Payment states
 
@@ -73,13 +93,62 @@ CAPTURE_PENDING ──verified capture status=COMPLETED,
                    matching amount + USD──> COMPLETED ──refund──> REFUNDED
 CAPTURE_PENDING ──PayPal denied──> DENIED
 CAPTURE_PENDING ──validation/permanent error──> FAILED
+COMPLETED ──refund──> REFUNDED
+COMPLETED ──capture reversed──> REVERSED (Accounting review)
 CREATED / APPROVED ──void/cancel──> CANCELLED
 ```
 
 Only `COMPLETED` sets the shipment to `CUSTOMER_PAID`. A capture ID by itself is
 never payment proof. Refund processing changes the order to `REFUNDED`, clears
 the received-payment timestamp, and sets shipment status to
+`CUSTOMER_REFUNDED`. Reversal never marks paid; it flags Accounting review.
+
+### Terminal states (`REVERSED` / `REFUNDED`)
+
+`REVERSED` and `REFUNDED` are terminal for that payment attempt:
+
+- Stale `CHECKOUT.ORDER.*` / `PAYMENT.CAPTURE.PENDING|DENIED|COMPLETED|VOIDED`
+  events cannot rewrite status or restore `CUSTOMER_PAID`.
+- `REFUNDED` after `REVERSED` records refund facts (`refundId` / `refundedAt`) but
+  keeps status `REVERSED`, shipment `CUSTOMER_REVERSED`, and Accounting review.
+- `REVERSED` after `REFUNDED` upgrades to `REVERSED` / `CUSTOMER_REVERSED` while
+  preserving prior refund fields.
+- Regenerating a link after reverse/refund creates a **new** order row (new
+  idempotency key + PayPal order id). Historical reversal/capture fields stay on
+  the old row and are never erased or reused.
+
+### Retry-chain uniqueness
+
+`logicalBase = sha256(shipmentLeadId|cents|invoice|PAYPAL_MODE)[:48]`  
+`attemptKey(0) = logicalBase`  
+`attemptKey(n) = sha256(logicalBase|attempt|n)[:48]` for `n ≥ 1`
+
+Generate walks `n = 0,1,2,…` until it finds an open attempt (reuse) or a free key
+(create). An open attempt is reused only when **shipment + environment + amount +
+currency** (and invoice when present) match — never a Sandbox link for LIVE, or
+an old amount after the quote changes. Closed attempts (`REVERSED` / `REFUNDED` /
+`COMPLETED` / `DENIED` / `FAILED` / `CANCELLED`) keep their key forever.
+Concurrent Generate / timeout retries converge via unique `idempotency_key` +
+PayPal `PayPal-Request-Id`. After 64 closed attempts Generate returns
+`PAYPAL_RETRY_CHAIN_EXHAUSTED` without corrupting history.
+
+Capture finalization uses conditional `updateMany` (non-terminal only). Shipment
+`CUSTOMER_PAID` is blocked when status is already `CUSTOMER_REVERSED` /
 `CUSTOMER_REFUNDED`.
+
+### Webhook claim / crash recovery
+
+Deliveries are claimed with `processResult=PROCESSING` + `processingStartedAt`.
+`processed=true` is set **only after** the business transaction succeeds. Failed
+handlers store `error:…` and clear the lease so PayPal retries (non-2xx). A
+crash-abandoned `PROCESSING` lease older than **120s** is reclaimed by the next
+delivery. A **fresh** lease held by another worker returns `retryable: true` and
+HTTP **503** (not 200) so PayPal retries instead of treating the event as done.
+
+This is **PayPal Checkout (Orders v2)** — not the PayPal Invoicing API.
+
+Independent Accounting actions (manual notes, document uploads, clearing review
+flags in UI later) are out of scope for these webhook guards.
 
 The existing manual payment endpoint remains permission-gated by
 `CustomerPaymentsRecord`. It rejects PayPal-method loads and active PayPal
@@ -108,6 +177,20 @@ Shows invoice number, customer, amount, order id, URL, created by/at, status.
 8. Replay the same webhook body → `duplicate: true`, no double-pay.
 9. Cancel checkout in PayPal → order not marked paid; regenerate if needed after void/fail.
 10. Unset credentials → generate returns PayPal-not-configured (503).
+
+## Remaining LIVE activation steps (ops — not this PR)
+
+Do **not** flip LIVE in this PR. When management approves:
+
+1. Create a Live PayPal REST app; copy `PAYPAL_LIVE_CLIENT_ID` / `PAYPAL_LIVE_CLIENT_SECRET`.
+2. Register webhook URL `https://<PUBLIC_APP_URL>/api/webhooks/paypal` on the **Live** app; copy `PAYPAL_LIVE_WEBHOOK_ID` (include `PAYMENT.CAPTURE.REVERSED`).
+3. Keep Sandbox vars intact; set Live vars alongside them.
+4. Back up Contabo SQLite/Postgres **before** merge/deploy.
+5. Run `npx prisma db push` (additive: `environment`, `reversal_id`, `reversed_at`, `needs_accounting_review`, webhook `environment`, `processing_started_at`).
+6. Restart the Node process so env vars load (Contabo deploy does PM2 restart).
+7. Verify dual webhook: completed deliveries return 200; in-flight PROCESSING returns 503; invalid signatures 401.
+8. Only then set `PAYPAL_MODE=live` for Checkout (webhooks already verify both).
+9. Smoke-test one small real payment + refund path under Accounting supervision.
 
 ## Out of scope (Phase 1)
 

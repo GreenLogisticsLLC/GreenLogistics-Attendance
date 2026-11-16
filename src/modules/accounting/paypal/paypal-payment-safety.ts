@@ -1,3 +1,5 @@
+import { createHash } from "crypto";
+
 export const PAYPAL_PAYMENT_STATES = [
     "CREATED",
     "APPROVED",
@@ -7,6 +9,7 @@ export const PAYPAL_PAYMENT_STATES = [
     "FAILED",
     "CANCELLED",
     "REFUNDED",
+    "REVERSED",
 ] as const;
 
 export type PayPalPaymentState = (typeof PAYPAL_PAYMENT_STATES)[number];
@@ -105,6 +108,8 @@ export function stateForPayPalStatus(status: string | null | undefined): PayPalP
         case "REFUNDED":
         case "PARTIALLY_REFUNDED":
             return "REFUNDED";
+        case "REVERSED":
+            return "REVERSED";
         case "FAILED":
             return "FAILED";
         default:
@@ -122,4 +127,236 @@ export async function runClaimedCapture<T>(input: {
     reconcile: () => Promise<T>;
 }): Promise<T> {
     return (await input.claim()) ? input.capture() : input.reconcile();
+}
+
+/** Terminal money outcomes — never reopen as payable / paid without a new attempt. */
+export const PAYPAL_TERMINAL_STATUSES = ["REFUNDED", "REVERSED"] as const;
+
+export type PayPalLifecycleRow = {
+    status: string | null | undefined;
+    paidAt?: Date | null;
+    refundedAt?: Date | null;
+    reversedAt?: Date | null;
+    reversalId?: string | null;
+    needsAccountingReview?: boolean | null;
+};
+
+export function isReversedTerminal(row: PayPalLifecycleRow): boolean {
+    return String(row.status || "").toUpperCase() === "REVERSED" || row.reversedAt != null;
+}
+
+export function isRefundedTerminal(row: PayPalLifecycleRow): boolean {
+    return String(row.status || "").toUpperCase() === "REFUNDED" || row.refundedAt != null;
+}
+
+export function isPayPalTerminalState(row: PayPalLifecycleRow): boolean {
+    return isReversedTerminal(row) || isRefundedTerminal(row);
+}
+
+/**
+ * Prisma `where` fragment so status mutations never touch terminal rows.
+ * Shared by webhook updateMany paths and capture claims.
+ */
+export function nonTerminalPayPalOrderWhere() {
+    return {
+        reversedAt: null,
+        refundedAt: null,
+        status: { notIn: [...PAYPAL_TERMINAL_STATUSES] },
+    };
+}
+
+export type TerminalLifecycleDecision =
+    | { action: "apply" }
+    | { action: "ignore"; result: string; reason: string }
+    | { action: "record_refund_on_reversed"; result: string; reason: string }
+    | { action: "upgrade_refunded_to_reversed"; result: string; reason: string };
+
+const STALE_LIFECYCLE_EVENTS = new Set([
+    "CHECKOUT.ORDER.APPROVED",
+    "CHECKOUT.ORDER.COMPLETED",
+    "CHECKOUT.ORDER.VOIDED",
+    "PAYMENT.CAPTURE.PENDING",
+    "PAYMENT.CAPTURE.DENIED",
+    "PAYMENT.CAPTURE.COMPLETED",
+    "PAYMENT.CAPTURE.VOIDED",
+]);
+
+/**
+ * Shared lifecycle transition rules for verified PayPal webhooks / status sync.
+ * REVERSED and REFUNDED are terminal for the same payment attempt; out-of-order
+ * refund+reverse keeps both financial facts with a deterministic final status.
+ */
+/**
+ * Retry-chain design
+ * ------------------
+ * logicalBase = sha256(shipmentLeadId|cents|invoice|PAYPAL_MODE).slice(0,48)
+ * attemptKey(0) = logicalBase
+ * attemptKey(n) = sha256(logicalBase|"attempt"|n).slice(0,48) for n >= 1
+ *
+ * Each closed attempt (terminal / COMPLETED / DENIED / FAILED / CANCELLED) keeps
+ * its key forever. The next Generate walks n = 0,1,2,... until it finds an open
+ * row (reuse) or a free key (create). Uniqueness is enforced by the unique
+ * `idempotency_key` column; PayPal create uses the same key as PayPal-Request-Id
+ * so concurrent Generate retries return the same remote order.
+ */
+export function paypalAttemptIdempotencyKey(baseKey: string, attemptIndex: number): string {
+    const n = Math.max(0, Math.floor(Number(attemptIndex) || 0));
+    if (n <= 0) return baseKey;
+    return createHash("sha256")
+        .update([baseKey, "attempt", String(n)].join("|"))
+        .digest("hex")
+        .slice(0, 48);
+}
+
+/** Statuses that consume a retry-chain slot and must never be overwritten. */
+export const PAYPAL_CLOSED_ATTEMPT_STATUSES = [
+    "COMPLETED",
+    "DENIED",
+    "FAILED",
+    "CANCELLED",
+    "REFUNDED",
+    "REVERSED",
+] as const;
+
+export function isClosedPayPalAttempt(row: {
+    status: string | null | undefined;
+    reversedAt?: Date | null;
+    refundedAt?: Date | null;
+}): boolean {
+    if (isPayPalTerminalState(row)) return true;
+    const status = String(row.status || "").toUpperCase();
+    return (PAYPAL_CLOSED_ATTEMPT_STATUSES as readonly string[]).includes(status);
+}
+
+/** Shipment statuses that must not be overwritten back to CUSTOMER_PAID. */
+export const SHIPMENT_PAID_BLOCKING_STATUSES = [
+    "CUSTOMER_REVERSED",
+    "CUSTOMER_REFUNDED",
+] as const;
+
+/**
+ * Webhook PROCESSING lease TTL. After this age a crash-abandoned claim may be
+ * reclaimed by a redelivery. Fresh leases block concurrent workers and return
+ * retryable HTTP so PayPal retries instead of acknowledging success.
+ */
+export const PAYPAL_WEBHOOK_PROCESSING_LEASE_MS = 120_000;
+
+export function isPayPalWebhookProcessingLeaseStale(
+    processingStartedAt: Date | null | undefined,
+    now: Date = new Date(),
+    leaseMs: number = PAYPAL_WEBHOOK_PROCESSING_LEASE_MS
+): boolean {
+    if (!processingStartedAt) return true;
+    const started = processingStartedAt.getTime();
+    if (!Number.isFinite(started)) return true;
+    return now.getTime() - started >= leaseMs;
+}
+
+export function amountsMatchUsd(
+    a: number | null | undefined,
+    b: number | null | undefined
+): boolean {
+    if (a == null || b == null) return false;
+    return Math.round(Number(a) * 100) === Math.round(Number(b) * 100);
+}
+
+/** Open attempt may be reused only when env + amount + currency (+ invoice) match. */
+export function isReusableOpenPayPalAttempt(input: {
+    row: {
+        status: string | null | undefined;
+        approvalUrl?: string | null;
+        environment?: string | null;
+        amountUsd?: number | null;
+        currency?: string | null;
+        invoiceNumber?: string | null;
+        reversedAt?: Date | null;
+        refundedAt?: Date | null;
+    };
+    checkoutEnv: string;
+    amountUsd: number;
+    currency?: string;
+    invoiceNumber?: string | null;
+}): boolean {
+    const { row } = input;
+    if (!row.approvalUrl) return false;
+    if (isClosedPayPalAttempt(row)) return false;
+    const status = String(row.status || "").toUpperCase();
+    const open = new Set([
+        "CREATED",
+        "PAYER_ACTION_REQUIRED",
+        "SAVED",
+        "APPROVED",
+        "CAPTURE_PENDING",
+    ]);
+    if (!open.has(status)) return false;
+    const rowEnv = String(row.environment || "sandbox").toLowerCase();
+    if (rowEnv !== String(input.checkoutEnv || "").toLowerCase()) return false;
+    if (!amountsMatchUsd(row.amountUsd, input.amountUsd)) return false;
+    const currency = String(input.currency || "USD").toUpperCase();
+    if (String(row.currency || "USD").toUpperCase() !== currency) return false;
+    const wantInvoice = String(input.invoiceNumber || "").trim();
+    if (wantInvoice) {
+        const have = String(row.invoiceNumber || "").trim();
+        if (have && have !== wantInvoice) return false;
+    }
+    return true;
+}
+
+export function decideWebhookLifecycleTransition(input: {
+    row: PayPalLifecycleRow;
+    eventType: string;
+}): TerminalLifecycleDecision {
+    const eventType = String(input.eventType || "").trim();
+    const reversed = isReversedTerminal(input.row);
+    const refunded = isRefundedTerminal(input.row);
+
+    if (reversed) {
+        if (eventType === "PAYMENT.CAPTURE.REVERSED") {
+            return {
+                action: "ignore",
+                result: "already_reversed",
+                reason: "already_reversed",
+            };
+        }
+        if (eventType === "PAYMENT.CAPTURE.REFUNDED") {
+            return {
+                action: "record_refund_on_reversed",
+                result: "refund_recorded_on_reversed",
+                reason: "refund_after_reversed",
+            };
+        }
+        if (STALE_LIFECYCLE_EVENTS.has(eventType)) {
+            return {
+                action: "ignore",
+                result: "ignored_terminal_reversed",
+                reason: "stale_event_on_reversed",
+            };
+        }
+    }
+
+    if (refunded) {
+        if (eventType === "PAYMENT.CAPTURE.REFUNDED") {
+            return {
+                action: "ignore",
+                result: "already_refunded",
+                reason: "already_refunded",
+            };
+        }
+        if (eventType === "PAYMENT.CAPTURE.REVERSED") {
+            return {
+                action: "upgrade_refunded_to_reversed",
+                result: "reversed",
+                reason: "reverse_after_refund",
+            };
+        }
+        if (STALE_LIFECYCLE_EVENTS.has(eventType)) {
+            return {
+                action: "ignore",
+                result: "ignored_terminal_refunded",
+                reason: "stale_event_on_refunded",
+            };
+        }
+    }
+
+    return { action: "apply" };
 }

@@ -923,6 +923,10 @@ where: { loadNumber: { not: null } },
             paypal: {
                 mode: config.paypal.mode,
                 configured: config.paypal.configured,
+                sandboxConfigured: config.paypal.sandbox.configured,
+                liveConfigured: config.paypal.live.configured,
+                sandboxWebhookConfigured: config.paypal.sandbox.webhookConfigured,
+                liveWebhookConfigured: config.paypal.live.webhookConfigured,
             },
         };
     }
