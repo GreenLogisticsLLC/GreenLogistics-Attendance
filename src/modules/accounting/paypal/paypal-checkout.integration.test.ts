@@ -920,6 +920,231 @@ test("duplicate REFUNDED and REVERSED events stay idempotent", async () => {
     assert.equal(lead?.customerPaidAt, null);
 });
 
+async function assertTerminalReversedWithFacts(input: {
+    shipmentLeadId: string;
+    refundId: string;
+    reversalId?: string;
+}) {
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: input.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REVERSED");
+    assert.ok(payment?.reversedAt);
+    assert.equal(payment?.refundId, input.refundId);
+    assert.ok(payment?.refundedAt);
+    assert.equal(payment?.needsAccountingReview, true);
+    assert.equal(payment?.paidAt, null);
+    if (input.reversalId) {
+        assert.equal(payment?.reversalId, input.reversalId);
+    } else {
+        assert.ok(payment?.reversalId);
+    }
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+    assert.equal(lead?.customerPaidAt, null);
+    assert.notEqual(lead?.paymentStatus, "CUSTOMER_PAID");
+}
+
+test("REVERSED commits before REFUNDED keeps REVERSED and records refund facts", async () => {
+    const { shipment } = await createPayment({ status: "COMPLETED", paid: true });
+    installPayPalMock({});
+    const reverse = await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-REV-THEN-REF", {
+        id: "CAP-REV-FIRST",
+        status: "REVERSED",
+    });
+    assert.equal(reverse.result, "reversed");
+    const refund = await applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-REF-AFTER-REV-SEQ", {
+        id: "REFUND-AFTER-REV-SEQ",
+        status: "COMPLETED",
+    });
+    assert.equal(refund.result, "refund_recorded_on_reversed");
+    await assertTerminalReversedWithFacts({
+        shipmentLeadId: shipment.shipmentLeadId,
+        refundId: "REFUND-AFTER-REV-SEQ",
+        reversalId: "CAP-REV-FIRST",
+    });
+});
+
+test("REFUNDED commits before REVERSED upgrades and preserves refund facts", async () => {
+    const { shipment } = await createPayment({ status: "COMPLETED", paid: true });
+    installPayPalMock({});
+    const refund = await applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-REF-THEN-REV", {
+        id: "REFUND-BEFORE-REV",
+        status: "COMPLETED",
+    });
+    assert.equal(refund.result, "refunded");
+    const reverse = await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-REV-AFTER-REF-SEQ", {
+        id: "CAP-REV-SECOND",
+        status: "REVERSED",
+    });
+    assert.equal(reverse.result, "reversed");
+    await assertTerminalReversedWithFacts({
+        shipmentLeadId: shipment.shipmentLeadId,
+        refundId: "REFUND-BEFORE-REV",
+        reversalId: "CAP-REV-SECOND",
+    });
+});
+
+test("concurrent REFUNDED and REVERSED converge on REVERSED with both financial facts", async () => {
+    const { shipment } = await createPayment({ status: "COMPLETED", paid: true });
+    installPayPalMock({});
+    const results = await Promise.allSettled([
+        applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-RACE-REFUND", {
+            id: "REFUND-RACE-CONCURRENT",
+            status: "COMPLETED",
+        }),
+        applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-RACE-REVERSE", {
+            id: "CAP-RACE-CONCURRENT",
+            status: "REVERSED",
+        }),
+    ]);
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 2);
+    await assertTerminalReversedWithFacts({
+        shipmentLeadId: shipment.shipmentLeadId,
+        refundId: "REFUND-RACE-CONCURRENT",
+        reversalId: "CAP-RACE-CONCURRENT",
+    });
+});
+
+test("duplicate distinct REFUNDED events stay idempotent without leaving REVERSED", async () => {
+    const { shipment } = await createPayment({ status: "COMPLETED", paid: true });
+    installPayPalMock({});
+    const first = await applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-REF-A", {
+        id: "REFUND-A",
+        status: "COMPLETED",
+    });
+    assert.equal(first.result, "refunded");
+    const second = await applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-REF-B", {
+        id: "REFUND-B",
+        status: "COMPLETED",
+    });
+    assert.equal(second.result, "already_refunded");
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REFUNDED");
+    assert.equal(payment?.refundId, "REFUND-A");
+    assert.ok(payment?.refundedAt);
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REFUNDED");
+    assert.equal(lead?.customerPaidAt, null);
+});
+
+test("duplicate distinct REVERSED events stay idempotent and keep Accounting review", async () => {
+    const { shipment } = await createPayment({ status: "COMPLETED", paid: true });
+    installPayPalMock({});
+    const first = await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-REV-A", {
+        id: "CAP-REV-A",
+        status: "REVERSED",
+    });
+    assert.equal(first.result, "reversed");
+    const second = await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-REV-B", {
+        id: "CAP-REV-B",
+        status: "REVERSED",
+    });
+    assert.equal(second.result, "already_reversed");
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REVERSED");
+    assert.equal(payment?.reversalId, "CAP-REV-A");
+    assert.equal(payment?.needsAccountingReview, true);
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+});
+
+test("stale non-COMPLETED capture cannot overwrite REVERSED", async () => {
+    const { shipment } = await createPayment({ status: "CAPTURE_PENDING", paid: false });
+    installPayPalMock({
+        captureStatus: "DENIED",
+        captureId: "CAP-STALE-DENIED",
+        captureDelayMs: 40,
+    });
+    const [reverseResult] = await Promise.all([
+        applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-STALE-DENIED-REV", {
+            id: "CAP-STALE-DENIED",
+            status: "REVERSED",
+        }),
+        payPalCheckoutService.captureAndMarkPaid("ORDER-TEST", billingActor).catch(() => null),
+    ]);
+    assert.ok(
+        reverseResult.result === "reversed" || reverseResult.result === "already_reversed"
+    );
+    // Ensure reverse is present even if capture finished first.
+    if (
+        (
+            await prisma.payPalCustomerOrder.findUnique({
+                where: { paypalOrderId: "ORDER-TEST" },
+            })
+        )?.status !== "REVERSED"
+    ) {
+        await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-STALE-DENIED-REV-LATE", {
+            id: "CAP-STALE-DENIED",
+            status: "REVERSED",
+        });
+    }
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REVERSED");
+    assert.ok(payment?.reversedAt);
+    assert.equal(payment?.needsAccountingReview, true);
+    assert.notEqual(payment?.status, "DENIED");
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+    assert.equal(lead?.customerPaidAt, null);
+    assert.notEqual(lead?.paymentStatus, "CUSTOMER_PAID");
+});
+
+test("stale non-COMPLETED capture cannot overwrite REFUNDED", async () => {
+    const { shipment } = await createPayment({ status: "CAPTURE_PENDING", paid: false });
+    installPayPalMock({
+        captureStatus: "DENIED",
+        captureId: "CAP-STALE-DENIED-REF",
+        captureDelayMs: 40,
+    });
+    await Promise.all([
+        applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-STALE-DENIED-REF", {
+            id: "REFUND-STALE-DENIED",
+            status: "COMPLETED",
+        }),
+        payPalCheckoutService.captureAndMarkPaid("ORDER-TEST", billingActor).catch(() => null),
+    ]);
+    if (
+        (
+            await prisma.payPalCustomerOrder.findUnique({
+                where: { paypalOrderId: "ORDER-TEST" },
+            })
+        )?.status !== "REFUNDED"
+    ) {
+        await applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-STALE-DENIED-REF-LATE", {
+            id: "REFUND-STALE-DENIED",
+            status: "COMPLETED",
+        });
+    }
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REFUNDED");
+    assert.equal(payment?.refundId, "REFUND-STALE-DENIED");
+    assert.ok(payment?.refundedAt);
+    assert.notEqual(payment?.status, "DENIED");
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REFUNDED");
+    assert.equal(lead?.customerPaidAt, null);
+    assert.notEqual(lead?.paymentStatus, "CUSTOMER_PAID");
+});
+
 test("manual payment endpoint rejects unauthorized role and PayPal bypass", async () => {
     const { shipment } = await createPayment();
     await assert.rejects(
