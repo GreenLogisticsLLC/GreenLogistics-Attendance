@@ -109,14 +109,14 @@ export class ShipmentService {
         shipmentLeadId: string;
         actorUserId?: string;
     }) {
-        const shipment = await prisma.shipmentLead.findUnique({
+        let shipment = await prisma.shipmentLead.findUnique({
             where: { shipmentLeadId: input.shipmentLeadId },
         });
         if (!shipment) {
             throw Object.assign(new Error("Shipment not found"), { status: 404 });
         }
 
-        const status = normalizeStatus(shipment.status);
+        let status = normalizeStatus(shipment.status);
         if (shipment.loadNumber && String(shipment.loadNumber).trim()) {
             if (!isLoadPhase(status)) {
                 return this.applyLoadNumber({
@@ -136,13 +136,26 @@ export class ShipmentService {
             );
         }
 
+        // ACCEPTED / BOOKED aliases → ACCEPT_GREEN. Do NOT call transitionStatus here:
+        // that path also auto-creates a load and would allocate a second GL# (10208, 10210…).
         if (status === "ACCEPT_GREEN" && shipment.status !== "ACCEPT_GREEN") {
-            await this.transitionStatus({
-                shipmentLeadId: input.shipmentLeadId,
-                status: "ACCEPT_GREEN",
-                actorUserId: input.actorUserId,
-                skipLifecycleCheck: true,
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId: input.shipmentLeadId },
+                data: {
+                    status: "ACCEPT_GREEN",
+                    ...(!shipment.acceptedAt ? { acceptedAt: new Date() } : {}),
+                },
             });
+            shipment = await prisma.shipmentLead.findUnique({
+                where: { shipmentLeadId: input.shipmentLeadId },
+            });
+            if (!shipment) {
+                throw Object.assign(new Error("Shipment not found"), { status: 404 });
+            }
+            status = normalizeStatus(shipment.status);
+            if (shipment.loadNumber && String(shipment.loadNumber).trim()) {
+                return shipment;
+            }
         }
 
         const { allocateLoadNumber } = await import("../load-number.js");

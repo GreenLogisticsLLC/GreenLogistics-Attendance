@@ -45,21 +45,22 @@ export async function allocateLoadNumber(): Promise<string> {
             },
         });
 
-        let next = start;
+        const rows = await prisma.shipmentLead.findMany({
+            where: { loadNumber: { not: null } },
+            select: { loadNumber: true },
+        });
+        let maxExisting = start - 1;
+        for (const row of rows) {
+            const n = parseLoadNumberSeq(row.loadNumber);
+            // Ignore old 6-digit GL100xxx leftovers for the short GL10xxx series.
+            if (n != null && n >= start - 1 && n < 100000 && n > maxExisting) maxExisting = n;
+        }
+        let next = Math.max(start, maxExisting + 1);
         if (setting?.settingValue) {
             const fromSetting = parseLoadNumberSeq(setting.settingValue);
-            if (fromSetting != null) next = Math.max(start, fromSetting);
-        } else {
-            const rows = await prisma.shipmentLead.findMany({
-                where: { loadNumber: { not: null } },
-                select: { loadNumber: true },
-            });
-            let max = start - 1;
-            for (const row of rows) {
-                const n = parseLoadNumberSeq(row.loadNumber);
-                if (n != null && n >= start - 1 && n > max) max = n;
+            if (fromSetting != null && fromSetting < 100000) {
+                next = Math.max(next, fromSetting);
             }
-            next = Math.max(start, max + 1);
         }
 
         const candidate = formatLoadNumber(next);
@@ -70,6 +71,8 @@ export async function allocateLoadNumber(): Promise<string> {
             select: { shipmentLeadId: true },
         });
 
+        // Only advance the counter when we claim this number (or skip a clash).
+        // Always store the *next* unused value so callers get 10208, 10209, 10210… — not even-only.
         await prisma.setting.upsert({
             where: {
                 category_settingKey: { category: "shipment", settingKey: "next_load_number" },
@@ -84,6 +87,7 @@ export async function allocateLoadNumber(): Promise<string> {
         });
 
         if (!clash) return candidate;
+        // Clash: counter already moved to next + 1; retry.
     }
 
     return formatLoadNumber(start + (Date.now() % 100000));

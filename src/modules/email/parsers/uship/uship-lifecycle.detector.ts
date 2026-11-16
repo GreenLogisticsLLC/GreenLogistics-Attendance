@@ -808,23 +808,29 @@ export async function applyUshipLifecycleEvent(input: {
             });
         }
 
-        // After Accept Green → auto-generate Load Number and move to Create Load.
-        // Do not create a load when another company won.
+        // Accept Green already auto-creates the GL# inside transitionStatus.
+        // Only allocate here when status was already ACCEPT_GREEN (no transition ran).
         if (
             (detected.kind === "CUSTOMER_ACCEPTED" || detected.kind === "SHIPMENT_BOOKED") &&
             target === "ACCEPT_GREEN"
         ) {
-            await shipmentService
-                .createLoadAfterAccepted({
-                    shipmentLeadId: input.shipmentLeadId,
-                    actorUserId: input.actorUserId,
-                })
-                .catch((err) => {
-                    console.warn(
-                        "[lifecycle] auto load after Accepted failed:",
-                        err instanceof Error ? err.message : err
-                    );
-                });
+            const afterStatus = await prisma.shipmentLead.findUnique({
+                where: { shipmentLeadId: input.shipmentLeadId },
+                select: { loadNumber: true, status: true },
+            });
+            if (!afterStatus?.loadNumber) {
+                await shipmentService
+                    .createLoadAfterAccepted({
+                        shipmentLeadId: input.shipmentLeadId,
+                        actorUserId: input.actorUserId,
+                    })
+                    .catch((err) => {
+                        console.warn(
+                            "[lifecycle] auto load after Accepted failed:",
+                            err instanceof Error ? err.message : err
+                        );
+                    });
+            }
             // Refresh so SSE / notifications carry the new GL# and Create Load hint.
             const refreshed = await prisma.shipmentLead.findUnique({
                 where: { shipmentLeadId: input.shipmentLeadId },
