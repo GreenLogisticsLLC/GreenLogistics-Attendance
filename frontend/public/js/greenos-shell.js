@@ -1646,8 +1646,49 @@
           renderAll();
         });
 
-      // Keep Command Center lists short — handoff boards are expensive company-wide.
-      this.shellApi("/api/crm/shipments?assignmentKind=new&lite=1&pageSize=25")
+      // Owner/Manager Command Center: load every New/Other shipment (paged; API max 200/page).
+      // Statuses come from the live list response — refresh the page to refresh them.
+      const shipPageSize = 200;
+      function loadAllAssignmentShipments(kind) {
+        function fetchPage(page, acc) {
+          return self
+            .shellApi(
+              "/api/crm/shipments?assignmentKind=" +
+                encodeURIComponent(kind) +
+                "&lite=1&pageSize=" +
+                shipPageSize +
+                "&page=" +
+                page
+            )
+            .then(function (res) {
+              if (!res || res.success === false) {
+                throw new Error((res && res.message) || "Shipments failed");
+              }
+              const data = res.data || {};
+              const items = Array.isArray(data.items)
+                ? data.items
+                : Array.isArray(data)
+                  ? data
+                  : [];
+              const next = acc.concat(items);
+              const totalPages = Math.max(1, Number(data.totalPages) || 1);
+              if (page < totalPages) return fetchPage(page + 1, next);
+              return {
+                success: true,
+                data: {
+                  items: next,
+                  total: typeof data.total === "number" ? data.total : next.length,
+                  page: 1,
+                  pageSize: next.length,
+                  totalPages: 1,
+                },
+              };
+            });
+        }
+        return fetchPage(1, []);
+      }
+
+      loadAllAssignmentShipments("new")
         .then(function (res) {
           state.newShip = res;
           renderAll();
@@ -1657,7 +1698,7 @@
           renderAll();
         });
 
-      this.shellApi("/api/crm/shipments?assignmentKind=other&lite=1&pageSize=25")
+      loadAllAssignmentShipments("other")
         .then(function (res) {
           state.otherShip = res;
           renderAll();
