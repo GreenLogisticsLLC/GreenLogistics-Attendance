@@ -12,6 +12,7 @@ window.GreenOSModules.accounting = {
     { id: "customer-payments", title: "Invoices" },
     { id: "shipments", title: "All Loads" },
     { id: "history", title: "Transactions" },
+    { id: "payment-settings", title: "Payment Settings" },
   ],
 
   _selectedId: null,
@@ -58,8 +59,118 @@ window.GreenOSModules.accounting = {
     var sub = this._subPageId || "dashboard";
     if (!sub || sub === "dashboard") {
       this.renderDashboard(body);
+    } else if (sub === "payment-settings") {
+      this.renderPaymentSettings(body);
     } else {
       this.renderList(body, sub);
+    }
+  },
+
+  async renderPaymentSettings(host) {
+    var self = this;
+    if (!host) return;
+    host.innerHTML = '<p class="gos-muted">Loading Payment Settings…</p>';
+    try {
+      var res = await self.api("/settings/invoice-pricing");
+      var data = res && res.data ? res.data : res || {};
+      var s = data.settings || {};
+      var canManage = Boolean(data.canManage);
+      var feeType = s.feeType || "none";
+      var enabled = Boolean(s.enabled);
+      host.innerHTML =
+        '<section class="acc-card" style="max-width:720px">' +
+        "<h3>Payment Settings → Invoice Pricing</h3>" +
+        '<p class="gos-muted" style="margin-top:0">Configure an optional handling fee for customer invoices. Default is <strong>disabled</strong>. This is never a PayPal surcharge — the same policy applies across payment methods. PayPal processor fees stay separate.</p>' +
+        (canManage
+          ? ""
+          : '<p style="color:#b45309">View only — Owner/Administrator must approve and save pricing policy changes.</p>') +
+        '<label class="acc-check"><input type="checkbox" id="acc-price-enabled"' +
+        (enabled ? " checked" : "") +
+        (canManage ? "" : " disabled") +
+        "> Enable additional handling fee</label>" +
+        '<div style="display:grid;gap:0.75rem;margin-top:0.85rem">' +
+        "<label>Fee type<select id=\"acc-price-type\"" +
+        (canManage ? "" : " disabled") +
+        ">" +
+        '<option value="none"' +
+        (feeType === "none" ? " selected" : "") +
+        ">None</option>" +
+        '<option value="percentage"' +
+        (feeType === "percentage" ? " selected" : "") +
+        ">Percentage</option>" +
+        '<option value="fixed"' +
+        (feeType === "fixed" ? " selected" : "") +
+        ">Fixed amount (USD)</option>" +
+        "</select></label>" +
+        '<label>Percentage value<input id="acc-price-pct" inputmode="decimal" value="' +
+        self.esc(s.percentageValue == null ? "0" : s.percentageValue) +
+        '"' +
+        (canManage ? "" : " disabled") +
+        "></label>" +
+        '<label>Fixed amount (USD)<input id="acc-price-fixed" inputmode="decimal" value="' +
+        self.esc(s.fixedAmountUsd == null ? "0" : s.fixedAmountUsd) +
+        '"' +
+        (canManage ? "" : " disabled") +
+        "></label>" +
+        '<label>Line item label<input id="acc-price-label" value="' +
+        self.esc(s.lineItemLabel || "Handling fee") +
+        '"' +
+        (canManage ? "" : " disabled") +
+        "></label>" +
+        '<label class="acc-check"><input type="checkbox" id="acc-price-ack"' +
+        (canManage ? "" : " disabled") +
+        "> " +
+        self.esc(data.policyText || "Acknowledge lawful pricing policy") +
+        "</label>" +
+        '<p class="gos-muted" style="margin:0;font-size:0.78rem">Policy version: ' +
+        self.esc(String(s.version || 1)) +
+        (s.policyAcknowledgedAt
+          ? " · acknowledged " + self.esc(String(s.policyAcknowledgedAt))
+          : " · not acknowledged") +
+        "</p>" +
+        (canManage
+          ? '<button type="button" class="btn-primary" id="acc-price-save">Save Invoice Pricing</button>'
+          : "") +
+        '<p id="acc-price-msg" class="gos-muted" style="margin:0.5rem 0 0"></p>' +
+        "</div></section>";
+
+      var saveBtn = host.querySelector("#acc-price-save");
+      if (saveBtn) {
+        saveBtn.addEventListener("click", async function () {
+          var msg = host.querySelector("#acc-price-msg");
+          saveBtn.disabled = true;
+          try {
+            var payload = {
+              enabled: Boolean((host.querySelector("#acc-price-enabled") || {}).checked),
+              feeType: (host.querySelector("#acc-price-type") || {}).value || "none",
+              percentageValue: Number((host.querySelector("#acc-price-pct") || {}).value || 0),
+              fixedAmountUsd: Number((host.querySelector("#acc-price-fixed") || {}).value || 0),
+              lineItemLabel: (host.querySelector("#acc-price-label") || {}).value || "Handling fee",
+              acknowledgePolicy: Boolean((host.querySelector("#acc-price-ack") || {}).checked),
+            };
+            await self.api("/settings/invoice-pricing", {
+              method: "PUT",
+              body: payload,
+            });
+            if (msg) {
+              msg.textContent = "Saved. Historical invoices keep their locked pricing.";
+              msg.style.color = "#22c55e";
+            }
+            await self.renderPaymentSettings(host);
+          } catch (err) {
+            if (msg) {
+              msg.textContent = err.message || "Save failed";
+              msg.style.color = "#ef4444";
+            }
+            saveBtn.disabled = false;
+          }
+        });
+      }
+    } catch (err) {
+      host.innerHTML =
+        '<p style="color:#ef4444">' +
+        self.esc((err && err.message) || "Failed to load Payment Settings") +
+        "</p>";
     }
   },
 
@@ -433,7 +544,7 @@ window.GreenOSModules.accounting = {
     });
   },
 
-  /** Customer rate beside carrier rate. A +3% method adds that fee under the rate. */
+  /** Customer rate beside carrier rate. Handling fee (if enabled) shows under the rate. */
   paymentsCell(r) {
     var accessorials = Number(r.accessorialCharges);
     if (!Number.isFinite(accessorials)) accessorials = 0;
@@ -468,7 +579,7 @@ window.GreenOSModules.accounting = {
       feeLine =
         '<div class="acc-pay-fee ' +
         (customerPaid ? "is-paid" : "is-unpaid") +
-        '">+3% ' +
+        '">Handling fee ' +
         this.money(fee) +
         "</div>";
     }
@@ -490,13 +601,13 @@ window.GreenOSModules.accounting = {
     );
   },
 
-  paymentMethodOptions(selected, hideFee) {
+  paymentMethodOptions(selected) {
     var methods = [
       ["WIRE", "Wire"],
-      ["VENMO", "Venmo +3%"],
-      ["PAYPAL", "PayPal +3%"],
-      ["CREDIT_CARD", "Credit card +3%"],
-      ["CASHAPP", "Cash App +3%"],
+      ["VENMO", "Venmo"],
+      ["PAYPAL", "PayPal"],
+      ["CREDIT_CARD", "Credit card"],
+      ["CASHAPP", "Cash App"],
       ["ZELLE", "Zelle"],
       ["ACH", "ACH"],
     ];
@@ -504,7 +615,7 @@ window.GreenOSModules.accounting = {
       '<option value="">Select payment option</option>' +
       methods
         .map(function (pair) {
-          var text = hideFee ? pair[1].replace(/ \+3%$/, "") : pair[1];
+          var text = pair[1];
           return (
             '<option value="' +
             pair[0] +
@@ -1523,6 +1634,8 @@ window.GreenOSModules.accounting = {
     var body = root.querySelector("#acc-body");
     if (!active || active.id === "dashboard") {
       this.renderDashboard(body);
+    } else if (active.id === "payment-settings") {
+      this.renderPaymentSettings(body);
     } else {
       this.renderList(body, active.id);
     }
@@ -2344,7 +2457,12 @@ window.GreenOSModules.accounting = {
         '<div class="acc-kv"><span>Payment Terms</span><strong>' +
         self.esc(cust.paymentLabel || "—") +
         "</strong></div>" +
-        '<div class="acc-kv"><span>3% Fee</span><strong>' +
+        '<div class="acc-kv"><span>Subtotal</span><strong>' +
+        self.money(cust.paymentSubtotal != null ? cust.paymentSubtotal : cust.rate) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>' +
+        self.esc(cust.paymentLineItemLabel || "Handling fee") +
+        "</span><strong>" +
         self.money(cust.paymentFee || 0) +
         "</strong></div>" +
         '<div class="acc-kv"><span>Accessories</span><strong>' +
@@ -2448,21 +2566,25 @@ window.GreenOSModules.accounting = {
         self.esc(cust.rate == null ? "" : cust.rate) +
         '"></label>' +
         '<label>Payment Option<select id="acc-pay-method">' +
-        self.paymentMethodOptions(cust.paymentMethod, false) +
+        self.paymentMethodOptions(cust.paymentMethod) +
         "</select></label>" +
         '<label class="acc-check"><input type="checkbox" id="acc-pay-fee"' +
         (cust.paymentFeeWaived ? "" : " checked") +
-        "> Add 3% Fee</label>" +
+        "> Apply handling fee (when enabled in Payment Settings)</label>" +
         '<div class="acc-rate-summary">' +
-        "<div>Base Rate: <strong>" +
-        self.money(cust.rate) +
+        "<div>Subtotal: <strong>" +
+        self.money(cust.paymentSubtotal != null ? cust.paymentSubtotal : cust.rate) +
         "</strong></div>" +
-        "<div>3% Fee: <strong>" +
+        "<div>" +
+        self.esc(cust.paymentLineItemLabel || "Handling fee") +
+        ": <strong>" +
         self.money(cust.paymentFee || 0) +
         "</strong></div>" +
         '<div class="acc-rate-total">Total Payment: <strong>' +
         self.money(cust.total) +
-        "</strong></div></div></div>" +
+        "</strong></div>" +
+        '<p class="gos-muted" style="margin:0.4rem 0 0;font-size:0.75rem">Not a PayPal surcharge. PayPal processor fees stay separate in Accounting reports.</p>' +
+        "</div></div>" +
         '<div class="acc-rate-side">' +
         "<h4>Carrier</h4>" +
         '<label>Carrier Rate<input id="acc-carrier-rate" inputmode="decimal" value="' +
@@ -2567,17 +2689,6 @@ window.GreenOSModules.accounting = {
       var savePay = host.querySelector("#acc-save-pay");
       var payMethod = host.querySelector("#acc-pay-method");
       var payFee = host.querySelector("#acc-pay-fee");
-      function syncPayLabels() {
-        if (!payMethod) return;
-        var addFee = Boolean(payFee && payFee.checked);
-        payMethod.querySelectorAll("option").forEach(function (opt) {
-          var full = opt.getAttribute("data-full");
-          if (!full) return;
-          opt.textContent = addFee ? full : full.replace(/ \+3%$/, "");
-        });
-      }
-      if (payFee) payFee.addEventListener("change", syncPayLabels);
-      syncPayLabels();
       if (savePay) {
         savePay.addEventListener("click", async function () {
           var raw = (host.querySelector("#acc-cust-rate") || {}).value;
@@ -2751,9 +2862,44 @@ window.GreenOSModules.accounting = {
     else if (act === "ready-bill") path = "/shipments/" + id + "/ready-for-billing";
     else if (act === "ready-pay") path = "/shipments/" + id + "/ready-for-carrier-payment";
     else if (act === "invoice") {
-      var inv = window.prompt("Invoice number (optional):", "");
-      path = "/shipments/" + id + "/invoice";
-      body = { invoiceNumber: inv || null };
+      try {
+        var previewRes = await self.api(
+          "/shipments/" + id + "/invoice/pricing-preview"
+        );
+        if (!previewRes || previewRes.success === false) {
+          throw new Error(
+            (previewRes && previewRes.message) || "Pricing preview failed"
+          );
+        }
+        var preview =
+          previewRes && previewRes.data ? previewRes.data : previewRes || {};
+        var lines = (preview.lineItems || [])
+          .map(function (li) {
+            return (li.label || li.code) + ": " + self.money(li.amountUsd);
+          })
+          .join("\n");
+        var confirmMsg =
+          "Confirm invoice pricing before creating:\n\n" +
+          (lines ||
+            "Subtotal: " +
+              self.money(preview.subtotalUsd) +
+              "\nHandling fee: " +
+              self.money(preview.feeAmountUsd) +
+              "\nTotal: " +
+              self.money(preview.totalUsd)) +
+          "\n\nFee is a handling fee (never a PayPal surcharge). Continue?";
+        if (!window.confirm(confirmMsg)) return;
+        var inv = window.prompt("Invoice number (optional):", "");
+        path = "/shipments/" + id + "/invoice";
+        body = { invoiceNumber: inv || null, confirmPricing: true };
+      } catch (previewErr) {
+        if (msg) {
+          msg.textContent =
+            (previewErr && previewErr.message) || "Pricing preview failed";
+          msg.style.color = "#ef4444";
+        }
+        return;
+      }
     } else if (act === "send-invoice") {
       if (
         !window.confirm(

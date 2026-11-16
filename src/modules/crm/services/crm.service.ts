@@ -194,7 +194,6 @@ function toBrokerListRow(lead: Record<string, unknown>, brokers: Map<string, Bro
         bidSubmittedAt: (lead.bidSubmittedAt as Date | string | null) || null,
         quoteDeclined: Boolean(lead.quoteDeclined),
         quoteDeclinedAt: (lead.quoteDeclinedAt as Date | string | null) || null,
-        updatedAt: lead.updatedAt as Date | string | null,
         assignedAt: (lead.assignedAt as Date | string | null) || null,
     };
 }

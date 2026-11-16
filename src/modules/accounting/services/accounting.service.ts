@@ -20,6 +20,16 @@ import { canTransition } from "../../shipment/shipment.lifecycle.js";
 import { preferRateConCarrierAmount } from "../../shipment/load-amounts.js";
 import { payPalCheckoutService } from "../paypal/paypal-checkout.service.js";
 import { config } from "../../../config/env.js";
+import {
+    INVOICE_PRICING_POLICY_TEXT,
+    createInvoicePricingSnapshot,
+    buildInvoicePricingBreakdown,
+    loadInvoicePricingSettings,
+    saveInvoicePricingSettings,
+    validateInvoicePricingUpdate,
+    type InvoicePricingSettings,
+    type InvoicePricingUpdateInput,
+} from "../invoice-pricing.js";
 
 type Actor = {
     userId: string;
@@ -37,6 +47,26 @@ function badRequest(message: string, code = "ACCOUNTING_INVALID") {
 
 function notFound(message: string) {
     return Object.assign(new Error(message), { status: 404, code: "NOT_FOUND" });
+}
+
+function quoteShipmentPayment(
+    s: {
+        customerRate?: number | null;
+        accessorialCharges?: number | null;
+        customerPaymentMethod?: string | null;
+        waiveCustomerPaymentFee?: boolean | null;
+        invoicePricingSnapshotJson?: string | null;
+    },
+    pricing: InvoicePricingSettings
+) {
+    return customerPaymentQuote({
+        customerRate: s.customerRate,
+        accessorialCharges: s.accessorialCharges,
+        method: s.customerPaymentMethod,
+        waiveFee: s.waiveCustomerPaymentFee,
+        pricing,
+        pricingSnapshot: s.invoicePricingSnapshotJson,
+    });
 }
 
 async function writeAudit(input: {
@@ -134,19 +164,16 @@ export class AccountingService {
                 accessorialCharges: true,
                 customerPaymentMethod: true,
                 waiveCustomerPaymentFee: true,
+                invoicePricingSnapshotJson: true,
                 updatedAt: true,
             },
         });
 
         const now = Date.now();
         const dayMs = 24 * 60 * 60 * 1000;
+        const pricing = await loadInvoicePricingSettings();
         const enrichedAll = rows.map((r) => {
-            const payment = customerPaymentQuote({
-                customerRate: r.customerRate,
-                accessorialCharges: r.accessorialCharges,
-                method: r.customerPaymentMethod,
-                waiveFee: r.waiveCustomerPaymentFee,
-            });
+            const payment = quoteShipmentPayment(r, pricing);
             const customerTotal = payment.total || 0;
             const carrierTotal = money(r.carrierRate) || 0;
             return {
@@ -430,6 +457,7 @@ where: { loadNumber: { not: null } },
                 carrierRate: true,
                 customerPaymentMethod: true,
                 waiveCustomerPaymentFee: true,
+                invoicePricingSnapshotJson: true,
                 accessorialCharges: true,
                 assignedBrokerId: true,
                 accountingDocStatus: true,
@@ -483,6 +511,7 @@ where: { loadNumber: { not: null } },
             }
         }
 
+        const pricing = await loadInvoicePricingSettings();
         let list = rows.map((r) => {
             let carrierRate = r.carrierRate;
             const rcJson = rcByLead.get(r.shipmentLeadId);
@@ -497,12 +526,7 @@ where: { loadNumber: { not: null } },
                     /* ignore bad RC snapshot */
                 }
             }
-            const payment = customerPaymentQuote({
-                customerRate: r.customerRate,
-                accessorialCharges: r.accessorialCharges,
-                method: r.customerPaymentMethod,
-                waiveFee: r.waiveCustomerPaymentFee,
-            });
+            const payment = quoteShipmentPayment(r, pricing);
             const customerOwes = payment.total;
             const pickupDay = r.opsPickupAt || r.pickupFrom || r.pickupTo || null;
             const deliveryDay = r.opsDeliveryAt || r.deliveryFrom || r.deliveryTo || null;
@@ -673,12 +697,8 @@ where: { loadNumber: { not: null } },
                 : null;
         }
 
-        const payment = customerPaymentQuote({
-            customerRate: s.customerRate,
-            accessorialCharges: s.accessorialCharges,
-            method: s.customerPaymentMethod,
-            waiveFee: s.waiveCustomerPaymentFee,
-        });
+        const pricing = await loadInvoicePricingSettings();
+        const payment = quoteShipmentPayment(s, pricing);
         let carrierRate = s.carrierRate;
         const rateCon = s.loadDocuments.find(
             (doc) => String(doc.docType || "").toUpperCase() === "RATE_CONFIRMATION"
@@ -804,10 +824,20 @@ where: { loadNumber: { not: null } },
                 paymentLabel: payment.label,
                 paymentFee: payment.fee,
                 paymentFeeWaived: payment.waived,
+                paymentFeeType: payment.feeType,
+                paymentFeeConfiguredValue: payment.feeConfiguredValue,
+                paymentSubtotal: payment.subtotal,
+                paymentLineItems: payment.lineItems,
+                paymentLineItemLabel: payment.lineItemLabel,
+                pricingVersion: payment.pricingVersion,
+                pricingFromSnapshot: payment.fromSnapshot,
                 total: customerTotal,
                 invoiceNumber: s.invoiceNumber,
                 invoiceDate: s.invoiceDate,
                 dueDate: s.invoiceDueDate,
+                invoiceFeeAmountUsd: s.invoiceFeeAmountUsd,
+                invoiceSubtotalUsd: s.invoiceSubtotalUsd,
+                invoiceTotalUsd: s.invoiceTotalUsd,
                 amountReceived: s.customerPaidAt ? customerTotal : 0,
                 outstanding: s.customerPaidAt ? 0 : customerTotal,
                 paymentStatus: s.paymentStatus || (s.customerPaidAt ? "PAID" : "UNPAID"),
@@ -1236,6 +1266,46 @@ where: { loadNumber: { not: null } },
         return updated;
     }
 
+    async previewInvoicePricing(actor: Actor, shipmentLeadId: string) {
+        assertPerm(actor, AccountingPermissions.BillingView);
+        const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!s) throw notFound("Shipment not found");
+        const settings = await loadInvoicePricingSettings();
+        const payment = quoteShipmentPayment(s, settings);
+        return {
+            shipmentLeadId,
+            currency: "USD",
+            method: payment.method,
+            methodLabel: payment.label,
+            waived: payment.waived,
+            fromSnapshot: payment.fromSnapshot,
+            pricingVersion: payment.pricingVersion,
+            feeType: payment.feeType,
+            configuredValue: payment.feeConfiguredValue,
+            lineItemLabel: payment.lineItemLabel,
+            rateUsd: payment.rate,
+            accessorialsUsd: payment.accessorials,
+            subtotalUsd: payment.subtotal,
+            feeAmountUsd: payment.fee,
+            totalUsd: payment.total,
+            lineItems: payment.lineItems,
+            settings: {
+                enabled: settings.enabled,
+                feeType: settings.feeType,
+                percentageValue: settings.percentageValue,
+                fixedAmountUsd: settings.fixedAmountUsd,
+                version: settings.version,
+                lineItemLabel: settings.lineItemLabel,
+            },
+            policyText: INVOICE_PRICING_POLICY_TEXT,
+            // Keep PayPal processor fees out of customer invoice totals.
+            paypalProcessorFeesExcluded: true,
+            note:
+                "Additional fee is a handling fee (when enabled), never a PayPal surcharge. " +
+                "PayPal's own processing fees are separate and not added here.",
+        };
+    }
+
     async createInvoice(
         actor: Actor,
         shipmentLeadId: string,
@@ -1243,6 +1313,8 @@ where: { loadNumber: { not: null } },
             invoiceNumber?: string | null;
             invoiceDate?: string | null;
             dueDate?: string | null;
+            /** Client must confirm they reviewed subtotal / fee / total. */
+            confirmPricing?: boolean;
         }
     ) {
         assertPerm(actor, AccountingPermissions.BillingCreate);
@@ -1251,6 +1323,38 @@ where: { loadNumber: { not: null } },
         if (!s.accountingReadyForBilling) {
             throw badRequest("Shipment is not Ready for Billing");
         }
+        if (s.invoicePricingSnapshotJson) {
+            throw badRequest(
+                "Invoice pricing is already locked for this load. Historical totals cannot be changed.",
+                "INVOICE_PRICING_LOCKED"
+            );
+        }
+        if (!body.confirmPricing) {
+            throw badRequest(
+                "Confirm subtotal, additional fee, and final total before creating the invoice",
+                "INVOICE_PRICING_CONFIRM_REQUIRED"
+            );
+        }
+
+        const settings = await loadInvoicePricingSettings();
+        const payment = quoteShipmentPayment(s, settings);
+        if (payment.total == null || payment.total < 0) {
+            throw badRequest("Invoice total is invalid", "INVOICE_TOTAL_INVALID");
+        }
+        if (payment.fee < 0 || (payment.subtotal != null && payment.subtotal < 0)) {
+            throw badRequest("Invoice amounts cannot be negative", "INVOICE_AMOUNT_INVALID");
+        }
+
+        const snapshot = createInvoicePricingSnapshot({
+            settings,
+            breakdown: buildInvoicePricingBreakdown({
+                customerRate: s.customerRate,
+                accessorialCharges: s.accessorialCharges,
+                waiveFee: s.waiveCustomerPaymentFee,
+                settings,
+            }),
+        });
+
         const invoiceDate = body.invoiceDate ? new Date(body.invoiceDate) : new Date();
         const dueDate = body.dueDate
             ? new Date(body.dueDate)
@@ -1267,6 +1371,13 @@ where: { loadNumber: { not: null } },
                 invoiceDate,
                 invoiceDueDate: dueDate,
                 paymentStatus: s.paymentStatus || "INVOICED",
+                invoicePricingVersion: snapshot.version,
+                invoiceFeeType: snapshot.feeType,
+                invoiceFeeConfiguredValue: snapshot.configuredValue,
+                invoiceFeeAmountUsd: snapshot.feeAmountUsd,
+                invoiceSubtotalUsd: snapshot.subtotalUsd,
+                invoiceTotalUsd: snapshot.totalUsd,
+                invoicePricingSnapshotJson: JSON.stringify(snapshot),
             },
         });
         await domainEventEngine.emit({
@@ -1275,15 +1386,69 @@ where: { loadNumber: { not: null } },
             title: "Customer invoice recorded",
             message: `Invoice ${invoiceNumber}`,
             actorUserId: actor.userId,
-            payload: { invoiceNumber },
+            payload: {
+                invoiceNumber,
+                pricingVersion: snapshot.version,
+                subtotalUsd: snapshot.subtotalUsd,
+                feeAmountUsd: snapshot.feeAmountUsd,
+                totalUsd: snapshot.totalUsd,
+                feeType: snapshot.feeType,
+            },
         });
         await writeAudit({
             actor,
             action: "INVOICE_CREATED",
             shipmentLeadId,
-            newValue: { invoiceNumber, invoiceDate, dueDate },
+            newValue: {
+                invoiceNumber,
+                invoiceDate,
+                dueDate,
+                pricingSnapshot: snapshot,
+            },
         });
-        return updated;
+        return {
+            ...updated,
+            pricing: snapshot,
+            lineItems: payment.lineItems,
+        };
+    }
+
+    async getInvoicePricingSettings(actor: Actor) {
+        assertPerm(actor, AccountingPermissions.BillingView);
+        const settings = await loadInvoicePricingSettings();
+        return {
+            settings,
+            policyText: INVOICE_PRICING_POLICY_TEXT,
+            canManage: isAccountingAdmin(actor.role),
+            paypalProcessorFeesExcluded: true,
+        };
+    }
+
+    async updateInvoicePricingSettings(actor: Actor, body: InvoicePricingUpdateInput) {
+        if (!isAccountingAdmin(actor.role)) {
+            throw forbid(
+                "Only Owner or Administrator can change Invoice Pricing",
+                "ACCOUNTING_PAYMENT_SETTINGS_FORBIDDEN"
+            );
+        }
+        assertPerm(actor, AccountingPermissions.PaymentSettingsManage);
+        const current = await loadInvoicePricingSettings();
+        const validated = validateInvoicePricingUpdate(current, body || {}, actor.userId);
+        if (!validated.ok) {
+            throw badRequest(validated.message, validated.code);
+        }
+        const saved = await saveInvoicePricingSettings(validated.next, actor.userId);
+        await writeAudit({
+            actor,
+            action: "INVOICE_PRICING_SETTINGS_UPDATED",
+            newValue: saved,
+        });
+        return {
+            settings: saved,
+            policyText: INVOICE_PRICING_POLICY_TEXT,
+            canManage: true,
+            paypalProcessorFeesExcluded: true,
+        };
     }
 
     async sendInvoice(actor: Actor, shipmentLeadId: string) {
@@ -1315,12 +1480,8 @@ where: { loadNumber: { not: null } },
             );
         }
 
-        const payment = customerPaymentQuote({
-            customerRate: s.customerRate,
-            accessorialCharges: s.accessorialCharges,
-            method: s.customerPaymentMethod,
-            waiveFee: s.waiveCustomerPaymentFee,
-        });
+        const pricing = await loadInvoicePricingSettings();
+        const payment = quoteShipmentPayment(s, pricing);
         const invoiceNumber =
             String(s.invoiceNumber || "").trim() ||
             (s.loadNumber ? String(s.loadNumber).replace(/^GL/i, "INV-") : `INV-${Date.now()}`);

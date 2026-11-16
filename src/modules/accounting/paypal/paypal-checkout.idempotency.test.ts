@@ -5,13 +5,14 @@ import { customerPaymentQuote } from "../../shipment/customer-payment.js";
 import { buildPayPalPaymentEmail } from "./paypal-payment-email.js";
 
 test("payment amount comes from customerPaymentQuote (server), not a client field", () => {
+    // Default Invoice Pricing is disabled — no PayPal-only surcharge.
     const quote = customerPaymentQuote({
         customerRate: 1000,
         accessorialCharges: 50,
         method: "PAYPAL",
         waiveFee: false,
     });
-    assert.equal(quote.total, 1080); // 1000 + 50 + 3% of 1000
+    assert.equal(quote.total, 1050); // 1000 + 50 + $0 handling fee
     // Frontend must never supply amount — idempotency key is derived from quote.total.
     const key = createHash("sha256")
         .update(["ship-1", String(Math.round(quote.total! * 100)), "INV-1", "sandbox"].join("|"))
