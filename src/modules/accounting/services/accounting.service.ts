@@ -19,6 +19,7 @@ import { resolveLoadDocumentAbsolutePath } from "../../shipment/services/load-pd
 import { canTransition } from "../../shipment/shipment.lifecycle.js";
 import { preferRateConCarrierAmount } from "../../shipment/load-amounts.js";
 import { payPalCheckoutService } from "../paypal/paypal-checkout.service.js";
+import { payPalInvoicingService } from "../paypal/paypal-invoicing.service.js";
 import { config } from "../../../config/env.js";
 import {
     INVOICE_PRICING_POLICY_TEXT,
@@ -797,6 +798,14 @@ where: { loadNumber: { not: null } },
         } catch {
             paypalPayment = null;
         }
+        let paypalInvoice: Awaited<
+            ReturnType<typeof payPalInvoicingService.getLatestForShipment>
+        > = null;
+        try {
+            paypalInvoice = await payPalInvoicingService.getLatestForShipment(shipmentLeadId);
+        } catch {
+            paypalInvoice = null;
+        }
 
         return {
             identity: {
@@ -950,6 +959,12 @@ where: { loadNumber: { not: null } },
                 canManagePayPalLinks: canManagePayPal,
             },
             paypalPayment,
+            paypalInvoice,
+            paypalInvoicing: {
+                mode: config.paypal.invoicingMode,
+                configured: config.paypal.invoicingActive.configured,
+                webhookConfigured: config.paypal.invoicingActive.invoicingWebhookConfigured,
+            },
             paypal: {
                 mode: config.paypal.mode,
                 configured: config.paypal.configured,
@@ -1584,15 +1599,27 @@ where: { loadNumber: { not: null } },
             where: { shipmentLeadId },
             orderBy: { createdAt: "desc" },
         });
+        const latestPayPalInvoice = await prisma.payPalCustomerInvoice.findFirst({
+            where: { shipmentLeadId },
+            orderBy: { createdAt: "desc" },
+        });
+        const openCheckout =
+            latestPayPal &&
+            !["CANCELLED", "DENIED", "FAILED", "REFUNDED", "REVERSED"].includes(
+                String(latestPayPal.status || "").toUpperCase()
+            );
+        const openInvoice =
+            latestPayPalInvoice &&
+            !["CANCELLED", "REFUNDED"].includes(
+                String(latestPayPalInvoice.status || "").toUpperCase()
+            );
         if (
             String(s.customerPaymentMethod || "").toUpperCase() === "PAYPAL" ||
-            (latestPayPal &&
-                !["CANCELLED", "DENIED", "FAILED", "REFUNDED"].includes(
-                    String(latestPayPal.status || "").toUpperCase()
-                ))
+            openCheckout ||
+            openInvoice
         ) {
             throw badRequest(
-                "PayPal payments cannot be recorded manually. Use verified PayPal capture status.",
+                "PayPal payments cannot be recorded manually. Use verified PayPal Checkout capture or Invoicing paid status.",
                 "PAYPAL_MANUAL_PAYMENT_BLOCKED"
             );
         }

@@ -175,6 +175,15 @@ export const config = {
                 ? "live"
                 : "sandbox";
         },
+        /**
+         * PayPal Invoicing API v2 mode — independent of PAYPAL_MODE (Checkout).
+         * Default sandbox; set PAYPAL_INVOICING_MODE=live only after Sandbox is verified.
+         */
+        get invoicingMode(): "live" | "sandbox" {
+            return (process.env.PAYPAL_INVOICING_MODE || "sandbox").trim().toLowerCase() === "live"
+                ? "live"
+                : "sandbox";
+        },
         /** @deprecated Prefer sandbox/live getters; legacy alias for active Checkout env. */
         get clientId() {
             return this.active.clientId;
@@ -209,14 +218,17 @@ export const config = {
                 process.env.PAYPAL_WEBHOOK_ID ||
                 ""
             ).trim();
+            const invoicingWebhookId = (process.env.PAYPAL_SANDBOX_INVOICING_WEBHOOK_ID || "").trim();
             return {
                 environment: "sandbox" as const,
                 clientId,
                 clientSecret,
                 webhookId,
+                invoicingWebhookId,
                 apiBaseUrl: "https://api-m.sandbox.paypal.com",
                 configured: Boolean(clientId && clientSecret),
                 webhookConfigured: Boolean(clientId && clientSecret && webhookId),
+                invoicingWebhookConfigured: Boolean(clientId && clientSecret && invoicingWebhookId),
             };
         },
         get live() {
@@ -224,18 +236,28 @@ export const config = {
             const clientId = (process.env.PAYPAL_LIVE_CLIENT_ID || "").trim();
             const clientSecret = (process.env.PAYPAL_LIVE_CLIENT_SECRET || "").trim();
             const webhookId = (process.env.PAYPAL_LIVE_WEBHOOK_ID || "").trim();
+            const invoicingWebhookId = (process.env.PAYPAL_LIVE_INVOICING_WEBHOOK_ID || "").trim();
             return {
                 environment: "live" as const,
                 clientId,
                 clientSecret,
                 webhookId,
+                invoicingWebhookId,
                 apiBaseUrl: "https://api-m.paypal.com",
                 configured: Boolean(clientId && clientSecret),
                 webhookConfigured: Boolean(clientId && clientSecret && webhookId),
+                invoicingWebhookConfigured: Boolean(clientId && clientSecret && invoicingWebhookId),
             };
         },
         get active() {
             return this.mode === "live" ? this.live : this.sandbox;
+        },
+        /** Environment used for Invoicing API calls (PAYPAL_INVOICING_MODE), same credentials as that env. */
+        get invoicingActive() {
+            return this.invoicingMode === "live" ? this.live : this.sandbox;
+        },
+        get invoicingWebhookConfigured() {
+            return this.invoicingActive.invoicingWebhookConfigured;
         },
     },
 };

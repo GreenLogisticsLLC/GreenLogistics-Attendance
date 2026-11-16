@@ -33,6 +33,7 @@ import {
     type CaptureEvidence,
 } from "./paypal-payment-safety.js";
 import { sendPayPalPaymentEmail } from "./paypal-payment-email.js";
+import { payPalInvoicingService } from "./paypal-invoicing.service.js";
 import { config } from "../../../config/env.js";
 import {
     getActivePayPalEnv,
@@ -921,6 +922,7 @@ export class PayPalCheckoutService {
             resource?: {
                 id?: string;
                 status?: string;
+                invoice?: { id?: string };
                 amount?: { value?: string; currency_code?: string };
                 supplementary_data?: { related_ids?: { order_id?: string } };
                 purchase_units?: Array<{
@@ -953,12 +955,17 @@ export class PayPalCheckoutService {
         }
 
         const resource = payload.resource || {};
-        let paypalOrderId =
-            resource.supplementary_data?.related_ids?.order_id ||
-            (eventType.startsWith("CHECKOUT.ORDER.") ? resource.id : null) ||
-            null;
+        const isInvoicingEvent = eventType.startsWith("INVOICING.");
+        const paypalInvoiceId = isInvoicingEvent
+            ? String(resource.invoice?.id || resource.id || "").trim() || null
+            : null;
+        let paypalOrderId = isInvoicingEvent
+            ? null
+            : resource.supplementary_data?.related_ids?.order_id ||
+              (eventType.startsWith("CHECKOUT.ORDER.") ? resource.id : null) ||
+              null;
 
-        if (!paypalOrderId && resource.id) {
+        if (!isInvoicingEvent && !paypalOrderId && resource.id) {
             const byCapture = await prisma.payPalCustomerOrder.findFirst({
                 where: { captureId: resource.id },
             });
@@ -972,6 +979,7 @@ export class PayPalCheckoutService {
                 eventType,
                 environment: webhookEnvironment,
                 paypalOrderId,
+                paypalInvoiceId,
                 resourceId: resource.id || null,
                 processed: false,
                 processResult: null,
@@ -982,6 +990,7 @@ export class PayPalCheckoutService {
                 eventType,
                 environment: webhookEnvironment,
                 paypalOrderId,
+                paypalInvoiceId,
                 resourceId: resource.id || null,
                 rawPayloadJson: input.rawBody,
             },
@@ -1050,7 +1059,17 @@ export class PayPalCheckoutService {
 
         let result = "ignored";
         try {
-            if (eventType === "CHECKOUT.ORDER.APPROVED") {
+            if (isInvoicingEvent) {
+                // Invoicing events never touch Checkout orders.
+                const invoicing = await payPalInvoicingService.handleInvoicingWebhookEvent({
+                    environment: webhookEnvironment,
+                    eventType,
+                    resource: resource as Record<string, unknown>,
+                    eventId,
+                    rawBody: input.rawBody,
+                });
+                result = invoicing.result;
+            } else if (eventType === "CHECKOUT.ORDER.APPROVED") {
                 if (!paypalOrderId) throw badRequest("Webhook missing PayPal order id");
                 const touched = await prisma.payPalCustomerOrder.updateMany({
                     where: {
@@ -1474,6 +1493,7 @@ export class PayPalCheckoutService {
             environment: webhookEnvironment,
             result,
             paypalOrderId,
+            paypalInvoiceId,
         };
     }
 }

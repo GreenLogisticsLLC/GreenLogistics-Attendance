@@ -456,6 +456,7 @@ model ShipmentLead {
   opsComments           ShipmentOpsComment[]
   customerAgreementInvites CustomerAgreementInvite[]
   paypalCustomerOrders  PayPalCustomerOrder[]
+  paypalCustomerInvoices PayPalCustomerInvoice[]
   carrierProfile        Carrier?                @relation(fields: [carrierProfileId], references: [carrierId], onDelete: SetNull)
   directCustomer        DirectCustomer?         @relation(fields: [directCustomerId], references: [customerId], onDelete: SetNull)
 
@@ -1351,6 +1352,8 @@ model PayPalWebhookEvent {
   /// sandbox | live — environment that successfully verified the signature.
   environment          String?  @map("environment")
   paypalOrderId        String?  @map("paypal_order_id")
+  /// PayPal Invoicing v2 invoice id for INVOICING.* events.
+  paypalInvoiceId      String?  @map("paypal_invoice_id")
   resourceId           String?  @map("resource_id")
   processed            Boolean  @default(false)
   processResult        String?  @map("process_result")
@@ -1362,7 +1365,84 @@ model PayPalWebhookEvent {
   @@index([eventType])
   @@index([environment])
   @@index([paypalOrderId])
+  @@index([paypalInvoiceId])
   @@index([processed])
   @@index([createdAt])
   @@map("paypal_webhook_events")
+}
+
+/// PayPal Invoicing API v2 invoice (NOT a Checkout order). Mirrors PayPal status locally.
+model PayPalCustomerInvoice {
+  paypalCustomerInvoiceId String   @id @default(uuid()) @map("paypal_customer_invoice_id")
+  shipmentLeadId          String   @map("shipment_lead_id")
+  /// Permanent sandbox | live — which PayPal environment created this invoice.
+  environment             String   @default("sandbox")
+  greenOsInvoiceNumber    String?  @map("green_os_invoice_number")
+  /// PayPal Invoicing v2 id (e.g. INV2-XXXX-XXXX-XXXX-XXXX).
+  paypalInvoiceId         String   @unique @map("paypal_invoice_id")
+  customerEmail           String?  @map("customer_email")
+  customerName            String?  @map("customer_name")
+  currency                String   @default("USD")
+  subtotalUsd             Float    @map("subtotal_usd")
+  feeAmountUsd            Float    @default(0) @map("fee_amount_usd")
+  /// none | percentage | fixed
+  feeType                 String?  @map("fee_type")
+  feeConfiguredValue      Float?   @map("fee_configured_value")
+  feeDescription          String?  @map("fee_description")
+  pricingVersion          Int?     @map("pricing_version")
+  pricingSnapshotJson     String?  @map("pricing_snapshot_json")
+  totalUsd                Float    @map("total_usd")
+  /// Mirrors PayPal: DRAFT | SENT | SCHEDULED | PAYMENT_PENDING | PARTIALLY_PAID | PAID | MARKED_AS_PAID | CANCELLED | REFUNDED | UNPAID ...
+  status                  String   @default("DRAFT")
+  hostedInvoiceUrl        String?  @map("hosted_invoice_url")
+  dueDate                 DateTime? @map("due_date")
+  sentAt                  DateTime? @map("sent_at")
+  paidAt                  DateTime? @map("paid_at")
+  cancelledAt             DateTime? @map("cancelled_at")
+  lastSyncedAt            DateTime? @map("last_synced_at")
+  paymentTransactionId    String?  @map("payment_transaction_id")
+  idempotencyKey          String   @unique @map("idempotency_key")
+  /// PayPal-Request-Id used for the create call (stable across retries).
+  createRequestId         String   @unique @map("create_request_id")
+  attemptCount            Int      @default(0) @map("attempt_count")
+  lastError               String?  @map("last_error")
+  needsAccountingReview   Boolean  @default(false) @map("needs_accounting_review")
+  createdByUserId         String?  @map("created_by_user_id")
+  rawCreateJson           String?  @map("raw_create_json")
+  rawLatestJson           String?  @map("raw_latest_json")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+  shipmentLead            ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+  operations              PayPalInvoiceOperation[]
+
+  @@index([shipmentLeadId])
+  @@index([status])
+  @@index([environment])
+  @@index([createdAt])
+  @@map("paypal_customer_invoices")
+}
+
+/// Idempotent PayPal Invoicing API call ledger (stable PayPal-Request-Id per logical operation).
+model PayPalInvoiceOperation {
+  paypalInvoiceOperationId String   @id @default(uuid()) @map("paypal_invoice_operation_id")
+  environment              String
+  /// CREATE | SEND | CANCEL | REMIND | SYNC | UPDATE
+  operationType            String   @map("operation_type")
+  logicalOperationId       String   @map("logical_operation_id")
+  requestId                String   @unique @map("request_id")
+  paypalCustomerInvoiceId  String?  @map("paypal_customer_invoice_id")
+  paypalInvoiceId          String?  @map("paypal_invoice_id")
+  /// PENDING | SUCCEEDED | FAILED | NEEDS_REVIEW
+  status                   String   @default("PENDING")
+  attemptCount             Int      @default(0) @map("attempt_count")
+  lastError                String?  @map("last_error")
+  createdAt                DateTime @default(now()) @map("created_at")
+  completedAt              DateTime? @map("completed_at")
+  invoice                  PayPalCustomerInvoice? @relation(fields: [paypalCustomerInvoiceId], references: [paypalCustomerInvoiceId], onDelete: SetNull)
+
+  @@index([logicalOperationId])
+  @@index([paypalInvoiceId])
+  @@index([status])
+  @@index([environment])
+  @@map("paypal_invoice_operations")
 }

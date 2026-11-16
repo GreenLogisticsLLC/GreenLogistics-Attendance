@@ -2267,6 +2267,8 @@ window.GreenOSModules.accounting = {
       var carrInvoice = carr.invoiceDoc;
       var paypal = d.paypalPayment || null;
       var paypalMeta = d.paypal || {};
+      var paypalInv = d.paypalInvoice || null;
+      var paypalInvMeta = d.paypalInvoicing || {};
       var custPayStatus = String(cust.paymentStatus || "UNPAID").toUpperCase();
       var carrPayStatus = String(carr.paymentStatus || "UNPAID").toUpperCase();
       var custPayTone = custPayStatus === "PAID" ? "ok" : "warn";
@@ -2299,8 +2301,8 @@ window.GreenOSModules.accounting = {
               : "muted";
       var paypalUrl = paypal && (paypal.paymentUrl || paypal.approvalUrl);
       var paypalSection =
-        '<section class="acc-card acc-drop-card" id="acc-paypal-card"><h3>Customer Payment (PayPal)</h3>' +
-        '<p class="gos-muted" style="margin:0 0 0.75rem;font-size:0.78rem">Generate a real PayPal Checkout link from the outstanding customer amount on this load. Accounting can copy it or email it to the customer.</p>' +
+        '<section class="acc-card acc-drop-card" id="acc-paypal-card"><h3>Customer Payment (PayPal Checkout)</h3>' +
+        '<p class="gos-muted" style="margin:0 0 0.75rem;font-size:0.78rem">Generate a PayPal Checkout (Orders) payment link from the outstanding customer amount. Separate from PayPal Invoicing below.</p>' +
         '<div class="acc-kv"><span>Invoice Number</span><strong>' +
         self.esc((paypal && paypal.invoiceNumber) || cust.invoiceNumber || "—") +
         "</strong></div>" +
@@ -2353,6 +2355,112 @@ window.GreenOSModules.accounting = {
         '<button type="button" class="btn-secondary" data-act="paypal-status"' +
         (paypal && paypal.paypalOrderId && canPayPal ? "" : " disabled") +
         ">View Payment Status</button>" +
+        "</div></section>";
+
+      var invStatus = paypalInv
+        ? String(paypalInv.status || "—").toUpperCase()
+        : "NONE";
+      var invTone =
+        invStatus === "PAID" || invStatus === "MARKED_AS_PAID"
+          ? "ok"
+          : invStatus === "CANCELLED" || invStatus === "REFUNDED"
+            ? "bad"
+            : paypalInv
+              ? "warn"
+              : "muted";
+      var invUrl = paypalInv && paypalInv.hostedInvoiceUrl;
+      var paypalInvoiceSection =
+        '<section class="acc-card acc-drop-card" id="acc-paypal-invoice-card"><h3>PayPal Invoice (Invoicing API)</h3>' +
+        '<p class="gos-muted" style="margin:0 0 0.75rem;font-size:0.78rem">Create a real PayPal Business invoice (draft → send). Customer pays on PayPal’s hosted invoice. Handling fee follows Invoice Pricing (default off) — never a PayPal surcharge.</p>' +
+        '<div class="acc-kv"><span>GreenOS Invoice #</span><strong>' +
+        self.esc(
+          (paypalInv && paypalInv.greenOsInvoiceNumber) ||
+            cust.invoiceNumber ||
+            "—"
+        ) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>PayPal Invoice ID</span><strong>' +
+        self.esc((paypalInv && paypalInv.paypalInvoiceId) || "—") +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Environment</span><strong>' +
+        self.esc(
+          String(
+            (paypalInv && paypalInv.environment) ||
+              paypalInvMeta.mode ||
+              "sandbox"
+          ).toUpperCase()
+        ) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Subtotal</span><strong>' +
+        self.money(paypalInv && paypalInv.subtotalUsd) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Handling fee</span><strong>' +
+        self.money(paypalInv && paypalInv.feeAmountUsd) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Total</span><strong>' +
+        self.money(
+          paypalInv && paypalInv.totalUsd != null
+            ? paypalInv.totalUsd
+            : cust.outstanding != null
+              ? cust.outstanding
+              : cust.total
+        ) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Hosted invoice URL</span><strong style="word-break:break-all;font-size:0.82rem">' +
+        (invUrl
+          ? '<a href="' +
+            self.esc(invUrl) +
+            '" target="_blank" rel="noopener">' +
+            self.esc(invUrl) +
+            "</a>"
+          : "—") +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Invoice Status</span>' +
+        self.pill(invStatus, invTone) +
+        "</div>" +
+        (paypalInvMeta.configured === false
+          ? '<p class="gos-muted" style="margin:0.6rem 0 0;font-size:0.78rem;color:#f59e0b">PayPal Invoicing is not configured (set PAYPAL_*_CLIENT_ID/SECRET for the invoicing mode).</p>'
+          : '<p class="gos-muted" style="margin:0.6rem 0 0;font-size:0.78rem">Invoicing mode: ' +
+            self.esc(String(paypalInvMeta.mode || "sandbox").toUpperCase()) +
+            (paypalInvMeta.webhookConfigured
+              ? ""
+              : " · invoicing webhook id not set yet") +
+            "</p>") +
+        '<div class="acc-invoice-actions" style="margin-top:0.85rem;flex-wrap:wrap;gap:0.45rem">' +
+        '<button type="button" class="btn-secondary" data-act="paypal-inv-create"' +
+        (canPayPal ? "" : ' disabled title="Billing send permission required"') +
+        ">Create PayPal Invoice</button>" +
+        '<button type="button" class="btn-primary acc-send-btn" data-act="paypal-inv-send"' +
+        (canPayPal &&
+        paypalInv &&
+        String(paypalInv.status || "").toUpperCase() === "DRAFT"
+          ? ""
+          : " disabled") +
+        ">Send via PayPal</button>" +
+        '<button type="button" class="btn-secondary" data-act="paypal-inv-remind"' +
+        (canPayPal &&
+        paypalInv &&
+        ["SENT", "UNPAID", "PAYMENT_PENDING", "PARTIALLY_PAID", "SCHEDULED"].indexOf(
+          String(paypalInv.status || "").toUpperCase()
+        ) >= 0
+          ? ""
+          : " disabled") +
+        ">Send Reminder</button>" +
+        '<button type="button" class="btn-secondary" data-act="paypal-inv-sync"' +
+        (canPayPal && paypalInv && paypalInv.paypalInvoiceId ? "" : " disabled") +
+        ">Sync Status</button>" +
+        '<button type="button" class="btn-secondary" data-act="paypal-inv-copy"' +
+        (invUrl ? "" : " disabled") +
+        ">Copy Invoice Link</button>" +
+        '<button type="button" class="btn-secondary" data-act="paypal-inv-cancel"' +
+        (canPayPal &&
+        paypalInv &&
+        ["CANCELLED", "PAID", "REFUNDED", "MARKED_AS_PAID"].indexOf(
+          String(paypalInv.status || "").toUpperCase()
+        ) < 0
+          ? ""
+          : " disabled") +
+        ">Cancel Invoice</button>" +
         "</div></section>";
 
       var custDocsVerified = Boolean(acc.customerDocsVerified);
@@ -2558,6 +2666,7 @@ window.GreenOSModules.accounting = {
         '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Upload the carrier invoice, then Send moves this load into Carrier Payments (AP). Paying the carrier happens later in Carrier Payments after documents are verified.</p>' +
         "</section></div>" +
         paypalSection +
+        paypalInvoiceSection +
         '<section class="acc-card acc-rate-card"><h3>Rate &amp; Payment</h3>' +
         '<div class="acc-rate-sides">' +
         '<div class="acc-rate-side">' +
@@ -2960,6 +3069,84 @@ window.GreenOSModules.accounting = {
         window.prompt("Copy PayPal payment link:", copyUrl);
       }
       return;
+    } else if (act === "paypal-inv-create") {
+      try {
+        var invPreviewRes = await this.api(
+          "/shipments/" + id + "/paypal-invoice/preview",
+          { method: "POST", body: {} }
+        );
+        if (!invPreviewRes.success) {
+          throw new Error(invPreviewRes.message || "Preview failed");
+        }
+        var invPrev = invPreviewRes.data || {};
+        var invConfirm =
+          "Confirm PayPal Invoice pricing:\n\n" +
+          "Subtotal: " +
+          self.money(invPrev.subtotalUsd) +
+          "\nHandling fee: " +
+          self.money(invPrev.feeAmountUsd) +
+          (invPrev.feeDescription ? " (" + invPrev.feeDescription + ")" : "") +
+          "\nTotal: " +
+          self.money(invPrev.totalUsd) +
+          "\nEnvironment: " +
+          String(invPrev.environment || "sandbox").toUpperCase() +
+          "\n\nCreates a PayPal draft invoice (not a Checkout order). Continue?";
+        if (!window.confirm(invConfirm)) return;
+        path = "/shipments/" + id + "/paypal-invoice/create";
+        body = { confirmPricing: true };
+      } catch (invPrevErr) {
+        if (msg) {
+          msg.textContent =
+            (invPrevErr && invPrevErr.message) || "PayPal invoice preview failed";
+          msg.style.color = "#ef4444";
+        }
+        return;
+      }
+    } else if (act === "paypal-inv-send") {
+      if (
+        !window.confirm(
+          "Send this PayPal invoice to the customer via PayPal? They will receive PayPal’s invoice email with a pay link."
+        )
+      ) {
+        return;
+      }
+      path = "/shipments/" + id + "/paypal-invoice/send";
+    } else if (act === "paypal-inv-remind") {
+      if (!window.confirm("Send a PayPal invoice payment reminder to the customer?")) {
+        return;
+      }
+      path = "/shipments/" + id + "/paypal-invoice/remind";
+    } else if (act === "paypal-inv-sync") {
+      path = "/shipments/" + id + "/paypal-invoice/sync";
+    } else if (act === "paypal-inv-cancel") {
+      var cancelNote = window.prompt(
+        "Cancel this PayPal invoice? Optional note for the customer:",
+        ""
+      );
+      if (cancelNote === null) return;
+      path = "/shipments/" + id + "/paypal-invoice/cancel";
+      body = { note: cancelNote || null };
+    } else if (act === "paypal-inv-copy") {
+      var invUrlEl = host.querySelector("#acc-paypal-invoice-card a[href]");
+      var invCopyUrl = invUrlEl ? invUrlEl.getAttribute("href") : "";
+      if (!invCopyUrl) {
+        alert("Create and send a PayPal invoice first.");
+        return;
+      }
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(invCopyUrl);
+        } else {
+          window.prompt("Copy PayPal invoice link:", invCopyUrl);
+        }
+        if (msg) {
+          msg.textContent = "PayPal invoice link copied.";
+          msg.style.color = "#22c55e";
+        }
+      } catch (invCopyErr) {
+        window.prompt("Copy PayPal invoice link:", invCopyUrl);
+      }
+      return;
     } else if (act === "carr-pay") {
       if (
         !window.confirm(
@@ -2992,7 +3179,9 @@ window.GreenOSModules.accounting = {
           act === "send-invoice" ||
           act === "send-carrier-invoice" ||
           act === "paypal-generate" ||
-          act === "paypal-send"
+          act === "paypal-send" ||
+          act === "paypal-inv-create" ||
+          act === "paypal-inv-send"
         ) {
           alert(failMsg);
         }
@@ -3012,7 +3201,14 @@ window.GreenOSModules.accounting = {
                   : act === "paypal-status"
                     ? "PayPal status: " +
                       String((res.data && res.data.status) || "updated")
-                    : res.message || "Done";
+                    : act === "paypal-inv-create"
+                      ? res.message || "PayPal invoice draft ready"
+                      : act === "paypal-inv-send"
+                        ? res.message || "PayPal invoice sent"
+                        : act === "paypal-inv-sync"
+                          ? "PayPal invoice status: " +
+                            String((res.data && res.data.status) || "updated")
+                          : res.message || "Done";
         msg.style.color = "#22c55e";
       }
       if (act === "send-carrier-invoice") {
