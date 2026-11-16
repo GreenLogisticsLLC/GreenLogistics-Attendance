@@ -16,9 +16,12 @@ import {
 } from "./paypal-client.js";
 import {
     decideWebhookLifecycleTransition,
+    isClosedPayPalAttempt,
     isPayPalTerminalState,
     nonTerminalPayPalOrderWhere,
+    paypalAttemptIdempotencyKey,
     runClaimedCapture,
+    SHIPMENT_PAID_BLOCKING_STATUSES,
     stateForPayPalStatus,
     verifyCompletedCapture,
     type CaptureEvidence,
@@ -214,18 +217,7 @@ export class PayPalCheckoutService {
             String(s.invoiceNumber || "").trim() ||
             (s.loadNumber ? String(s.loadNumber).replace(/^GL/i, "INV-") : null);
 
-        // Reuse any open attempt on this shipment (prevents parallel active checkouts).
-        const openExisting = await prisma.payPalCustomerOrder.findFirst({
-            where: {
-                shipmentLeadId,
-                status: { in: Array.from(OPEN_STATUSES) },
-            },
-            orderBy: { createdAt: "desc" },
-        });
-        if (openExisting?.approvalUrl) {
-            return mapRow(openExisting);
-        }
-
+        const checkoutEnv = getActivePayPalEnv().environment;
         const baseIdempotencyKey = createHash("sha256")
             .update(
                 [
@@ -238,93 +230,124 @@ export class PayPalCheckoutService {
             .digest("hex")
             .slice(0, 48);
 
-        // Terminal rows keep their historical idempotency key. A new attempt gets a
-        // derived key so we never upsert/overwrite REVERSED/REFUNDED history.
-        let idempotencyKey = baseIdempotencyKey;
-        const byBaseKey = await prisma.payPalCustomerOrder.findUnique({
-            where: { idempotencyKey: baseIdempotencyKey },
-        });
-        if (byBaseKey && isPayPalTerminalState(byBaseKey)) {
-            idempotencyKey = createHash("sha256")
-                .update(
-                    [
-                        baseIdempotencyKey,
-                        "attempt-after",
-                        byBaseKey.paypalCustomerOrderId,
-                        byBaseKey.status,
-                        byBaseKey.reversedAt?.toISOString() || "",
-                        byBaseKey.refundedAt?.toISOString() || "",
-                    ].join("|")
-                )
-                .digest("hex")
-                .slice(0, 48);
-        } else if (byBaseKey && OPEN_STATUSES.has(byBaseKey.status) && byBaseKey.approvalUrl) {
-            return mapRow(byBaseKey);
-        }
-
-        const byAttemptKey = await prisma.payPalCustomerOrder.findUnique({
-            where: { idempotencyKey },
-        });
-        if (byAttemptKey && isPayPalTerminalState(byAttemptKey)) {
-            throw badRequest(
-                "A terminal PayPal payment already exists for this retry key. Clear Accounting review or change the invoice/amount before generating another link.",
-                "PAYPAL_TERMINAL_RETRY_BLOCKED"
+        // Walk the deterministic retry chain until we reuse an open attempt or
+        // create on a free key. Unique idempotency_key + PayPal-Request-Id make
+        // concurrent Generate / timeout retries converge on one active row.
+        const maxAttempts = 64;
+        let row: PayPalCustomerOrder | null = null;
+        let createdOrderId: string | null = null;
+        for (let attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex += 1) {
+            const idempotencyKey = paypalAttemptIdempotencyKey(
+                baseIdempotencyKey,
+                attemptIndex
             );
-        }
-        if (byAttemptKey && OPEN_STATUSES.has(byAttemptKey.status) && byAttemptKey.approvalUrl) {
-            return mapRow(byAttemptKey);
-        }
 
-        const checkoutEnv = getActivePayPalEnv().environment;
-        const created = await createPayPalOrder({
-            amountUsd: quote.total,
-            currency: "USD",
-            invoiceNumber,
-            description: `Green Logistics ${s.loadNumber || shipmentLeadId.slice(0, 8)}`,
-            customId: shipmentLeadId,
-            idempotencyKey,
-            environment: checkoutEnv,
-        });
+            const existing = await prisma.payPalCustomerOrder.findUnique({
+                where: { idempotencyKey },
+            });
+            if (existing) {
+                if (OPEN_STATUSES.has(existing.status) && existing.approvalUrl) {
+                    return mapRow(existing);
+                }
+                if (isClosedPayPalAttempt(existing)) {
+                    continue;
+                }
+                if (existing.approvalUrl) {
+                    return mapRow(existing);
+                }
+            }
 
-        if (!created.approvalUrl) {
-            throw Object.assign(
-                new Error("PayPal order was created but no approval URL was returned"),
-                { status: 502, code: "PAYPAL_APPROVAL_URL_MISSING" }
-            );
-        }
+            // Re-check shipment-level open attempt (covers different amounts).
+            const openExisting = await prisma.payPalCustomerOrder.findFirst({
+                where: {
+                    shipmentLeadId,
+                    status: { in: Array.from(OPEN_STATUSES) },
+                },
+                orderBy: { createdAt: "desc" },
+            });
+            if (openExisting?.approvalUrl) {
+                return mapRow(openExisting);
+            }
 
-        // create-only: never upsert onto a terminal historical row.
-        const row = await prisma.payPalCustomerOrder.create({
-            data: {
-                shipmentLeadId,
-                paypalOrderId: created.id,
-                environment: checkoutEnv,
-                invoiceNumber,
-                customerInvoiceDocumentId: invoiceDoc?.documentId || null,
-                customerName: s.customerName,
-                customerEmail: s.customerEmail,
+            const created = await createPayPalOrder({
                 amountUsd: quote.total,
                 currency: "USD",
-                status: created.status || "CREATED",
-                approvalUrl: created.approvalUrl,
+                invoiceNumber,
+                description: `Green Logistics ${s.loadNumber || shipmentLeadId.slice(0, 8)}`,
+                customId: shipmentLeadId,
                 idempotencyKey,
-                createdByUserId: actor.userId,
-                rawCreateJson: JSON.stringify(created.raw),
-                needsAccountingReview: false,
-            },
-        });
+                environment: checkoutEnv,
+            });
+            if (!created.approvalUrl) {
+                throw Object.assign(
+                    new Error("PayPal order was created but no approval URL was returned"),
+                    { status: 502, code: "PAYPAL_APPROVAL_URL_MISSING" }
+                );
+            }
+            createdOrderId = created.id;
+
+            try {
+                row = await prisma.payPalCustomerOrder.create({
+                    data: {
+                        shipmentLeadId,
+                        paypalOrderId: created.id,
+                        environment: checkoutEnv,
+                        invoiceNumber,
+                        customerInvoiceDocumentId: invoiceDoc?.documentId || null,
+                        customerName: s.customerName,
+                        customerEmail: s.customerEmail,
+                        amountUsd: quote.total,
+                        currency: "USD",
+                        status: created.status || "CREATED",
+                        approvalUrl: created.approvalUrl,
+                        idempotencyKey,
+                        createdByUserId: actor.userId,
+                        rawCreateJson: JSON.stringify(created.raw),
+                        needsAccountingReview: false,
+                    },
+                });
+                break;
+            } catch (err) {
+                // Unique races on idempotency_key or paypal_order_id — converge.
+                const raced =
+                    (await prisma.payPalCustomerOrder.findUnique({
+                        where: { idempotencyKey },
+                    })) ||
+                    (await prisma.payPalCustomerOrder.findUnique({
+                        where: { paypalOrderId: created.id },
+                    }));
+                if (raced) {
+                    if (OPEN_STATUSES.has(raced.status) || raced.approvalUrl) {
+                        return mapRow(raced);
+                    }
+                    if (isClosedPayPalAttempt(raced)) {
+                        continue;
+                    }
+                    return mapRow(raced);
+                }
+                throw err;
+            }
+        }
+
+        if (!row) {
+            throw badRequest(
+                "Too many closed PayPal payment attempts for this invoice/amount. Contact Accounting.",
+                "PAYPAL_RETRY_CHAIN_EXHAUSTED"
+            );
+        }
 
         await domainEventEngine
             .emit({
                 shipmentLeadId,
                 eventType: "PAYPAL_CHECKOUT_LINK_CREATED",
                 title: "PayPal payment link created",
-                message: `PayPal order ${created.id} for $${quote.total.toFixed(2)}`,
+                message: `PayPal order ${row.paypalOrderId} for $${quote.total.toFixed(2)}`,
                 actorUserId: actor.userId,
                 payload: {
-                    paypalOrderId: created.id,
+                    paypalOrderId: row.paypalOrderId,
                     amountUsd: quote.total,
-                    approvalUrl: created.approvalUrl,
+                    approvalUrl: row.approvalUrl,
+                    attemptIdempotencyKey: row.idempotencyKey,
                 },
             })
             .catch(() => null);
@@ -332,7 +355,11 @@ export class PayPalCheckoutService {
             actor,
             action: "PAYPAL_LINK_GENERATED",
             shipmentLeadId,
-            newValue: { paypalOrderId: created.id, amountUsd: quote.total },
+            newValue: {
+                paypalOrderId: createdOrderId || row.paypalOrderId,
+                amountUsd: quote.total,
+                idempotencyKey: row.idempotencyKey,
+            },
         });
 
         return mapRow(row);
@@ -350,18 +377,30 @@ export class PayPalCheckoutService {
             return mapRow(row);
         }
         const remote = await getPayPalOrder(row.paypalOrderId, orderEnvironment(row));
-        const updated = await prisma.payPalCustomerOrder.update({
-            where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+        const nextStatus =
+            String(remote.captureStatus || "").toUpperCase() === "COMPLETED"
+                ? "CAPTURE_PENDING"
+                : String(remote.status || "").toUpperCase() === "COMPLETED"
+                  ? "CAPTURE_PENDING"
+                  : stateForPayPalStatus(remote.status);
+        const touched = await prisma.payPalCustomerOrder.updateMany({
+            where: {
+                paypalCustomerOrderId: row.paypalCustomerOrderId,
+                ...nonTerminalPayPalOrderWhere(),
+            },
             data: {
-                status:
-                    String(remote.captureStatus || "").toUpperCase() === "COMPLETED"
-                        ? "CAPTURE_PENDING"
-                        : String(remote.status || "").toUpperCase() === "COMPLETED"
-                          ? "CAPTURE_PENDING"
-                          : stateForPayPalStatus(remote.status),
+                status: nextStatus,
                 approvalUrl: remote.approvalUrl || row.approvalUrl,
             },
         });
+        const updated = await prisma.payPalCustomerOrder.findUnique({
+            where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+        });
+        if (!updated) throw notFound("PayPal order not found");
+        if (touched.count !== 1 || isPayPalTerminalState(updated)) {
+            // Concurrent reverse/refund won — do not capture/pay.
+            return mapRow(updated);
+        }
         if (
             !updated.paidAt &&
             (String(remote.status || "").toUpperCase() === "APPROVED" ||
@@ -459,53 +498,112 @@ export class PayPalCheckoutService {
         });
         const now = new Date();
         const result = await prisma.$transaction(async (tx) => {
-            const current = await tx.payPalCustomerOrder.findUnique({
-                where: { paypalCustomerOrderId: input.row.paypalCustomerOrderId },
-            });
-            if (!current) throw notFound("PayPal order not found");
-            if (current.status === "REFUNDED" || current.refundedAt) {
-                throw badRequest(
-                    "A refunded PayPal payment cannot be marked completed",
-                    "PAYPAL_CAPTURE_REFUNDED"
-                );
-            }
-            if (current.status === "REVERSED" || current.reversedAt) {
-                throw badRequest(
-                    "A reversed PayPal payment cannot be marked completed",
-                    "PAYPAL_CAPTURE_REVERSED"
-                );
-            }
-            const updated = await tx.payPalCustomerOrder.update({
-                where: { paypalCustomerOrderId: current.paypalCustomerOrderId },
+            // Atomic: COMPLETED only if still non-terminal at write time.
+            const orderTouch = await tx.payPalCustomerOrder.updateMany({
+                where: {
+                    paypalCustomerOrderId: input.row.paypalCustomerOrderId,
+                    ...nonTerminalPayPalOrderWhere(),
+                },
                 data: {
                     status: "COMPLETED",
                     captureId: verified.captureId,
-                    captureCompletedAt: current.captureCompletedAt || now,
-                    paidAt: current.paidAt || now,
+                    captureCompletedAt: now,
+                    paidAt: now,
                     failureReason: null,
                     rawCaptureJson: JSON.stringify(input.raw),
                 },
             });
-            const lead = await tx.shipmentLead.findUnique({
-                where: { shipmentLeadId: current.shipmentLeadId },
+            const current = await tx.payPalCustomerOrder.findUnique({
+                where: { paypalCustomerOrderId: input.row.paypalCustomerOrderId },
             });
-            if (lead && !lead.customerPaidAt) {
-                await tx.shipmentLead.update({
-                    where: { shipmentLeadId: current.shipmentLeadId },
+            if (!current) throw notFound("PayPal order not found");
+
+            if (orderTouch.count !== 1) {
+                // Concurrent reverse/refund won, or already completed.
+                if (isPayPalTerminalState(current)) {
+                    return {
+                        updated: current,
+                        newlyPaid: false,
+                        abortedTerminal: true as const,
+                    };
+                }
+                if (current.status === "COMPLETED" && current.paidAt) {
+                    return {
+                        updated: current,
+                        newlyPaid: false,
+                        abortedTerminal: false as const,
+                    };
+                }
+                throw badRequest(
+                    "PayPal capture could not be finalized due to a concurrent state change",
+                    "PAYPAL_CAPTURE_FINALIZE_CONFLICT"
+                );
+            }
+
+            // Never restore CUSTOMER_PAID over CUSTOMER_REVERSED / CUSTOMER_REFUNDED.
+            const shipTouch = await tx.shipmentLead.updateMany({
+                where: {
+                    shipmentLeadId: current.shipmentLeadId,
+                    OR: [
+                        { paymentStatus: null },
+                        {
+                            paymentStatus: {
+                                notIn: [...SHIPMENT_PAID_BLOCKING_STATUSES],
+                            },
+                        },
+                    ],
+                },
+                data: {
+                    customerPaidAt: now,
+                    customerPaidById:
+                        input.actor?.userId && input.actor.userId !== "paypal-webhook"
+                            ? input.actor.userId
+                            : undefined,
+                    paymentStatus: "CUSTOMER_PAID",
+                    paymentDate: now,
+                    accountingReadyForBilling: true,
+                },
+            });
+
+            if (shipTouch.count !== 1) {
+                // Shipment already reversed/refunded (or otherwise blocked). Clear the
+                // paid claim on this order if we just wrote COMPLETED; do not invent
+                // reverse fields — the reverse/refund handler owns those.
+                await tx.payPalCustomerOrder.updateMany({
+                    where: {
+                        paypalCustomerOrderId: current.paypalCustomerOrderId,
+                        status: "COMPLETED",
+                    },
                     data: {
-                        customerPaidAt: now,
-                        customerPaidById:
-                            input.actor?.userId && input.actor.userId !== "paypal-webhook"
-                                ? input.actor.userId
-                                : lead.customerPaidById || null,
-                        paymentStatus: "CUSTOMER_PAID",
-                        paymentDate: now,
-                        accountingReadyForBilling: true,
+                        paidAt: null,
+                        needsAccountingReview: true,
+                        failureReason:
+                            "Capture completed but shipment is reversed/refunded — not marking CUSTOMER_PAID",
                     },
                 });
+                const fresh = await tx.payPalCustomerOrder.findUnique({
+                    where: { paypalCustomerOrderId: current.paypalCustomerOrderId },
+                });
+                return {
+                    updated: fresh || current,
+                    newlyPaid: false,
+                    abortedTerminal: Boolean(fresh && isPayPalTerminalState(fresh)),
+                };
             }
-            return { updated, newlyPaid: Boolean(lead && !lead.customerPaidAt) };
+
+            const paidRow = await tx.payPalCustomerOrder.findUnique({
+                where: { paypalCustomerOrderId: current.paypalCustomerOrderId },
+            });
+            return {
+                updated: paidRow || current,
+                newlyPaid: true,
+                abortedTerminal: false as const,
+            };
         });
+
+        if (result.abortedTerminal) {
+            return mapRow(result.updated);
+        }
 
         if (result.newlyPaid) {
             await domainEventEngine
@@ -540,6 +638,7 @@ export class PayPalCheckoutService {
                 status: "COMPLETED",
                 amountUsd: verified.amountUsd,
                 currency: verified.currency,
+                newlyPaid: result.newlyPaid,
             },
         });
         return mapRow(result.updated);
@@ -623,18 +722,34 @@ export class PayPalCheckoutService {
 
         const remoteState = stateForPayPalStatus(remote.status);
         if (remoteState !== "APPROVED" && row.status !== "CAPTURE_PENDING") {
-            const updated = await prisma.payPalCustomerOrder.update({
-                where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+            await prisma.payPalCustomerOrder.updateMany({
+                where: {
+                    paypalCustomerOrderId: row.paypalCustomerOrderId,
+                    ...nonTerminalPayPalOrderWhere(),
+                },
                 data: { status: remoteState, rawCaptureJson: JSON.stringify(remote.raw) },
             });
+            const updated = await prisma.payPalCustomerOrder.findUnique({
+                where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+            });
+            if (!updated) throw notFound("PayPal order not found");
             return mapRow(updated);
         }
 
         if (row.status !== "CAPTURE_PENDING") {
-            row = await prisma.payPalCustomerOrder.update({
-                where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+            await prisma.payPalCustomerOrder.updateMany({
+                where: {
+                    paypalCustomerOrderId: row.paypalCustomerOrderId,
+                    ...nonTerminalPayPalOrderWhere(),
+                },
                 data: { status: "APPROVED" },
             });
+            const approved = await prisma.payPalCustomerOrder.findUnique({
+                where: { paypalCustomerOrderId: row.paypalCustomerOrderId },
+            });
+            if (!approved) throw notFound("PayPal order not found");
+            if (isPayPalTerminalState(approved)) return mapRow(approved);
+            row = approved;
         }
 
         const requestId = row.captureRequestId || this.captureRequestId(paypalOrderId);

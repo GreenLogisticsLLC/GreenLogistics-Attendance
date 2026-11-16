@@ -3,6 +3,7 @@ import test from "node:test";
 import {
     decideWebhookLifecycleTransition,
     isPayPalTerminalState,
+    paypalAttemptIdempotencyKey,
     runClaimedCapture,
     stateForPayPalStatus,
     verifyCompletedCapture,
@@ -123,6 +124,15 @@ test("PayPal state normalization is explicit", () => {
     assert.equal(stateForPayPalStatus("VOIDED"), "CANCELLED");
     assert.equal(stateForPayPalStatus("REFUNDED"), "REFUNDED");
     assert.equal(stateForPayPalStatus("REVERSED"), "REVERSED");
+});
+
+test("retry-chain idempotency keys are deterministic and unique per attempt", () => {
+    const base = "base-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    assert.equal(paypalAttemptIdempotencyKey(base, 0), base);
+    assert.equal(paypalAttemptIdempotencyKey(base, 1), paypalAttemptIdempotencyKey(base, 1));
+    assert.notEqual(paypalAttemptIdempotencyKey(base, 1), base);
+    assert.notEqual(paypalAttemptIdempotencyKey(base, 1), paypalAttemptIdempotencyKey(base, 2));
+    assert.notEqual(paypalAttemptIdempotencyKey(base, 2), paypalAttemptIdempotencyKey(base, 3));
 });
 
 test("terminal lifecycle decisions keep REVERSED final and record refund facts", () => {

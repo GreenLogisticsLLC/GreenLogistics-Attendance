@@ -1,3 +1,5 @@
+import { createHash } from "crypto";
+
 export const PAYPAL_PAYMENT_STATES = [
     "CREATED",
     "APPROVED",
@@ -184,6 +186,54 @@ const STALE_LIFECYCLE_EVENTS = new Set([
  * REVERSED and REFUNDED are terminal for the same payment attempt; out-of-order
  * refund+reverse keeps both financial facts with a deterministic final status.
  */
+/**
+ * Retry-chain design
+ * ------------------
+ * logicalBase = sha256(shipmentLeadId|cents|invoice|PAYPAL_MODE).slice(0,48)
+ * attemptKey(0) = logicalBase
+ * attemptKey(n) = sha256(logicalBase|"attempt"|n).slice(0,48) for n >= 1
+ *
+ * Each closed attempt (terminal / COMPLETED / DENIED / FAILED / CANCELLED) keeps
+ * its key forever. The next Generate walks n = 0,1,2,... until it finds an open
+ * row (reuse) or a free key (create). Uniqueness is enforced by the unique
+ * `idempotency_key` column; PayPal create uses the same key as PayPal-Request-Id
+ * so concurrent Generate retries return the same remote order.
+ */
+export function paypalAttemptIdempotencyKey(baseKey: string, attemptIndex: number): string {
+    const n = Math.max(0, Math.floor(Number(attemptIndex) || 0));
+    if (n <= 0) return baseKey;
+    return createHash("sha256")
+        .update([baseKey, "attempt", String(n)].join("|"))
+        .digest("hex")
+        .slice(0, 48);
+}
+
+/** Statuses that consume a retry-chain slot and must never be overwritten. */
+export const PAYPAL_CLOSED_ATTEMPT_STATUSES = [
+    "COMPLETED",
+    "DENIED",
+    "FAILED",
+    "CANCELLED",
+    "REFUNDED",
+    "REVERSED",
+] as const;
+
+export function isClosedPayPalAttempt(row: {
+    status: string | null | undefined;
+    reversedAt?: Date | null;
+    refundedAt?: Date | null;
+}): boolean {
+    if (isPayPalTerminalState(row)) return true;
+    const status = String(row.status || "").toUpperCase();
+    return (PAYPAL_CLOSED_ATTEMPT_STATUSES as readonly string[]).includes(status);
+}
+
+/** Shipment statuses that must not be overwritten back to CUSTOMER_PAID. */
+export const SHIPMENT_PAID_BLOCKING_STATUSES = [
+    "CUSTOMER_REVERSED",
+    "CUSTOMER_REFUNDED",
+] as const;
+
 export function decideWebhookLifecycleTransition(input: {
     row: PayPalLifecycleRow;
     eventType: string;

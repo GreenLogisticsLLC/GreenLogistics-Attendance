@@ -117,6 +117,21 @@ the received-payment timestamp, and sets shipment status to
   idempotency key + PayPal order id). Historical reversal/capture fields stay on
   the old row and are never erased or reused.
 
+### Retry-chain uniqueness
+
+`logicalBase = sha256(shipmentLeadId|cents|invoice|PAYPAL_MODE)[:48]`  
+`attemptKey(0) = logicalBase`  
+`attemptKey(n) = sha256(logicalBase|attempt|n)[:48]` for `n ≥ 1`
+
+Generate walks `n = 0,1,2,…` until it finds an open attempt (reuse) or a free key
+(create). Closed attempts (`REVERSED` / `REFUNDED` / `COMPLETED` / `DENIED` /
+`FAILED` / `CANCELLED`) keep their key forever. Concurrent Generate / timeout
+retries converge via unique `idempotency_key` + PayPal `PayPal-Request-Id`.
+
+Capture finalization uses conditional `updateMany` (non-terminal only). Shipment
+`CUSTOMER_PAID` is blocked when status is already `CUSTOMER_REVERSED` /
+`CUSTOMER_REFUNDED`.
+
 Independent Accounting actions (manual notes, document uploads, clearing review
 flags in UI later) are out of scope for these webhook guards.
 

@@ -662,6 +662,230 @@ test("REVERSED after REFUNDED upgrades to REVERSED and preserves refund facts", 
     assert.equal(lead?.customerPaidAt, null);
 });
 
+test("finalize loses to concurrent REVERSED and never leaves CUSTOMER_PAID", async () => {
+    const { shipment, payment } = await createPayment({ status: "CAPTURE_PENDING", paid: false });
+    installPayPalMock({
+        orderStatus: "COMPLETED",
+        captureStatus: "COMPLETED",
+        captureId: "CAP-TEST",
+    });
+    const reversePromise = applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-RACE-REV", {
+        id: "CAP-TEST",
+        status: "REVERSED",
+    });
+    const finalizePromise = payPalCheckoutService.captureAndMarkPaid(
+        payment.paypalOrderId,
+        billingActor
+    );
+    const results = await Promise.allSettled([reversePromise, finalizePromise]);
+    assert.ok(results.some((r) => r.status === "fulfilled"));
+    const order = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    if (order?.status === "REVERSED" || order?.reversedAt) {
+        assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+        assert.equal(lead?.customerPaidAt, null);
+        assert.equal(order.needsAccountingReview, true);
+    } else {
+        // Capture won first — a later reverse must still clear paid.
+        await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-RACE-REV-LATE", {
+            id: "CAP-TEST",
+            status: "REVERSED",
+        });
+    }
+    const finalOrder = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const finalLead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(finalOrder?.status, "REVERSED");
+    assert.equal(finalLead?.paymentStatus, "CUSTOMER_REVERSED");
+    assert.equal(finalLead?.customerPaidAt, null);
+    assert.notEqual(finalLead?.paymentStatus, "CUSTOMER_PAID");
+});
+
+test("finalize after REVERSED does not mark CUSTOMER_PAID", async () => {
+    const { shipment, payment } = await reverseCompletedPayment();
+    installPayPalMock({
+        orderStatus: "COMPLETED",
+        captureStatus: "COMPLETED",
+        captureId: "CAP-TEST",
+    });
+    await assert.rejects(
+        () => payPalCheckoutService.captureAndMarkPaid(payment.paypalOrderId, billingActor),
+        (err: { code?: string }) => err.code === "PAYPAL_CAPTURE_REVERSED"
+    );
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+    assert.equal(lead?.customerPaidAt, null);
+});
+
+test("three sequential terminal attempts each get a new retry link", async () => {
+    const { shipment, payment: first } = await reverseCompletedPayment();
+    const historyIds = [first.paypalCustomerOrderId];
+    const captureIds = ["CAP-TEST"];
+
+    for (let i = 1; i <= 3; i += 1) {
+        installPayPalMock({
+            createOrderId: `ORDER-RETRY-${i}`,
+            createApprovalUrl: `https://www.sandbox.paypal.com/checkoutnow?token=ORDER-RETRY-${i}`,
+        });
+        const generated = await payPalCheckoutService.generatePaymentLink(
+            billingActor,
+            shipment.shipmentLeadId
+        );
+        assert.equal(generated.paypalOrderId, `ORDER-RETRY-${i}`);
+        assert.ok(!historyIds.includes(generated.paypalCustomerOrderId));
+        assert.equal(generated.captureId, null);
+        assert.equal(generated.reversedAt, null);
+        historyIds.push(generated.paypalCustomerOrderId);
+
+        // Close this attempt as REVERSED so the next Generate advances the chain.
+        await prisma.payPalCustomerOrder.update({
+            where: { paypalCustomerOrderId: generated.paypalCustomerOrderId },
+            data: {
+                status: "REVERSED",
+                captureId: `CAP-RETRY-${i}`,
+                reversalId: `CAP-RETRY-${i}`,
+                reversedAt: new Date(),
+                needsAccountingReview: true,
+                paidAt: null,
+            },
+        });
+        captureIds.push(`CAP-RETRY-${i}`);
+    }
+
+    const rows = await prisma.payPalCustomerOrder.findMany({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+        orderBy: { createdAt: "asc" },
+    });
+    assert.ok(rows.length >= 4);
+    const keys = new Set(rows.map((r) => r.idempotencyKey));
+    assert.equal(keys.size, rows.length);
+    const orderIds = new Set(rows.map((r) => r.paypalOrderId));
+    assert.equal(orderIds.size, rows.length);
+    for (const row of rows) {
+        if (row.paypalCustomerOrderId === first.paypalCustomerOrderId) {
+            assert.equal(row.captureId, "CAP-TEST");
+            assert.equal(row.status, "REVERSED");
+        }
+    }
+});
+
+test("repeated Generate returns the same open attempt", async () => {
+    const { shipment } = await reverseCompletedPayment();
+    installPayPalMock({
+        createOrderId: "ORDER-SAME",
+        createApprovalUrl: "https://www.sandbox.paypal.com/checkoutnow?token=ORDER-SAME",
+    });
+    const a = await payPalCheckoutService.generatePaymentLink(billingActor, shipment.shipmentLeadId);
+    const b = await payPalCheckoutService.generatePaymentLink(billingActor, shipment.shipmentLeadId);
+    assert.equal(a.paypalCustomerOrderId, b.paypalCustomerOrderId);
+    assert.equal(a.paypalOrderId, "ORDER-SAME");
+    assert.equal(b.paypalOrderId, "ORDER-SAME");
+});
+
+test("two concurrent Generate requests converge on one active attempt", async () => {
+    const { shipment } = await reverseCompletedPayment();
+    installPayPalMock({
+        createOrderId: "ORDER-CONCURRENT",
+        createApprovalUrl: "https://www.sandbox.paypal.com/checkoutnow?token=ORDER-CONCURRENT",
+    });
+    const [a, b] = await Promise.all([
+        payPalCheckoutService.generatePaymentLink(billingActor, shipment.shipmentLeadId),
+        payPalCheckoutService.generatePaymentLink(billingActor, shipment.shipmentLeadId),
+    ]);
+    assert.equal(a.paypalOrderId, b.paypalOrderId);
+    assert.equal(a.paypalCustomerOrderId, b.paypalCustomerOrderId);
+    const open = await prisma.payPalCustomerOrder.count({
+        where: {
+            shipmentLeadId: shipment.shipmentLeadId,
+            status: { in: ["CREATED", "APPROVED", "CAPTURE_PENDING"] },
+        },
+    });
+    assert.equal(open, 1);
+});
+
+test("refreshStatus racing with REVERSED preserves terminal state", async () => {
+    const { shipment, payment } = await createPayment({ status: "APPROVED", paid: false });
+    installPayPalMock({ orderStatus: "APPROVED" });
+    const refreshPromise = payPalCheckoutService.refreshStatus(
+        billingActor,
+        shipment.shipmentLeadId
+    );
+    const reversePromise = (async () => {
+        await prisma.payPalCustomerOrder.update({
+            where: { paypalCustomerOrderId: payment.paypalCustomerOrderId },
+            data: {
+                status: "REVERSED",
+                reversedAt: new Date(),
+                reversalId: "CAP-TEST",
+                needsAccountingReview: true,
+                paidAt: null,
+            },
+        });
+        await prisma.shipmentLead.update({
+            where: { shipmentLeadId: shipment.shipmentLeadId },
+            data: {
+                customerPaidAt: null,
+                paymentStatus: "CUSTOMER_REVERSED",
+            },
+        });
+    })();
+    await Promise.allSettled([refreshPromise, reversePromise]);
+    const order = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalCustomerOrderId: payment.paypalCustomerOrderId },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(order?.status, "REVERSED");
+    assert.ok(order?.reversedAt);
+    assert.equal(order?.needsAccountingReview, true);
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+    assert.equal(lead?.customerPaidAt, null);
+});
+
+test("refreshStatus racing with REFUNDED preserves terminal state", async () => {
+    const { shipment, payment } = await createPayment({ status: "APPROVED", paid: false });
+    installPayPalMock({ orderStatus: "APPROVED" });
+    const refreshPromise = payPalCheckoutService.refreshStatus(
+        billingActor,
+        shipment.shipmentLeadId
+    );
+    const refundPromise = (async () => {
+        await prisma.payPalCustomerOrder.update({
+            where: { paypalCustomerOrderId: payment.paypalCustomerOrderId },
+            data: {
+                status: "REFUNDED",
+                refundedAt: new Date(),
+                refundId: "REFUND-RACE",
+                paidAt: null,
+            },
+        });
+        await prisma.shipmentLead.update({
+            where: { shipmentLeadId: shipment.shipmentLeadId },
+            data: {
+                customerPaidAt: null,
+                paymentStatus: "CUSTOMER_REFUNDED",
+            },
+        });
+    })();
+    await Promise.allSettled([refreshPromise, refundPromise]);
+    const order = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalCustomerOrderId: payment.paypalCustomerOrderId },
+    });
+    assert.equal(order?.status, "REFUNDED");
+    assert.ok(order?.refundedAt);
+    assert.equal(order?.refundId, "REFUND-RACE");
+});
+
 test("duplicate REFUNDED and REVERSED events stay idempotent", async () => {
     const { shipment } = await createPayment({ status: "COMPLETED", paid: true });
     installPayPalMock({});
