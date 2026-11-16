@@ -103,6 +103,23 @@ never payment proof. Refund processing changes the order to `REFUNDED`, clears
 the received-payment timestamp, and sets shipment status to
 `CUSTOMER_REFUNDED`. Reversal never marks paid; it flags Accounting review.
 
+### Terminal states (`REVERSED` / `REFUNDED`)
+
+`REVERSED` and `REFUNDED` are terminal for that payment attempt:
+
+- Stale `CHECKOUT.ORDER.*` / `PAYMENT.CAPTURE.PENDING|DENIED|COMPLETED|VOIDED`
+  events cannot rewrite status or restore `CUSTOMER_PAID`.
+- `REFUNDED` after `REVERSED` records refund facts (`refundId` / `refundedAt`) but
+  keeps status `REVERSED`, shipment `CUSTOMER_REVERSED`, and Accounting review.
+- `REVERSED` after `REFUNDED` upgrades to `REVERSED` / `CUSTOMER_REVERSED` while
+  preserving prior refund fields.
+- Regenerating a link after reverse/refund creates a **new** order row (new
+  idempotency key + PayPal order id). Historical reversal/capture fields stay on
+  the old row and are never erased or reused.
+
+Independent Accounting actions (manual notes, document uploads, clearing review
+flags in UI later) are out of scope for these webhook guards.
+
 The existing manual payment endpoint remains permission-gated by
 `CustomerPaymentsRecord`. It rejects PayPal-method loads and active PayPal
 orders; it is not a PayPal fallback.

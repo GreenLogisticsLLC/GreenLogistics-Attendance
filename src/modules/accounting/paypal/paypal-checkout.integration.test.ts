@@ -37,11 +37,15 @@ function installPayPalMock(input: {
     amount?: string;
     currency?: string;
     captureDelayMs?: number;
+    createOrderId?: string;
+    createApprovalUrl?: string;
 }) {
     let captureCalls = 0;
     let verifyCalls = 0;
+    let createCalls = 0;
     const orderStatus = input.orderStatus || "APPROVED";
-    globalThis.fetch = (async (urlLike: RequestInfo | URL) => {
+    const orderIdForGets = input.createOrderId || "ORDER-TEST";
+    globalThis.fetch = (async (urlLike: RequestInfo | URL, init?: RequestInit) => {
         const url = String(urlLike);
         if (url.endsWith("/v1/oauth2/token")) {
             return response({ access_token: "sandbox-test-token", expires_in: 3600 });
@@ -49,6 +53,22 @@ function installPayPalMock(input: {
         if (url.endsWith("/v1/notifications/verify-webhook-signature")) {
             verifyCalls += 1;
             return response({ verification_status: "SUCCESS" });
+        }
+        if (url.endsWith("/v2/checkout/orders") && String(init?.method || "GET").toUpperCase() === "POST") {
+            createCalls += 1;
+            const id = input.createOrderId || `ORDER-NEW-${createCalls}`;
+            return response({
+                id,
+                status: "CREATED",
+                links: [
+                    {
+                        rel: "approve",
+                        href:
+                            input.createApprovalUrl ||
+                            `https://www.sandbox.paypal.com/checkoutnow?token=${id}`,
+                    },
+                ],
+            });
         }
         if (url.endsWith("/capture")) {
             captureCalls += 1;
@@ -69,7 +89,7 @@ function installPayPalMock(input: {
                           },
                       ];
             return response({
-                id: "ORDER-TEST",
+                id: orderIdForGets,
                 status:
                     input.captureStatus === "COMPLETED"
                         ? "COMPLETED"
@@ -92,7 +112,7 @@ function installPayPalMock(input: {
                       ]
                     : [];
             return response({
-                id: "ORDER-TEST",
+                id: orderIdForGets,
                 status: orderStatus,
                 purchase_units: [{ payments: { captures: capture } }],
             });
@@ -106,7 +126,36 @@ function installPayPalMock(input: {
         get verifyCalls() {
             return verifyCalls;
         },
+        get createCalls() {
+            return createCalls;
+        },
     };
+}
+
+async function applyWebhook(eventType: string, eventId: string, resource: Record<string, unknown>) {
+    return payPalCheckoutService.handleWebhook({
+        headers: webhookHeaders,
+        rawBody: JSON.stringify({
+            id: eventId,
+            event_type: eventType,
+            resource: {
+                amount: { value: "100.00", currency_code: "USD" },
+                supplementary_data: { related_ids: { order_id: "ORDER-TEST" } },
+                ...resource,
+            },
+        }),
+    });
+}
+
+async function reverseCompletedPayment() {
+    const created = await createPayment({ status: "COMPLETED", paid: true });
+    installPayPalMock({});
+    const reversed = await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-REV-BASE", {
+        id: "CAP-TEST",
+        status: "REVERSED",
+    });
+    assert.equal(reversed.result, "reversed");
+    return created;
 }
 
 async function createPayment(input?: {
@@ -451,6 +500,200 @@ test("PAYMENT.CAPTURE.REVERSED clears paid and flags Accounting review", async (
         }),
     });
     assert.equal(replay.duplicate, true);
+});
+
+test("stale APPROVED/PENDING/DENIED/VOIDED/COMPLETED cannot overwrite REVERSED", async () => {
+    const { shipment } = await reverseCompletedPayment();
+    const cases: Array<{ type: string; id: string }> = [
+        { type: "CHECKOUT.ORDER.APPROVED", id: "WH-STALE-APPROVED" },
+        { type: "PAYMENT.CAPTURE.PENDING", id: "WH-STALE-PENDING" },
+        { type: "PAYMENT.CAPTURE.DENIED", id: "WH-STALE-DENIED" },
+        { type: "CHECKOUT.ORDER.VOIDED", id: "WH-STALE-VOIDED" },
+        {
+            type: "PAYMENT.CAPTURE.COMPLETED",
+            id: "WH-STALE-COMPLETED",
+        },
+    ];
+    for (const c of cases) {
+        installPayPalMock({
+            orderStatus: "COMPLETED",
+            captureStatus: "COMPLETED",
+            captureId: "CAP-TEST",
+        });
+        const result = await applyWebhook(c.type, c.id, {
+            id: c.type === "CHECKOUT.ORDER.APPROVED" ? "ORDER-TEST" : "CAP-TEST",
+            status: c.type.includes("COMPLETED") ? "COMPLETED" : "PENDING",
+        });
+        assert.match(
+            String(result.result),
+            /ignored_terminal|already_reversed|ignored_terminal_or_missing/
+        );
+    }
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REVERSED");
+    assert.equal(payment?.needsAccountingReview, true);
+    assert.ok(payment?.reversedAt);
+    assert.equal(payment?.paidAt, null);
+    assert.equal(payment?.captureId, "CAP-TEST");
+    assert.equal(lead?.customerPaidAt, null);
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+});
+
+test("repeated REVERSED event is idempotent and keeps Accounting review", async () => {
+    const { shipment } = await reverseCompletedPayment();
+    installPayPalMock({});
+    const again = await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-REV-AGAIN", {
+        id: "CAP-TEST",
+        status: "REVERSED",
+    });
+    assert.equal(again.result, "already_reversed");
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REVERSED");
+    assert.equal(payment?.needsAccountingReview, true);
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+});
+
+test("regenerate after REVERSED creates a separate attempt without erasing history", async () => {
+    const { shipment, payment: reversedRow } = await reverseCompletedPayment();
+    const priorReversalId = (
+        await prisma.payPalCustomerOrder.findUnique({
+            where: { paypalCustomerOrderId: reversedRow.paypalCustomerOrderId },
+        })
+    )?.reversalId;
+    installPayPalMock({
+        createOrderId: "ORDER-RETRY-1",
+        createApprovalUrl: "https://www.sandbox.paypal.com/checkoutnow?token=ORDER-RETRY-1",
+    });
+    const generated = await payPalCheckoutService.generatePaymentLink(
+        billingActor,
+        shipment.shipmentLeadId
+    );
+    assert.equal(generated.paypalOrderId, "ORDER-RETRY-1");
+    assert.notEqual(generated.paypalCustomerOrderId, reversedRow.paypalCustomerOrderId);
+    assert.equal(generated.captureId, null);
+    assert.equal(generated.status, "CREATED");
+    assert.equal(generated.needsAccountingReview, false);
+    assert.equal(generated.reversedAt, null);
+
+    const historical = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalCustomerOrderId: reversedRow.paypalCustomerOrderId },
+    });
+    assert.equal(historical?.status, "REVERSED");
+    assert.equal(historical?.captureId, "CAP-TEST");
+    assert.equal(historical?.reversalId, priorReversalId || "CAP-TEST");
+    assert.equal(historical?.needsAccountingReview, true);
+    assert.ok(historical?.reversedAt);
+
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+    assert.equal(lead?.customerPaidAt, null);
+
+    const openCount = await prisma.payPalCustomerOrder.count({
+        where: {
+            shipmentLeadId: shipment.shipmentLeadId,
+            status: { in: ["CREATED", "APPROVED", "CAPTURE_PENDING"] },
+        },
+    });
+    assert.equal(openCount, 1);
+});
+
+test("REFUNDED after REVERSED keeps REVERSED final state and records refund facts", async () => {
+    const { shipment } = await reverseCompletedPayment();
+    installPayPalMock({});
+    const refund = await applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-REFUND-AFTER-REV", {
+        id: "REFUND-AFTER",
+        status: "COMPLETED",
+    });
+    assert.equal(refund.result, "refund_recorded_on_reversed");
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REVERSED");
+    assert.equal(payment?.needsAccountingReview, true);
+    assert.ok(payment?.reversedAt);
+    assert.equal(payment?.refundId, "REFUND-AFTER");
+    assert.ok(payment?.refundedAt);
+    assert.equal(payment?.paidAt, null);
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+    assert.equal(lead?.customerPaidAt, null);
+});
+
+test("REVERSED after REFUNDED upgrades to REVERSED and preserves refund facts", async () => {
+    const { shipment } = await createPayment({ status: "COMPLETED", paid: true });
+    installPayPalMock({});
+    const refund = await applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-REFUND-FIRST", {
+        id: "REFUND-FIRST",
+        status: "COMPLETED",
+    });
+    assert.equal(refund.result, "refunded");
+    const reverse = await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-REV-AFTER-REFUND", {
+        id: "CAP-TEST",
+        status: "REVERSED",
+    });
+    assert.equal(reverse.result, "reversed");
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REVERSED");
+    assert.equal(payment?.refundId, "REFUND-FIRST");
+    assert.ok(payment?.refundedAt);
+    assert.ok(payment?.reversedAt);
+    assert.equal(payment?.needsAccountingReview, true);
+    assert.equal(payment?.paidAt, null);
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+    assert.equal(lead?.customerPaidAt, null);
+});
+
+test("duplicate REFUNDED and REVERSED events stay idempotent", async () => {
+    const { shipment } = await createPayment({ status: "COMPLETED", paid: true });
+    installPayPalMock({});
+    await applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-DUP-REFUND", {
+        id: "REFUND-DUP",
+        status: "COMPLETED",
+    });
+    const refundReplay = await applyWebhook("PAYMENT.CAPTURE.REFUNDED", "WH-DUP-REFUND", {
+        id: "REFUND-DUP",
+        status: "COMPLETED",
+    });
+    assert.equal(refundReplay.duplicate, true);
+
+    await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-DUP-REV", {
+        id: "CAP-TEST",
+        status: "REVERSED",
+    });
+    const revReplay = await applyWebhook("PAYMENT.CAPTURE.REVERSED", "WH-DUP-REV", {
+        id: "CAP-TEST",
+        status: "REVERSED",
+    });
+    assert.equal(revReplay.duplicate, true);
+
+    const payment = await prisma.payPalCustomerOrder.findUnique({
+        where: { paypalOrderId: "ORDER-TEST" },
+    });
+    const lead = await prisma.shipmentLead.findUnique({
+        where: { shipmentLeadId: shipment.shipmentLeadId },
+    });
+    assert.equal(payment?.status, "REVERSED");
+    assert.equal(lead?.paymentStatus, "CUSTOMER_REVERSED");
+    assert.equal(lead?.customerPaidAt, null);
 });
 
 test("manual payment endpoint rejects unauthorized role and PayPal bypass", async () => {

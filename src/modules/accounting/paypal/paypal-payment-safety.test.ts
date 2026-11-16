@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+    decideWebhookLifecycleTransition,
+    isPayPalTerminalState,
     runClaimedCapture,
     stateForPayPalStatus,
     verifyCompletedCapture,
@@ -121,4 +123,43 @@ test("PayPal state normalization is explicit", () => {
     assert.equal(stateForPayPalStatus("VOIDED"), "CANCELLED");
     assert.equal(stateForPayPalStatus("REFUNDED"), "REFUNDED");
     assert.equal(stateForPayPalStatus("REVERSED"), "REVERSED");
+});
+
+test("terminal lifecycle decisions keep REVERSED final and record refund facts", () => {
+    const reversed = {
+        status: "REVERSED",
+        reversedAt: new Date(),
+        paidAt: null,
+        refundedAt: null,
+        needsAccountingReview: true,
+    };
+    assert.equal(isPayPalTerminalState(reversed), true);
+    assert.equal(
+        decideWebhookLifecycleTransition({
+            row: reversed,
+            eventType: "CHECKOUT.ORDER.APPROVED",
+        }).action,
+        "ignore"
+    );
+    assert.equal(
+        decideWebhookLifecycleTransition({
+            row: reversed,
+            eventType: "PAYMENT.CAPTURE.COMPLETED",
+        }).action,
+        "ignore"
+    );
+    assert.equal(
+        decideWebhookLifecycleTransition({
+            row: reversed,
+            eventType: "PAYMENT.CAPTURE.REFUNDED",
+        }).action,
+        "record_refund_on_reversed"
+    );
+    assert.equal(
+        decideWebhookLifecycleTransition({
+            row: { status: "REFUNDED", refundedAt: new Date() },
+            eventType: "PAYMENT.CAPTURE.REVERSED",
+        }).action,
+        "upgrade_refunded_to_reversed"
+    );
 });
