@@ -273,6 +273,59 @@ export async function accountingPayPalSendController(req: AuthRequest, res: Resp
     }
 }
 
+function paypalInvoiceController(
+    action: "preview" | "createDraft" | "send" | "cancel" | "remind" | "sync",
+    message: string
+) {
+    return async (req: AuthRequest, res: Response) => {
+        try {
+            const id = String(req.params.id || "");
+            const { payPalInvoicingService } = await import("../paypal/paypal-invoicing.service.js");
+            const actor = actorFrom(req);
+            let data: unknown;
+            if (action === "createDraft") {
+                data = await payPalInvoicingService.createDraft(actor, id, {
+                    confirmPricing: req.body?.confirmPricing === true,
+                });
+            } else if (action === "cancel") {
+                const note = typeof req.body?.note === "string" ? req.body.note : undefined;
+                data = await payPalInvoicingService.cancel(actor, id, note);
+            } else {
+                data = await payPalInvoicingService[action](actor, id);
+            }
+            return res.json(apiResponse(true, message, data));
+        } catch (err) {
+            return res.status(errStatus(err)).json(errPayload(err));
+        }
+    };
+}
+
+/** PayPal Invoicing API v2 — amounts are server-side only (never from body). */
+export const accountingPayPalInvoicePreviewController = paypalInvoiceController(
+    "preview",
+    "PayPal invoice preview"
+);
+export const accountingPayPalInvoiceCreateController = paypalInvoiceController(
+    "createDraft",
+    "PayPal invoice draft ready"
+);
+export const accountingPayPalInvoiceSendController = paypalInvoiceController(
+    "send",
+    "PayPal invoice sent"
+);
+export const accountingPayPalInvoiceCancelController = paypalInvoiceController(
+    "cancel",
+    "PayPal invoice cancelled"
+);
+export const accountingPayPalInvoiceRemindController = paypalInvoiceController(
+    "remind",
+    "PayPal invoice reminder sent"
+);
+export const accountingPayPalInvoiceSyncController = paypalInvoiceController(
+    "sync",
+    "PayPal invoice status"
+);
+
 export async function paypalWebhookController(req: AuthRequest, res: Response) {
     try {
         const { payPalCheckoutService } = await import("../paypal/paypal-checkout.service.js");

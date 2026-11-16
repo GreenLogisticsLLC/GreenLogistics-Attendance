@@ -15,6 +15,12 @@ import {
     accountingGetShipmentController,
     accountingListShipmentsController,
     accountingPayPalGenerateController,
+    accountingPayPalInvoiceCancelController,
+    accountingPayPalInvoiceCreateController,
+    accountingPayPalInvoicePreviewController,
+    accountingPayPalInvoiceRemindController,
+    accountingPayPalInvoiceSendController,
+    accountingPayPalInvoiceSyncController,
     accountingPayPalSendController,
     accountingPayPalStatusController,
     accountingPreviewInvoicePricingController,
@@ -127,6 +133,37 @@ accountingRouter.post(
     "/shipments/:id/paypal/send",
     requireAccountingPermission(AccountingPermissions.BillingSend),
     accountingPayPalSendController
+);
+/** PayPal Invoicing API v2 (separate from Checkout above). */
+accountingRouter.post(
+    "/shipments/:id/paypal-invoice/preview",
+    requireAccountingPermission(AccountingPermissions.BillingSend),
+    accountingPayPalInvoicePreviewController
+);
+accountingRouter.post(
+    "/shipments/:id/paypal-invoice/create",
+    requireAccountingPermission(AccountingPermissions.BillingSend),
+    accountingPayPalInvoiceCreateController
+);
+accountingRouter.post(
+    "/shipments/:id/paypal-invoice/send",
+    requireAccountingPermission(AccountingPermissions.BillingSend),
+    accountingPayPalInvoiceSendController
+);
+accountingRouter.post(
+    "/shipments/:id/paypal-invoice/cancel",
+    requireAccountingPermission(AccountingPermissions.BillingSend),
+    accountingPayPalInvoiceCancelController
+);
+accountingRouter.post(
+    "/shipments/:id/paypal-invoice/remind",
+    requireAccountingPermission(AccountingPermissions.BillingSend),
+    accountingPayPalInvoiceRemindController
+);
+accountingRouter.post(
+    "/shipments/:id/paypal-invoice/sync",
+    requireAccountingPermission(AccountingPermissions.BillingSend),
+    accountingPayPalInvoiceSyncController
 );
 accountingRouter.post(
     "/carrier-payments/:id",

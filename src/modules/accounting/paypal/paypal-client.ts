@@ -2,7 +2,8 @@ import {
     assertPayPalEnvConfigured,
     getActivePayPalEnv,
     getPayPalEnv,
-    listWebhookCapablePayPalEnvs,
+    listWebhookCapablePayPalTargets,
+    type PayPalWebhookTarget,
     type PayPalEnvironment,
     type PayPalEnvCredentials,
 } from "./paypal-env.js";
@@ -44,10 +45,11 @@ export type PayPalCaptureResult = {
 export type PayPalWebhookVerifyResult = {
     verified: boolean;
     environment: PayPalEnvironment | null;
+    webhookKind?: PayPalWebhookTarget["webhookKind"];
     reason?: string;
 };
 
-async function paypalFetch(
+export async function paypalFetch(
     env: PayPalEnvCredentials,
     path: string,
     init: RequestInit & { accessToken?: string } = {}
@@ -323,8 +325,8 @@ export async function capturePayPalOrder(
     };
 }
 
-async function verifyWebhookAgainstEnv(
-    env: PayPalEnvCredentials,
+async function verifyWebhookAgainstTarget(
+    target: PayPalWebhookTarget,
     input: {
         transmissionId: string;
         transmissionTime: string;
@@ -334,7 +336,8 @@ async function verifyWebhookAgainstEnv(
         webhookEvent: unknown;
     }
 ): Promise<boolean> {
-    const token = await getPayPalAccessToken(env.environment);
+    const env = assertPayPalEnvConfigured(target.environment);
+    const token = await getPayPalAccessToken(target.environment);
     const json = (await paypalFetch(env, "/v1/notifications/verify-webhook-signature", {
         method: "POST",
         accessToken: token,
@@ -344,7 +347,7 @@ async function verifyWebhookAgainstEnv(
             cert_url: input.certUrl,
             auth_algo: input.authAlgo,
             transmission_sig: input.transmissionSig,
-            webhook_id: env.webhookId,
+            webhook_id: target.webhookId,
             webhook_event: input.webhookEvent,
         }),
     })) as { verification_status?: string };
@@ -360,11 +363,11 @@ export async function verifyPayPalWebhookSignatureDetailed(input: {
     headers: Record<string, string | string[] | undefined>;
     rawBody: string;
 }): Promise<PayPalWebhookVerifyResult> {
-    const capable = listWebhookCapablePayPalEnvs();
+    const capable = listWebhookCapablePayPalTargets();
     if (!capable.length) {
         throw Object.assign(
             new Error(
-                "No PayPal webhook environment is configured — set PAYPAL_SANDBOX_WEBHOOK_ID (or legacy PAYPAL_WEBHOOK_ID) and/or PAYPAL_LIVE_WEBHOOK_ID with matching client credentials"
+                "No PayPal webhook is configured — set Checkout webhook ids (PAYPAL_SANDBOX_WEBHOOK_ID or legacy PAYPAL_WEBHOOK_ID, PAYPAL_LIVE_WEBHOOK_ID) and/or Invoicing webhook ids (PAYPAL_SANDBOX_INVOICING_WEBHOOK_ID, PAYPAL_LIVE_INVOICING_WEBHOOK_ID) with matching client credentials"
             ),
             { status: 503, code: "PAYPAL_WEBHOOK_ID_MISSING" }
         );
@@ -396,16 +399,12 @@ export async function verifyPayPalWebhookSignatureDetailed(input: {
         : /api\.paypal\.com|api-m\.paypal\.com/i.test(String(certUrl || ""))
           ? "live"
           : null;
-    const ordered = [...capable].sort((a, b) => {
-        if (!certHint) return 0;
-        if (a.environment === certHint) return -1;
-        if (b.environment === certHint) return 1;
-        return 0;
-    });
+    const rank = (t: PayPalWebhookTarget) => (certHint && t.environment === certHint ? 0 : 1);
+    const ordered = [...capable].sort((a, b) => rank(a) - rank(b));
 
-    for (const env of ordered) {
+    for (const target of ordered) {
         try {
-            const ok = await verifyWebhookAgainstEnv(env, {
+            const ok = await verifyWebhookAgainstTarget(target, {
                 transmissionId,
                 transmissionTime,
                 certUrl,
@@ -414,7 +413,11 @@ export async function verifyPayPalWebhookSignatureDetailed(input: {
                 webhookEvent,
             });
             if (ok) {
-                return { verified: true, environment: env.environment };
+                return {
+                    verified: true,
+                    environment: target.environment,
+                    webhookKind: target.webhookKind,
+                };
             }
         } catch {
             // Try the other environment; do not leak tokens or secrets.
