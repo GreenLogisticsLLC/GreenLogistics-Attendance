@@ -3179,7 +3179,9 @@ window.GreenOSModules.accounting = {
           act === "send-invoice" ||
           act === "send-carrier-invoice" ||
           act === "paypal-generate" ||
-          act === "paypal-send"
+          act === "paypal-send" ||
+          act === "paypal-inv-create" ||
+          act === "paypal-inv-send"
         ) {
           alert(failMsg);
         }
@@ -3199,7 +3201,14 @@ window.GreenOSModules.accounting = {
                   : act === "paypal-status"
                     ? "PayPal status: " +
                       String((res.data && res.data.status) || "updated")
-                    : res.message || "Done";
+                    : act === "paypal-inv-create"
+                      ? res.message || "PayPal invoice draft ready"
+                      : act === "paypal-inv-send"
+                        ? res.message || "PayPal invoice sent"
+                        : act === "paypal-inv-sync"
+                          ? "PayPal invoice status: " +
+                            String((res.data && res.data.status) || "updated")
+                          : res.message || "Done";
         msg.style.color = "#22c55e";
       }
       if (act === "send-carrier-invoice") {
