@@ -124,7 +124,15 @@ function usd(value: number): string {
     return (Math.round((Number(value) + Number.EPSILON) * 100) / 100).toFixed(2);
 }
 
-function isoDate(value: Date | string): string {
+/**
+ * Calendar YYYY-MM-DD in a specific IANA timezone (not UTC-from-ISO).
+ * PayPal schedules send when invoice_date is "in the future" in the merchant
+ * account timezone — UTC date alone is not safe for immediate delivery.
+ */
+export function calendarDateInTimeZone(
+    value: Date | string,
+    timeZone: string
+): string {
     const d = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(d.getTime())) {
         throw Object.assign(new Error("Invalid invoice date"), {
@@ -132,7 +140,40 @@ function isoDate(value: Date | string): string {
             code: "PAYPAL_INVOICE_DATE_INVALID",
         });
     }
-    return d.toISOString().slice(0, 10);
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: timeZone || "UTC",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).formatToParts(d);
+    const year = parts.find((p) => p.type === "year")?.value;
+    const month = parts.find((p) => p.type === "month")?.value;
+    const day = parts.find((p) => p.type === "day")?.value;
+    if (!year || !month || !day) {
+        throw Object.assign(new Error("Invalid invoice date"), {
+            status: 422,
+            code: "PAYPAL_INVOICE_DATE_INVALID",
+        });
+    }
+    return `${year}-${month}-${day}`;
+}
+
+function isoDate(value: Date | string, timeZone = "UTC"): string {
+    return calendarDateInTimeZone(value, timeZone);
+}
+
+/**
+ * Issue date that PayPal will treat as "today or past" for immediate send.
+ * Merchant PayPal profile timezone can lag UTC by up to 12h, so use UTC yesterday.
+ */
+export function immediateInvoiceIssueDate(now = new Date()): string {
+    const safe = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    return calendarDateInTimeZone(safe, "UTC");
+}
+
+/** True when YYYY-MM-DD `a` is strictly after `b`. */
+export function isCalendarDateAfter(a: string, b: string): boolean {
+    return String(a || "") > String(b || "");
 }
 
 export type PayPalInvoiceItemInput = {
@@ -152,6 +193,8 @@ export type BuildPayPalInvoicePayloadInput = {
     items: PayPalInvoiceItemInput[];
     note?: string | null;
     reference?: string | null;
+    /** IANA zone for calendar dates. Default UTC; prefer business timezone on create. */
+    timeZone?: string;
 };
 
 /**
@@ -184,19 +227,26 @@ export function buildPayPalInvoicePayload(input: BuildPayPalInvoicePayloadInput)
     });
     const email = String(input.customerEmail || "").trim();
     const name = String(input.customerName || "").trim();
+    const timeZone = input.timeZone || "UTC";
     const billingInfo: Record<string, unknown> = {};
     if (name) billingInfo.business_name = name.slice(0, 300);
     if (email) billingInfo.email_address = email;
+    // Prefer an issue date that will not schedule-send across merchant timezones.
+    // Callers that need a specific calendar date can pass a past Date; send() also
+    // rewrites the issue date immediately before /send.
+    const invoiceDate = isoDate(input.invoiceDate, timeZone);
+    let dueDate = isoDate(input.dueDate, timeZone);
+    if (dueDate < invoiceDate) dueDate = invoiceDate;
     return {
         detail: {
             invoice_number: String(input.invoiceNumber).slice(0, 25),
             ...(input.reference ? { reference: String(input.reference).slice(0, 120) } : {}),
-            invoice_date: isoDate(input.invoiceDate),
+            invoice_date: invoiceDate,
             currency_code: currency,
             ...(input.note ? { note: String(input.note).slice(0, 4000) } : {}),
             payment_term: {
                 term_type: "DUE_ON_DATE_SPECIFIED",
-                due_date: isoDate(input.dueDate),
+                due_date: dueDate,
             },
         },
         primary_recipients: [{ billing_info: billingInfo }],
@@ -289,6 +339,56 @@ export async function updateDraftInvoice(
         body,
     });
     return getInvoice(id, env);
+}
+
+/**
+ * Rewrite invoice_date so PayPal /send delivers immediately instead of SCHEDULED.
+ * Official rule: future issue date → schedule; today/past → email now.
+ * Returns the updated GET result (or original when already safe).
+ */
+export async function ensureInvoiceIssueDateForImmediateSend(
+    id: string,
+    environment?: PayPalEnvironment,
+    now = new Date()
+): Promise<PayPalInvoiceResult> {
+    const env = activeInvoicingEnvironment(environment);
+    const current = await getInvoice(id, env);
+    const status = current.summary.status;
+    if (status !== "DRAFT" && status !== "SCHEDULED") {
+        return current;
+    }
+    const raw = (current.raw && typeof current.raw === "object" ? current.raw : {}) as Record<
+        string,
+        unknown
+    >;
+    const detail =
+        raw.detail && typeof raw.detail === "object"
+            ? ({ ...(raw.detail as Record<string, unknown>) } as Record<string, unknown>)
+            : {};
+    // Always pin to a past UTC date before send so merchant-TZ lag cannot schedule.
+    const safeIssueDate = immediateInvoiceIssueDate(now);
+    detail.invoice_date = safeIssueDate;
+    const paymentTerm =
+        detail.payment_term && typeof detail.payment_term === "object"
+            ? ({ ...(detail.payment_term as Record<string, unknown>) } as Record<string, unknown>)
+            : { term_type: "DUE_ON_DATE_SPECIFIED" };
+    const due = String(paymentTerm.due_date || "").slice(0, 10);
+    if (!due || due < safeIssueDate) {
+        paymentTerm.due_date = safeIssueDate;
+    }
+    detail.payment_term = paymentTerm;
+
+    // PayPal fully-update expects the editable invoice fields (not read-only links/id/status).
+    const body: Record<string, unknown> = {
+        detail,
+        primary_recipients: raw.primary_recipients,
+        items: raw.items,
+        configuration: raw.configuration,
+    };
+    if (raw.invoicer) body.invoicer = raw.invoicer;
+    if (raw.amount) body.amount = raw.amount;
+
+    return updateDraftInvoice(id, body, env);
 }
 
 /** DRAFT invoices cannot be cancelled in PayPal — they are deleted. */

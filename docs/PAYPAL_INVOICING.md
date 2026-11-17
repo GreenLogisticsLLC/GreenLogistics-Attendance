@@ -67,6 +67,17 @@ Amounts always come from the server (`customerPaymentQuote` / the locked pricing
 - Blocks: customer already paid, a completed Checkout payment, or an open invoice in the same environment that
   does not match the current amount. A matching open invoice is reused.
 
+### Immediate send (not SCHEDULED)
+
+PayPal `/send` **schedules** the invoice when `detail.invoice_date` is in the future in the **merchant PayPal
+profile timezone**. GreenOS therefore:
+
+1. Creates drafts with a past UTC issue date.
+2. Before every `/send`, rewrites `invoice_date` to UTC yesterday (`ensureInvoiceIssueDateForImmediateSend`).
+3. Calls `/send` with `send_to_recipient: true`.
+4. Treats a remaining `SCHEDULED`/`DRAFT` status after send as failure (`PAYPAL_INVOICE_STILL_SCHEDULED`).
+5. Allows **Send via PayPal** again for local `SCHEDULED` rows so Accounting can force-email stuck invoices.
+
 ### Payment confirmation
 
 Customers pay on the PayPal-hosted invoice, so GreenOS **never calls the record-payment API**. A shipment becomes

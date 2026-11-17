@@ -2433,14 +2433,16 @@ window.GreenOSModules.accounting = {
         '<button type="button" class="btn-primary acc-send-btn" data-act="paypal-inv-send"' +
         (canPayPal &&
         paypalInv &&
-        String(paypalInv.status || "").toUpperCase() === "DRAFT"
+        ["DRAFT", "SCHEDULED"].indexOf(
+          String(paypalInv.status || "").toUpperCase()
+        ) >= 0
           ? ""
           : " disabled") +
         ">Send via PayPal</button>" +
         '<button type="button" class="btn-secondary" data-act="paypal-inv-remind"' +
         (canPayPal &&
         paypalInv &&
-        ["SENT", "UNPAID", "PAYMENT_PENDING", "PARTIALLY_PAID", "SCHEDULED"].indexOf(
+        ["SENT", "UNPAID", "PAYMENT_PENDING", "PARTIALLY_PAID"].indexOf(
           String(paypalInv.status || "").toUpperCase()
         ) >= 0
           ? ""
@@ -3105,7 +3107,7 @@ window.GreenOSModules.accounting = {
     } else if (act === "paypal-inv-send") {
       if (
         !window.confirm(
-          "Send this PayPal invoice to the customer via PayPal? They will receive PayPal’s invoice email with a pay link."
+          "Send this PayPal invoice to the customer now? PayPal will email them immediately (not schedule for later)."
         )
       ) {
         return;

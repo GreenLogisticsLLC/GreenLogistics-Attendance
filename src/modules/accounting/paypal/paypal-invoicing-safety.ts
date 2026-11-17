@@ -78,9 +78,9 @@ export function invoicingCreateRequestId(attemptKey: string): string {
         .slice(0, 48);
 }
 
-/** Stable PayPal-Request-Id for a once-per-invoice action (send / cancel). */
+/** Stable PayPal-Request-Id for a once-per-invoice action (send / cancel / …). */
 export function invoicingActionRequestId(
-    action: "send" | "cancel",
+    action: "send" | "send-scheduled" | "cancel" | "remind",
     paypalInvoiceId: string
 ): string {
     return createHash("sha256")
