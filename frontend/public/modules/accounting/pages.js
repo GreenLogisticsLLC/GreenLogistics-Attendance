@@ -2319,13 +2319,28 @@ window.GreenOSModules.accounting = {
         Boolean(carr.paidAt) ||
           (Number(carr.outstanding) === 0 && Number(carr.amountPaid) > 0)
       );
-      var custRateNum = Number(cust.rate);
-      var carrRateNum = Number(carr.rate);
+      // Number(null) === 0 would wrongly show profit = 0 - carrierRate (e.g. $-2).
+      // Prefer locked invoice / quote totals when customerRate was never saved.
+      function moneyOrNull(v) {
+        if (v == null || v === "") return null;
+        var n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      }
+      var custAmt =
+        moneyOrNull(cust.total) != null
+          ? moneyOrNull(cust.total)
+          : moneyOrNull(cust.invoiceTotalUsd) != null
+            ? moneyOrNull(cust.invoiceTotalUsd)
+            : moneyOrNull(cust.paymentSubtotal) != null
+              ? moneyOrNull(cust.paymentSubtotal)
+              : moneyOrNull(cust.rate);
+      var carrAmt =
+        moneyOrNull(carr.total) != null ? moneyOrNull(carr.total) : moneyOrNull(carr.rate);
       var brokerProfit =
-        Number.isFinite(custRateNum) && Number.isFinite(carrRateNum)
-          ? custRateNum - carrRateNum
-          : null;
+        custAmt != null && carrAmt != null ? custAmt - carrAmt : null;
       var canPayPal = Boolean(perms.canManagePayPalLinks);
+      var canMarkCarrierPaid = Boolean(perms.canExecuteCarrierPayment);
+      var canMarkCustomerPaid = Boolean(perms.canRecordCustomerPayment);
 
       var invStatus = paypalInv
         ? String(paypalInv.status || "—").toUpperCase()
@@ -2501,7 +2516,16 @@ window.GreenOSModules.accounting = {
         "</strong></div>" +
         '<div class="acc-carrier-pay-meta">Received: <strong>' +
         self.money(cust.amountReceived) +
-        "</strong></div></section>" +
+        "</strong></div>" +
+        (cust.paidAt || self.isCustomerSidePaid({ paymentStatus: custPayStatus, customerPaidAt: cust.paidAt })
+          ? ""
+          : '<div class="acc-invoice-actions" style="margin-top:0.65rem">' +
+            '<button type="button" class="btn-primary" data-act="cust-pay"' +
+            (canMarkCustomerPaid
+              ? ""
+              : ' disabled title="Customer payment permission required"') +
+            ">Mark Customer Paid</button></div>") +
+        "</section>" +
         '<section class="acc-card acc-status-card acc-status-pod"><h3>POD Status</h3>' +
         self.pill(String(pod.status || "PENDING").toUpperCase(), pod.document ? "ok" : "warn") +
         self.docUploadControlHtml("POD", "Upload POD") +
@@ -2513,19 +2537,40 @@ window.GreenOSModules.accounting = {
         "</strong></div>" +
         '<div class="acc-carrier-pay-meta">Paid: <strong>' +
         self.money(carr.amountPaid) +
-        "</strong></div></section>" +
+        "</strong></div>" +
+        (carr.paidAt
+          ? ""
+          : '<div class="acc-invoice-actions" style="margin-top:0.65rem">' +
+            '<button type="button" class="btn-primary" data-act="carr-pay"' +
+            (canMarkCarrierPaid
+              ? ""
+              : ' disabled title="Carrier payment permission required"') +
+            ">Mark Carrier Paid</button></div>") +
+        "</section>" +
         "</div>" +
         '<div class="acc-profile-grid">' +
         '<section class="acc-card"><h3>Customer</h3><div class="acc-card-name">' +
         self.esc(cust.name || "—") +
         '</div><div class="acc-kv"><span>Rate</span><strong>' +
-        self.money(cust.rate) +
+        self.money(
+          cust.rate != null && cust.rate !== ""
+            ? cust.rate
+            : cust.total != null
+              ? cust.total
+              : cust.paymentSubtotal
+        ) +
         "</strong></div>" +
         '<div class="acc-kv"><span>Payment Terms</span><strong>' +
         self.esc(cust.paymentLabel || "—") +
         "</strong></div>" +
         '<div class="acc-kv"><span>Subtotal</span><strong>' +
-        self.money(cust.paymentSubtotal != null ? cust.paymentSubtotal : cust.rate) +
+        self.money(
+          cust.paymentSubtotal != null
+            ? cust.paymentSubtotal
+            : cust.total != null
+              ? cust.total
+              : cust.rate
+        ) +
         "</strong></div>" +
         '<div class="acc-kv"><span>' +
         self.esc(cust.paymentLineItemLabel || "Handling fee") +
@@ -2979,8 +3024,16 @@ window.GreenOSModules.accounting = {
         return;
       }
       path = "/shipments/" + id + "/carrier-invoice/send";
-    } else if (act === "cust-pay") path = "/shipments/" + id + "/customer-payment";
-    else if (act === "paypal-inv-create") {
+    } else if (act === "cust-pay") {
+      if (
+        !window.confirm(
+          "Mark this customer as paid? Use only after payment is confirmed (PayPal invoices usually mark this automatically)."
+        )
+      ) {
+        return;
+      }
+      path = "/shipments/" + id + "/customer-payment";
+    } else if (act === "paypal-inv-create") {
       try {
         var invPreviewRes = await this.api(
           "/shipments/" + id + "/paypal-invoice/preview",
@@ -3061,7 +3114,7 @@ window.GreenOSModules.accounting = {
     } else if (act === "carr-pay") {
       if (
         !window.confirm(
-          "Execute carrier payment? Backend will block if Documents verification is incomplete."
+          "Mark carrier as paid for this load? Backend will block if Documents verification / ready-for-payment flags are incomplete."
         )
       ) {
         return;

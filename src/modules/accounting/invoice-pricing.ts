@@ -224,10 +224,20 @@ export function buildInvoicePricingBreakdown(input: {
             label: "Total",
             amountUsd: snap.totalUsd,
         });
+        // Prefer live customerRate when present; otherwise expose snapshot subtotal as rate
+        // so Accounting profit (customer − carrier) does not treat rate as empty/0.
+        const knownRate = hasAmount(input.customerRate);
+        const rateUsd = knownRate
+            ? money(input.customerRate)
+            : snap.subtotalUsd != null
+              ? snap.subtotalUsd
+              : null;
         return {
             currency: "USD",
-            rateUsd: null,
-            accessorialsUsd: 0,
+            rateUsd,
+            accessorialsUsd: knownRate
+                ? roundUsd(money(input.accessorialCharges))
+                : 0,
             subtotalUsd: snap.subtotalUsd,
             feeType: snap.feeType,
             configuredValue: snap.configuredValue,

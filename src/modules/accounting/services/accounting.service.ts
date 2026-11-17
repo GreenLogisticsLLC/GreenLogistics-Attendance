@@ -736,7 +736,12 @@ where: { loadNumber: { not: null } },
                 /* ignore bad RC snapshot */
             }
         }
-        const customerTotal = payment.total || 0;
+        const customerTotal =
+            money(payment.total) ||
+            money(s.invoiceTotalUsd) ||
+            money(payment.subtotal) ||
+            money(payment.rate) ||
+            0;
         const carrierTotal = money(carrierRate) || 0;
 
         const pickupDay = s.opsPickupAt || s.pickupFrom || s.pickupTo || null;
@@ -1659,23 +1664,29 @@ where: { loadNumber: { not: null } },
         const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!s) throw notFound("Shipment not found");
 
-        if (s.accountingDocStatus !== AccountingDocStatus.Verified) {
-            throw forbid(
-                "Carrier payment blocked — Accounting Documents verification incomplete",
-                "CARRIER_PAYMENT_BLOCKED"
-            );
-        }
-        if (!s.accountingFinancialVerified) {
-            throw forbid(
-                "Carrier payment blocked — financial amounts not verified",
-                "CARRIER_PAYMENT_BLOCKED"
-            );
-        }
-        if (!s.accountingReadyForCarrierPayment) {
-            throw forbid(
-                "Carrier payment blocked — shipment is not Ready for Carrier Payment",
-                "CARRIER_PAYMENT_BLOCKED"
-            );
+        // Owner/Admin may override gates (same as assertCarrierPaymentAllowed) so Accounting
+        // can mark carrier Paid after an out-of-band payout when flags lag.
+        const canOverride =
+            actor.role === Roles.Owner || actor.role === Roles.Administrator;
+        if (!canOverride) {
+            if (s.accountingDocStatus !== AccountingDocStatus.Verified) {
+                throw forbid(
+                    "Carrier payment blocked — Accounting Documents verification incomplete",
+                    "CARRIER_PAYMENT_BLOCKED"
+                );
+            }
+            if (!s.accountingFinancialVerified) {
+                throw forbid(
+                    "Carrier payment blocked — financial amounts not verified",
+                    "CARRIER_PAYMENT_BLOCKED"
+                );
+            }
+            if (!s.accountingReadyForCarrierPayment) {
+                throw forbid(
+                    "Carrier payment blocked — shipment is not Ready for Carrier Payment",
+                    "CARRIER_PAYMENT_BLOCKED"
+                );
+            }
         }
         if (s.carrierPaidAt) {
             throw badRequest("Carrier already marked paid");
