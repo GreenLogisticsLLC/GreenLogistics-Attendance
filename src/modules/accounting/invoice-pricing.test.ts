@@ -95,6 +95,25 @@ test("historical snapshot is immutable when live settings change", () => {
     assert.equal(locked.feeAmountUsd, 25);
     assert.equal(locked.totalUsd, 1025);
     assert.equal(locked.pricingVersion, 3);
+    assert.equal(locked.rateUsd, 1000);
+});
+
+test("snapshot without live rate still exposes subtotal as rate for profit", () => {
+    const settings = defaultInvoicePricingSettings();
+    const snapshot = createInvoicePricingSnapshot({
+        settings,
+        breakdown: buildInvoicePricingBreakdown({
+            customerRate: 2,
+            settings,
+        }),
+    });
+    const locked = buildInvoicePricingBreakdown({
+        settings,
+        snapshot,
+    });
+    assert.equal(locked.totalUsd, 2);
+    assert.equal(locked.subtotalUsd, 2);
+    assert.equal(locked.rateUsd, 2);
 });
 
 test("cannot enable fee without policy acknowledgment", () => {
