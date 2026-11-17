@@ -185,7 +185,7 @@ window.GreenOSRegistry = [
       { id: "customer-billing", title: "Customer Billing" },
       { id: "customer-payments", title: "Customer Payments" },
       { id: "carrier-payments", title: "Carrier Payments" },
-      { id: "history", title: "Accounting History" },
+      { id: "archive", title: "Archive" },
       { id: "payment-settings", title: "Payment Settings" },
     ],
   },

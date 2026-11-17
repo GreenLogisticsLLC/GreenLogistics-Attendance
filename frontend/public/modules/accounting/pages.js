@@ -11,7 +11,7 @@ window.GreenOSModules.accounting = {
     { id: "carrier-payments", title: "Carrier Payments (AP)" },
     { id: "customer-payments", title: "Invoices" },
     { id: "shipments", title: "All Loads" },
-    { id: "history", title: "Transactions" },
+    { id: "archive", title: "Archive" },
     { id: "payment-settings", title: "Payment Settings" },
   ],
 
@@ -731,7 +731,7 @@ window.GreenOSModules.accounting = {
     if (subPageId === "customer-billing") return "billing";
     if (subPageId === "customer-payments") return "customer-payments";
     if (subPageId === "carrier-payments") return "carrier-payment";
-    if (subPageId === "history") return "history";
+    if (subPageId === "history" || subPageId === "archive") return "archive";
     return "all";
   },
 
@@ -891,10 +891,10 @@ window.GreenOSModules.accounting = {
         tab: "carrier-payments",
       },
       accountingClosed: {
-        label: "Accounting Closed",
+        label: "Archive",
         tone: "green",
         pending: false,
-        tab: "history",
+        tab: "archive",
       },
     };
     return (
@@ -1616,9 +1616,12 @@ window.GreenOSModules.accounting = {
     if (!root) return;
     var self = this;
     var children = this.children || [];
+    // Legacy deep-link: ?sub=history → Archive
+    var requested =
+      subPageId === "history" ? "archive" : subPageId;
     var active =
       children.find(function (c) {
-        return c.id === subPageId;
+        return c.id === requested;
       }) || children[0];
     this._subPageId = (active && active.id) || "dashboard";
     this.startIdleRefresh(root);
@@ -2076,7 +2079,7 @@ window.GreenOSModules.accounting = {
         '<button type="button" class="acc-dash-tab" data-dash-queue="carrier">Ready for Carrier Pay (' +
         self.esc(String(queues.readyCarrierPay || 0)) +
         ")</button>" +
-        '<button type="button" class="acc-dash-tab" data-dash-queue="paid">Paid (' +
+        '<button type="button" class="acc-dash-tab" data-dash-queue="paid">Archive (' +
         self.esc(String(queues.paid || 0)) +
         ")</button>" +
         '<button type="button" class="acc-dash-tab" data-dash-queue="all">All Loads</button>';
@@ -3114,7 +3117,7 @@ window.GreenOSModules.accounting = {
     } else if (act === "carr-pay") {
       if (
         !window.confirm(
-          "Mark carrier as paid for this load? Backend will block if Documents verification / ready-for-payment flags are incomplete."
+          "Mark carrier as paid for this load? If the customer is already paid, the load moves to Archive."
         )
       ) {
         return;
@@ -3143,7 +3146,9 @@ window.GreenOSModules.accounting = {
           act === "send-invoice" ||
           act === "send-carrier-invoice" ||
           act === "paypal-inv-create" ||
-          act === "paypal-inv-send"
+          act === "paypal-inv-send" ||
+          act === "carr-pay" ||
+          act === "cust-pay"
         ) {
           alert(failMsg);
         }
@@ -3156,14 +3161,17 @@ window.GreenOSModules.accounting = {
             : act === "send-carrier-invoice"
               ? (res.message || "Carrier invoice sent") +
                 " — load moved to Carrier Payments."
-              : act === "paypal-inv-create"
-                ? res.message || "PayPal invoice draft ready"
-                : act === "paypal-inv-send"
-                  ? res.message || "PayPal invoice sent"
-                  : act === "paypal-inv-sync"
-                    ? "PayPal invoice status: " +
-                      String((res.data && res.data.status) || "updated")
-                    : res.message || "Done";
+              : act === "carr-pay"
+                ? (res.message || "Carrier marked paid") +
+                  " — if customer was paid, load is in Archive."
+                : act === "paypal-inv-create"
+                  ? res.message || "PayPal invoice draft ready"
+                  : act === "paypal-inv-send"
+                    ? res.message || "PayPal invoice sent"
+                    : act === "paypal-inv-sync"
+                      ? "PayPal invoice status: " +
+                        String((res.data && res.data.status) || "updated")
+                      : res.message || "Done";
         msg.style.color = "#22c55e";
       }
       if (act === "send-carrier-invoice") {
