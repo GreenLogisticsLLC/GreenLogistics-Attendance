@@ -2302,8 +2302,9 @@ window.GreenOSModules.accounting = {
 
       var custInvoice = cust.invoiceDoc;
       var carrInvoice = carr.invoiceDoc;
-      var paypal = d.paypalPayment || null;
-      var paypalMeta = d.paypal || {};
+      // PayPal Checkout (Orders) UI is intentionally not shown in Accounting.
+      // Backend Checkout APIs/webhooks remain for history and recovery; day-to-day
+      // customer billing uses PayPal Invoicing (PAYPAL_INVOICING_MODE).
       var paypalInv = d.paypalInvoice || null;
       var paypalInvMeta = d.paypalInvoicing || {};
       var custPayStatus = String(cust.paymentStatus || "UNPAID").toUpperCase();
@@ -2325,82 +2326,6 @@ window.GreenOSModules.accounting = {
           ? custRateNum - carrRateNum
           : null;
       var canPayPal = Boolean(perms.canManagePayPalLinks);
-      var paypalAmount =
-        paypal && paypal.amountUsd != null
-          ? paypal.amountUsd
-          : cust.outstanding != null
-            ? cust.outstanding
-            : cust.total;
-      var paypalStatus = paypal ? String(paypal.status || "—").toUpperCase() : "NONE";
-      var paypalStatusTone =
-        paypalStatus === "COMPLETED" || paypalStatus === "CAPTURED"
-          ? "ok"
-          : paypalStatus === "FAILED" ||
-              paypalStatus === "DENIED" ||
-              paypalStatus === "REFUNDED" ||
-              paypalStatus === "VOIDED" ||
-              paypalStatus === "CANCELLED"
-            ? "bad"
-            : paypal
-              ? "warn"
-              : "muted";
-      var paypalUrl = paypal && (paypal.paymentUrl || paypal.approvalUrl);
-      var paypalSection =
-        '<section class="acc-card acc-drop-card" id="acc-paypal-card"><h3>Customer Payment (PayPal Checkout)</h3>' +
-        '<p class="gos-muted" style="margin:0 0 0.75rem;font-size:0.78rem">Generate a PayPal Checkout (Orders) payment link from the outstanding customer amount. Separate from PayPal Invoicing below.</p>' +
-        '<div class="acc-kv"><span>Invoice Number</span><strong>' +
-        self.esc((paypal && paypal.invoiceNumber) || cust.invoiceNumber || "—") +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Customer Name</span><strong>' +
-        self.esc((paypal && paypal.customerName) || cust.name || "—") +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Payment Amount</span><strong>' +
-        self.money(paypalAmount) +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>PayPal Order ID</span><strong>' +
-        self.esc((paypal && paypal.paypalOrderId) || "—") +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Payment URL</span><strong style="word-break:break-all;font-size:0.82rem">' +
-        (paypalUrl
-          ? '<a href="' +
-            self.esc(paypalUrl) +
-            '" target="_blank" rel="noopener">' +
-            self.esc(paypalUrl) +
-            "</a>"
-          : "—") +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Created By</span><strong>' +
-        self.esc((paypal && (paypal.createdByName || paypal.createdByUserId)) || "—") +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Created At</span><strong>' +
-        self.esc(
-          paypal && paypal.createdAt
-            ? self.formatDay(paypal.createdAt) || String(paypal.createdAt)
-            : "—"
-        ) +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Payment Status</span>' +
-        self.pill(paypalStatus, paypalStatusTone) +
-        "</div>" +
-        (paypalMeta.configured === false
-          ? '<p class="gos-muted" style="margin:0.6rem 0 0;font-size:0.78rem;color:#f59e0b">PayPal is not configured on this server (set PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET).</p>'
-          : '<p class="gos-muted" style="margin:0.6rem 0 0;font-size:0.78rem">Mode: ' +
-            self.esc(String(paypalMeta.mode || "sandbox").toUpperCase()) +
-            "</p>") +
-        '<div class="acc-invoice-actions" style="margin-top:0.85rem;flex-wrap:wrap;gap:0.45rem">' +
-        '<button type="button" class="btn-secondary" data-act="paypal-generate"' +
-        (canPayPal ? "" : ' disabled title="Billing send permission required"') +
-        ">Generate PayPal Link</button>" +
-        '<button type="button" class="btn-secondary" data-act="paypal-copy"' +
-        (paypalUrl ? "" : " disabled") +
-        ">Copy Payment Link</button>" +
-        '<button type="button" class="btn-primary acc-send-btn" data-act="paypal-send"' +
-        (canPayPal ? "" : ' disabled title="Billing send permission required"') +
-        ">Send to Customer</button>" +
-        '<button type="button" class="btn-secondary" data-act="paypal-status"' +
-        (paypal && paypal.paypalOrderId && canPayPal ? "" : " disabled") +
-        ">View Payment Status</button>" +
-        "</div></section>";
 
       var invStatus = paypalInv
         ? String(paypalInv.status || "—").toUpperCase()
@@ -2416,7 +2341,7 @@ window.GreenOSModules.accounting = {
       var invUrl = paypalInv && paypalInv.hostedInvoiceUrl;
       var paypalInvoiceSection =
         '<section class="acc-card acc-drop-card" id="acc-paypal-invoice-card"><h3>PayPal Invoice (Invoicing API)</h3>' +
-        '<p class="gos-muted" style="margin:0 0 0.75rem;font-size:0.78rem">Create a real PayPal Business invoice (draft → send). Customer pays on PayPal’s hosted invoice. Handling fee follows Invoice Pricing (default off) — never a PayPal surcharge.</p>' +
+        '<p class="gos-muted" style="margin:0 0 0.75rem;font-size:0.78rem">Create and send a PayPal Business invoice. Customer pays on PayPal’s hosted invoice. Handling fee follows Invoice Pricing (default off) — never a PayPal surcharge.</p>' +
         '<div class="acc-kv"><span>GreenOS Invoice #</span><strong>' +
         self.esc(
           (paypalInv && paypalInv.greenOsInvoiceNumber) ||
@@ -2715,7 +2640,6 @@ window.GreenOSModules.accounting = {
         ">Send</button></div>" +
         '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Upload the carrier invoice, then Send moves this load into Carrier Payments (AP). Paying the carrier happens later in Carrier Payments after documents are verified.</p>' +
         "</section></div>" +
-        paypalSection +
         paypalInvoiceSection +
         '<section class="acc-card acc-rate-card"><h3>Rate &amp; Payment</h3>' +
         '<div class="acc-rate-sides">' +
@@ -3078,48 +3002,7 @@ window.GreenOSModules.accounting = {
       }
       path = "/shipments/" + id + "/carrier-invoice/send";
     } else if (act === "cust-pay") path = "/shipments/" + id + "/customer-payment";
-    else if (act === "paypal-generate") {
-      if (
-        !window.confirm(
-          "Generate a PayPal Checkout payment link for the outstanding customer amount on this load?"
-        )
-      ) {
-        return;
-      }
-      path = "/shipments/" + id + "/paypal/generate";
-    } else if (act === "paypal-send") {
-      if (
-        !window.confirm(
-          "Email the PayPal payment link to the customer now? Uses the existing Accounting mail integration."
-        )
-      ) {
-        return;
-      }
-      path = "/shipments/" + id + "/paypal/send";
-    } else if (act === "paypal-status") {
-      path = "/shipments/" + id + "/paypal/status";
-    } else if (act === "paypal-copy") {
-      var urlEl = host.querySelector("#acc-paypal-card a[href]");
-      var copyUrl = urlEl ? urlEl.getAttribute("href") : "";
-      if (!copyUrl) {
-        alert("Generate a PayPal payment link first.");
-        return;
-      }
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(copyUrl);
-        } else {
-          window.prompt("Copy PayPal payment link:", copyUrl);
-        }
-        if (msg) {
-          msg.textContent = "PayPal payment link copied.";
-          msg.style.color = "#22c55e";
-        }
-      } catch (copyErr) {
-        window.prompt("Copy PayPal payment link:", copyUrl);
-      }
-      return;
-    } else if (act === "paypal-inv-create") {
+    else if (act === "paypal-inv-create") {
       try {
         var invPreviewRes = await this.api(
           "/shipments/" + id + "/paypal-invoice/preview",
@@ -3228,8 +3111,6 @@ window.GreenOSModules.accounting = {
         if (
           act === "send-invoice" ||
           act === "send-carrier-invoice" ||
-          act === "paypal-generate" ||
-          act === "paypal-send" ||
           act === "paypal-inv-create" ||
           act === "paypal-inv-send"
         ) {
@@ -3244,21 +3125,14 @@ window.GreenOSModules.accounting = {
             : act === "send-carrier-invoice"
               ? (res.message || "Carrier invoice sent") +
                 " — load moved to Carrier Payments."
-              : act === "paypal-generate"
-                ? res.message || "PayPal payment link ready"
-                : act === "paypal-send"
-                  ? res.message || "PayPal payment link emailed"
-                  : act === "paypal-status"
-                    ? "PayPal status: " +
+              : act === "paypal-inv-create"
+                ? res.message || "PayPal invoice draft ready"
+                : act === "paypal-inv-send"
+                  ? res.message || "PayPal invoice sent"
+                  : act === "paypal-inv-sync"
+                    ? "PayPal invoice status: " +
                       String((res.data && res.data.status) || "updated")
-                    : act === "paypal-inv-create"
-                      ? res.message || "PayPal invoice draft ready"
-                      : act === "paypal-inv-send"
-                        ? res.message || "PayPal invoice sent"
-                        : act === "paypal-inv-sync"
-                          ? "PayPal invoice status: " +
-                            String((res.data && res.data.status) || "updated")
-                          : res.message || "Done";
+                    : res.message || "Done";
         msg.style.color = "#22c55e";
       }
       if (act === "send-carrier-invoice") {

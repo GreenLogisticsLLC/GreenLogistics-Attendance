@@ -1,8 +1,9 @@
 # PayPal Invoicing (Invoicing API v2)
 
 GreenOS can create, send, remind, cancel and reconcile **PayPal-hosted customer invoices** through the
-[PayPal Invoicing API v2](https://developer.paypal.com/docs/api/invoicing/v2/). This is a separate
-integration from [PayPal Checkout](./PAYPAL_CHECKOUT.md) (Orders API v2 payment links).
+[PayPal Invoicing API v2](https://developer.paypal.com/docs/api/invoicing/v2/). This is the **primary
+Accounting UI** path for customer PayPal billing. It is separate from [PayPal Checkout](./PAYPAL_CHECKOUT.md)
+(Orders API v2), which remains on the backend but is hidden from the regular Accounting shipment card.
 
 | | Checkout | Invoicing |
 | --- | --- | --- |
