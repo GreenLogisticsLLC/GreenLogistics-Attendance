@@ -544,6 +544,43 @@ window.GreenOSModules.accounting = {
     });
   },
 
+  /** True when Accounting considers the customer side paid (timestamp or status). */
+  isCustomerSidePaid(r) {
+    if (!r) return false;
+    if (r.customerPaidAt) return true;
+    var s = String(r.paymentStatus || r.customerPaymentStatus || "").toUpperCase();
+    return (
+      s === "PAID" ||
+      s === "CUSTOMER_PAID" ||
+      s === "CUSTOMER_AND_CARRIER_PAID"
+    );
+  },
+
+  /** True when Accounting considers the carrier side paid. */
+  isCarrierSidePaid(r) {
+    if (!r) return false;
+    if (r.carrierPaidAt) return true;
+    var s = String(r.paymentStatus || r.carrierPaymentStatus || "").toUpperCase();
+    return s === "PAID" || s === "CARRIER_PAID" || s === "CUSTOMER_AND_CARRIER_PAID";
+  },
+
+  /** Pill tone: green after paid, amber while outstanding. */
+  paymentStatusTone(status, paidHint) {
+    var s = String(status || "").toUpperCase();
+    if (
+      paidHint ||
+      s === "PAID" ||
+      s === "CUSTOMER_PAID" ||
+      s === "CARRIER_PAID" ||
+      s === "CUSTOMER_AND_CARRIER_PAID"
+    ) {
+      return "ok";
+    }
+    if (s === "CUSTOMER_REFUNDED" || s === "REFUNDED" || s === "VOIDED") return "bad";
+    if (!s || s === "UNPAID" || s === "NONE") return "muted";
+    return "warn";
+  },
+
   /** Customer rate beside carrier rate. Handling fee (if enabled) shows under the rate. */
   paymentsCell(r) {
     var accessorials = Number(r.accessorialCharges);
@@ -559,8 +596,8 @@ window.GreenOSModules.accounting = {
           ? Number(r.customerRate) + accessorials + fee
           : null;
     var carrierDue = hasCarrierRate ? Number(r.carrierRate) : null;
-    var customerPaid = Boolean(r.customerPaidAt);
-    var carrierPaid = Boolean(r.carrierPaidAt);
+    var customerPaid = this.isCustomerSidePaid(r);
+    var carrierPaid = this.isCarrierSidePaid(r);
     function due(amount, paid) {
       if (amount == null) return '<div class="acc-pay-due">—</div>';
       return (
@@ -2271,8 +2308,16 @@ window.GreenOSModules.accounting = {
       var paypalInvMeta = d.paypalInvoicing || {};
       var custPayStatus = String(cust.paymentStatus || "UNPAID").toUpperCase();
       var carrPayStatus = String(carr.paymentStatus || "UNPAID").toUpperCase();
-      var custPayTone = custPayStatus === "PAID" ? "ok" : "warn";
-      var carrPayTone = carrPayStatus === "PAID" ? "ok" : "warn";
+      var custPayTone = self.paymentStatusTone(
+        custPayStatus,
+        Boolean(cust.paidAt) ||
+          (Number(cust.outstanding) === 0 && Number(cust.amountReceived) > 0)
+      );
+      var carrPayTone = self.paymentStatusTone(
+        carrPayStatus,
+        Boolean(carr.paidAt) ||
+          (Number(carr.outstanding) === 0 && Number(carr.amountPaid) > 0)
+      );
       var custRateNum = Number(cust.rate);
       var carrRateNum = Number(carr.rate);
       var brokerProfit =
@@ -2605,7 +2650,10 @@ window.GreenOSModules.accounting = {
         self.money(carr.outstanding) +
         "</strong></div>" +
         '<div class="acc-kv"><span>Status</span>' +
-        self.pill(String(carr.paymentStatus || "UNPAID").toUpperCase(), carr.paymentStatus === "PAID" ? "ok" : "muted") +
+        self.pill(
+          String(carr.paymentStatus || "UNPAID").toUpperCase(),
+          self.paymentStatusTone(carr.paymentStatus, Boolean(carr.paidAt))
+        ) +
         "</div></section>" +
         '<section class="acc-card"><div class="acc-card-head"><h3>Customer Documents</h3><span class="gos-muted">' +
         custReady +
