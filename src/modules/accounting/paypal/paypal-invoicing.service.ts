@@ -36,6 +36,7 @@ import {
     cancelInvoice,
     createDraftInvoice,
     deleteDraftInvoice,
+    ensureInvoiceIssueDateForImmediateSend,
     getInvoice,
     parsePayPalInvoice,
     remindInvoice,
@@ -540,7 +541,9 @@ export class PayPalInvoicingService {
 
         const invoiceDate = s.invoiceDate || new Date();
         const dueDate =
-            s.invoiceDueDate && s.invoiceDueDate >= invoiceDate ? s.invoiceDueDate : invoiceDate;
+            s.invoiceDueDate && s.invoiceDueDate >= invoiceDate
+                ? s.invoiceDueDate
+                : addDays(invoiceDate, 30);
         const snapshotJson = s.invoicePricingSnapshotJson;
 
         for (let attempt = 0; attempt < MAX_INVOICING_ATTEMPTS; attempt += 1) {
@@ -587,7 +590,8 @@ export class PayPalInvoicingService {
             const payPalNumber = payPalInvoiceNumberForAttempt(invoiceNumber, attempt);
             const payload = buildPayPalInvoicePayload({
                 invoiceNumber: payPalNumber,
-                invoiceDate,
+                // Past UTC calendar day so merchant-TZ lag cannot schedule-send.
+                invoiceDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
                 dueDate,
                 currency: "USD",
                 customerName: s.customerName,
@@ -595,6 +599,7 @@ export class PayPalInvoicingService {
                 items: lineItems,
                 reference: s.loadNumber || undefined,
                 note: `Load ${s.loadNumber || shipmentLeadId.slice(0, 8)} - Green Logistics LLC`,
+                timeZone: config.timezone || "Asia/Yerevan",
             });
             return this.executeCreate({
                 actor,
@@ -837,7 +842,10 @@ export class PayPalInvoicingService {
                 "PAYPAL_INVOICE_NOT_SENDABLE"
             );
         }
-        if (String(row.status).toUpperCase() !== "DRAFT") {
+        const localStatus = String(row.status || "").toUpperCase();
+        // SENT/UNPAID already emailed (or shared). SCHEDULED must be force-sent:
+        // PayPal schedules when invoice_date is "future" in the merchant timezone.
+        if (!["DRAFT", "SCHEDULED"].includes(localStatus)) {
             return { ...mapRow(row), alreadySent: true };
         }
         const to = String(row.customerEmail || "").trim();
@@ -845,7 +853,10 @@ export class PayPalInvoicingService {
             throw badRequest("Customer email is missing on this PayPal invoice", "CUSTOMER_EMAIL_REQUIRED");
         }
 
-        const requestId = invoicingActionRequestId("send", row.paypalInvoiceId);
+        const requestId = invoicingActionRequestId(
+            localStatus === "SCHEDULED" ? "send-scheduled" : "send",
+            row.paypalInvoiceId
+        );
         await this.ensureOperation({
             environment,
             operationType: "SEND",
@@ -861,6 +872,9 @@ export class PayPalInvoicingService {
 
         let hostedUrl: string | null = null;
         try {
+            // PayPal: future issue date → SCHEDULED (no customer email). Pin a past
+            // UTC issue date, then /send with send_to_recipient so email goes now.
+            await ensureInvoiceIssueDateForImmediateSend(row.paypalInvoiceId, environment);
             const sent = await sendInvoice(row.paypalInvoiceId, environment, requestId, {
                 send_to_recipient: true,
                 send_to_invoicer: false,
@@ -869,7 +883,8 @@ export class PayPalInvoicingService {
         } catch (err) {
             // Another worker (or a timed-out earlier call) may already have sent it.
             const remote = await getInvoice(row.paypalInvoiceId, environment).catch(() => null);
-            if (!remote || remote.summary.status === "DRAFT") {
+            const remoteStatus = String(remote?.summary.status || "").toUpperCase();
+            if (!remote || remoteStatus === "DRAFT" || remoteStatus === "SCHEDULED") {
                 await this.finishOperation(requestId, {
                     status: isAmbiguousPayPalFailure(err) ? "PENDING" : "FAILED",
                     lastError: safeMessage(err),
@@ -879,6 +894,19 @@ export class PayPalInvoicingService {
         }
 
         const remote = await getInvoice(row.paypalInvoiceId, environment);
+        const remoteStatus = String(remote.summary.status || "").toUpperCase();
+        if (remoteStatus === "SCHEDULED" || remoteStatus === "DRAFT") {
+            await this.finishOperation(requestId, {
+                status: "FAILED",
+                lastError: `PayPal left invoice in ${remoteStatus} after send (customer was not emailed)`,
+            });
+            throw Object.assign(
+                new Error(
+                    "PayPal scheduled this invoice instead of emailing the customer. Sync and try Send again."
+                ),
+                { status: 502, code: "PAYPAL_INVOICE_STILL_SCHEDULED" }
+            );
+        }
         const applied = await this.applyRemoteInvoice(row, remote.summary, remote.raw, {
             actor,
             source: "send",

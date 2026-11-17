@@ -108,6 +108,7 @@ function installInvoicingMock() {
             status: inv.status,
             detail: {
                 invoice_number: inv.body.detail.invoice_number,
+                invoice_date: inv.body.detail.invoice_date,
                 currency_code: "USD",
                 payment_term: inv.body.detail.payment_term,
                 metadata: {
@@ -201,11 +202,28 @@ function installInvoicingMock() {
             const sub = invoiceMatch[2];
             if (!inv) return response({ message: "not found" }, 404);
             if (method === "GET" && !sub) return response(render(inv));
+            if (method === "PUT" && !sub) {
+                // Fully update draft/scheduled — used to pin invoice_date before send.
+                inv.body = { ...(body as Record<string, any>) };
+                if (inv.status === "SCHEDULED") inv.status = "DRAFT";
+                return response(null, 200);
+            }
             if (method === "DELETE") {
                 invoices.delete(inv.id);
                 return response(null, 204);
             }
             if (method === "POST" && sub === "/send") {
+                const issue = String(inv.body?.detail?.invoice_date || "");
+                const todayUtc = new Date().toISOString().slice(0, 10);
+                // Mirror PayPal: future issue date → SCHEDULED (no email).
+                if (issue && issue > todayUtc) {
+                    inv.status = "SCHEDULED";
+                    return response({
+                        rel: "payer-view",
+                        href: `https://www.paypal.test/invoice/p/#${inv.id}`,
+                        method: "GET",
+                    });
+                }
                 inv.status = "SENT";
                 return response({
                     rel: "payer-view",
@@ -1026,7 +1044,8 @@ test("safety helpers: open/terminal statuses, reuse rules, exact-cents paid chec
 });
 
 test("invoice payload builder never enables partial payment, tips, or tax", async () => {
-    const { buildPayPalInvoicePayload } = await import("./paypal-invoicing-client.js");
+    const { buildPayPalInvoicePayload, immediateInvoiceIssueDate, calendarDateInTimeZone } =
+        await import("./paypal-invoicing-client.js");
     const body = buildPayPalInvoicePayload({
         invoiceNumber: "INV-9",
         invoiceDate: new Date("2026-11-16T10:00:00Z"),
@@ -1042,4 +1061,39 @@ test("invoice payload builder never enables partial payment, tips, or tax", asyn
     assert.equal(body.configuration.partial_payment.allow_partial_payment, false);
     assert.equal(body.configuration.allow_tip, false);
     assert.equal(body.primary_recipients[0].billing_info.email_address, "ap@acme.test");
+
+    const now = new Date("2026-11-17T02:00:00Z");
+    assert.equal(immediateInvoiceIssueDate(now), "2026-11-16");
+    // Yerevan is UTC+4 — early UTC morning is already next calendar day locally.
+    assert.equal(
+        calendarDateInTimeZone(new Date("2026-11-16T22:30:00Z"), "Asia/Yerevan"),
+        "2026-11-17"
+    );
+});
+
+test("send rewrites a future issue date and force-emails SCHEDULED invoices", async () => {
+    const s = await createShipment();
+    const mock = installInvoicingMock();
+    const created = await payPalInvoicingService.createDraft(actor, s.shipmentLeadId, {
+        confirmPricing: true,
+    });
+    // Simulate the LIVE bug: merchant TZ treated invoice_date as future → SCHEDULED.
+    const tomorrow = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const inv = mock.invoices.get(created.paypalInvoiceId)!;
+    inv.status = "SCHEDULED";
+    inv.body.detail.invoice_date = tomorrow;
+    await prisma.payPalCustomerInvoice.update({
+        where: { paypalInvoiceId: created.paypalInvoiceId },
+        data: { status: "SCHEDULED" },
+    });
+
+    const sent = await payPalInvoicingService.send(actor, s.shipmentLeadId);
+    assert.equal(sent.status, "SENT");
+    assert.ok(sent.sentAt);
+    assert.ok(mock.calls.some((c) => c.method === "PUT" && c.url.includes(created.paypalInvoiceId)));
+    assert.ok(mock.calls.some((c) => c.url.endsWith("/send")));
+    const afterPut = mock.invoices.get(created.paypalInvoiceId)!;
+    assert.ok(afterPut.body.detail.invoice_date <= new Date().toISOString().slice(0, 10));
+    const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId: s.shipmentLeadId } });
+    assert.equal(lead?.paymentStatus, "INVOICE_SENT");
 });
