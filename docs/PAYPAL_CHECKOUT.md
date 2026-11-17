@@ -1,8 +1,8 @@
 # PayPal Checkout — Customer Payment Links (Phase 1)
 
-Accounting can open a shipment, generate a **real PayPal Checkout** payment link for the customer’s outstanding amount, copy it, email it, and track capture status. Paid is set only after a successful PayPal **capture** (Orders API or verified webhook).
+**Accounting UI note:** day-to-day Accounting no longer shows the Checkout payment-link card. Operators use **PayPal Invoicing** (`docs/PAYPAL_INVOICING.md`, `PAYPAL_INVOICING_MODE`). Checkout **API, webhooks, and tables remain** for existing orders, recovery, and history — do not delete them. Keep `PAYPAL_MODE=sandbox` unless management explicitly flips Checkout LIVE.
 
-**Do not enable `PAYPAL_MODE=live` or merge to production without management approval.** Contabo auto-deploys from `main`; keep this on a feature PR until approved.
+Backend can still open a shipment and generate a **real PayPal Checkout** payment link for the customer’s outstanding amount; paid is set only after a successful PayPal **capture** (Orders API or verified webhook).
 
 ## Environment
 
