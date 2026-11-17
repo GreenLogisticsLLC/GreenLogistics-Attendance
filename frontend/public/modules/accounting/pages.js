@@ -2342,24 +2342,16 @@ window.GreenOSModules.accounting = {
       var paypalInvoiceSection =
         '<section class="acc-card acc-drop-card" id="acc-paypal-invoice-card"><h3>PayPal Invoice (Invoicing API)</h3>' +
         '<p class="gos-muted" style="margin:0 0 0.75rem;font-size:0.78rem">Create and send a PayPal Business invoice. Customer pays on PayPal’s hosted invoice. Handling fee follows Invoice Pricing (default off) — never a PayPal surcharge.</p>' +
-        '<div class="acc-kv"><span>GreenOS Invoice #</span><strong>' +
+        '<div class="acc-kv"><span>Invoice #</span><strong>' +
         self.esc(
-          (paypalInv && paypalInv.greenOsInvoiceNumber) ||
+          loadNo ||
+            (paypalInv && paypalInv.greenOsInvoiceNumber) ||
             cust.invoiceNumber ||
             "—"
         ) +
         "</strong></div>" +
         '<div class="acc-kv"><span>PayPal Invoice ID</span><strong>' +
         self.esc((paypalInv && paypalInv.paypalInvoiceId) || "—") +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Environment</span><strong>' +
-        self.esc(
-          String(
-            (paypalInv && paypalInv.environment) ||
-              paypalInvMeta.mode ||
-              "sandbox"
-          ).toUpperCase()
-        ) +
         "</strong></div>" +
         '<div class="acc-kv"><span>Subtotal</span><strong>' +
         self.money(paypalInv && paypalInv.subtotalUsd) +
@@ -2389,13 +2381,8 @@ window.GreenOSModules.accounting = {
         self.pill(invStatus, invTone) +
         "</div>" +
         (paypalInvMeta.configured === false
-          ? '<p class="gos-muted" style="margin:0.6rem 0 0;font-size:0.78rem;color:#f59e0b">PayPal Invoicing is not configured (set PAYPAL_*_CLIENT_ID/SECRET for the invoicing mode).</p>'
-          : '<p class="gos-muted" style="margin:0.6rem 0 0;font-size:0.78rem">Invoicing mode: ' +
-            self.esc(String(paypalInvMeta.mode || "sandbox").toUpperCase()) +
-            (paypalInvMeta.webhookConfigured
-              ? ""
-              : " · invoicing webhook id not set yet") +
-            "</p>") +
+          ? '<p class="gos-muted" style="margin:0.6rem 0 0;font-size:0.78rem;color:#f59e0b">PayPal Invoicing is not configured on this server.</p>'
+          : "") +
         '<div class="acc-invoice-actions" style="margin-top:0.85rem;flex-wrap:wrap;gap:0.45rem">' +
         '<button type="button" class="btn-secondary" data-act="paypal-inv-create"' +
         (canPayPal ? "" : ' disabled title="Billing send permission required"') +
@@ -3012,9 +2999,9 @@ window.GreenOSModules.accounting = {
           (invPrev.feeDescription ? " (" + invPrev.feeDescription + ")" : "") +
           "\nTotal: " +
           self.money(invPrev.totalUsd) +
-          "\nEnvironment: " +
-          String(invPrev.environment || "sandbox").toUpperCase() +
-          "\n\nCreates a PayPal draft invoice (not a Checkout order). Continue?";
+          "\nInvoice #: " +
+          String(invPrev.invoiceNumber || "—") +
+          "\n\nCreates a PayPal draft invoice. Continue?";
         if (!window.confirm(invConfirm)) return;
         path = "/shipments/" + id + "/paypal-invoice/create";
         body = { confirmPricing: true };

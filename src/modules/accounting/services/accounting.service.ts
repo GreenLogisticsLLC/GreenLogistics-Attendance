@@ -1381,7 +1381,7 @@ where: { loadNumber: { not: null } },
         const invoiceNumber =
             String(body.invoiceNumber || "").trim() ||
             s.invoiceNumber ||
-            (s.loadNumber ? String(s.loadNumber).replace(/^GL/i, "INV-") : `INV-${Date.now()}`);
+            (s.loadNumber ? String(s.loadNumber).trim() : `GL-${Date.now()}`);
 
         const updated = await prisma.shipmentLead.update({
             where: { shipmentLeadId },
@@ -1503,7 +1503,7 @@ where: { loadNumber: { not: null } },
         const payment = quoteShipmentPayment(s, pricing);
         const invoiceNumber =
             String(s.invoiceNumber || "").trim() ||
-            (s.loadNumber ? String(s.loadNumber).replace(/^GL/i, "INV-") : `INV-${Date.now()}`);
+            (s.loadNumber ? String(s.loadNumber).trim() : `GL-${Date.now()}`);
         const invoiceDate = s.invoiceDate || new Date();
         const invoiceDueDate =
             s.invoiceDueDate || new Date(invoiceDate.getTime() + 30 * 24 * 60 * 60 * 1000);
