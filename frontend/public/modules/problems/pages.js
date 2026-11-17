@@ -9,15 +9,7 @@ window.GreenOSModules.problems = {
     { id: "no-answer", title: "No answer" },
     { id: "late", title: "Late" },
   ],
-  _timer: null,
   _activeSub: "no-answer",
-
-  stopAutoRefresh() {
-    if (this._timer) {
-      clearInterval(this._timer);
-      this._timer = null;
-    }
-  },
 
   async api(path) {
     var token = localStorage.getItem("gl_token");
@@ -62,7 +54,6 @@ window.GreenOSModules.problems = {
   render(root, subPageId) {
     if (!root) return;
     var self = this;
-    this.stopAutoRefresh();
 
     var children = this.children;
     var active =
@@ -105,17 +96,9 @@ window.GreenOSModules.problems = {
     });
 
     var body = root.querySelector("#problems-body");
+    // Manual only — open via nav / tab click. No poll or soft remount.
     if (active.id === "late") this.paintLate(body);
     else this.paintNoAnswer(body);
-
-    this._timer = setInterval(function () {
-      if (!document.body.contains(body)) {
-        self.stopAutoRefresh();
-        return;
-      }
-      if (self._activeSub === "late") self.paintLate(body, true);
-      else self.paintNoAnswer(body, true);
-    }, 45000);
   },
 
   async paintNoAnswer(body, soft) {

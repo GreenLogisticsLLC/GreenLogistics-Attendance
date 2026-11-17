@@ -554,7 +554,8 @@
       window.GreenOS.currentModule !== "email" &&
       window.GreenOS.currentModule !== "shipments" &&
       window.GreenOS.currentModule !== "accounting" &&
-      window.GreenOS.currentModule !== "brokers"
+      window.GreenOS.currentModule !== "brokers" &&
+      window.GreenOS.currentModule !== "problems"
     ) {
       window.GreenOS.refreshModule();
     }
