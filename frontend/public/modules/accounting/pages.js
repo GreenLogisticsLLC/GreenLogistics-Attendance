@@ -2545,15 +2545,6 @@ window.GreenOSModules.accounting = {
         "</span><strong>" +
         self.money(cust.paymentFee || 0) +
         "</strong></div>" +
-        '<div class="acc-kv"><span>Accessories</span><strong>' +
-        self.money(cust.accessorials) +
-        "</strong></div>" +
-        '<div class="acc-kv acc-kv-total"><span>Total (Customer)</span><strong>' +
-        self.money(cust.total) +
-        "</strong></div>" +
-        '<div class="acc-kv"><span>Invoiced</span><strong>' +
-        self.money(cust.invoiceNumber ? cust.total : 0) +
-        "</strong></div>" +
         '<div class="acc-kv"><span>Received</span><strong>' +
         self.money(cust.amountReceived) +
         "</strong></div>" +
