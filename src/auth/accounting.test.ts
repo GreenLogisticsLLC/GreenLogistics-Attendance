@@ -62,14 +62,14 @@ test("TEST 4: Operations (Manager/Team Lead) cannot access Accounting workspace"
     assert.equal(canAccessModule(Roles.TeamLead, "accounting"), false);
 });
 
-test("TEST 5: Accounting Documents cannot execute Carrier Payment", () => {
+test("TEST 5: Accounting Documents can Mark Carrier Paid; still cannot record customer payment", () => {
     assert.equal(
         hasAccountingPermission(
             Roles.Accounting,
             AccountingSubRoles.Documents,
             AccountingPermissions.CarrierPaymentsExecute
         ),
-        false
+        true
     );
     assert.equal(
         hasAccountingPermission(

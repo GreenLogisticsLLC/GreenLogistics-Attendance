@@ -63,8 +63,9 @@ const DOCUMENTS_PERMISSIONS: AccountingPermission[] = [
     AccountingPermissions.BillingCreate,
     AccountingPermissions.BillingSend,
     // Documents can also send a carrier invoice into the Carrier Payments queue
-    // (Payments team still executes the actual payout).
+    // and mark carrier Paid after the payout (same Mark Carrier Paid on the load).
     AccountingPermissions.CarrierPaymentsView,
+    AccountingPermissions.CarrierPaymentsExecute,
     AccountingPermissions.NotesCreate,
     AccountingPermissions.AuditView,
 ];

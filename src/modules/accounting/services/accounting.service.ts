@@ -559,15 +559,17 @@ where: { loadNumber: { not: null } },
             list = list.filter(
                 (r) =>
                     !r.isVoided &&
+                    !(r.customerPaidAt && r.carrierPaidAt) &&
                     (!r.accountingDocStatus ||
                         r.accountingDocStatus === AccountingDocStatus.Pending ||
                         r.accountingDocStatus === AccountingDocStatus.NeedsCorrection)
             );
         } else if (f === "verified") {
-            // Loads already checked / verified by Accounting Documents.
+            // Loads already checked / verified by Accounting Documents (not yet archived).
             list = list.filter(
                 (r) =>
                     !r.isVoided &&
+                    !(r.customerPaidAt && r.carrierPaidAt) &&
                     r.accountingDocStatus === AccountingDocStatus.Verified
             );
         } else if (f === "billing") {
@@ -586,18 +588,23 @@ where: { loadNumber: { not: null } },
         } else if (f === "customer-payments") {
             list = list.filter(
                 (r) =>
-                    !r.isVoided && (Boolean(r.invoiceNumber) || Boolean(r.customerPaidAt))
+                    !r.isVoided &&
+                    !(r.customerPaidAt && r.carrierPaidAt) &&
+                    (Boolean(r.invoiceNumber) || Boolean(r.customerPaidAt))
             );
-        } else if (f === "history") {
+        } else if (f === "history" || f === "archive") {
+            // Archive: customer paid + carrier paid (work on this load is finished).
             list = list.filter(
                 (r) =>
                     !r.isVoided &&
-                    (Boolean(r.accountingClosedAt) || Boolean(r.carrierPaidAt))
+                    Boolean(r.customerPaidAt) &&
+                    Boolean(r.carrierPaidAt)
             );
         } else if (f === "pending" || f === "awaiting" || f === "confirmation") {
             // Dashboard: all loads still waiting for accounting confirmation / action
             list = list.filter((r) => {
                 if (r.isVoided || r.accountingClosedAt) return false;
+                if (r.customerPaidAt && r.carrierPaidAt) return false;
                 const docPending =
                     !r.accountingDocStatus ||
                     r.accountingDocStatus === AccountingDocStatus.Pending ||
@@ -1664,61 +1671,64 @@ where: { loadNumber: { not: null } },
         const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!s) throw notFound("Shipment not found");
 
-        // Owner/Admin may override gates (same as assertCarrierPaymentAllowed) so Accounting
-        // can mark carrier Paid after an out-of-band payout when flags lag.
-        const canOverride =
-            actor.role === Roles.Owner || actor.role === Roles.Administrator;
-        if (!canOverride) {
-            if (s.accountingDocStatus !== AccountingDocStatus.Verified) {
-                throw forbid(
-                    "Carrier payment blocked — Accounting Documents verification incomplete",
-                    "CARRIER_PAYMENT_BLOCKED"
-                );
-            }
-            if (!s.accountingFinancialVerified) {
-                throw forbid(
-                    "Carrier payment blocked — financial amounts not verified",
-                    "CARRIER_PAYMENT_BLOCKED"
-                );
-            }
-            if (!s.accountingReadyForCarrierPayment) {
-                throw forbid(
-                    "Carrier payment blocked — shipment is not Ready for Carrier Payment",
-                    "CARRIER_PAYMENT_BLOCKED"
-                );
-            }
-        }
         if (s.carrierPaidAt) {
             throw badRequest("Carrier already marked paid");
         }
 
+        // Permission is the gate. Doc/financial/ready flags used to block Mark Carrier Paid
+        // for Accounting Documents on loads already in the Carrier Payment flow — that left
+        // a visible but dead button. Soft-note incomplete flags in the audit trail instead.
+        const incompleteFlags: string[] = [];
+        if (s.accountingDocStatus !== AccountingDocStatus.Verified) {
+            incompleteFlags.push("documents");
+        }
+        if (!s.accountingFinancialVerified) incompleteFlags.push("financials");
+        if (!s.accountingReadyForCarrierPayment) incompleteFlags.push("ready");
+
         const now = new Date();
+        const bothPaid = Boolean(s.customerPaidAt);
+        const paymentStatus = bothPaid ? "CUSTOMER_AND_CARRIER_PAID" : "CARRIER_PAID";
+        const payNote = incompleteFlags.length
+            ? `CARRIER PAYMENT (flags incomplete: ${incompleteFlags.join(", ")})`
+            : "CARRIER PAYMENT";
         const updated = await prisma.shipmentLead.update({
             where: { shipmentLeadId },
             data: {
                 carrierPaidAt: now,
                 carrierPaidById: actor.userId,
-                paymentStatus: "CUSTOMER_AND_CARRIER_PAID",
-                accountingNotes: note
-                    ? [s.accountingNotes, `CARRIER PAYMENT: ${note}`].filter(Boolean).join("\n")
-                    : s.accountingNotes,
-                accountingClosedAt: s.customerPaidAt ? now : s.accountingClosedAt,
+                paymentStatus,
+                accountingNotes: [s.accountingNotes, note ? `${payNote}: ${note}` : payNote]
+                    .filter(Boolean)
+                    .join("\n"),
+                // Finished load → Archive when customer was already paid.
+                accountingClosedAt: bothPaid ? now : s.accountingClosedAt,
             },
         });
         await domainEventEngine.emit({
             shipmentLeadId,
             eventType: "CARRIER_PAID",
             title: "Carrier Paid",
-            message: "Accounting Payments executed carrier payment",
+            message: bothPaid
+                ? "Carrier paid — load moved to Archive"
+                : "Accounting marked carrier payment",
             actorUserId: actor.userId,
-            payload: { paidAt: now.toISOString() },
+            payload: {
+                paidAt: now.toISOString(),
+                archived: bothPaid,
+                incompleteFlags,
+            },
         });
         await writeAudit({
             actor,
             action: "CARRIER_PAYMENT_EXECUTED",
             shipmentLeadId,
-            newValue: { carrierPaidAt: now.toISOString() },
-            reason: note || null,
+            newValue: {
+                carrierPaidAt: now.toISOString(),
+                paymentStatus,
+                archived: bothPaid,
+                incompleteFlags,
+            },
+            reason: note || (incompleteFlags.length ? incompleteFlags.join(",") : null),
         });
         return updated;
     }
