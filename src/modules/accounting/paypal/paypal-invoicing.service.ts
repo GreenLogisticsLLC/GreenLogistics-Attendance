@@ -265,13 +265,18 @@ export class PayPalInvoicingService {
         });
     }
 
+    /**
+     * PayPal `invoice_number` and GreenOS invoice # are the load number (e.g. GL10232).
+     * Do not invent INV-* from GL — operators expect the same identifier everywhere.
+     * Existing locked shipment.invoiceNumber values are left alone when already set
+     * on the lead for historical GreenOS PDF invoices; PayPal create prefers load #.
+     */
     private invoiceNumberFor(s: ShipmentRow): string {
-        return (
-            String(s.invoiceNumber || "").trim() ||
-            (s.loadNumber
-                ? String(s.loadNumber).replace(/^GL/i, "INV-")
-                : `INV-${s.shipmentLeadId.slice(0, 8).toUpperCase()}`)
-        );
+        const load = String(s.loadNumber || "").trim();
+        if (load) return load.slice(0, 25);
+        const existing = String(s.invoiceNumber || "").trim();
+        if (existing) return existing.slice(0, 25);
+        return `GL-${s.shipmentLeadId.slice(0, 8).toUpperCase()}`.slice(0, 25);
     }
 
     /** Blocks that must hold before any PayPal invoice is created. */

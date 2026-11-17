@@ -549,6 +549,23 @@ test("fee is off by default: single freight line item and total equals subtotal"
     assert.equal(preview.environment, "sandbox");
 });
 
+test("PayPal invoice_number equals the load number (not INV- from GL)", async () => {
+    const s = await createShipment({ customerRate: 100 });
+    assert.match(String(s.loadNumber), /^GL/i);
+    const mock = installInvoicingMock();
+    const preview = await payPalInvoicingService.preview(actor, s.shipmentLeadId);
+    assert.equal(preview.invoiceNumber, s.loadNumber);
+    const row = await payPalInvoicingService.createDraft(actor, s.shipmentLeadId, {
+        confirmPricing: true,
+    });
+    assert.equal(row.greenOsInvoiceNumber, s.loadNumber);
+    assert.equal(
+        (mock.createCalls()[0].body as { detail: { invoice_number: string } }).detail.invoice_number,
+        s.loadNumber
+    );
+    assert.ok(!String(row.greenOsInvoiceNumber).startsWith("INV-"));
+});
+
 test("percentage handling fee becomes a separate line item (never a PayPal surcharge)", async () => {
     await setFee("percentage", 3);
     const s = await createShipment({ customerRate: 1000 });
