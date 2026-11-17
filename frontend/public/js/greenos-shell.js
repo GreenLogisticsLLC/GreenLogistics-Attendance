@@ -1205,6 +1205,8 @@
       if (this.currentModule === "dashboard") return;
       // Accounting Team — manual only (clicks / nav). Never auto-refresh.
       if (this.currentModule === "accounting") return;
+      // Problems — manual only (No answer / Late). Never auto-refresh.
+      if (this.currentModule === "problems") return;
       this.navigate(this.currentModule, this.currentSub || undefined, { skipHistory: true });
     },
 
