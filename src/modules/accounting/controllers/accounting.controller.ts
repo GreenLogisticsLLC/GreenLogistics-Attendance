@@ -232,6 +232,23 @@ export async function accountingCarrierPaymentController(req: AuthRequest, res: 
     }
 }
 
+export async function accountingSaveCarrierPaymentDetailsController(
+    req: AuthRequest,
+    res: Response
+) {
+    try {
+        const id = String(req.params.id || "");
+        const data = await accountingService.saveCarrierPaymentDetails(actorFrom(req), id, {
+            carrierRate: req.body?.carrierRate,
+            paymentMethod: req.body?.paymentMethod,
+            paymentDate: req.body?.paymentDate,
+        });
+        return res.json(apiResponse(true, "Carrier payment details saved", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
 export async function accountingListPreviousCarrierSettlementsController(
     req: AuthRequest,
     res: Response
@@ -294,9 +311,33 @@ export async function accountingPreviousCarrierSettlementPaidController(
         const data = await accountingService.markPreviousCarrierSettlementPaid(
             actorFrom(req),
             settlementId,
-            note
+            note,
+            {
+                paymentMethod: req.body?.paymentMethod,
+                paymentDate: req.body?.paymentDate,
+            }
         );
         return res.json(apiResponse(true, "Previous carrier settlement marked paid", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
+export async function accountingPreviousCarrierSettlementDetailsController(
+    req: AuthRequest,
+    res: Response
+) {
+    try {
+        const settlementId = String(req.params.settlementId || "");
+        const data = await accountingService.savePreviousCarrierSettlementDetails(
+            actorFrom(req),
+            settlementId,
+            {
+                paymentMethod: req.body?.paymentMethod,
+                paymentDate: req.body?.paymentDate,
+            }
+        );
+        return res.json(apiResponse(true, "Previous carrier settlement details saved", data));
     } catch (err) {
         return res.status(errStatus(err)).json(errPayload(err));
     }

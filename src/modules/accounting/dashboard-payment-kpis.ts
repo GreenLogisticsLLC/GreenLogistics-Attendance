@@ -8,6 +8,7 @@
  */
 import { prisma } from "../../config/database.js";
 import { customerPaymentQuote } from "../shipment/customer-payment.js";
+import { effectiveCarrierPaidReportingDate } from "../shipment/carrier-payment-method.js";
 import {
     loadInvoicePricingSettings,
     type InvoicePricingSettings,
@@ -369,12 +370,25 @@ export async function computeDashboardPaymentKpis(input?: {
             }),
             prisma.shipmentLead.findMany({
                 where: {
-                    carrierPaidAt: { gte: range.from, lt: range.to },
+                    carrierPaidAt: { not: null },
                     loadNumber: { not: null },
+                    OR: [
+                        {
+                            accountingCarrierPaymentDate: {
+                                gte: range.from,
+                                lt: range.to,
+                            },
+                        },
+                        {
+                            accountingCarrierPaymentDate: null,
+                            carrierPaidAt: { gte: range.from, lt: range.to },
+                        },
+                    ],
                 },
                 select: {
                     shipmentLeadId: true,
                     carrierPaidAt: true,
+                    accountingCarrierPaymentDate: true,
                     carrierRate: true,
                 },
             }),
@@ -443,12 +457,19 @@ export async function computeDashboardPaymentKpis(input?: {
 
     const paidTxns = buildPaidPaymentTxns({
         carrierPaidLoads: carrierPaidLeads
-            .filter((s) => s.carrierPaidAt)
-            .map((s) => ({
-                shipmentLeadId: s.shipmentLeadId,
-                carrierPaidAt: s.carrierPaidAt as Date,
-                amountUsd: money(s.carrierRate),
-            })),
+            .map((s) => {
+                const paidAt = effectiveCarrierPaidReportingDate({
+                    carrierPaidAt: s.carrierPaidAt,
+                    accountingCarrierPaymentDate: s.accountingCarrierPaymentDate,
+                });
+                if (!paidAt) return null;
+                return {
+                    shipmentLeadId: s.shipmentLeadId,
+                    carrierPaidAt: paidAt,
+                    amountUsd: money(s.carrierRate),
+                };
+            })
+            .filter((row): row is NonNullable<typeof row> => Boolean(row)),
         previousSettlements: prevSettlements,
     });
 

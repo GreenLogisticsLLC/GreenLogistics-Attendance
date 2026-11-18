@@ -12,6 +12,7 @@ import { AccountingPermissions } from "../../../auth/accounting.js";
 import {
     accountingAddNoteController,
     accountingCarrierPaymentController,
+    accountingSaveCarrierPaymentDetailsController,
     accountingCreateInvoiceController,
     accountingCustomerPaymentController,
     accountingDashboardController,
@@ -32,6 +33,7 @@ import {
     accountingPreviousCarrierSettlementApproveController,
     accountingPreviousCarrierSettlementInvoiceController,
     accountingPreviousCarrierSettlementPaidController,
+    accountingPreviousCarrierSettlementDetailsController,
     accountingPreviousCarrierSettlementRejectController,
     accountingReadyBillingController,
     accountingReadyCarrierPayController,
@@ -191,6 +193,11 @@ accountingRouter.post(
     requireAccountingPermission(AccountingPermissions.CarrierPaymentsExecute),
     accountingCarrierPaymentController
 );
+accountingRouter.post(
+    "/shipments/:id/carrier-details",
+    requireAccountingPermission(AccountingPermissions.ShipmentsView),
+    accountingSaveCarrierPaymentDetailsController
+);
 accountingRouter.get(
     "/previous-carrier-settlements",
     requireAccountingPermission(AccountingPermissions.ShipmentsView),
@@ -210,6 +217,11 @@ accountingRouter.post(
     "/previous-carrier-settlements/:settlementId/paid",
     requireAccountingPermission(AccountingPermissions.CarrierPaymentsExecute),
     accountingPreviousCarrierSettlementPaidController
+);
+accountingRouter.post(
+    "/previous-carrier-settlements/:settlementId/details",
+    requireAccountingPermission(AccountingPermissions.ShipmentsView),
+    accountingPreviousCarrierSettlementDetailsController
 );
 accountingRouter.post(
     "/previous-carrier-settlements/:settlementId/invoice",

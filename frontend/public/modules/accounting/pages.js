@@ -638,6 +638,34 @@ window.GreenOSModules.accounting = {
     );
   },
 
+  carrierPaymentMethodOptions(selected) {
+    var methods = [
+      ["ZELLE", "Zelle"],
+      ["PAYPAL", "PayPal"],
+      ["VENMO", "Venmo"],
+      ["STRIPE", "Stripe"],
+      ["FACTORING", "Factoring Company"],
+      ["ACH", "ACH"],
+    ];
+    var sel = String(selected || "").toUpperCase();
+    return (
+      '<option value="">Select payment option</option>' +
+      methods
+        .map(function (pair) {
+          return (
+            '<option value="' +
+            pair[0] +
+            '"' +
+            (sel === pair[0] ? " selected" : "") +
+            ">" +
+            pair[1] +
+            "</option>"
+          );
+        })
+        .join("")
+    );
+  },
+
   paymentMethodOptions(selected) {
     var methods = [
       ["WIRE", "Wire"],
@@ -2725,22 +2753,26 @@ window.GreenOSModules.accounting = {
         '<label>Carrier Rate<input id="acc-carrier-rate" inputmode="decimal" value="' +
         self.esc(carr.rate == null ? "" : carr.rate) +
         '"></label>' +
-        '<label>Carrier Choose Payment Option' +
-        '<input type="text" id="acc-carrier-pay-opt" readonly value="' +
-        self.esc(carr.paymentOption || "—") +
-        '" title="' +
-        self.esc(
-          carr.paymentOptionFromRateCon
-            ? "From Rate Confirmation document"
-            : "From carrier profile (no payment option saved on Rate Confirmation)"
+        '<label>Carrier Choose Payment Option<select id="acc-carrier-pay-method">' +
+        self.carrierPaymentMethodOptions(
+          carr.paymentMethod || carr.accountingPaymentMethod || ""
         ) +
+        "</select></label>" +
+        '<label>Payment Date<input id="acc-carrier-pay-date" type="date" value="' +
+        self.esc(carr.paymentDate || "") +
         '"></label>' +
         '<p class="gos-muted acc-rc-pay-hint">' +
         (carr.paymentOptionFromRateCon
-          ? "Taken from Rate Confirmation"
-          : "No payment option on Rate Confirmation — showing carrier profile value") +
-        "</p>" +
-        '<button type="button" class="btn-secondary" id="acc-save-carrier-rate" style="width:auto">Save carrier rate</button>' +
+          ? "Taken from Rate Confirmation" +
+            (carr.originalPaymentOption || carr.paymentOption
+              ? ": " + self.esc(carr.originalPaymentOption || carr.paymentOption)
+              : "")
+          : carr.originalPaymentOption || carr.paymentOption
+            ? "Original (carrier profile): " +
+              self.esc(carr.originalPaymentOption || carr.paymentOption)
+            : "No payment option on Rate Confirmation") +
+        ". Saving here does not mark the carrier paid.</p>" +
+        '<button type="button" class="btn-secondary" id="acc-save-carrier-rate" style="width:auto">Save carrier details</button>' +
         "</div></div></section>" +
         '<section class="acc-card" style="margin-top:1rem"><h3>Load Financial Summary</h3>' +
         '<div class="acc-kv"><span>Customer Payment</span><strong>' +
@@ -2815,11 +2847,16 @@ window.GreenOSModules.accounting = {
                       self.esc(ps.rejectionComment) +
                       "</strong></div>"
                     : "") +
-                  (ps.paidAt
-                    ? '<div class="acc-kv"><span>Paid at</span><strong>' +
-                      self.esc(self.formatDay(ps.paidAt) || ps.paidAt) +
-                      "</strong></div>"
-                    : "") +
+                  '<label style="display:block;margin-top:0.55rem">Payment Method<select class="acc-prev-pay-method" data-settlement-id="' +
+                  self.esc(ps.settlementId) +
+                  '">' +
+                  self.carrierPaymentMethodOptions(ps.paymentMethod || "") +
+                  "</select></label>" +
+                  '<label style="display:block;margin-top:0.45rem">Payment Date<input type="date" class="acc-prev-pay-date" data-settlement-id="' +
+                  self.esc(ps.settlementId) +
+                  '" value="' +
+                  self.esc(ps.paymentDate || "") +
+                  '"></label>' +
                   '<div class="acc-invoice-actions" style="margin-top:0.65rem;flex-wrap:wrap;gap:0.45rem">' +
                   (inv && inv.fileUrl
                     ? '<a class="btn-secondary" href="' +
@@ -2834,6 +2871,9 @@ window.GreenOSModules.accounting = {
                   '" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,image/*,application/pdf" data-settlement-id="' +
                   self.esc(ps.settlementId) +
                   '" /></label>' +
+                  '<button type="button" class="btn-secondary" data-prev-save="' +
+                  self.esc(ps.settlementId) +
+                  '">Save details</button>' +
                   (st === "PENDING_ACCOUNTING" || st === "INVOICE_UPLOADED"
                     ? '<button type="button" class="btn-secondary" data-prev-approve="' +
                       self.esc(ps.settlementId) +
@@ -3068,12 +3108,42 @@ window.GreenOSModules.accounting = {
           ) {
             return;
           }
-          await prevSettlementAction(
-            "/previous-carrier-settlements/" +
-              encodeURIComponent(settlementId) +
-              "/paid",
-            "Previous carrier settlement marked PAID."
+          var methodEl = host.querySelector(
+            '.acc-prev-pay-method[data-settlement-id="' + settlementId + '"]'
           );
+          var dateEl = host.querySelector(
+            '.acc-prev-pay-date[data-settlement-id="' + settlementId + '"]'
+          );
+          var msg = host.querySelector("#acc-msg");
+          try {
+            var res = await self.api(
+              "/previous-carrier-settlements/" +
+                encodeURIComponent(settlementId) +
+                "/paid",
+              {
+                method: "POST",
+                body: {
+                  paymentMethod: methodEl
+                    ? String(methodEl.value || "").trim() || null
+                    : null,
+                  paymentDate: dateEl
+                    ? String(dateEl.value || "").trim() || null
+                    : null,
+                },
+              }
+            );
+            if (res && res.success === false) {
+              throw new Error(res.message || "Request failed");
+            }
+            self._profileFlash = "Previous carrier settlement marked PAID.";
+            await self.openShipment(host, id);
+          } catch (err) {
+            if (msg) {
+              msg.textContent = err.message || "Request failed";
+              msg.style.color = "#ef4444";
+            }
+            alert(err.message || "Request failed");
+          }
         });
       });
 
@@ -3127,12 +3197,24 @@ window.GreenOSModules.accounting = {
             alert("Carrier rate is required");
             return;
           }
+          var method = ((host.querySelector("#acc-carrier-pay-method") || {}).value || "").trim();
+          var payDate = ((host.querySelector("#acc-carrier-pay-date") || {}).value || "").trim();
           saveCarrier.disabled = true;
           try {
-            await self.loadApi("/" + encodeURIComponent(id), {
-              method: "PATCH",
-              body: { carrierRate: String(rate) },
-            });
+            var saveRes = await self.api(
+              "/shipments/" + encodeURIComponent(id) + "/carrier-details",
+              {
+                method: "POST",
+                body: {
+                  carrierRate: String(rate),
+                  paymentMethod: method || null,
+                  paymentDate: payDate || null,
+                },
+              }
+            );
+            if (!saveRes.success) {
+              throw new Error(saveRes.message || "Could not save");
+            }
             self.openShipment(host, id);
           } catch (err) {
             saveCarrier.disabled = false;
@@ -3140,6 +3222,42 @@ window.GreenOSModules.accounting = {
           }
         });
       }
+
+      function prevSettlementFields(settlementId) {
+        var methodEl = host.querySelector(
+          '.acc-prev-pay-method[data-settlement-id="' + settlementId + '"]'
+        );
+        var dateEl = host.querySelector(
+          '.acc-prev-pay-date[data-settlement-id="' + settlementId + '"]'
+        );
+        return {
+          paymentMethod: methodEl ? String(methodEl.value || "").trim() || null : null,
+          paymentDate: dateEl ? String(dateEl.value || "").trim() || null : null,
+        };
+      }
+
+      host.querySelectorAll("[data-prev-save]").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var settlementId = btn.getAttribute("data-prev-save");
+          if (!settlementId) return;
+          var fields = prevSettlementFields(settlementId);
+          btn.disabled = true;
+          try {
+            var res = await self.api(
+              "/previous-carrier-settlements/" +
+                encodeURIComponent(settlementId) +
+                "/details",
+              { method: "POST", body: fields }
+            );
+            if (!res.success) throw new Error(res.message || "Could not save");
+            self._profileFlash = "Previous carrier payment details saved.";
+            await self.openShipment(host, id);
+          } catch (err) {
+            btn.disabled = false;
+            alert(err.message || "Could not save");
+          }
+        });
+      });
 
       var saveNotes = host.querySelector("#acc-save-notes");
       if (saveNotes) {
