@@ -106,7 +106,7 @@ async function main() {
                 price: money(lead.price),
                 carrierName: lead.carrierName,
                 carrierRate: money(lead.carrierRate),
-                carrierId: lead.carrierId,
+                carrierProfileId: lead.carrierProfileId,
                 assignedBrokerId: lead.assignedBrokerId,
                 broker,
                 pickup: [lead.pickupCity, lead.pickupState, lead.pickupZip].filter(Boolean).join(", "),
