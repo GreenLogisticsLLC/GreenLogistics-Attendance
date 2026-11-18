@@ -151,8 +151,15 @@ export const MODULE_ACCESS: Record<ModuleId, RoleName[]> = {
         Roles.TeamLead,
         Roles.Dispatcher,
     ],
-    /** Customer Respond without broker Answer within 10m — archive + monthly stats. */
-    problems: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
+    /** No Answer / Late / Big Problems — Broker & Accounting see Big Problems only via scoped API. */
+    problems: [
+        Roles.Administrator,
+        Roles.Owner,
+        Roles.Manager,
+        Roles.TeamLead,
+        Roles.Broker,
+        Roles.Accounting,
+    ],
     email: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
     assignment: [Roles.Administrator, Roles.Owner, Roles.Manager, Roles.TeamLead],
     // Accounting Team does NOT use Broker/Operations shells — only Accounting workspace.

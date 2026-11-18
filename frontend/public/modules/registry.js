@@ -55,11 +55,12 @@ window.GreenOSRegistry = [
     id: "problems",
     title: "Problems",
     icon: "⚠️",
-    subtitle: "No broker answer · Late load / unload",
-    roles: ["Administrator", "Owner", "Manager", "Team Lead"],
+    subtitle: "No answer · Late · Big Problems",
+    roles: ["Administrator", "Owner", "Manager", "Team Lead", "Broker", "Accounting"],
     children: [
       { id: "no-answer", title: "No answer" },
       { id: "late", title: "Late" },
+      { id: "big-problems", title: "Big Problems" },
     ],
   },
   {

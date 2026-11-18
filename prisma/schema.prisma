@@ -58,6 +58,14 @@ model User {
   aiActions              AiAction[]
   aiAgentThreads         AiAgentThread[]
   aiAgentFolders         AiAgentFolder[]
+  bigProblemsManaged     BigProblemCase[]       @relation("BigProblemManager")
+  bigProblemsCreated     BigProblemCase[]       @relation("BigProblemCreator")
+  bigProblemsBroker      BigProblemCase[]       @relation("BigProblemBroker")
+  bigProblemTasksAssigned BigProblemTask[]      @relation("BigProblemTaskAssignee")
+  bigProblemTaskComments BigProblemTaskComment[]
+  bigProblemDocuments    BigProblemDocument[]
+  bigProblemCommunications BigProblemCommunication[]
+  bigProblemTimelineEvents BigProblemTimelineEvent[]
 
   @@index([teamLeadId])
   @@index([accountingSubRole])
@@ -457,6 +465,7 @@ model ShipmentLead {
   customerAgreementInvites CustomerAgreementInvite[]
   paypalCustomerOrders  PayPalCustomerOrder[]
   paypalCustomerInvoices PayPalCustomerInvoice[]
+  bigProblemCases       BigProblemCase[]
   carrierProfile        Carrier?                @relation(fields: [carrierProfileId], references: [carrierId], onDelete: SetNull)
   directCustomer        DirectCustomer?         @relation(fields: [directCustomerId], references: [customerId], onDelete: SetNull)
 
@@ -859,6 +868,7 @@ model DirectCustomer {
   createdBy         User           @relation(fields: [createdByUserId], references: [userId], onDelete: Restrict)
   shipments         ShipmentLead[]
   agreementInvites  CustomerAgreementInvite[]
+  bigProblemCases   BigProblemCase[]
 
   @@index([createdByUserId])
   @@index([companyName])
@@ -1445,4 +1455,202 @@ model PayPalInvoiceOperation {
   @@index([status])
   @@index([environment])
   @@map("paypal_invoice_operations")
+}
+
+/// Yearly counter for Big Problem case IDs: BP-YYYY-NNNN.
+model BigProblemCaseCounter {
+  year      Int @id
+  lastSeq   Int @default(0) @map("last_seq")
+
+  @@map("big_problem_case_counters")
+}
+
+/// Manual Big Problems case — Problems → Big Problems (never auto-created from shipments).
+model BigProblemCase {
+  caseId               String                     @id @default(uuid()) @map("case_id")
+  /// Human-readable unique id: BP-YYYY-NNNN
+  caseNumber           String                     @unique @map("case_number")
+  title                String
+  description          String?
+  /// CARGO_DAMAGE | SHORTAGE | THEFT | ACCIDENT | CLAIM_DISPUTE | PAYMENT_ISSUE | COMPLIANCE | OTHER
+  category             String
+  /// LOW | MEDIUM | HIGH | CRITICAL
+  severity             String                     @default("MEDIUM")
+  /// OPEN | IN_PROGRESS | PENDING_REVIEW | RESOLVED | CLOSED | REOPENED
+  status               String                     @default("OPEN")
+  incidentDate         DateTime?                  @map("incident_date")
+  responsibleManagerId String?                    @map("responsible_manager_id")
+  brokerUserId         String?                    @map("broker_user_id")
+  customerId           String?                    @map("customer_id")
+  /// Optional — stored without hard FK so postgres schema stays compatible.
+  carrierId            String?                    @map("carrier_id")
+  carrierName          String?                    @map("carrier_name")
+  shipmentLeadId       String?                    @map("shipment_lead_id")
+  shipmentRef          String?                    @map("shipment_ref")
+  createdByUserId      String                     @map("created_by_user_id")
+  closedAt             DateTime?                  @map("closed_at")
+  closedByUserId       String?                    @map("closed_by_user_id")
+  resolutionSummary    String?                    @map("resolution_summary")
+  nextDeadlineAt       DateTime?                  @map("next_deadline_at")
+  createdAt            DateTime                   @default(now()) @map("created_at")
+  updatedAt            DateTime                   @updatedAt @map("updated_at")
+  responsibleManager   User?                      @relation("BigProblemManager", fields: [responsibleManagerId], references: [userId], onDelete: SetNull)
+  brokerUser           User?                      @relation("BigProblemBroker", fields: [brokerUserId], references: [userId], onDelete: SetNull)
+  createdBy            User                       @relation("BigProblemCreator", fields: [createdByUserId], references: [userId], onDelete: Restrict)
+  customer             DirectCustomer?            @relation(fields: [customerId], references: [customerId], onDelete: SetNull)
+  shipmentLead         ShipmentLead?              @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: SetNull)
+  financials           BigProblemFinancials?
+  tasks                BigProblemTask[]
+  documents            BigProblemDocument[]
+  communications       BigProblemCommunication[]
+  timelineEvents       BigProblemTimelineEvent[]
+
+  @@index([status, severity])
+  @@index([responsibleManagerId])
+  @@index([brokerUserId])
+  @@index([customerId])
+  @@index([carrierId])
+  @@index([shipmentLeadId])
+  @@index([nextDeadlineAt])
+  @@index([createdAt])
+  @@index([category])
+  @@map("big_problem_cases")
+}
+
+model BigProblemFinancials {
+  financialsId           String         @id @default(uuid()) @map("financials_id")
+  caseId                 String         @unique @map("case_id")
+  customerClaimAmount    Float          @default(0) @map("customer_claim_amount")
+  carrierClaimAmount     Float          @default(0) @map("carrier_claim_amount")
+  insuranceClaimAmount   Float          @default(0) @map("insurance_claim_amount")
+  /// PENDING | APPROVED | PAID | DENIED — pending never counts as recovered.
+  insuranceStatus        String         @default("PENDING") @map("insurance_status")
+  customerCompensation   Float          @default(0) @map("customer_compensation")
+  legalExpenses          Float          @default(0) @map("legal_expenses")
+  otherExpenses          Float          @default(0) @map("other_expenses")
+  /// Confirmed recovered funds only (never pending insurance).
+  amountRecovered        Float          @default(0) @map("amount_recovered")
+  /// Computed / stored snapshot fields:
+  potentialExposure      Float          @default(0) @map("potential_exposure")
+  actualNetLoss          Float          @default(0) @map("actual_net_loss")
+  outstandingExposure    Float          @default(0) @map("outstanding_exposure")
+  notes                  String?
+  updatedByUserId        String?        @map("updated_by_user_id")
+  updatedAt              DateTime       @updatedAt @map("updated_at")
+  createdAt              DateTime       @default(now()) @map("created_at")
+  case                   BigProblemCase @relation(fields: [caseId], references: [caseId], onDelete: Cascade)
+
+  @@map("big_problem_financials")
+}
+
+model BigProblemTask {
+  taskId           String                  @id @default(uuid()) @map("task_id")
+  caseId           String                  @map("case_id")
+  title            String
+  description      String?
+  /// LOW | MEDIUM | HIGH | URGENT
+  priority         String                  @default("MEDIUM")
+  /// OPEN | IN_PROGRESS | COMPLETED | CANCELLED
+  status           String                  @default("OPEN")
+  assigneeUserId   String?                 @map("assignee_user_id")
+  deadlineAt       DateTime?               @map("deadline_at")
+  completedAt      DateTime?               @map("completed_at")
+  cancelledAt      DateTime?               @map("cancelled_at")
+  createdByUserId  String                  @map("created_by_user_id")
+  reminderSentAt   DateTime?               @map("reminder_sent_at")
+  overdueNotifiedAt DateTime?              @map("overdue_notified_at")
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+  case             BigProblemCase          @relation(fields: [caseId], references: [caseId], onDelete: Cascade)
+  assignee         User?                   @relation("BigProblemTaskAssignee", fields: [assigneeUserId], references: [userId], onDelete: SetNull)
+  comments         BigProblemTaskComment[]
+  history          BigProblemTaskHistory[]
+
+  @@index([caseId, status])
+  @@index([assigneeUserId, status])
+  @@index([deadlineAt])
+  @@index([priority])
+  @@map("big_problem_tasks")
+}
+
+model BigProblemTaskComment {
+  commentId    String         @id @default(uuid()) @map("comment_id")
+  taskId       String         @map("task_id")
+  authorUserId String         @map("author_user_id")
+  body         String
+  createdAt    DateTime       @default(now()) @map("created_at")
+  task         BigProblemTask @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+  author       User           @relation(fields: [authorUserId], references: [userId], onDelete: Restrict)
+
+  @@index([taskId, createdAt])
+  @@map("big_problem_task_comments")
+}
+
+model BigProblemTaskHistory {
+  historyId    String         @id @default(uuid()) @map("history_id")
+  taskId       String         @map("task_id")
+  actorUserId  String?        @map("actor_user_id")
+  action       String
+  fieldName    String?        @map("field_name")
+  oldValue     String?        @map("old_value")
+  newValue     String?        @map("new_value")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  task         BigProblemTask @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@map("big_problem_task_history")
+}
+
+model BigProblemDocument {
+  documentId     String         @id @default(uuid()) @map("document_id")
+  caseId         String         @map("case_id")
+  /// GENERAL | FINANCIAL | EVIDENCE | COMMUNICATION | OTHER
+  docKind        String         @default("GENERAL") @map("doc_kind")
+  fileName       String         @map("file_name")
+  mimeType       String         @map("mime_type")
+  sizeBytes      Int            @default(0) @map("size_bytes")
+  storedName     String         @map("stored_name")
+  storagePath    String         @map("storage_path")
+  uploadedByUserId String       @map("uploaded_by_user_id")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  case           BigProblemCase @relation(fields: [caseId], references: [caseId], onDelete: Cascade)
+  uploadedBy     User           @relation(fields: [uploadedByUserId], references: [userId], onDelete: Restrict)
+
+  @@index([caseId, createdAt])
+  @@index([docKind])
+  @@map("big_problem_documents")
+}
+
+model BigProblemCommunication {
+  communicationId String         @id @default(uuid()) @map("communication_id")
+  caseId          String         @map("case_id")
+  /// NOTE | EMAIL | CALL | MEETING | OTHER
+  channel         String         @default("NOTE")
+  subject         String?
+  body            String
+  authorUserId    String         @map("author_user_id")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  case            BigProblemCase @relation(fields: [caseId], references: [caseId], onDelete: Cascade)
+  author          User           @relation(fields: [authorUserId], references: [userId], onDelete: Restrict)
+
+  @@index([caseId, createdAt])
+  @@map("big_problem_communications")
+}
+
+model BigProblemTimelineEvent {
+  eventId      String         @id @default(uuid()) @map("event_id")
+  caseId       String         @map("case_id")
+  /// CASE_CREATED | CASE_UPDATED | STATUS_CHANGED | TASK_CREATED | …
+  eventType    String         @map("event_type")
+  summary      String
+  detailsJson  String?        @map("details_json")
+  actorUserId  String?        @map("actor_user_id")
+  actorName    String?        @map("actor_name")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  case         BigProblemCase @relation(fields: [caseId], references: [caseId], onDelete: Cascade)
+  actor        User?          @relation(fields: [actorUserId], references: [userId], onDelete: SetNull)
+
+  @@index([caseId, createdAt])
+  @@index([eventType])
+  @@map("big_problem_timeline_events")
 }
