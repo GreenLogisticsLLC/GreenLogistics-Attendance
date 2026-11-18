@@ -1732,7 +1732,7 @@ export class LoadService {
                 ) {
                     throw Object.assign(
                         new Error(
-                            "Accounting Documents cannot record customer payments — Payments role required"
+                            "Missing Accounting permission to record customer payments"
                         ),
                         { status: 403, code: "ACCOUNTING_FORBIDDEN" }
                     );

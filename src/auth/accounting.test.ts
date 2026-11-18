@@ -62,7 +62,7 @@ test("TEST 4: Operations (Manager/Team Lead) cannot access Accounting workspace"
     assert.equal(canAccessModule(Roles.TeamLead, "accounting"), false);
 });
 
-test("TEST 5: Accounting Documents can Mark Carrier Paid; still cannot record customer payment", () => {
+test("TEST 5: Accounting Documents can Mark Carrier Paid and Mark Customer Paid", () => {
     assert.equal(
         hasAccountingPermission(
             Roles.Accounting,
@@ -77,7 +77,15 @@ test("TEST 5: Accounting Documents can Mark Carrier Paid; still cannot record cu
             AccountingSubRoles.Documents,
             AccountingPermissions.CustomerPaymentsRecord
         ),
-        false
+        true
+    );
+    assert.equal(
+        hasAccountingPermission(
+            Roles.Accounting,
+            AccountingSubRoles.Documents,
+            AccountingPermissions.CustomerPaymentsView
+        ),
+        true
     );
 });
 

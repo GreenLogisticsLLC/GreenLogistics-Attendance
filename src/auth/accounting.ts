@@ -66,6 +66,10 @@ const DOCUMENTS_PERMISSIONS: AccountingPermission[] = [
     // and mark carrier Paid after the payout (same Mark Carrier Paid on the load).
     AccountingPermissions.CarrierPaymentsView,
     AccountingPermissions.CarrierPaymentsExecute,
+    // Documents marks customer Paid on the load profile after money is confirmed
+    // (PayPal auto-paid loads still sync via webhook; this is the manual path).
+    AccountingPermissions.CustomerPaymentsView,
+    AccountingPermissions.CustomerPaymentsRecord,
     AccountingPermissions.NotesCreate,
     AccountingPermissions.AuditView,
 ];

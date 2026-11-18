@@ -3432,14 +3432,17 @@ window.GreenOSModules.accounting = {
               : act === "carr-pay"
                 ? (res.message || "Carrier marked paid") +
                   " — if customer was paid, load is in Archive."
-                : act === "paypal-inv-create"
-                  ? res.message || "PayPal invoice draft ready"
-                  : act === "paypal-inv-send"
-                    ? res.message || "PayPal invoice sent"
-                    : act === "paypal-inv-sync"
-                      ? "PayPal invoice status: " +
-                        String((res.data && res.data.status) || "updated")
-                      : res.message || "Done";
+                : act === "cust-pay"
+                  ? (res.message || "Customer marked paid") +
+                    " — if carrier was paid, load is in Archive."
+                  : act === "paypal-inv-create"
+                    ? res.message || "PayPal invoice draft ready"
+                    : act === "paypal-inv-send"
+                      ? res.message || "PayPal invoice sent"
+                      : act === "paypal-inv-sync"
+                        ? "PayPal invoice status: " +
+                          String((res.data && res.data.status) || "updated")
+                        : res.message || "Done";
         msg.style.color = "#22c55e";
       }
       if (act === "send-carrier-invoice") {
@@ -3453,7 +3456,12 @@ window.GreenOSModules.accounting = {
         msg.textContent = catchMsg;
         msg.style.color = "#ef4444";
       }
-      if (act === "send-invoice" || act === "send-carrier-invoice") {
+      if (
+        act === "send-invoice" ||
+        act === "send-carrier-invoice" ||
+        act === "carr-pay" ||
+        act === "cust-pay"
+      ) {
         alert(catchMsg);
       }
     }
