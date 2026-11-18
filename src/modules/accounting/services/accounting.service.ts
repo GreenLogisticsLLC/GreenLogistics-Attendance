@@ -644,6 +644,7 @@ where: { loadNumber: { not: null } },
                         contentJson: true,
                         version: true,
                         createdAt: true,
+                        carrierAssignmentId: true,
                     },
                     orderBy: { createdAt: "desc" },
                 },
@@ -801,9 +802,19 @@ where: { loadNumber: { not: null } },
                 carrierDot: row.carrierDot,
                 paymentAmount: money(row.paymentAmount),
                 paymentReason: row.paymentReason,
+                paymentReasonCode: row.paymentReasonCode,
+                changeReason: row.changeReason,
+                previousCarrierStatus: row.previousCarrierStatus,
+                brokerId: row.brokerId,
+                brokerComment: row.brokerComment,
                 status: row.status,
                 paidAt: row.paidAt,
                 paidById: row.paidById,
+                reviewedAt: row.reviewedAt,
+                reviewedById: row.reviewedById,
+                rejectionComment: row.rejectionComment,
+                accountingDecisionNote: row.accountingDecisionNote,
+                createdAt: row.createdAt,
                 invoiceDocumentId: row.invoiceDocumentId,
                 invoiceDoc: inv
                     ? {
@@ -824,7 +835,22 @@ where: { loadNumber: { not: null } },
             loadDocs: s.loadDocuments,
             carrierDocs,
         });
-        const podDoc = documents.find((doc) => String(doc.docType || "").toUpperCase() === "POD");
+        // Standard POD review = final delivering (active) carrier only.
+        // Historical assignment PODs stay on Carrier Change history, not this queue.
+        const activeAssignmentId = s.activeCarrierAssignmentId || null;
+        const podSource = (s.loadDocuments || []).find((doc) => {
+            if (String(doc.docType || "").toUpperCase() !== "POD") return false;
+            const assignmentId =
+                (doc as { carrierAssignmentId?: string | null }).carrierAssignmentId || null;
+            if (!activeAssignmentId) return true;
+            return !assignmentId || assignmentId === activeAssignmentId;
+        });
+        const podDoc =
+            (podSource &&
+                documents.find((doc) => doc.documentId === podSource.documentId)) ||
+            (!activeAssignmentId
+                ? documents.find((doc) => String(doc.docType || "").toUpperCase() === "POD")
+                : null);
         const customerInvoice = documents.find(
             (doc) => String(doc.docType || "").toUpperCase() === "CUSTOMER_INVOICE"
         );
@@ -1058,6 +1084,77 @@ where: { loadNumber: { not: null } },
                 finalCarrierPaymentStatus: s.carrierPaidAt ? "PAID" : "UNPAID",
             },
         };
+    }
+
+    async listPreviousCarrierSettlements(actor: Actor, status?: string) {
+        assertPerm(actor, AccountingPermissions.ShipmentsView);
+        const rows = await previousCarrierSettlementService.listQueue(status || null);
+        return {
+            items: rows.map((row) => ({
+                settlementId: row.settlementId,
+                shipmentLeadId: row.shipmentLeadId,
+                loadNumber: row.loadNumber,
+                carrierName: row.carrierName,
+                carrierMc: row.carrierMc,
+                carrierDot: row.carrierDot,
+                paymentAmount: money(row.paymentAmount),
+                paymentReason: row.paymentReason,
+                brokerComment: row.brokerComment,
+                status: row.status,
+                createdAt: row.createdAt,
+                reviewedAt: row.reviewedAt,
+                rejectionComment: row.rejectionComment,
+            })),
+        };
+    }
+
+    async approvePreviousCarrierSettlement(
+        actor: Actor,
+        settlementId: string,
+        note?: string
+    ) {
+        assertPerm(actor, AccountingPermissions.FinancialsVerify);
+        const updated = await previousCarrierSettlementService.approve(
+            { userId: actor.userId },
+            settlementId,
+            note
+        );
+        await writeAudit({
+            actor,
+            action: "PREVIOUS_CARRIER_SETTLEMENT_APPROVED",
+            shipmentLeadId: updated.shipmentLeadId,
+            newValue: {
+                settlementId: updated.settlementId,
+                status: updated.status,
+            },
+            reason: note || null,
+        });
+        return this.getShipment(actor, updated.shipmentLeadId);
+    }
+
+    async rejectPreviousCarrierSettlement(
+        actor: Actor,
+        settlementId: string,
+        comment: string
+    ) {
+        assertPerm(actor, AccountingPermissions.FinancialsVerify);
+        const updated = await previousCarrierSettlementService.reject(
+            { userId: actor.userId },
+            settlementId,
+            comment
+        );
+        await writeAudit({
+            actor,
+            action: "PREVIOUS_CARRIER_SETTLEMENT_REJECTED",
+            shipmentLeadId: updated.shipmentLeadId,
+            newValue: {
+                settlementId: updated.settlementId,
+                status: updated.status,
+                rejectionComment: updated.rejectionComment,
+            },
+            reason: comment || null,
+        });
+        return this.getShipment(actor, updated.shipmentLeadId);
     }
 
     async markPreviousCarrierSettlementPaid(

@@ -7,6 +7,7 @@ import { loadService } from "../services/load.service.js";
 import { loadDocumentsService } from "../services/load-documents.service.js";
 import { resolveLoadDocumentAbsolutePath } from "../services/load-pdf.service.js";
 import { uploadPodFile } from "../services/pod-upload.service.js";
+import { carrierChangeService } from "../services/carrier-change.service.js";
 
 function errStatus(err: unknown): number {
     return (err as { status?: number })?.status || 500;
@@ -596,6 +597,65 @@ export const loadController = {
             res.status(errStatus(err)).json({
                 success: false,
                 message: err instanceof Error ? err.message : "Failed to mark sent",
+            });
+        }
+    },
+
+    async carrierChangePrefill(req: AuthRequest, res: Response) {
+        try {
+            const id = String(req.params.id || "");
+            const access = await accessOr404(req, res, id);
+            if (!access.ok) return;
+            const data = await carrierChangeService.getPreviousCarrierPrefill(id);
+            res.json({ success: true, message: "Carrier Change prefill", data });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Carrier Change prefill failed",
+            });
+        }
+    },
+
+    async startCarrierChange(req: AuthRequest, res: Response) {
+        try {
+            const id = String(req.params.id || "");
+            const access = await accessOr404(req, res, id);
+            if (!access.ok) return;
+            const data = await carrierChangeService.startCarrierChange(id, req.body || {}, {
+                userId: String(req.user?.userId || ""),
+                role: req.user?.role,
+            });
+            const details = await loadService.getLoadDetails(id, {
+                actorRole: req.user?.role,
+            });
+            const payload = canViewLoadProfit(req.user?.role || "")
+                ? { ...details, carrierChange: data }
+                : { ...redactLoadDetails(details as Record<string, unknown>), carrierChange: data };
+            res.json({
+                success: true,
+                message: "Previous carrier information saved — register the new carrier",
+                data: payload,
+            });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Carrier Change failed",
+                code: (err as { code?: string }).code,
+            });
+        }
+    },
+
+    async listCarrierAssignments(req: AuthRequest, res: Response) {
+        try {
+            const id = String(req.params.id || "");
+            const access = await accessOr404(req, res, id);
+            if (!access.ok) return;
+            const data = await carrierChangeService.listAssignments(id);
+            res.json({ success: true, message: "Carrier assignments", data: { items: data } });
+        } catch (err) {
+            res.status(errStatus(err)).json({
+                success: false,
+                message: err instanceof Error ? err.message : "Failed to list assignments",
             });
         }
     },

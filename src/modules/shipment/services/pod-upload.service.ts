@@ -463,6 +463,8 @@ export async function uploadPodFile(input: {
             fileUrl: `/uploads/loads/${input.shipmentLeadId}/${storedName}`,
             fileSize: buf.length,
             createdById: input.actorUserId || null,
+            // Only the active (final delivering) carrier assignment owns POD for Accounting review.
+            carrierAssignmentId: lead.activeCarrierAssignmentId || null,
         },
     });
 

@@ -658,13 +658,17 @@ export class LoadDocumentsService {
                 title,
                 status: "READY",
                 isCurrent: true,
-                contentJson: JSON.stringify(content),
+                contentJson: JSON.stringify({
+                    ...content,
+                    carrierAssignmentId: lead.activeCarrierAssignmentId || null,
+                }),
                 fileName: pdf.fileName,
                 mimeType: pdf.mimeType,
                 storedName: pdf.storedName,
                 fileUrl: pdf.fileUrl,
                 fileSize: pdf.fileSize,
                 createdById: input.actorUserId || null,
+                carrierAssignmentId: lead.activeCarrierAssignmentId || null,
             },
         });
 
@@ -987,6 +991,7 @@ export class LoadDocumentsService {
                 fileUrl: `/api/loads/${input.shipmentLeadId}/documents/file/${storedName}`,
                 fileSize: stat.size,
                 createdById: input.actorUserId || null,
+                carrierAssignmentId: lead.activeCarrierAssignmentId || null,
             },
         });
 

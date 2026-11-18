@@ -78,6 +78,15 @@ loadRouter.post("/:id/void", roles, (req, res) => loadController.voidLoad(req, r
 loadRouter.post("/:id/unvoid", roles, (req, res) => loadController.unvoidLoad(req, res));
 loadRouter.patch("/:id", roles, (req, res) => loadController.update(req, res));
 loadRouter.post("/:id/actions/:action", roles, (req, res) => loadController.action(req, res));
+loadRouter.get("/:id/carrier-change/prefill", roles, (req, res) =>
+    loadController.carrierChangePrefill(req, res)
+);
+loadRouter.post("/:id/carrier-change", roles, (req, res) =>
+    loadController.startCarrierChange(req, res)
+);
+loadRouter.get("/:id/carrier-assignments", roles, (req, res) =>
+    loadController.listCarrierAssignments(req, res)
+);
 
 loadRouter.get("/:id/documents", roles, (req, res) => loadController.listDocuments(req, res));
 loadRouter.get("/:id/documents/history/:docType", roles, (req, res) =>
