@@ -461,6 +461,7 @@ model ShipmentLead {
   shipmentTrackings     ShipmentTracking[]
   brokerResponseProblems BrokerResponseProblem[]
   loadLateProblems      LoadLateProblem[]
+  previousCarrierSettlements PreviousCarrierSettlement[]
   opsComments           ShipmentOpsComment[]
   customerAgreementInvites CustomerAgreementInvite[]
   paypalCustomerOrders  PayPalCustomerOrder[]
@@ -585,6 +586,40 @@ model TrackingIntegrationEvent {
   @@index([providerLoadId])
   @@index([receivedAt])
   @@map("tracking_integration_events")
+}
+
+/// Previous carrier owed money after a Carrier Change (not the final transportation carrier).
+/// Accounting visibility: paymentAmount > 0 only. Final carrier stays on ShipmentLead.carrierRate.
+model PreviousCarrierSettlement {
+  settlementId          String       @id @default(uuid()) @map("settlement_id")
+  shipmentLeadId        String       @map("shipment_lead_id")
+  loadNumber            String?      @map("load_number")
+  /// Stable id for this carrier assignment episode on the load (dedupe / invoice link).
+  carrierAssignmentId   String       @map("carrier_assignment_id")
+  previousCarrierId     String?      @map("previous_carrier_id")
+  carrierName           String?      @map("carrier_name")
+  carrierEmail          String?      @map("carrier_email")
+  carrierMc             String?      @map("carrier_mc")
+  carrierDot            String?      @map("carrier_dot")
+  paymentAmount         Float        @default(0) @map("payment_amount")
+  paymentReason         String?      @map("payment_reason")
+  /// PENDING_ACCOUNTING | APPROVED | INVOICE_UPLOADED | PAID | REJECTED | NO_PAYMENT_REQUIRED
+  status                String       @default("PENDING_ACCOUNTING")
+  invoiceDocumentId     String?      @map("invoice_document_id")
+  paidAt                DateTime?    @map("paid_at")
+  paidById              String?      @map("paid_by_id")
+  /// Dedupe key vs carrierHistoryJson entry (replacedAt|email|profileId|name).
+  historyKey            String       @map("history_key")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  shipmentLead          ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+
+  @@unique([shipmentLeadId, historyKey])
+  @@unique([shipmentLeadId, carrierAssignmentId])
+  @@index([shipmentLeadId])
+  @@index([status])
+  @@index([previousCarrierId])
+  @@map("previous_carrier_settlements")
 }
 
 /// Versioned documents that belong ONLY to a Load (ShipmentLead with loadNumber).

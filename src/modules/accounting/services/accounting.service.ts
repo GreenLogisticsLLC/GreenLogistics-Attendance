@@ -21,6 +21,11 @@ import { preferRateConCarrierAmount } from "../../shipment/load-amounts.js";
 import { payPalCheckoutService } from "../paypal/paypal-checkout.service.js";
 import { payPalInvoicingService } from "../paypal/paypal-invoicing.service.js";
 import { config } from "../../../config/env.js";
+import { previousCarrierSettlementService } from "../../shipment/services/previous-carrier-settlement.service.js";
+import {
+    buildLoadFinancialSummary,
+    sumPayablePreviousCarrierExpenses,
+} from "../../shipment/previous-carrier-settlement.js";
 import {
     INVOICE_PRICING_POLICY_TEXT,
     createInvoicePricingSnapshot,
@@ -750,6 +755,67 @@ where: { loadNumber: { not: null } },
             money(payment.rate) ||
             0;
         const carrierTotal = money(carrierRate) || 0;
+        const previousSettlements =
+            await previousCarrierSettlementService.listForAccounting(shipmentLeadId);
+        const allSettlements =
+            await previousCarrierSettlementService.listForLoad(shipmentLeadId);
+        const previousCarrierPayments = sumPayablePreviousCarrierExpenses(allSettlements);
+        const financialSummary = buildLoadFinancialSummary({
+            customerPayment: customerTotal,
+            previousCarrierPayments,
+            finalCarrierPayment: carrierTotal,
+        });
+        const invoiceById = new Map(
+            (s.loadDocuments || []).map((d) => [d.documentId, d] as const)
+        );
+        const missingInvoiceIds = previousSettlements
+            .map((row) => row.invoiceDocumentId)
+            .filter((id): id is string => typeof id === "string" && id.length > 0)
+            .filter((id) => !invoiceById.has(id));
+        if (missingInvoiceIds.length) {
+            const extraDocs = await prisma.loadDocument.findMany({
+                where: { documentId: { in: missingInvoiceIds } },
+                select: {
+                    documentId: true,
+                    fileName: true,
+                    fileUrl: true,
+                    mimeType: true,
+                    status: true,
+                },
+            });
+            for (const doc of extraDocs) invoiceById.set(doc.documentId, doc as any);
+        }
+        const previousCarrierSettlements = previousSettlements.map((row) => {
+            const inv = row.invoiceDocumentId
+                ? invoiceById.get(row.invoiceDocumentId) || null
+                : null;
+            return {
+                settlementId: row.settlementId,
+                shipmentLeadId: row.shipmentLeadId,
+                loadNumber: row.loadNumber || s.loadNumber,
+                carrierAssignmentId: row.carrierAssignmentId,
+                previousCarrierId: row.previousCarrierId,
+                carrierName: row.carrierName,
+                carrierEmail: row.carrierEmail,
+                carrierMc: row.carrierMc,
+                carrierDot: row.carrierDot,
+                paymentAmount: money(row.paymentAmount),
+                paymentReason: row.paymentReason,
+                status: row.status,
+                paidAt: row.paidAt,
+                paidById: row.paidById,
+                invoiceDocumentId: row.invoiceDocumentId,
+                invoiceDoc: inv
+                    ? {
+                          documentId: inv.documentId,
+                          fileName: inv.fileName,
+                          fileUrl: inv.fileUrl,
+                          mimeType: inv.mimeType,
+                          status: inv.status,
+                      }
+                    : null,
+            };
+        });
 
         const pickupDay = s.opsPickupAt || s.pickupFrom || s.pickupTo || null;
         const deliveryDay = s.opsDeliveryAt || s.deliveryFrom || s.deliveryTo || null;
@@ -985,7 +1051,82 @@ where: { loadNumber: { not: null } },
                 sandboxWebhookConfigured: config.paypal.sandbox.webhookConfigured,
                 liveWebhookConfigured: config.paypal.live.webhookConfigured,
             },
+            previousCarrierSettlements,
+            financialSummary: {
+                ...financialSummary,
+                // Final carrier transportation payment stays separate from previous settlements.
+                finalCarrierPaymentStatus: s.carrierPaidAt ? "PAID" : "UNPAID",
+            },
         };
+    }
+
+    async markPreviousCarrierSettlementPaid(
+        actor: Actor,
+        settlementId: string,
+        note?: string
+    ) {
+        assertPerm(actor, AccountingPermissions.CarrierPaymentsExecute);
+        const updated = await previousCarrierSettlementService.markPaid(
+            { userId: actor.userId },
+            settlementId,
+            note
+        );
+        await writeAudit({
+            actor,
+            action: "PREVIOUS_CARRIER_SETTLEMENT_PAID",
+            shipmentLeadId: updated.shipmentLeadId,
+            newValue: {
+                settlementId: updated.settlementId,
+                paidAt: updated.paidAt?.toISOString() || null,
+                status: updated.status,
+            },
+            reason: note || null,
+        });
+        return this.getShipment(actor, updated.shipmentLeadId);
+    }
+
+    async uploadPreviousCarrierSettlementInvoice(
+        actor: Actor,
+        settlementId: string,
+        file: { originalName: string; mimeType: string; tempPath: string }
+    ) {
+        const canUpload =
+            hasAccountingPermission(
+                actor.role,
+                actor.accountingSubRole,
+                AccountingPermissions.BillingSend
+            ) ||
+            hasAccountingPermission(
+                actor.role,
+                actor.accountingSubRole,
+                AccountingPermissions.CarrierPaymentsExecute
+            ) ||
+            hasAccountingPermission(
+                actor.role,
+                actor.accountingSubRole,
+                AccountingPermissions.DocumentsVerify
+            );
+        if (!canUpload) {
+            throw forbid("You cannot upload a previous carrier invoice");
+        }
+        const result = await previousCarrierSettlementService.uploadInvoice({
+            settlementId,
+            actorUserId: actor.userId,
+            originalName: file.originalName,
+            mimeType: file.mimeType,
+            tempPath: file.tempPath,
+        });
+        await writeAudit({
+            actor,
+            action: "PREVIOUS_CARRIER_INVOICE_UPLOADED",
+            shipmentLeadId: result.settlement.shipmentLeadId,
+            newValue: {
+                settlementId: result.settlement.settlementId,
+                documentId: result.document.documentId,
+                status: result.settlement.status,
+            },
+        });
+        return this.getShipment(actor, result.settlement.shipmentLeadId);
     }
 
     /**

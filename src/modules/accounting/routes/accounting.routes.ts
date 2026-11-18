@@ -1,4 +1,8 @@
 import { Router } from "express";
+import fs from "fs";
+import multer from "multer";
+import os from "os";
+import path from "path";
 import {
     authMiddleware,
     requireAccountingAccess,
@@ -24,6 +28,8 @@ import {
     accountingPayPalSendController,
     accountingPayPalStatusController,
     accountingPreviewInvoicePricingController,
+    accountingPreviousCarrierSettlementInvoiceController,
+    accountingPreviousCarrierSettlementPaidController,
     accountingReadyBillingController,
     accountingReadyCarrierPayController,
     accountingRejectDocumentsController,
@@ -35,6 +41,13 @@ import {
 } from "../controllers/accounting.controller.js";
 
 export const accountingRouter = Router();
+
+const prevCarrierUploadDir = path.join(os.tmpdir(), "greenos-prev-carrier-invoices");
+fs.mkdirSync(prevCarrierUploadDir, { recursive: true });
+const prevCarrierUpload = multer({
+    dest: prevCarrierUploadDir,
+    limits: { fileSize: 25 * 1024 * 1024 },
+});
 
 accountingRouter.use(authMiddleware);
 accountingRouter.use(requireAccountingAccess());
@@ -174,4 +187,14 @@ accountingRouter.post(
     "/shipments/:id/carrier-payment",
     requireAccountingPermission(AccountingPermissions.CarrierPaymentsExecute),
     accountingCarrierPaymentController
+);
+accountingRouter.post(
+    "/previous-carrier-settlements/:settlementId/paid",
+    requireAccountingPermission(AccountingPermissions.CarrierPaymentsExecute),
+    accountingPreviousCarrierSettlementPaidController
+);
+accountingRouter.post(
+    "/previous-carrier-settlements/:settlementId/invoice",
+    prevCarrierUpload.single("file"),
+    accountingPreviousCarrierSettlementInvoiceController
 );

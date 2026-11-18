@@ -232,6 +232,51 @@ export async function accountingCarrierPaymentController(req: AuthRequest, res: 
     }
 }
 
+export async function accountingPreviousCarrierSettlementPaidController(
+    req: AuthRequest,
+    res: Response
+) {
+    try {
+        const settlementId = String(req.params.settlementId || "");
+        const note = typeof req.body?.note === "string" ? req.body.note : undefined;
+        const data = await accountingService.markPreviousCarrierSettlementPaid(
+            actorFrom(req),
+            settlementId,
+            note
+        );
+        return res.json(apiResponse(true, "Previous carrier settlement marked paid", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
+export async function accountingPreviousCarrierSettlementInvoiceController(
+    req: AuthRequest,
+    res: Response
+) {
+    try {
+        const settlementId = String(req.params.settlementId || "");
+        const file = (req as AuthRequest & { file?: Express.Multer.File }).file;
+        if (!file) {
+            return res
+                .status(400)
+                .json(apiResponse(false, "Choose a file to upload", { code: "NO_FILE" }));
+        }
+        const data = await accountingService.uploadPreviousCarrierSettlementInvoice(
+            actorFrom(req),
+            settlementId,
+            {
+                originalName: file.originalname || "invoice.bin",
+                mimeType: file.mimetype || "application/octet-stream",
+                tempPath: file.path,
+            }
+        );
+        return res.json(apiResponse(true, "Previous carrier invoice uploaded", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
 export async function accountingPayPalGenerateController(req: AuthRequest, res: Response) {
     try {
         const id = String(req.params.id || "");
