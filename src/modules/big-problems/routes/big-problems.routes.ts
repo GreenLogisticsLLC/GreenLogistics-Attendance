@@ -8,6 +8,7 @@ import {
     bpCreateCaseController,
     bpCreateTaskController,
     bpDeadlinesController,
+    bpDeleteCaseController,
     bpDownloadDocumentController,
     bpFinancialExposureController,
     bpGetCaseController,
@@ -44,6 +45,7 @@ bigProblemsRouter.get("/cases/:id", bpRoles, bpGetCaseController);
 bigProblemsRouter.patch("/cases/:id", bpRoles, bpUpdateCaseController);
 bigProblemsRouter.post("/cases/:id/close", bpRoles, bpCloseCaseController);
 bigProblemsRouter.post("/cases/:id/reopen", bpRoles, bpReopenCaseController);
+bigProblemsRouter.delete("/cases/:id", bpRoles, bpDeleteCaseController);
 bigProblemsRouter.put("/cases/:id/financials", bpRoles, bpUpdateFinancialsController);
 bigProblemsRouter.post("/cases/:id/tasks", bpRoles, bpCreateTaskController);
 bigProblemsRouter.post("/cases/:id/communications", bpRoles, bpAddCommunicationController);

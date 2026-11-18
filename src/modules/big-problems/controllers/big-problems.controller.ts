@@ -116,6 +116,15 @@ export async function bpReopenCaseController(req: AuthRequest, res: Response) {
     }
 }
 
+export async function bpDeleteCaseController(req: AuthRequest, res: Response) {
+    try {
+        const data = await bigProblemsService.deleteCase(actor(req), String(req.params.id));
+        return res.json(apiResponse(true, "Case deleted", data));
+    } catch (err) {
+        return handleError(res, err);
+    }
+}
+
 export async function bpUpdateFinancialsController(req: AuthRequest, res: Response) {
     try {
         const data = await bigProblemsService.updateFinancials(

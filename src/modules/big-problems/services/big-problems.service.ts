@@ -22,6 +22,7 @@ import {
     canAssignBigProblemTasks,
     canCloseBigProblemCase,
     canCreateBigProblemCase,
+    canDeleteBigProblemCase,
     canEditBigProblemCase,
     canEditBigProblemFinancials,
     canViewBigProblemCase,
@@ -331,6 +332,7 @@ export class BigProblemsService {
             casesRequiringAttention: attention.slice(0, 25),
             canViewFinancials: canViewBigProblemFinancials(actor.role),
             canCreate: canCreateBigProblemCase(actor.role),
+            canDelete: canDeleteBigProblemCase(actor.role),
         };
     }
 
@@ -416,6 +418,7 @@ export class BigProblemsService {
             totalPages: Math.max(1, Math.ceil(total / pageSize)),
             canViewFinancials: canViewBigProblemFinancials(actor.role),
             canCreate: canCreateBigProblemCase(actor.role),
+            canDelete: canDeleteBigProblemCase(actor.role),
         };
     }
 
@@ -502,12 +505,57 @@ export class BigProblemsService {
         serialized.permissions = {
             canEdit: canEditBigProblemCase(actor.role),
             canClose: canCloseBigProblemCase(actor.role),
+            canDelete: canDeleteBigProblemCase(actor.role),
             canEditFinancials: canEditBigProblemFinancials(actor.role),
             canViewFinancials: canViewBigProblemFinancials(actor.role),
             canAssignTasks: canAssignBigProblemTasks(actor.role),
             canManageAllTasks: isBpOpsLead(actor.role),
         };
         return serialized;
+    }
+
+    async deleteCase(actor: BpActor, caseId: string) {
+        if (!canDeleteBigProblemCase(actor.role)) {
+            throw moneyErr(403, "Only Owner / Administrator may delete Big Problems");
+        }
+        await assertCaseAccess(actor, caseId);
+        const existing = await prisma.bigProblemCase.findUnique({
+            where: { caseId },
+            select: {
+                caseId: true,
+                caseNumber: true,
+                title: true,
+                documents: { select: { storagePath: true } },
+            },
+        });
+        if (!existing) throw moneyErr(404, "Case not found");
+
+        await prisma.bigProblemCase.delete({ where: { caseId } });
+
+        for (const doc of existing.documents) {
+            try {
+                if (doc.storagePath && fs.existsSync(doc.storagePath)) {
+                    fs.unlinkSync(doc.storagePath);
+                }
+            } catch {
+                /* best-effort file cleanup */
+            }
+        }
+        try {
+            const dir = path.join(BP_UPLOADS_ROOT, caseId);
+            if (fs.existsSync(dir)) {
+                fs.rmSync(dir, { recursive: true, force: true });
+            }
+        } catch {
+            /* ignore */
+        }
+
+        return {
+            caseId: existing.caseId,
+            caseNumber: existing.caseNumber,
+            title: existing.title,
+            deleted: true,
+        };
     }
 
     async createCase(
