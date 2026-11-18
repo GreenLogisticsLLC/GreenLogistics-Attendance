@@ -36,6 +36,7 @@ import {
     type InvoicePricingSettings,
     type InvoicePricingUpdateInput,
 } from "../invoice-pricing.js";
+import { isAccountingWorkEligible } from "../accounting-eligibility.js";
 
 type Actor = {
     userId: string;
@@ -166,11 +167,14 @@ export class AccountingService {
                 accountingClosedAt: true,
                 paymentStatus: true,
                 customerRate: true,
+                price: true,
                 carrierRate: true,
                 accessorialCharges: true,
                 customerPaymentMethod: true,
                 waiveCustomerPaymentFee: true,
                 invoicePricingSnapshotJson: true,
+                invoiceTotalUsd: true,
+                invoiceSubtotalUsd: true,
                 updatedAt: true,
             },
         });
@@ -190,9 +194,11 @@ export class AccountingService {
                 outstandingCarrier: r.carrierPaidAt ? 0 : carrierTotal,
             };
         });
-        // Money / queue KPIs ignore Voided; Accounting still sees Voided rows in red on lists.
-        const enriched = enrichedAll.filter((r) => String(r.status || "").toUpperCase() !== "VOIDED");
-        const voidedCount = enrichedAll.length - enriched.length;
+        // Ignore Voided + incomplete ghosts (GL# without customer rate/invoice) in KPIs.
+        const enriched = enrichedAll.filter((r) => isAccountingWorkEligible(r));
+        const voidedCount = enrichedAll.filter(
+            (r) => String(r.status || "").toUpperCase() === "VOIDED"
+        ).length;
 
         const docsPending = enriched.filter(
             (r) =>
@@ -460,6 +466,7 @@ where: { loadNumber: { not: null } },
                 deliveryTo: true,
                 opsDeliveryAt: true,
                 customerRate: true,
+                price: true,
                 carrierRate: true,
                 customerPaymentMethod: true,
                 waiveCustomerPaymentFee: true,
@@ -474,6 +481,8 @@ where: { loadNumber: { not: null } },
                 invoiceNumber: true,
                 invoiceDate: true,
                 invoiceDueDate: true,
+                invoiceTotalUsd: true,
+                invoiceSubtotalUsd: true,
                 paymentStatus: true,
                 customerPaidAt: true,
                 carrierPaidAt: true,
@@ -555,15 +564,20 @@ where: { loadNumber: { not: null } },
                 outstandingCarrier: r.carrierPaidAt ? 0 : money(carrierRate) || 0,
                 isVoided: status === "VOIDED",
                 isReactivated: Boolean(r.accountingReactivatedAt) && status !== "VOIDED",
+                accountingEligible: isAccountingWorkEligible(r),
             };
         });
 
         if (f === "voided") {
             list = list.filter((r) => r.isVoided);
+        } else if (f === "all") {
+            // All Loads: hide incomplete ghosts (no customer rate / invoice) that break Accounting.
+            list = list.filter((r) => r.isVoided || r.accountingEligible);
         } else if (f === "documents" || f === "review") {
             list = list.filter(
                 (r) =>
                     !r.isVoided &&
+                    r.accountingEligible &&
                     !(r.customerPaidAt && r.carrierPaidAt) &&
                     (!r.accountingDocStatus ||
                         r.accountingDocStatus === AccountingDocStatus.Pending ||
@@ -574,6 +588,7 @@ where: { loadNumber: { not: null } },
             list = list.filter(
                 (r) =>
                     !r.isVoided &&
+                    r.accountingEligible &&
                     !(r.customerPaidAt && r.carrierPaidAt) &&
                     r.accountingDocStatus === AccountingDocStatus.Verified
             );
@@ -608,7 +623,7 @@ where: { loadNumber: { not: null } },
         } else if (f === "pending" || f === "awaiting" || f === "confirmation") {
             // Dashboard: all loads still waiting for accounting confirmation / action
             list = list.filter((r) => {
-                if (r.isVoided || r.accountingClosedAt) return false;
+                if (r.isVoided || !r.accountingEligible || r.accountingClosedAt) return false;
                 if (r.customerPaidAt && r.carrierPaidAt) return false;
                 const docPending =
                     !r.accountingDocStatus ||

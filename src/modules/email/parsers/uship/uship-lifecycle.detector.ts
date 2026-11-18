@@ -705,6 +705,24 @@ export async function applyUshipLifecycleEvent(input: {
     } else if (detected.targetStatus) {
         const current = normalizeStatus(shipment.status);
         const target = normalizeStatus(detected.targetStatus);
+        // Terminal / voided loads must never be resurrected by stale Booking Confirmation
+        // emails (GL10241: VOIDED → ACCEPT_GREEN via rank[VOIDED]===undefined).
+        const terminalBlocked = new Set([
+            "VOIDED",
+            "CLOSED",
+            "COMPLETED",
+            "LOST",
+            "ACCEPTED_ANOTHER_COMPANY",
+            "DELETED_FROM_CUSTOMER",
+            "NO_LONGER_NEEDED",
+        ]);
+        if (terminalBlocked.has(current)) {
+            return {
+                applied: false as const,
+                detected,
+                reason: `Lifecycle email ignored — shipment is ${current}`,
+            };
+        }
         // Don't regress past load/dispatch/completed unless LOST / deleted by customer
         const rank: Record<string, number> = {
             NEW: 0,
@@ -731,6 +749,7 @@ export async function applyUshipLifecycleEvent(input: {
             DISPATCH: 7,
             COMPLETED: 8,
             CLOSED: 9,
+            VOIDED: 9.5,
             LOST: 9,
             ACCEPTED_ANOTHER_COMPANY: 9,
             DELETED_FROM_CUSTOMER: 9,
@@ -790,7 +809,12 @@ export async function applyUshipLifecycleEvent(input: {
                     timelineStage: "BID_SUBMITTED",
                 });
             }
-        } else {
+        } else if (
+            detected.kind !== "CUSTOMER_ACCEPTED" &&
+            detected.kind !== "SHIPMENT_BOOKED"
+        ) {
+            // Skip spam: Booking Confirmation was re-imported every ~30s and flooded
+            // CUSTOMER_ACCEPTED events while status stayed LOAD_CREATED / VOIDED.
             await domainEventEngine.emit({
                 shipmentLeadId: input.shipmentLeadId,
                 eventType: detected.domainEventType,
