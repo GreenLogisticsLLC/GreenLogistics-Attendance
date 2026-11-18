@@ -8,8 +8,31 @@ window.GreenOSModules.problems = {
   children: [
     { id: "no-answer", title: "No answer" },
     { id: "late", title: "Late" },
+    { id: "big-problems", title: "Big Problems" },
   ],
   _activeSub: "no-answer",
+
+  currentRole: function () {
+    try {
+      return (window.GreenOS && window.GreenOS.user && window.GreenOS.user.role) || "";
+    } catch (_) {
+      return "";
+    }
+  },
+
+  /** No Answer / Late stay Owner·Manager·Team Lead·Admin only; Brokers/Accounting get Big Problems. */
+  visibleChildren: function () {
+    var role = this.currentRole();
+    var ops =
+      role === "Owner" ||
+      role === "Administrator" ||
+      role === "Manager" ||
+      role === "Team Lead";
+    if (ops) return this.children.slice();
+    return this.children.filter(function (c) {
+      return c.id === "big-problems";
+    });
+  },
 
   async api(path) {
     var token = localStorage.getItem("gl_token");
@@ -55,7 +78,7 @@ window.GreenOSModules.problems = {
     if (!root) return;
     var self = this;
 
-    var children = this.children;
+    var children = this.visibleChildren();
     var active =
       children.find(function (c) {
         return c.id === subPageId;
@@ -97,7 +120,14 @@ window.GreenOSModules.problems = {
 
     var body = root.querySelector("#problems-body");
     // Manual only — open via nav / tab click. No poll or soft remount.
-    if (active.id === "late") this.paintLate(body);
+    if (active.id === "big-problems") {
+      if (this.bigProblems && typeof this.bigProblems.render === "function") {
+        this.bigProblems.render(body, "overview");
+      } else {
+        body.innerHTML =
+          '<p class="gos-muted">Big Problems UI failed to load. Hard-refresh (Ctrl+F5).</p>';
+      }
+    } else if (active.id === "late") this.paintLate(body);
     else this.paintNoAnswer(body);
   },
 

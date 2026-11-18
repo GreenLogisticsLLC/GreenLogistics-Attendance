@@ -76,6 +76,7 @@ import { geoRouter } from "../modules/geo/geo.routes.js";
 import { accountingRouter } from "../modules/accounting/routes/accounting.routes.js";
 import { paypalWebhookController } from "../modules/accounting/controllers/accounting.controller.js";
 import { searchRouter } from "../modules/search/search.routes.js";
+import { bigProblemsRouter } from "../modules/big-problems/routes/big-problems.routes.js";
 
 export const apiRouter = Router();
 
@@ -84,6 +85,7 @@ apiRouter.get("/v1/network-info", networkInfoController);
 
 apiRouter.use("/email", emailRouter);
 apiRouter.use("/crm", crmRouter);
+apiRouter.use("/big-problems", bigProblemsRouter);
 apiRouter.use("/shipments", shipmentRouter);
 apiRouter.use("/loads", loadRouter);
 apiRouter.use("/assignment", assignmentRouter);

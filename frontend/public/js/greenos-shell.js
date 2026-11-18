@@ -478,7 +478,7 @@
           ? [
               {
                 title: "Accounting Team",
-                ids: ["accounting"],
+                ids: ["accounting", "problems"],
               },
             ]
           : [
