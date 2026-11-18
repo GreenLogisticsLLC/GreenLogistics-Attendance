@@ -37,6 +37,7 @@ import {
     type InvoicePricingUpdateInput,
 } from "../invoice-pricing.js";
 import { isAccountingWorkEligible } from "../accounting-eligibility.js";
+import { computeDashboardPaymentKpis } from "../dashboard-payment-kpis.js";
 
 type Actor = {
     userId: string;
@@ -243,6 +244,9 @@ export class AccountingService {
 
         const arToReceive = enriched.reduce((sum, r) => sum + (r.outstandingCustomer || 0), 0);
         const apToPay = enriched.reduce((sum, r) => sum + (r.outstandingCarrier || 0), 0);
+        // RECEIVED / PAID: actual completed payment amounts in the dashboard date window
+        // (payment txn date, not shipment createdAt). Leaves A/R and A/P unchanged.
+        const paymentKpis = await computeDashboardPaymentKpis({ pricing });
 
         function ageBucket(
             amount: number,
@@ -372,8 +376,13 @@ export class AccountingService {
                 readyForBilling: readyBilling,
                 readyForCarrierPay: readyCarrierPay,
                 arToReceive: Math.round(arToReceive * 100) / 100,
+                received: paymentKpis.received,
                 apToPay: Math.round(apToPay * 100) / 100,
+                paid: paymentKpis.paid,
                 voidedLoads: voidedCount,
+                range: paymentKpis.range.label,
+                rangeFrom: paymentKpis.range.from.toISOString(),
+                rangeTo: paymentKpis.range.to.toISOString(),
             },
             queues: {
                 forReview,

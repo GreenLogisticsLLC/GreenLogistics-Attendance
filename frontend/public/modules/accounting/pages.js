@@ -2063,8 +2063,20 @@ window.GreenOSModules.accounting = {
           "money"
         ) +
         self.dashSummaryCard(
+          "Received",
+          self.esc(self.dashMoney(summary.received)),
+          "",
+          "money"
+        ) +
+        self.dashSummaryCard(
           "A/P (To Pay)",
           self.esc(self.dashMoney(summary.apToPay)),
+          "",
+          "money"
+        ) +
+        self.dashSummaryCard(
+          "Paid",
+          self.esc(self.dashMoney(summary.paid)),
           "",
           "money"
         );
@@ -2104,7 +2116,9 @@ window.GreenOSModules.accounting = {
         '<header class="acc-dash-head">' +
         "<div><h2>Accounting Dashboard</h2>" +
         '<p class="gos-muted">Financial operations, billing, and carrier payments for Green Logistics.</p></div>' +
-        '<div class="acc-dash-range">Last 30 Days</div>' +
+        '<div class="acc-dash-range">' +
+        self.esc(summary.range || "Last 30 Days") +
+        "</div>" +
         "</header>" +
         '<div class="acc-dash-summary">' +
         summaryHtml +
