@@ -28,8 +28,11 @@ import {
     accountingPayPalSendController,
     accountingPayPalStatusController,
     accountingPreviewInvoicePricingController,
+    accountingListPreviousCarrierSettlementsController,
+    accountingPreviousCarrierSettlementApproveController,
     accountingPreviousCarrierSettlementInvoiceController,
     accountingPreviousCarrierSettlementPaidController,
+    accountingPreviousCarrierSettlementRejectController,
     accountingReadyBillingController,
     accountingReadyCarrierPayController,
     accountingRejectDocumentsController,
@@ -187,6 +190,21 @@ accountingRouter.post(
     "/shipments/:id/carrier-payment",
     requireAccountingPermission(AccountingPermissions.CarrierPaymentsExecute),
     accountingCarrierPaymentController
+);
+accountingRouter.get(
+    "/previous-carrier-settlements",
+    requireAccountingPermission(AccountingPermissions.ShipmentsView),
+    accountingListPreviousCarrierSettlementsController
+);
+accountingRouter.post(
+    "/previous-carrier-settlements/:settlementId/approve",
+    requireAccountingPermission(AccountingPermissions.FinancialsVerify),
+    accountingPreviousCarrierSettlementApproveController
+);
+accountingRouter.post(
+    "/previous-carrier-settlements/:settlementId/reject",
+    requireAccountingPermission(AccountingPermissions.FinancialsVerify),
+    accountingPreviousCarrierSettlementRejectController
 );
 accountingRouter.post(
     "/previous-carrier-settlements/:settlementId/paid",

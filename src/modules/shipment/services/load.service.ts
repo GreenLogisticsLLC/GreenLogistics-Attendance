@@ -41,10 +41,12 @@ import {
     preferRateConCarrierAmount,
 } from "../load-amounts.js";
 import { previousCarrierSettlementService } from "./previous-carrier-settlement.service.js";
+import { carrierChangeService } from "./carrier-change.service.js";
 import {
     buildLoadFinancialSummary,
     isSettlementPayableExpense,
 } from "../previous-carrier-settlement.js";
+import { CARRIER_CHANGE_LOAD_STATUS } from "../carrier-change.js";
 
 export {
     carrierAmountFromRateConContent,
@@ -710,6 +712,8 @@ export class LoadService {
                 changeReason,
                 changeReasonLabel:
                     (changeReason && LOAD_DOC_CHANGE_LABELS[changeReason]) || changeReason,
+                carrierAssignmentId:
+                    (d as { carrierAssignmentId?: string | null }).carrierAssignmentId || null,
                 carrierSigned,
                 carrierSignerName: content?.carrierSignerName || null,
                 carrierSignedAt: content?.carrierSignedAt || null,
@@ -721,6 +725,15 @@ export class LoadService {
                 content,
             };
         });
+
+        let carrierAssignments: Awaited<
+            ReturnType<typeof carrierChangeService.listAssignments>
+        > = [];
+        try {
+            carrierAssignments = await carrierChangeService.listAssignments(shipmentLeadId);
+        } catch {
+            carrierAssignments = [];
+        }
 
         return {
             identity: {
@@ -734,10 +747,15 @@ export class LoadService {
                 isVoided: normalizeStatus(s.status) === "VOIDED",
                 accountingReactivatedAt: s.accountingReactivatedAt || null,
                 isReactivated: Boolean(s.accountingReactivatedAt),
+                carrierChangeStatus: s.carrierChangeStatus || null,
+                activeCarrierAssignmentId: s.activeCarrierAssignmentId || null,
+                replacementInProgress:
+                    s.carrierChangeStatus === CARRIER_CHANGE_LOAD_STATUS.ReplacementInProgress,
                 createdAt: s.createdAt,
                 updatedAt: s.updatedAt,
                 viewUrl: s.viewUrl,
             },
+            carrierAssignments,
             general: {
                 loadNumber: s.loadNumber,
                 shipmentNumber: s.greenOsShipmentId,
@@ -1163,12 +1181,13 @@ export class LoadService {
 
         if (
             shipment.loadNumber &&
+            shipment.carrierChangeStatus !== CARRIER_CHANGE_LOAD_STATUS.ReplacementInProgress &&
             isNameAndEmailCarrierChange(
                 { name: shipment.carrierName, email: shipment.carrierEmail },
                 { name: nextName, email: nextEmail }
             )
         ) {
-            // Same Load Number — archive previous carrier, reactivate Accounting review.
+            // Legacy shortcut (name+email both change). Prefer explicit Carrier Change form.
             return this.replaceCarrierOnSameLoad(shipment, body, actorUserId);
         }
 
@@ -1357,6 +1376,21 @@ export class LoadService {
                 } catch {
                     /* ignore if transition not allowed */
                 }
+            }
+        }
+
+        // Carrier Change: activate replacement assignment, or ensure ACTIVE assignment exists.
+        if (body.carrierName || body.carrierEmail || body.carrierProfileId !== undefined) {
+            try {
+                const activated = await carrierChangeService.activateReplacementAssignment(
+                    shipmentLeadId,
+                    actorUserId
+                );
+                if (!activated) {
+                    await carrierChangeService.ensureActiveAssignment(shipmentLeadId);
+                }
+            } catch {
+                /* non-blocking — load save already succeeded */
             }
         }
 

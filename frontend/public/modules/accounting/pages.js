@@ -2793,6 +2793,14 @@ window.GreenOSModules.accounting = {
                   '<div class="acc-kv"><span>Payment Reason</span><strong>' +
                   self.esc(ps.paymentReason || "—") +
                   "</strong></div>" +
+                  '<div class="acc-kv"><span>Broker comment</span><strong>' +
+                  self.esc(ps.brokerComment || "—") +
+                  "</strong></div>" +
+                  (ps.rejectionComment
+                    ? '<div class="acc-kv"><span>Rejection</span><strong>' +
+                      self.esc(ps.rejectionComment) +
+                      "</strong></div>"
+                    : "") +
                   (ps.paidAt
                     ? '<div class="acc-kv"><span>Paid at</span><strong>' +
                       self.esc(self.formatDay(ps.paidAt) || ps.paidAt) +
@@ -2812,7 +2820,23 @@ window.GreenOSModules.accounting = {
                   '" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,image/*,application/pdf" data-settlement-id="' +
                   self.esc(ps.settlementId) +
                   '" /></label>' +
-                  (st === "PAID"
+                  (st === "PENDING_ACCOUNTING" || st === "INVOICE_UPLOADED"
+                    ? '<button type="button" class="btn-secondary" data-prev-approve="' +
+                      self.esc(ps.settlementId) +
+                      '"' +
+                      (perms.canVerifyFinancials
+                        ? ""
+                        : ' disabled title="Financials verify permission required"') +
+                      ">Approve</button>" +
+                      '<button type="button" class="btn-secondary" data-prev-reject="' +
+                      self.esc(ps.settlementId) +
+                      '"' +
+                      (perms.canVerifyFinancials
+                        ? ""
+                        : ' disabled title="Financials verify permission required"') +
+                      ">Reject</button>"
+                    : "") +
+                  (st === "PAID" || st === "REJECTED" || st === "NO_PAYMENT_REQUIRED"
                     ? ""
                     : '<button type="button" class="btn-primary" data-prev-paid="' +
                       self.esc(ps.settlementId) +
@@ -2954,6 +2978,71 @@ window.GreenOSModules.accounting = {
         });
       });
 
+      async function prevSettlementAction(path, okMsg) {
+        var msg = host.querySelector("#acc-msg");
+        try {
+          var res = await self.api(path, { method: "POST", body: {} });
+          if (res && res.success === false) {
+            throw new Error(res.message || "Request failed");
+          }
+          self._profileFlash = okMsg;
+          await self.openShipment(host, id);
+        } catch (err) {
+          if (msg) {
+            msg.textContent = err.message || "Request failed";
+            msg.style.color = "#ef4444";
+          }
+          alert(err.message || "Request failed");
+        }
+      }
+
+      host.querySelectorAll("[data-prev-approve]").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var settlementId = btn.getAttribute("data-prev-approve");
+          if (!settlementId) return;
+          if (!confirm("Approve this previous carrier settlement?")) return;
+          await prevSettlementAction(
+            "/previous-carrier-settlements/" +
+              encodeURIComponent(settlementId) +
+              "/approve",
+            "Previous carrier settlement approved."
+          );
+        });
+      });
+
+      host.querySelectorAll("[data-prev-reject]").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var settlementId = btn.getAttribute("data-prev-reject");
+          if (!settlementId) return;
+          var comment = window.prompt("Rejection comment (required):", "");
+          if (comment == null) return;
+          if (!String(comment).trim()) {
+            alert("Rejection comment is required.");
+            return;
+          }
+          var msg = host.querySelector("#acc-msg");
+          try {
+            var res = await self.api(
+              "/previous-carrier-settlements/" +
+                encodeURIComponent(settlementId) +
+                "/reject",
+              { method: "POST", body: { comment: String(comment).trim() } }
+            );
+            if (res && res.success === false) {
+              throw new Error(res.message || "Reject failed");
+            }
+            self._profileFlash = "Previous carrier settlement rejected.";
+            await self.openShipment(host, id);
+          } catch (err) {
+            if (msg) {
+              msg.textContent = err.message || "Reject failed";
+              msg.style.color = "#ef4444";
+            }
+            alert(err.message || "Reject failed");
+          }
+        });
+      });
+
       host.querySelectorAll("[data-prev-paid]").forEach(function (btn) {
         btn.addEventListener("click", async function () {
           var settlementId = btn.getAttribute("data-prev-paid");
@@ -2965,26 +3054,12 @@ window.GreenOSModules.accounting = {
           ) {
             return;
           }
-          var msg = host.querySelector("#acc-msg");
-          try {
-            var paidRes = await self.api(
-              "/previous-carrier-settlements/" +
-                encodeURIComponent(settlementId) +
-                "/paid",
-              { method: "POST", body: {} }
-            );
-            if (paidRes && paidRes.success === false) {
-              throw new Error(paidRes.message || "Mark paid failed");
-            }
-            self._profileFlash = "Previous carrier settlement marked PAID.";
-            await self.openShipment(host, id);
-          } catch (err) {
-            if (msg) {
-              msg.textContent = err.message || "Mark paid failed";
-              msg.style.color = "#ef4444";
-            }
-            alert(err.message || "Mark paid failed");
-          }
+          await prevSettlementAction(
+            "/previous-carrier-settlements/" +
+              encodeURIComponent(settlementId) +
+              "/paid",
+            "Previous carrier settlement marked PAID."
+          );
         });
       });
 

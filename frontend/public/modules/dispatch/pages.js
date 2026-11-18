@@ -3009,38 +3009,105 @@ window.GreenOSModules["dispatch"] = {
         : !carrierApproved
           ? "Next: review carrier packet documents below, then click <strong>Approve Carrier</strong> — Rate Confirmation stays locked until then."
           : "Next: Generate Rate Confirmation.";
-      var prevCarriers = Array.isArray(c.previousCarriers) ? c.previousCarriers : [];
-      var prevCarriersHtml = prevCarriers.length
-        ? '<div class="load-edit-panel" style="margin:0.75rem 0">' +
-          "<h3 style=\"margin:0 0 0.35rem\">Previous carriers on this Load Number</h3>" +
-          '<p class="gos-muted" style="margin:0 0 0.5rem">Kept for history when you assign a new carrier.</p>' +
-          prevCarriers
-            .slice()
-            .reverse()
-            .map(function (pc) {
-              return (
-                '<div class="gos-muted" style="margin:0.25rem 0">' +
-                "<strong>" +
-                self.esc(pc.carrierName || "—") +
-                "</strong> · " +
-                self.esc(pc.carrierEmail || "—") +
-                (pc.carrierMc ? " · MC " + self.esc(pc.carrierMc) : "") +
-                (pc.replacedAt
-                  ? " · " + self.esc(new Date(pc.replacedAt).toLocaleString())
-                  : "") +
-                "</div>"
-              );
-            })
-            .join("") +
-          "</div>"
-        : "";
+      var assignments = Array.isArray(data.carrierAssignments) ? data.carrierAssignments : [];
+      var replacementInProgress = Boolean(
+        data.identity && data.identity.replacementInProgress
+      );
+      var assignmentHistoryHtml =
+        '<div class="load-edit-panel" id="ld-carrier-history" style="margin:0.75rem 0">' +
+        "<h3 style=\"margin:0 0 0.35rem\">Carrier Assignment History</h3>" +
+        '<p class="gos-muted" style="margin:0 0 0.5rem">One Load Number — every carrier kept. Only one ACTIVE at a time.</p>' +
+        (assignments.length
+          ? assignments
+              .slice()
+              .reverse()
+              .map(function (a) {
+                var isCurrent = a.isCurrent || String(a.status || "").toUpperCase() === "ACTIVE";
+                return (
+                  '<details class="ld-assignment-card" style="margin:0.4rem 0;border:1px solid rgba(255,255,255,0.08);padding:0.5rem 0.65rem;border-radius:6px' +
+                  (isCurrent ? ";border-color:#22c55e" : "") +
+                  '">' +
+                  "<summary style=\"cursor:pointer\">" +
+                  "<strong>" +
+                  self.esc(a.carrierName || "—") +
+                  "</strong> · MC " +
+                  self.esc(a.carrierMc || "—") +
+                  " · DOT " +
+                  self.esc(a.carrierDot || "—") +
+                  " · " +
+                  self.esc(a.status || "—") +
+                  (isCurrent ? " · Current" : "") +
+                  "</summary>" +
+                  '<div class="gos-muted" style="margin-top:0.5rem;font-size:0.85rem">' +
+                  "<div>Email: " +
+                  self.esc(a.carrierEmail || "—") +
+                  "</div>" +
+                  "<div>Started: " +
+                  self.esc(a.startedAt ? new Date(a.startedAt).toLocaleString() : "—") +
+                  "</div>" +
+                  "<div>Ended: " +
+                  self.esc(a.endedAt ? new Date(a.endedAt).toLocaleString() : "—") +
+                  "</div>" +
+                  "<div>Change reason: " +
+                  self.esc(a.changeReasonLabel || a.changeReason || "—") +
+                  "</div>" +
+                  (a.settlement
+                    ? "<div>Settlement: " +
+                      self.money(a.settlement.paymentAmount) +
+                      " · " +
+                      self.esc(a.settlement.status || "—") +
+                      (a.settlement.paymentReason
+                        ? " · " + self.esc(a.settlement.paymentReason)
+                        : "") +
+                      "</div>"
+                    : "") +
+                  (a.documents && a.documents.length
+                    ? "<div>Docs: " +
+                      a.documents
+                        .map(function (d) {
+                          return self.esc(d.docType || d.title || "doc");
+                        })
+                        .join(", ") +
+                      "</div>"
+                    : "") +
+                  "</div></details>"
+                );
+              })
+              .join("")
+          : '<p class="gos-muted">No assignment history yet.</p>') +
+        "</div>";
+      var carrierChangePanel =
+        '<div class="load-edit-panel" id="ld-carrier-change-panel" style="margin:0.75rem 0;display:none">' +
+        "<h3>Previous Carrier Information</h3>" +
+        '<p class="gos-muted">Required before registering a replacement. Same Load Number — previous carrier is archived, not overwritten.</p>' +
+        '<div class="load-form-grid" id="ld-cc-prefill"></div>' +
+        '<div class="load-form-grid">' +
+        '<label>Carrier Change Reason * <select id="ld-cc-reason"></select></label>' +
+        '<label>Previous Carrier Status * <select id="ld-cc-status"></select></label>' +
+        "<label>Payment Amount * " +
+        self.moneyFieldHtml("ld-cc-amount", "0", "0.00") +
+        "</label>" +
+        '<label>Payment Reason * <select id="ld-cc-pay-reason"></select></label>' +
+        '<label class="full">Broker Comment <textarea id="ld-cc-comment" rows="2" placeholder="Optional"></textarea></label>' +
+        "</div>" +
+        '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">' +
+        '<button type="button" class="btn-primary" id="ld-cc-save">Save Previous Carrier Info</button>' +
+        '<button type="button" class="btn-secondary" id="ld-cc-cancel">Cancel</button>' +
+        "</div></div>";
       main.innerHTML =
         "<h2>Assign Carrier</h2>" +
         '<p class="gos-muted">Phase 2 — fill carrier details' +
         (showMoney ? ", then set Carrier price (Accounting). " : ". ") +
         nextStepHint +
         "</p>" +
-        prevCarriersHtml +
+        (replacementInProgress
+          ? '<p class="gos-muted" style="color:#f59e0b"><strong>Carrier Change in progress</strong> — register the new carrier below using the existing form. Compliance / Approve Carrier unchanged.</p>'
+          : "") +
+        (c.carrierName
+          ? '<div style="margin:0.5rem 0"><button type="button" class="btn-secondary" id="ld-carrier-change-btn">Carrier Change</button></div>'
+          : "") +
+        carrierChangePanel +
+        assignmentHistoryHtml +
         '<div class="load-grid">' +
         field("Carrier", c.carrierName) +
         field("Carrier Email", c.carrierEmail) +
@@ -3119,6 +3186,98 @@ window.GreenOSModules["dispatch"] = {
       self.bindApptFields(main, "ld-c-delivery");
       self.bindCarrierAutofill(main, c);
       self.bindCarrierOnboardingActions(main, c, { loadId: id, tab: "carrier" });
+
+      function fillSelect(sel, items) {
+        if (!sel) return;
+        sel.innerHTML =
+          '<option value="">Select…</option>' +
+          (items || [])
+            .map(function (it) {
+              return (
+                '<option value="' +
+                self.esc(it.id) +
+                '">' +
+                self.esc(it.label) +
+                "</option>"
+              );
+            })
+            .join("");
+      }
+
+      var ccBtn = main.querySelector("#ld-carrier-change-btn");
+      var ccPanel = main.querySelector("#ld-carrier-change-panel");
+      if (ccBtn && ccPanel) {
+        ccBtn.addEventListener("click", async function () {
+          try {
+            var pref = await self.api(
+              "/" + encodeURIComponent(id) + "/carrier-change/prefill"
+            );
+            var d = pref && pref.data ? pref.data : pref;
+            var prev = (d && d.previousCarrier) || {};
+            var enums = (d && d.enums) || {};
+            var box = main.querySelector("#ld-cc-prefill");
+            if (box) {
+              box.innerHTML =
+                field("Previous Carrier", prev.companyName) +
+                field("MC", prev.mcNumber) +
+                field("DOT", prev.dotNumber) +
+                field("Load Number", (d && d.loadNumber) || "—") +
+                field("Assignment ID", prev.assignmentId);
+            }
+            fillSelect(main.querySelector("#ld-cc-reason"), enums.changeReasons);
+            fillSelect(main.querySelector("#ld-cc-status"), enums.previousCarrierStatuses);
+            fillSelect(main.querySelector("#ld-cc-pay-reason"), enums.paymentReasons);
+            var amt = main.querySelector("#ld-cc-amount");
+            if (amt) {
+              amt.value =
+                prev.carrierRate != null && prev.carrierRate !== ""
+                  ? String(prev.carrierRate)
+                  : "0";
+            }
+            ccPanel.style.display = "";
+            ccPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          } catch (err) {
+            alert(err.message || err);
+          }
+        });
+      }
+      main.querySelector("#ld-cc-cancel")?.addEventListener("click", function () {
+        if (ccPanel) ccPanel.style.display = "none";
+      });
+      main.querySelector("#ld-cc-save")?.addEventListener("click", async function () {
+        try {
+          var body = {
+            changeReason: (main.querySelector("#ld-cc-reason") || {}).value || "",
+            previousCarrierStatus: (main.querySelector("#ld-cc-status") || {}).value || "",
+            paymentAmount: self.parseMoneyInput(
+              (main.querySelector("#ld-cc-amount") || {}).value || "0"
+            ),
+            paymentReason: (main.querySelector("#ld-cc-pay-reason") || {}).value || "",
+            brokerComment: (main.querySelector("#ld-cc-comment") || {}).value || null,
+          };
+          if (!body.changeReason || !body.previousCarrierStatus || !body.paymentReason) {
+            alert("Select Carrier Change Reason, Previous Carrier Status, and Payment Reason.");
+            return;
+          }
+          if (body.paymentAmount == null || Number(body.paymentAmount) < 0) {
+            alert("Payment Amount is required and cannot be negative (use 0 if none).");
+            return;
+          }
+          var saved = await self.api("/" + encodeURIComponent(id) + "/carrier-change", {
+            method: "POST",
+            body: JSON.stringify(body),
+          });
+          alert(
+            (saved && saved.message) ||
+              "Previous carrier saved. Register the new carrier on this Load."
+          );
+          var host = document.querySelector("#load-tms-body");
+          self.openLoad(host, id, "carrier");
+        } catch (err) {
+          alert(err.message || err);
+        }
+      });
+
       main.querySelector("#ld-save-carrier")?.addEventListener("click", async function () {
         var name = (main.querySelector("#ld-carrier").value || "").trim();
         if (!name) {
@@ -3206,24 +3365,11 @@ window.GreenOSModules["dispatch"] = {
             self.normCarrierText(carrierPayload.carrierName) !== self.normCarrierText(c.carrierName) &&
             self.normCarrierText(carrierPayload.carrierEmail) !== self.normCarrierText(c.carrierEmail);
 
-          if (nameAndEmailChange && showMoney) {
-            var defaultPay =
-              p.carrierRate != null && p.carrierRate !== ""
-                ? String(p.carrierRate)
-                : "0";
-            var payAmtRaw = window.prompt(
-              "Payment Amount for the previous carrier (use 0 if no payment). This creates a separate Accounting settlement — not the new carrier Rate.",
-              defaultPay
+          if (nameAndEmailChange && !replacementInProgress) {
+            alert(
+              "Use the Carrier Change button to archive the previous carrier with Payment Amount / Reason, then register the new carrier on this Load Number."
             );
-            if (payAmtRaw === null) return;
-            var payReasonRaw = window.prompt(
-              "Payment Reason for the previous carrier (optional):",
-              "carrier_change"
-            );
-            if (payReasonRaw === null) return;
-            carrierPayload.previousCarrierPaymentAmount = self.parseMoneyInput(payAmtRaw);
-            carrierPayload.previousCarrierPaymentReason =
-              String(payReasonRaw || "").trim() || "carrier_change";
+            return;
           }
 
           var saved = await self.api("/" + encodeURIComponent(id), {

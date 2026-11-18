@@ -232,6 +232,58 @@ export async function accountingCarrierPaymentController(req: AuthRequest, res: 
     }
 }
 
+export async function accountingListPreviousCarrierSettlementsController(
+    req: AuthRequest,
+    res: Response
+) {
+    try {
+        const status = typeof req.query.status === "string" ? req.query.status : undefined;
+        const data = await accountingService.listPreviousCarrierSettlements(
+            actorFrom(req),
+            status
+        );
+        return res.json(apiResponse(true, "Previous carrier settlements", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
+export async function accountingPreviousCarrierSettlementApproveController(
+    req: AuthRequest,
+    res: Response
+) {
+    try {
+        const settlementId = String(req.params.settlementId || "");
+        const note = typeof req.body?.note === "string" ? req.body.note : undefined;
+        const data = await accountingService.approvePreviousCarrierSettlement(
+            actorFrom(req),
+            settlementId,
+            note
+        );
+        return res.json(apiResponse(true, "Previous carrier settlement approved", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
+export async function accountingPreviousCarrierSettlementRejectController(
+    req: AuthRequest,
+    res: Response
+) {
+    try {
+        const settlementId = String(req.params.settlementId || "");
+        const comment = String(req.body?.comment || req.body?.note || "");
+        const data = await accountingService.rejectPreviousCarrierSettlement(
+            actorFrom(req),
+            settlementId,
+            comment
+        );
+        return res.json(apiResponse(true, "Previous carrier settlement rejected", data));
+    } catch (err) {
+        return res.status(errStatus(err)).json(errPayload(err));
+    }
+}
+
 export async function accountingPreviousCarrierSettlementPaidController(
     req: AuthRequest,
     res: Response

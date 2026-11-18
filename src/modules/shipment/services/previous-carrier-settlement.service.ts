@@ -169,6 +169,109 @@ export const previousCarrierSettlementService = {
         return sumPayablePreviousCarrierExpenses(rows);
     },
 
+    async approve(
+        actor: { userId: string },
+        settlementId: string,
+        note?: string
+    ) {
+        const row = await prisma.previousCarrierSettlement.findUnique({
+            where: { settlementId },
+        });
+        if (!row) throw badRequest("Previous carrier settlement not found", 404);
+        if (money(row.paymentAmount) <= 0) {
+            throw badRequest("Nothing to approve for $0 settlements");
+        }
+        if (row.status === "PAID") return row;
+        if (row.status === "REJECTED") {
+            throw badRequest("Rejected settlement cannot be approved — create a new change if needed");
+        }
+        const now = new Date();
+        const nextStatus =
+            row.status === "INVOICE_UPLOADED" || row.status === "PAID"
+                ? row.status
+                : "APPROVED";
+        const updated = await prisma.previousCarrierSettlement.update({
+            where: { settlementId },
+            data: {
+                status: nextStatus,
+                reviewedAt: now,
+                reviewedById: actor.userId,
+                accountingDecisionNote: note
+                    ? String(note).trim() || null
+                    : row.accountingDecisionNote || "Approved",
+                rejectionComment: null,
+            },
+        });
+        await domainEventEngine.emit({
+            shipmentLeadId: row.shipmentLeadId,
+            eventType: "PREVIOUS_CARRIER_SETTLEMENT_APPROVED",
+            title: "Previous carrier settlement approved",
+            message: `${row.carrierName || "Previous carrier"} settlement approved`,
+            actorUserId: actor.userId,
+            payload: {
+                settlementId,
+                note: note || null,
+                status: updated.status,
+            },
+        });
+        return updated;
+    },
+
+    async reject(
+        actor: { userId: string },
+        settlementId: string,
+        comment: string
+    ) {
+        const row = await prisma.previousCarrierSettlement.findUnique({
+            where: { settlementId },
+        });
+        if (!row) throw badRequest("Previous carrier settlement not found", 404);
+        if (row.status === "PAID") {
+            throw badRequest("Paid settlements cannot be rejected");
+        }
+        const reason = String(comment || "").trim();
+        if (!reason) throw badRequest("Rejection comment is required");
+        const now = new Date();
+        const updated = await prisma.previousCarrierSettlement.update({
+            where: { settlementId },
+            data: {
+                status: "REJECTED",
+                reviewedAt: now,
+                reviewedById: actor.userId,
+                rejectionComment: reason,
+                accountingDecisionNote: reason,
+            },
+        });
+        await domainEventEngine.emit({
+            shipmentLeadId: row.shipmentLeadId,
+            eventType: "PREVIOUS_CARRIER_SETTLEMENT_REJECTED",
+            title: "Previous carrier settlement rejected",
+            message: `${row.carrierName || "Previous carrier"} settlement rejected`,
+            actorUserId: actor.userId,
+            payload: {
+                settlementId,
+                rejectionComment: reason,
+            },
+        });
+        return updated;
+    },
+
+    async listQueue(status?: string | null) {
+        const where: Record<string, unknown> = {
+            paymentAmount: { gt: 0 },
+        };
+        if (status) {
+            where.status = String(status).toUpperCase();
+        } else {
+            where.status = { in: ["PENDING_ACCOUNTING", "APPROVED", "INVOICE_UPLOADED"] };
+        }
+        return prisma.previousCarrierSettlement.findMany({
+            where,
+            orderBy: { createdAt: "desc" },
+            take: 200,
+        });
+    },
+
     async markPaid(actor: { userId: string }, settlementId: string, note?: string) {
         const row = await prisma.previousCarrierSettlement.findUnique({
             where: { settlementId },

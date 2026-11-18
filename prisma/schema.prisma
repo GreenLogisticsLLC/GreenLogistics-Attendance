@@ -385,6 +385,10 @@ model ShipmentLead {
   accountingReactivatedAt  DateTime?               @map("accounting_reactivated_at")
   /// Prior carriers kept on this Load Number after a carrier change (JSON array).
   carrierHistoryJson       String?                 @map("carrier_history_json")
+  /// Active LoadCarrierAssignment for the current carrier on this Load Number.
+  activeCarrierAssignmentId String?                @map("active_carrier_assignment_id")
+  /// null | REPLACEMENT_IN_PROGRESS — controlled Carrier Change state.
+  carrierChangeStatus      String?                 @map("carrier_change_status")
   /// Status before Void load number — restored when broker sets Active again.
   statusBeforeVoid         String?                 @map("status_before_void")
   /// Thank-you / review link emails sent by the broker before Close Load.
@@ -462,6 +466,7 @@ model ShipmentLead {
   brokerResponseProblems BrokerResponseProblem[]
   loadLateProblems      LoadLateProblem[]
   previousCarrierSettlements PreviousCarrierSettlement[]
+  loadCarrierAssignments LoadCarrierAssignment[]
   opsComments           ShipmentOpsComment[]
   customerAgreementInvites CustomerAgreementInvite[]
   paypalCustomerOrders  PayPalCustomerOrder[]
@@ -588,6 +593,36 @@ model TrackingIntegrationEvent {
   @@map("tracking_integration_events")
 }
 
+/// One carrier assignment episode on a Load Number (current or historical).
+model LoadCarrierAssignment {
+  assignmentId          String       @id @default(uuid()) @map("assignment_id")
+  shipmentLeadId        String       @map("shipment_lead_id")
+  loadNumber            String?      @map("load_number")
+  carrierProfileId      String?      @map("carrier_profile_id")
+  carrierName           String?      @map("carrier_name")
+  carrierEmail          String?      @map("carrier_email")
+  carrierPhone          String?      @map("carrier_phone")
+  carrierMc             String?      @map("carrier_mc")
+  carrierDot            String?      @map("carrier_dot")
+  carrierRate           Float?       @map("carrier_rate")
+  /// ACTIVE | REPLACED | REPLACEMENT_PENDING | CANCELLED
+  status                String       @default("ACTIVE")
+  startedAt             DateTime     @default(now()) @map("started_at")
+  endedAt               DateTime?    @map("ended_at")
+  changeReason          String?      @map("change_reason")
+  previousCarrierStatus String?      @map("previous_carrier_status")
+  replacedByBrokerId    String?      @map("replaced_by_broker_id")
+  settlementId          String?      @map("settlement_id")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  shipmentLead          ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
+
+  @@index([shipmentLeadId])
+  @@index([status])
+  @@index([carrierProfileId])
+  @@map("load_carrier_assignments")
+}
+
 /// Previous carrier owed money after a Carrier Change (not the final transportation carrier).
 /// Accounting visibility: paymentAmount > 0 only. Final carrier stays on ShipmentLead.carrierRate.
 model PreviousCarrierSettlement {
@@ -603,11 +638,21 @@ model PreviousCarrierSettlement {
   carrierDot            String?      @map("carrier_dot")
   paymentAmount         Float        @default(0) @map("payment_amount")
   paymentReason         String?      @map("payment_reason")
+  /// Enum code: LAYOVER | DETENTION | TONU | …
+  paymentReasonCode     String?      @map("payment_reason_code")
+  changeReason          String?      @map("change_reason")
+  previousCarrierStatus String?      @map("previous_carrier_status")
+  brokerId              String?      @map("broker_id")
+  brokerComment         String?      @map("broker_comment")
   /// PENDING_ACCOUNTING | APPROVED | INVOICE_UPLOADED | PAID | REJECTED | NO_PAYMENT_REQUIRED
   status                String       @default("PENDING_ACCOUNTING")
   invoiceDocumentId     String?      @map("invoice_document_id")
   paidAt                DateTime?    @map("paid_at")
   paidById              String?      @map("paid_by_id")
+  reviewedAt            DateTime?    @map("reviewed_at")
+  reviewedById          String?      @map("reviewed_by_id")
+  rejectionComment      String?      @map("rejection_comment")
+  accountingDecisionNote String?     @map("accounting_decision_note")
   /// Dedupe key vs carrierHistoryJson entry (replacedAt|email|profileId|name).
   historyKey            String       @map("history_key")
   createdAt             DateTime     @default(now()) @map("created_at")
@@ -619,6 +664,7 @@ model PreviousCarrierSettlement {
   @@index([shipmentLeadId])
   @@index([status])
   @@index([previousCarrierId])
+  @@index([brokerId])
   @@map("previous_carrier_settlements")
 }
 
@@ -643,6 +689,8 @@ model LoadDocument {
   fileUrl        String?      @map("file_url")
   fileSize       Int?         @map("file_size")
   createdById    String?      @map("created_by_id")
+  /// Optional link to LoadCarrierAssignment — scopes POD/RC to the delivering / assigned carrier.
+  carrierAssignmentId String? @map("carrier_assignment_id")
   createdAt      DateTime     @default(now()) @map("created_at")
   shipmentLead   ShipmentLead @relation(fields: [shipmentLeadId], references: [shipmentLeadId], onDelete: Cascade)
 
@@ -650,6 +698,7 @@ model LoadDocument {
   @@index([shipmentLeadId])
   @@index([docType])
   @@index([isCurrent])
+  @@index([carrierAssignmentId])
   @@map("load_documents")
 }
 
