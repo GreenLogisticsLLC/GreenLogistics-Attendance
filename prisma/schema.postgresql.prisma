@@ -335,6 +335,8 @@ model ShipmentLead {
   customerPaidById      String?                 @map("customer_paid_by_id")
   carrierPaidAt         DateTime?               @map("carrier_paid_at")
   carrierPaidById       String?                 @map("carrier_paid_by_id")
+  accountingCarrierPaymentMethod String?        @map("accounting_carrier_payment_method")
+  accountingCarrierPaymentDate   DateTime?      @map("accounting_carrier_payment_date")
   accountingDocStatus   String?                 @map("accounting_doc_status")
   accountingDocVerifiedAt DateTime?             @map("accounting_doc_verified_at")
   accountingDocVerifiedById String?            @map("accounting_doc_verified_by_id")

@@ -272,7 +272,66 @@ export const previousCarrierSettlementService = {
         });
     },
 
-    async markPaid(actor: { userId: string }, settlementId: string, note?: string) {
+    async updatePaymentDetails(
+        actor: { userId: string },
+        settlementId: string,
+        body: { paymentMethod?: unknown; paymentDate?: unknown }
+    ) {
+        const {
+            normalizeAccountingCarrierPaymentMethod,
+            parseAccountingPaymentDate,
+        } = await import("../carrier-payment-method.js");
+        const row = await prisma.previousCarrierSettlement.findUnique({
+            where: { settlementId },
+        });
+        if (!row) throw badRequest("Previous carrier settlement not found", 404);
+        const data: Record<string, unknown> = {};
+        if (body.paymentMethod !== undefined) {
+            if (body.paymentMethod == null || body.paymentMethod === "") {
+                data.paymentMethod = null;
+            } else {
+                const method = normalizeAccountingCarrierPaymentMethod(body.paymentMethod);
+                if (!method) {
+                    throw badRequest(
+                        "Carrier payment method must be Zelle, PayPal, Venmo, Stripe, Factoring Company, or ACH"
+                    );
+                }
+                data.paymentMethod = method;
+            }
+        }
+        if (body.paymentDate !== undefined) {
+            if (body.paymentDate == null || body.paymentDate === "") {
+                // Clearing the date does not un-pay a PAID settlement — paidAt stays.
+                // Only clear when not yet marked paid.
+                if (row.status !== "PAID") data.paidAt = null;
+            } else {
+                const d = parseAccountingPaymentDate(body.paymentDate);
+                if (!d) throw badRequest("Payment date is invalid");
+                data.paidAt = d;
+            }
+        }
+        if (!Object.keys(data).length) {
+            throw badRequest("No settlement payment details to save");
+        }
+        return prisma.previousCarrierSettlement.update({
+            where: { settlementId },
+            data: data as {
+                paymentMethod?: string | null;
+                paidAt?: Date | null;
+            },
+        });
+    },
+
+    async markPaid(
+        actor: { userId: string },
+        settlementId: string,
+        note?: string,
+        details?: { paymentMethod?: unknown; paymentDate?: unknown }
+    ) {
+        const {
+            normalizeAccountingCarrierPaymentMethod,
+            parseAccountingPaymentDate,
+        } = await import("../carrier-payment-method.js");
         const row = await prisma.previousCarrierSettlement.findUnique({
             where: { settlementId },
         });
@@ -283,31 +342,54 @@ export const previousCarrierSettlementService = {
         if (row.status === "REJECTED") {
             throw badRequest("Rejected settlements cannot be marked paid");
         }
-        if (row.status === "PAID" && row.paidAt) {
-            return row;
+
+        const data: {
+            status: string;
+            paidById: string;
+            paymentMethod?: string;
+            paidAt?: Date;
+        } = {
+            status: "PAID",
+            paidById: actor.userId,
+        };
+        if (details?.paymentMethod !== undefined && details.paymentMethod !== "") {
+            const method = normalizeAccountingCarrierPaymentMethod(details.paymentMethod);
+            if (!method) {
+                throw badRequest(
+                    "Carrier payment method must be Zelle, PayPal, Venmo, Stripe, Factoring Company, or ACH"
+                );
+            }
+            data.paymentMethod = method;
         }
-        const now = new Date();
+        if (details?.paymentDate !== undefined && details.paymentDate !== "") {
+            const d = parseAccountingPaymentDate(details.paymentDate);
+            if (!d) throw badRequest("Payment date is invalid");
+            data.paidAt = d;
+        } else if (!row.paidAt) {
+            data.paidAt = new Date();
+        }
+
+        const alreadyPaid = row.status === "PAID" && Boolean(row.paidAt);
         const updated = await prisma.previousCarrierSettlement.update({
             where: { settlementId },
-            data: {
-                status: "PAID",
-                paidAt: now,
-                paidById: actor.userId,
-            },
+            data,
         });
-        await domainEventEngine.emit({
-            shipmentLeadId: row.shipmentLeadId,
-            eventType: "PREVIOUS_CARRIER_SETTLEMENT_PAID",
-            title: "Previous carrier marked paid",
-            message: `${row.carrierName || "Previous carrier"} settlement marked PAID`,
-            actorUserId: actor.userId,
-            payload: {
-                settlementId,
-                paidAt: now.toISOString(),
-                note: note || null,
-                paymentAmount: row.paymentAmount,
-            },
-        });
+        if (!alreadyPaid) {
+            await domainEventEngine.emit({
+                shipmentLeadId: row.shipmentLeadId,
+                eventType: "PREVIOUS_CARRIER_SETTLEMENT_PAID",
+                title: "Previous carrier marked paid",
+                message: `${row.carrierName || "Previous carrier"} settlement marked PAID`,
+                actorUserId: actor.userId,
+                payload: {
+                    settlementId,
+                    paidAt: updated.paidAt?.toISOString() || null,
+                    paymentMethod: updated.paymentMethod,
+                    note: note || null,
+                    paymentAmount: row.paymentAmount,
+                },
+            });
+        }
         return updated;
     },
 

@@ -38,6 +38,12 @@ import {
 } from "../invoice-pricing.js";
 import { isAccountingWorkEligible } from "../accounting-eligibility.js";
 import { computeDashboardPaymentKpis } from "../dashboard-payment-kpis.js";
+import {
+    accountingCarrierPaymentMethodLabel,
+    formatAccountingPaymentDateInput,
+    normalizeAccountingCarrierPaymentMethod,
+    parseAccountingPaymentDate,
+} from "../../shipment/carrier-payment-method.js";
 
 type Actor = {
     userId: string;
@@ -827,12 +833,16 @@ where: { loadNumber: { not: null } },
                 paymentAmount: money(row.paymentAmount),
                 paymentReason: row.paymentReason,
                 paymentReasonCode: row.paymentReasonCode,
+                paymentMethod: normalizeAccountingCarrierPaymentMethod(row.paymentMethod),
+                paymentMethodLabel:
+                    accountingCarrierPaymentMethodLabel(row.paymentMethod) || null,
                 changeReason: row.changeReason,
                 previousCarrierStatus: row.previousCarrierStatus,
                 brokerId: row.brokerId,
                 brokerComment: row.brokerComment,
                 status: row.status,
                 paidAt: row.paidAt,
+                paymentDate: formatAccountingPaymentDateInput(row.paidAt),
                 paidById: row.paidById,
                 reviewedAt: row.reviewedAt,
                 reviewedById: row.reviewedById,
@@ -886,11 +896,19 @@ where: { loadNumber: { not: null } },
         const carrierInvoice = documents.find(
             (doc) => String(doc.docType || "").toUpperCase() === "CARRIER_INVOICE"
         );
-        const carrierPaymentOption =
+        const originalCarrierPaymentOption =
             rateConPaymentOption ||
             carrierPaymentOptionLabel(carrierProfile?.paymentOption) ||
             carrierProfile?.paymentOption ||
             null;
+        const accountingCarrierMethod = normalizeAccountingCarrierPaymentMethod(
+            s.accountingCarrierPaymentMethod
+        );
+        const inferredCarrierMethod =
+            accountingCarrierMethod ||
+            normalizeAccountingCarrierPaymentMethod(rateConPaymentOption) ||
+            normalizeAccountingCarrierPaymentMethod(carrierProfile?.paymentOption) ||
+            normalizeAccountingCarrierPaymentMethod(originalCarrierPaymentOption);
 
         const canManagePayPal =
             hasAccountingPermission(
@@ -992,7 +1010,17 @@ where: { loadNumber: { not: null } },
                 paymentStatus: s.carrierPaidAt ? "PAID" : "UNPAID",
                 paidAt: s.carrierPaidAt,
                 invoiceDoc: carrierInvoice || null,
-                paymentOption: carrierPaymentOption,
+                /** Selected Accounting payout method (editable). */
+                paymentMethod: inferredCarrierMethod,
+                paymentMethodLabel:
+                    accountingCarrierPaymentMethodLabel(inferredCarrierMethod) || null,
+                paymentDate: formatAccountingPaymentDateInput(
+                    s.accountingCarrierPaymentDate
+                ),
+                accountingPaymentMethod: accountingCarrierMethod,
+                /** Historical broker / RC value — never overwritten by Accounting edits. */
+                paymentOption: originalCarrierPaymentOption,
+                originalPaymentOption: originalCarrierPaymentOption,
                 paymentOptionFromRateCon: Boolean(rateConPaymentOption),
             },
             documents,
@@ -1184,13 +1212,15 @@ where: { loadNumber: { not: null } },
     async markPreviousCarrierSettlementPaid(
         actor: Actor,
         settlementId: string,
-        note?: string
+        note?: string,
+        details?: { paymentMethod?: unknown; paymentDate?: unknown }
     ) {
         assertPerm(actor, AccountingPermissions.CarrierPaymentsExecute);
         const updated = await previousCarrierSettlementService.markPaid(
             { userId: actor.userId },
             settlementId,
-            note
+            note,
+            details
         );
         await writeAudit({
             actor,
@@ -1199,11 +1229,123 @@ where: { loadNumber: { not: null } },
             newValue: {
                 settlementId: updated.settlementId,
                 paidAt: updated.paidAt?.toISOString() || null,
+                paymentMethod: updated.paymentMethod,
                 status: updated.status,
             },
             reason: note || null,
         });
         return this.getShipment(actor, updated.shipmentLeadId);
+    }
+
+    /**
+     * Save previous-carrier payment method / date without marking paid.
+     * Independent of the current (final) carrier on the load.
+     */
+    async savePreviousCarrierSettlementDetails(
+        actor: Actor,
+        settlementId: string,
+        body: { paymentMethod?: unknown; paymentDate?: unknown }
+    ) {
+        assertPerm(actor, AccountingPermissions.ShipmentsView);
+        const updated = await previousCarrierSettlementService.updatePaymentDetails(
+            { userId: actor.userId },
+            settlementId,
+            body
+        );
+        await writeAudit({
+            actor,
+            action: "PREVIOUS_CARRIER_SETTLEMENT_DETAILS_SAVED",
+            shipmentLeadId: updated.shipmentLeadId,
+            newValue: {
+                settlementId: updated.settlementId,
+                paymentMethod: updated.paymentMethod,
+                paidAt: updated.paidAt?.toISOString() || null,
+                status: updated.status,
+            },
+        });
+        return this.getShipment(actor, updated.shipmentLeadId);
+    }
+
+    /**
+     * Save current-carrier rate / Accounting payout method / payment date.
+     * Does NOT mark the carrier paid — Mark Carrier Paid remains a separate action.
+     */
+    async saveCarrierPaymentDetails(
+        actor: Actor,
+        shipmentLeadId: string,
+        body: {
+            carrierRate?: unknown;
+            paymentMethod?: unknown;
+            paymentDate?: unknown;
+        }
+    ) {
+        assertPerm(actor, AccountingPermissions.ShipmentsView);
+        const s = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!s) throw notFound("Shipment not found");
+
+        const data: Record<string, unknown> = {};
+        if (body.carrierRate !== undefined) {
+            if (body.carrierRate == null || body.carrierRate === "") {
+                throw badRequest("Carrier rate is required");
+            }
+            const rate = Number(String(body.carrierRate).replace(/[$,\s]/g, ""));
+            if (!Number.isFinite(rate) || rate < 0) {
+                throw badRequest("Carrier rate must be a valid non-negative number");
+            }
+            data.carrierRate = Math.round(rate * 100) / 100;
+        }
+        if (body.paymentMethod !== undefined) {
+            if (body.paymentMethod == null || body.paymentMethod === "") {
+                data.accountingCarrierPaymentMethod = null;
+            } else {
+                const method = normalizeAccountingCarrierPaymentMethod(body.paymentMethod);
+                if (!method) {
+                    throw badRequest(
+                        "Carrier payment method must be Zelle, PayPal, Venmo, Stripe, Factoring Company, or ACH"
+                    );
+                }
+                data.accountingCarrierPaymentMethod = method;
+            }
+        }
+        if (body.paymentDate !== undefined) {
+            if (body.paymentDate == null || body.paymentDate === "") {
+                data.accountingCarrierPaymentDate = null;
+            } else {
+                const d = parseAccountingPaymentDate(body.paymentDate);
+                if (!d) throw badRequest("Payment date is invalid");
+                data.accountingCarrierPaymentDate = d;
+            }
+        }
+        if (!Object.keys(data).length) {
+            throw badRequest("No carrier payment details to save");
+        }
+
+        const updated = await prisma.shipmentLead.update({
+            where: { shipmentLeadId },
+            data,
+        });
+        await writeAudit({
+            actor,
+            action: "CARRIER_PAYMENT_DETAILS_SAVED",
+            shipmentLeadId,
+            oldValue: {
+                carrierRate: s.carrierRate,
+                accountingCarrierPaymentMethod: s.accountingCarrierPaymentMethod,
+                accountingCarrierPaymentDate: s.accountingCarrierPaymentDate
+                    ? formatAccountingPaymentDateInput(s.accountingCarrierPaymentDate)
+                    : null,
+                carrierPaidAt: s.carrierPaidAt?.toISOString() || null,
+            },
+            newValue: {
+                carrierRate: updated.carrierRate,
+                accountingCarrierPaymentMethod: updated.accountingCarrierPaymentMethod,
+                accountingCarrierPaymentDate: updated.accountingCarrierPaymentDate
+                    ? formatAccountingPaymentDateInput(updated.accountingCarrierPaymentDate)
+                    : null,
+                carrierPaidAt: updated.carrierPaidAt?.toISOString() || null,
+            },
+        });
+        return this.getShipment(actor, shipmentLeadId);
     }
 
     async uploadPreviousCarrierSettlementInvoice(

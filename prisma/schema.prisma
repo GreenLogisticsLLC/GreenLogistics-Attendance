@@ -369,6 +369,11 @@ model ShipmentLead {
   /// Accounting confirms carrier / factoring company was paid.
   carrierPaidAt         DateTime?               @map("carrier_paid_at")
   carrierPaidById       String?                 @map("carrier_paid_by_id")
+  /// Accounting-selected payout method for the current carrier (ZELLE|PAYPAL|VENMO|STRIPE|FACTORING|ACH).
+  /// Independent of Rate Confirmation / carrier-profile payment option.
+  accountingCarrierPaymentMethod String?        @map("accounting_carrier_payment_method")
+  /// Calendar date Accounting records for the current carrier payout (does not imply paid).
+  accountingCarrierPaymentDate   DateTime?      @map("accounting_carrier_payment_date")
   /// Accounting Documents workflow — PENDING | NEEDS_CORRECTION | VERIFIED | REJECTED
   accountingDocStatus   String?                 @map("accounting_doc_status")
   accountingDocVerifiedAt DateTime?             @map("accounting_doc_verified_at")
@@ -640,6 +645,8 @@ model PreviousCarrierSettlement {
   paymentReason         String?      @map("payment_reason")
   /// Enum code: LAYOVER | DETENTION | TONU | …
   paymentReasonCode     String?      @map("payment_reason_code")
+  /// Accounting payout method for this previous carrier (ZELLE|PAYPAL|VENMO|STRIPE|FACTORING|ACH).
+  paymentMethod         String?      @map("payment_method")
   changeReason          String?      @map("change_reason")
   previousCarrierStatus String?      @map("previous_carrier_status")
   brokerId              String?      @map("broker_id")
