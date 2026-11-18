@@ -40,6 +40,11 @@ import {
     parseMoneyValue,
     preferRateConCarrierAmount,
 } from "../load-amounts.js";
+import { previousCarrierSettlementService } from "./previous-carrier-settlement.service.js";
+import {
+    buildLoadFinancialSummary,
+    isSettlementPayableExpense,
+} from "../previous-carrier-settlement.js";
 
 export {
     carrierAmountFromRateConContent,
@@ -57,36 +62,57 @@ function looksLikeEmail(v: string): boolean {
 
 /**
  * Company profit on a Load:
- *   From customer (взяли) − To carrier (отдали по carrier invoice / Rate Con)
- * Extra fees are tracked separately and do NOT change this profit formula.
+ *   Customer Payment − (previous carrier settlements + final carrier + other carrier expenses)
+ * Extra fees (fuel / accessorials) stay informational unless already in the books.
  */
-export function computePricing(row: {
-    price?: number | null;
-    customerRate?: number | null;
-    carrierRate?: number | null;
-    fuelSurcharge?: number | null;
-    accessorialCharges?: number | null;
-    factoringFee?: number | null;
-}) {
+export function computePricing(
+    row: {
+        price?: number | null;
+        customerRate?: number | null;
+        carrierRate?: number | null;
+        fuelSurcharge?: number | null;
+        accessorialCharges?: number | null;
+        factoringFee?: number | null;
+    },
+    options?: {
+        previousCarrierPayments?: number | null;
+        otherCarrierExpenses?: number | null;
+        otherLoadExpenses?: number | null;
+    }
+) {
     // What we bill / take from the customer (Customer Invoice amount).
     const fromCustomer = money(row.customerRate ?? row.price);
-    // What we pay the carrier (Rate Con flat rate / Carrier Invoice).
-    const toCarrier = money(row.carrierRate);
+    // Final carrier transportation payment (Rate Con / Carrier Invoice).
+    const finalCarrierPayment = money(row.carrierRate);
+    const previousCarrierPayments = money(options?.previousCarrierPayments);
+    const otherCarrierExpenses = money(options?.otherCarrierExpenses);
+    const otherLoadExpenses = money(options?.otherLoadExpenses);
+    const totalCarrierExpenses =
+        Math.round(
+            (previousCarrierPayments + finalCarrierPayment + otherCarrierExpenses) * 100
+        ) / 100;
+    const toCarrier = totalCarrierExpenses;
     const fuel = money(row.fuelSurcharge);
     const accessorials = money(row.accessorialCharges);
     const factoring = money(row.factoringFee);
-    const profit = fromCustomer - toCarrier;
+    const profit =
+        Math.round((fromCustomer - totalCarrierExpenses - otherLoadExpenses) * 100) / 100;
     const marginPct = fromCustomer > 0 ? (profit / fromCustomer) * 100 : 0;
     return {
         customerRate: fromCustomer,
-        carrierRate: toCarrier,
+        carrierRate: finalCarrierPayment,
         fromCustomer,
         toCarrier,
+        previousCarrierPayments,
+        finalCarrierPayment,
+        otherCarrierExpenses,
+        totalCarrierExpenses,
+        otherLoadExpenses,
         fuelSurcharge: fuel,
         accessorialCharges: accessorials,
         factoringFee: factoring,
         totalRevenue: fromCustomer,
-        totalCost: toCarrier,
+        totalCost: totalCarrierExpenses,
         grossProfit: profit,
         profit,
         marginPct: Math.round(marginPct * 100) / 100,
@@ -340,6 +366,26 @@ export class LoadService {
             ])
         );
 
+        const previousPayByLead = new Map<string, number>();
+        if (leadIds.length) {
+            const settlementRows = await prisma.previousCarrierSettlement.findMany({
+                where: { shipmentLeadId: { in: leadIds } },
+                select: {
+                    shipmentLeadId: true,
+                    paymentAmount: true,
+                    status: true,
+                },
+            });
+            for (const row of settlementRows) {
+                if (!isSettlementPayableExpense(row)) continue;
+                const prev = previousPayByLead.get(row.shipmentLeadId) || 0;
+                previousPayByLead.set(
+                    row.shipmentLeadId,
+                    Math.round((prev + money(row.paymentAmount)) * 100) / 100
+                );
+            }
+        }
+
         return rows.map((r) => {
             let customerRate = r.customerRate;
             let carrierRate = r.carrierRate;
@@ -382,7 +428,13 @@ export class LoadService {
                 pickupState: r.pickupState,
                 deliveryCity: r.deliveryCity,
                 deliveryState: r.deliveryState,
-                pricing: computePricing({ ...r, customerRate, carrierRate }),
+                pricing: computePricing(
+                    { ...r, customerRate, carrierRate },
+                    {
+                        previousCarrierPayments:
+                            previousPayByLead.get(r.shipmentLeadId) || 0,
+                    }
+                ),
                 carrierMissingOnPickup: carrierMissingOnPickup({
                     loadNumber: r.loadNumber,
                     carrierName: r.carrierName,
@@ -608,8 +660,19 @@ export class LoadService {
             }
         }
 
+        const previousCarrierPayments =
+            await previousCarrierSettlementService.sumPayableForLoad(shipmentLeadId);
+        const pricingCore = computePricing(s, { previousCarrierPayments });
+        const financialSummary = buildLoadFinancialSummary({
+            customerPayment: pricingCore.fromCustomer,
+            previousCarrierPayments: pricingCore.previousCarrierPayments,
+            finalCarrierPayment: pricingCore.finalCarrierPayment,
+            otherCarrierExpenses: pricingCore.otherCarrierExpenses,
+            otherLoadExpenses: pricingCore.otherLoadExpenses,
+        });
         const pricing = {
-            ...computePricing(s),
+            ...pricingCore,
+            financialSummary,
             customerPayment: customerPaymentQuote({
                 customerRate: s.customerRate,
                 accessorialCharges: s.accessorialCharges,
@@ -899,6 +962,26 @@ export class LoadService {
         const carrierName = str("carrierName") ?? "";
         const carrierEmail = str("carrierEmail") ?? null;
         const wasVoided = normalizeStatus(previous.status) === "VOIDED";
+        const replacedAt = new Date().toISOString();
+        const paymentAmountRaw =
+            body.previousCarrierPaymentAmount !== undefined
+                ? body.previousCarrierPaymentAmount
+                : body.previous_carrier_payment_amount !== undefined
+                  ? body.previous_carrier_payment_amount
+                  : previous.carrierRate;
+        const paymentAmount =
+            paymentAmountRaw == null || paymentAmountRaw === ""
+                ? 0
+                : Number(paymentAmountRaw);
+        const paymentReasonRaw =
+            body.previousCarrierPaymentReason ?? body.previous_carrier_payment_reason;
+        const paymentReason =
+            paymentReasonRaw == null
+                ? wasVoided
+                    ? "carrier_change_from_voided"
+                    : "carrier_change"
+                : String(paymentReasonRaw);
+
         const historyJson = appendCarrierHistory(previous.carrierHistoryJson, {
             carrierName: previous.carrierName,
             carrierEmail: previous.carrierEmail,
@@ -906,8 +989,9 @@ export class LoadService {
             carrierMc: previous.carrierMc,
             carrierDot: previous.carrierDot,
             carrierProfileId: previous.carrierProfileId,
-            carrierRate: previous.carrierRate,
-            reason: wasVoided ? "carrier_change_from_voided" : "carrier_change",
+            carrierRate: Number.isFinite(paymentAmount) ? paymentAmount : previous.carrierRate,
+            reason: paymentReason || (wasVoided ? "carrier_change_from_voided" : "carrier_change"),
+            replacedAt,
         });
 
         const data: Record<string, unknown> = {
@@ -946,6 +1030,20 @@ export class LoadService {
             data,
         });
 
+        const settlement = await previousCarrierSettlementService.createFromCarrierChange({
+            shipmentLeadId,
+            loadNumber,
+            previousCarrierId: previous.carrierProfileId,
+            carrierName: previous.carrierName,
+            carrierEmail: previous.carrierEmail,
+            carrierMc: previous.carrierMc,
+            carrierDot: previous.carrierDot,
+            paymentAmount: Number.isFinite(paymentAmount) ? paymentAmount : 0,
+            paymentReason,
+            replacedAt,
+            actorUserId,
+        });
+
         await domainEventEngine.emit({
             shipmentLeadId,
             eventType: "CARRIER_CHANGED",
@@ -962,6 +1060,9 @@ export class LoadService {
                 previousCarrierName: previous.carrierName,
                 previousCarrierEmail: previous.carrierEmail,
                 previousCarrierProfileId: previous.carrierProfileId,
+                previousCarrierPaymentAmount: Number.isFinite(paymentAmount) ? paymentAmount : 0,
+                previousCarrierPaymentReason: paymentReason,
+                settlementId: settlement.settlementId,
                 newCarrierName: carrierName,
                 newCarrierEmail: carrierEmail,
                 accountingReactivated: true,
@@ -977,6 +1078,9 @@ export class LoadService {
                 loadNumber,
                 previousCarrierName: previous.carrierName,
                 previousCarrierEmail: previous.carrierEmail,
+                previousCarrierPaymentAmount: Number.isFinite(paymentAmount) ? paymentAmount : 0,
+                previousCarrierPaymentReason: paymentReason,
+                settlementId: settlement.settlementId,
                 newCarrierName: carrierName,
                 newCarrierEmail: carrierEmail,
                 accountingReactivated: true,

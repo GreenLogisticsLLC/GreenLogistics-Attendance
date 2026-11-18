@@ -3206,6 +3206,26 @@ window.GreenOSModules["dispatch"] = {
             self.normCarrierText(carrierPayload.carrierName) !== self.normCarrierText(c.carrierName) &&
             self.normCarrierText(carrierPayload.carrierEmail) !== self.normCarrierText(c.carrierEmail);
 
+          if (nameAndEmailChange && showMoney) {
+            var defaultPay =
+              p.carrierRate != null && p.carrierRate !== ""
+                ? String(p.carrierRate)
+                : "0";
+            var payAmtRaw = window.prompt(
+              "Payment Amount for the previous carrier (use 0 if no payment). This creates a separate Accounting settlement — not the new carrier Rate.",
+              defaultPay
+            );
+            if (payAmtRaw === null) return;
+            var payReasonRaw = window.prompt(
+              "Payment Reason for the previous carrier (optional):",
+              "carrier_change"
+            );
+            if (payReasonRaw === null) return;
+            carrierPayload.previousCarrierPaymentAmount = self.parseMoneyInput(payAmtRaw);
+            carrierPayload.previousCarrierPaymentReason =
+              String(payReasonRaw || "").trim() || "carrier_change";
+          }
+
           var saved = await self.api("/" + encodeURIComponent(id), {
             method: "PATCH",
             body: JSON.stringify(carrierPayload),
@@ -3290,10 +3310,22 @@ window.GreenOSModules["dispatch"] = {
       }
       main.innerHTML =
         "<h2>Pricing</h2>" +
-        '<p class="gos-muted">Profit = From customer (взяли) − To carrier (отдали). Example: $1500 − $1000 = <strong>$500</strong>.</p>' +
+        '<p class="gos-muted">Profit = Customer Payment − (previous carrier settlements + final carrier). Example: $3000 − $100 − $100 − $2000 = <strong>$800</strong>.</p>' +
         '<div class="load-grid">' +
         field("From customer (Customer Invoice)", self.money(p.customerRate)) +
-        field("To carrier (Rate Con / Carrier Invoice)", self.money(p.carrierRate)) +
+        field(
+          "Previous carrier payments",
+          self.money(p.previousCarrierPayments != null ? p.previousCarrierPayments : 0)
+        ) +
+        field("Final carrier (Rate Con / Carrier Invoice)", self.money(p.carrierRate)) +
+        field(
+          "Total carrier expenses",
+          self.money(
+            p.totalCarrierExpenses != null
+              ? p.totalCarrierExpenses
+              : (Number(p.previousCarrierPayments || 0) || 0) + (Number(p.carrierRate || 0) || 0)
+          )
+        ) +
         field("Fuel (info only)", self.money(p.fuelSurcharge)) +
         field("Accessorials (info only)", self.money(p.accessorialCharges)) +
         field("Profit", self.money(p.profit != null ? p.profit : p.grossProfit)) +

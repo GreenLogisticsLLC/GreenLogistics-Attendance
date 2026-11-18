@@ -2339,8 +2339,20 @@ window.GreenOSModules.accounting = {
               : moneyOrNull(cust.rate);
       var carrAmt =
         moneyOrNull(carr.total) != null ? moneyOrNull(carr.total) : moneyOrNull(carr.rate);
+      var fin = d.financialSummary || {};
+      var prevSettlements = Array.isArray(d.previousCarrierSettlements)
+        ? d.previousCarrierSettlements
+        : [];
       var brokerProfit =
-        custAmt != null && carrAmt != null ? custAmt - carrAmt : null;
+        moneyOrNull(fin.loadProfit) != null
+          ? moneyOrNull(fin.loadProfit)
+          : custAmt != null && carrAmt != null
+            ? custAmt -
+              carrAmt -
+              (moneyOrNull(fin.previousCarrierPayments) != null
+                ? moneyOrNull(fin.previousCarrierPayments)
+                : 0)
+            : null;
       var canPayPal = Boolean(perms.canManagePayPalLinks);
       var canMarkCarrierPaid = Boolean(perms.canExecuteCarrierPayment);
       var canMarkCustomerPaid = Boolean(perms.canRecordCustomerPayment);
@@ -2716,6 +2728,105 @@ window.GreenOSModules.accounting = {
         "</p>" +
         '<button type="button" class="btn-secondary" id="acc-save-carrier-rate" style="width:auto">Save carrier rate</button>' +
         "</div></div></section>" +
+        '<section class="acc-card" style="margin-top:1rem"><h3>Load Financial Summary</h3>' +
+        '<div class="acc-kv"><span>Customer Payment</span><strong>' +
+        self.money(fin.customerPayment != null ? fin.customerPayment : custAmt) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Previous Carrier Payments</span><strong>' +
+        self.money(fin.previousCarrierPayments || 0) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Final Carrier Payment</span><strong>' +
+        self.money(
+          fin.finalCarrierPayment != null ? fin.finalCarrierPayment : carrAmt
+        ) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Other Carrier Expenses</span><strong>' +
+        self.money(fin.otherCarrierExpenses || 0) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Total Carrier Expenses</span><strong>' +
+        self.money(
+          fin.totalCarrierExpenses != null
+            ? fin.totalCarrierExpenses
+            : (fin.previousCarrierPayments || 0) + (carrAmt || 0)
+        ) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Other Load Expenses</span><strong>' +
+        self.money(fin.otherLoadExpenses || 0) +
+        "</strong></div>" +
+        '<div class="acc-kv"><span>Final Load Profit</span><strong>' +
+        self.money(brokerProfit) +
+        "</strong></div></section>" +
+        '<section class="acc-card" style="margin-top:1rem"><h3>Previous Carrier Settlements</h3>' +
+        '<p class="gos-muted" style="margin:0 0 0.75rem;font-size:0.78rem">Only previous carriers with Payment Amount &gt; $0. Final carrier stays in Carrier Payment Status above. Carrier History on the Load is unchanged.</p>' +
+        (prevSettlements.length
+          ? prevSettlements
+              .map(function (ps) {
+                var st = String(ps.status || "PENDING_ACCOUNTING").toUpperCase();
+                var tone =
+                  st === "PAID"
+                    ? "ok"
+                    : st === "REJECTED"
+                      ? "bad"
+                      : st === "INVOICE_UPLOADED" || st === "APPROVED"
+                        ? "warn"
+                        : "muted";
+                var inv = ps.invoiceDoc;
+                return (
+                  '<article class="acc-card" style="margin:0 0 0.75rem;padding:0.85rem;border:1px solid rgba(255,255,255,0.08)">' +
+                  '<div class="acc-card-name">' +
+                  self.esc(ps.carrierName || "Previous carrier") +
+                  " " +
+                  self.pill(st, tone) +
+                  "</div>" +
+                  '<div class="acc-kv"><span>Load Number</span><strong>' +
+                  self.esc(ps.loadNumber || loadNo || "—") +
+                  "</strong></div>" +
+                  '<div class="acc-kv"><span>MC</span><strong>' +
+                  self.esc(ps.carrierMc || "—") +
+                  "</strong></div>" +
+                  '<div class="acc-kv"><span>DOT</span><strong>' +
+                  self.esc(ps.carrierDot || "—") +
+                  "</strong></div>" +
+                  '<div class="acc-kv"><span>Payment Amount</span><strong>' +
+                  self.money(ps.paymentAmount) +
+                  "</strong></div>" +
+                  '<div class="acc-kv"><span>Payment Reason</span><strong>' +
+                  self.esc(ps.paymentReason || "—") +
+                  "</strong></div>" +
+                  (ps.paidAt
+                    ? '<div class="acc-kv"><span>Paid at</span><strong>' +
+                      self.esc(self.formatDay(ps.paidAt) || ps.paidAt) +
+                      "</strong></div>"
+                    : "") +
+                  '<div class="acc-invoice-actions" style="margin-top:0.65rem;flex-wrap:wrap;gap:0.45rem">' +
+                  (inv && inv.fileUrl
+                    ? '<a class="btn-secondary" href="' +
+                      self.esc(inv.fileUrl) +
+                      '" target="_blank" rel="noopener">View Invoice</a>'
+                    : "") +
+                  '<label class="acc-doc-upload-btn acc-doc-upload-label" for="acc-prev-inv-' +
+                  self.esc(ps.settlementId) +
+                  '">Upload Invoice' +
+                  '<input class="acc-file-input acc-prev-settlement-file" id="acc-prev-inv-' +
+                  self.esc(ps.settlementId) +
+                  '" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,image/*,application/pdf" data-settlement-id="' +
+                  self.esc(ps.settlementId) +
+                  '" /></label>' +
+                  (st === "PAID"
+                    ? ""
+                    : '<button type="button" class="btn-primary" data-prev-paid="' +
+                      self.esc(ps.settlementId) +
+                      '"' +
+                      (canMarkCarrierPaid
+                        ? ""
+                        : ' disabled title="Carrier payment permission required"') +
+                      ">Mark as Paid</button>") +
+                  "</div></article>"
+                );
+              })
+              .join("")
+          : '<p class="gos-muted">No previous carrier settlements with payment &gt; $0.</p>') +
+        "</section>" +
         '<div class="acc-profile-toolbar">' +
         toolbar +
         "</div>" +
@@ -2793,7 +2904,89 @@ window.GreenOSModules.accounting = {
           }
         });
       }
-      host.querySelectorAll(".acc-file-input").forEach(handleFileInput);
+      host.querySelectorAll(".acc-file-input:not(.acc-prev-settlement-file)").forEach(handleFileInput);
+
+      host.querySelectorAll(".acc-prev-settlement-file").forEach(function (input) {
+        input.addEventListener("change", async function () {
+          var file = input.files && input.files[0];
+          var settlementId = input.getAttribute("data-settlement-id");
+          if (!file || !settlementId) {
+            input.value = "";
+            return;
+          }
+          var msg = host.querySelector("#acc-msg");
+          if (msg) {
+            msg.textContent = "Uploading previous carrier invoice…";
+            msg.style.color = "";
+          }
+          try {
+            var form = new FormData();
+            form.append("file", file);
+            var token = localStorage.getItem("gl_token");
+            var res = await fetch(
+              "/api/accounting/previous-carrier-settlements/" +
+                encodeURIComponent(settlementId) +
+                "/invoice",
+              {
+                method: "POST",
+                headers: token ? { Authorization: "Bearer " + token } : {},
+                body: form,
+              }
+            );
+            var json = await res.json().catch(function () {
+              return {};
+            });
+            if (!res.ok || json.success === false) {
+              throw new Error(json.message || "Upload failed");
+            }
+            input.value = "";
+            self._profileFlash =
+              "Previous carrier invoice uploaded (not marked paid).";
+            await self.openShipment(host, id);
+          } catch (err) {
+            input.value = "";
+            if (msg) {
+              msg.textContent = err.message || "Upload failed";
+              msg.style.color = "#ef4444";
+            }
+            alert(err.message || "Upload failed");
+          }
+        });
+      });
+
+      host.querySelectorAll("[data-prev-paid]").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var settlementId = btn.getAttribute("data-prev-paid");
+          if (!settlementId) return;
+          if (
+            !confirm(
+              "Mark this previous carrier settlement as PAID? This records paid_at only — it does not run a payout."
+            )
+          ) {
+            return;
+          }
+          var msg = host.querySelector("#acc-msg");
+          try {
+            var paidRes = await self.api(
+              "/previous-carrier-settlements/" +
+                encodeURIComponent(settlementId) +
+                "/paid",
+              { method: "POST", body: {} }
+            );
+            if (paidRes && paidRes.success === false) {
+              throw new Error(paidRes.message || "Mark paid failed");
+            }
+            self._profileFlash = "Previous carrier settlement marked PAID.";
+            await self.openShipment(host, id);
+          } catch (err) {
+            if (msg) {
+              msg.textContent = err.message || "Mark paid failed";
+              msg.style.color = "#ef4444";
+            }
+            alert(err.message || "Mark paid failed");
+          }
+        });
+      });
 
       var savePay = host.querySelector("#acc-save-pay");
       var payMethod = host.querySelector("#acc-pay-method");
