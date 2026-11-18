@@ -1,0 +1,47 @@
+name: Diagnose GL10241 deep
+
+on:
+  push:
+    branches:
+      - main
+      - "cursor/**"
+    paths:
+      - "tools/ops/TRIGGER_GL10241_DEEP"
+      - "scripts/diagnose-gl10241-deep.mjs"
+      - ".github/workflows/diagnose-gl10241-deep-on-push.yml"
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deep dump GL10241
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            "BRANCH='${BRANCH}' bash -s" << 'EOF'
+          set -euo pipefail
+          mkdir -p /var/lock
+          exec 9>/var/lock/greenos-autodeploy.lock
+          flock 9
+          cd /root/GreenLogistics-Attendance
+          git fetch origin
+          BR="${BRANCH:-main}"
+          if git rev-parse --verify "origin/${BR}" >/dev/null 2>&1; then
+            git reset --hard "origin/${BR}"
+          else
+            git reset --hard origin/main
+          fi
+          set -a
+          [ -f .env ] && . ./.env || true
+          set +a
+          node scripts/diagnose-gl10241-deep.mjs
+          EOF
