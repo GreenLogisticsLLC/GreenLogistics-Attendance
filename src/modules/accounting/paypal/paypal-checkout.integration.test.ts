@@ -1406,13 +1406,26 @@ test("manual payment endpoint rejects unauthorized role and PayPal bypass", asyn
         () =>
             accountingService.recordCustomerPayment(
                 {
+                    userId: "broker-user",
+                    role: "Broker",
+                    accountingSubRole: null,
+                },
+                shipment.shipmentLeadId
+            ),
+        (err: { status?: number }) => err.status === 403
+    );
+    // Documents may now record customer payments, but PayPal still cannot be marked manually.
+    await assert.rejects(
+        () =>
+            accountingService.recordCustomerPayment(
+                {
                     userId: "documents-user",
                     role: "Accounting",
                     accountingSubRole: "DOCUMENTS",
                 },
                 shipment.shipmentLeadId
             ),
-        (err: { status?: number }) => err.status === 403
+        (err: { code?: string }) => err.code === "PAYPAL_MANUAL_PAYMENT_BLOCKED"
     );
     await assert.rejects(
         () =>

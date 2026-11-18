@@ -1857,9 +1857,12 @@ where: { loadNumber: { not: null } },
         if (s.customerPaidAt) {
             throw badRequest("Customer payment is already recorded");
         }
-        if (!s.accountingReadyForBilling && !s.invoiceNumber) {
-            throw badRequest("Shipment must be Ready for Billing before recording payment");
-        }
+        // Permission is the gate. Ready-for-billing / invoice used to hard-block Mark
+        // Customer Paid for loads already in Accounting with a dead-looking button.
+        // Soft-note incomplete flags in the audit trail instead.
+        const incompleteFlags: string[] = [];
+        if (!s.accountingReadyForBilling) incompleteFlags.push("readyForBilling");
+        if (!s.invoiceNumber) incompleteFlags.push("invoiceNumber");
         const latestPayPal = await prisma.payPalCustomerOrder.findFirst({
             where: { shipmentLeadId },
             orderBy: { createdAt: "desc" },
@@ -1873,44 +1876,66 @@ where: { loadNumber: { not: null } },
             !["CANCELLED", "DENIED", "FAILED", "REFUNDED", "REVERSED"].includes(
                 String(latestPayPal.status || "").toUpperCase()
             );
-        const openInvoice =
+        // Only block manual mark when PayPal is the payment path or a live checkout /
+        // invoice is still in a payable/paid state. Draft/cancelled invoices must not
+        // leave Mark Customer Paid dead after ACH/wire/Zelle was received offline.
+        const invStatus = String(latestPayPalInvoice?.status || "").toUpperCase();
+        const livePayPalInvoice =
             latestPayPalInvoice &&
-            !["CANCELLED", "REFUNDED"].includes(
-                String(latestPayPalInvoice.status || "").toUpperCase()
+            ["SENT", "UNPAID", "PAYMENT_PENDING", "PARTIALLY_PAID", "PAID", "MARKED_AS_PAID"].includes(
+                invStatus
             );
         if (
             String(s.customerPaymentMethod || "").toUpperCase() === "PAYPAL" ||
             openCheckout ||
-            openInvoice
+            livePayPalInvoice
         ) {
             throw badRequest(
-                "PayPal payments cannot be recorded manually. Use verified PayPal Checkout capture or Invoicing paid status.",
+                "PayPal payments cannot be recorded manually. Use verified PayPal Checkout capture or Invoicing paid status (Sync), or cancel the PayPal invoice first if the customer paid offline.",
                 "PAYPAL_MANUAL_PAYMENT_BLOCKED"
             );
         }
         const now = new Date();
+        const bothPaid = Boolean(s.carrierPaidAt);
+        const paymentStatus = bothPaid ? "CUSTOMER_AND_CARRIER_PAID" : "CUSTOMER_PAID";
+        const payNote = incompleteFlags.length
+            ? `CUSTOMER PAYMENT (flags incomplete: ${incompleteFlags.join(", ")})`
+            : "CUSTOMER PAYMENT";
         const updated = await prisma.shipmentLead.update({
             where: { shipmentLeadId },
             data: {
                 customerPaidAt: now,
                 customerPaidById: actor.userId,
-                paymentStatus: "CUSTOMER_PAID",
+                paymentStatus,
                 paymentDate: now,
+                accountingNotes: [s.accountingNotes, payNote].filter(Boolean).join("\n"),
+                // Finished load → Archive when carrier was already paid.
+                accountingClosedAt: bothPaid ? now : s.accountingClosedAt,
             },
         });
         await domainEventEngine.emit({
             shipmentLeadId,
             eventType: "CUSTOMER_PAYMENT_RECEIVED",
             title: "Customer Paid",
-            message: "Accounting Payments recorded customer payment",
+            message: bothPaid
+                ? "Customer paid — load moved to Archive"
+                : "Accounting recorded customer payment",
             actorUserId: actor.userId,
-            payload: { paidAt: now.toISOString() },
+            payload: {
+                paidAt: now.toISOString(),
+                incompleteFlags,
+                archived: bothPaid,
+            },
         });
         await writeAudit({
             actor,
             action: "CUSTOMER_PAYMENT_RECORDED",
             shipmentLeadId,
-            newValue: { customerPaidAt: now.toISOString() },
+            newValue: {
+                customerPaidAt: now.toISOString(),
+                incompleteFlags,
+                archived: bothPaid,
+            },
         });
         return updated;
     }
