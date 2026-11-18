@@ -41,7 +41,7 @@ async function main() {
                 select: {
                     subject: true,
                     snippet: true,
-                    fromEmail: true,
+                    fromAddress: true,
                     receivedAt: true,
                     gmailMessageId: true,
                 },
@@ -54,7 +54,7 @@ async function main() {
                     status: true,
                     fileName: true,
                     createdAt: true,
-                    createdByUserId: true,
+                    createdById: true,
                 },
                 orderBy: { createdAt: "asc" },
             },
@@ -89,7 +89,6 @@ async function main() {
     }
 
     const broker = await userLabel(lead.assignedBrokerId);
-    const createdBy = await userLabel(lead.createdByUserId);
     console.log(
         JSON.stringify(
             {
@@ -97,6 +96,7 @@ async function main() {
                 loadNumber: lead.loadNumber,
                 greenOsShipmentId: lead.greenOsShipmentId,
                 externalShipmentId: lead.externalShipmentId,
+                source: lead.source,
                 status: lead.status,
                 shipmentTitle: lead.shipmentTitle,
                 customerName: lead.customerName,
@@ -109,8 +109,6 @@ async function main() {
                 carrierId: lead.carrierId,
                 assignedBrokerId: lead.assignedBrokerId,
                 broker,
-                createdByUserId: lead.createdByUserId,
-                createdBy,
                 pickup: [lead.pickupCity, lead.pickupState, lead.pickupZip].filter(Boolean).join(", "),
                 delivery: [lead.deliveryCity, lead.deliveryState, lead.deliveryZip]
                     .filter(Boolean)
@@ -133,7 +131,7 @@ async function main() {
                 invoiceNumber: lead.invoiceNumber,
                 paymentStatus: lead.paymentStatus,
                 emailSubject: lead.emailMessage?.subject || null,
-                emailFrom: lead.emailMessage?.fromEmail || null,
+                emailFrom: lead.emailMessage?.fromAddress || null,
                 emailReceivedAt: lead.emailMessage?.receivedAt || null,
                 emailSnippet: (lead.emailMessage?.snippet || "").slice(0, 400),
             },
@@ -144,13 +142,13 @@ async function main() {
 
     console.log("\n--- load documents ---", lead.loadDocuments.length);
     for (const d of lead.loadDocuments) {
-        const by = await userLabel(d.createdByUserId);
+        const by = await userLabel(d.createdById);
         console.log({
             docType: d.docType,
             status: d.status,
             fileName: d.fileName,
             createdAt: d.createdAt,
-            by: by?.name || d.createdByUserId,
+            by: by?.name || d.createdById,
         });
     }
 
@@ -166,7 +164,7 @@ async function main() {
                 message: true,
                 actorUserId: true,
                 createdAt: true,
-                payload: true,
+                payloadJson: true,
             },
         });
     } catch (e) {
@@ -181,6 +179,7 @@ async function main() {
             title: e.title,
             message: (e.message || "").slice(0, 200),
             actor: actor?.name || e.actorUserId,
+            payload: (e.payloadJson || "").slice(0, 160),
         });
     }
 
@@ -190,7 +189,7 @@ async function main() {
             where: {
                 OR: [
                     { entityId: lead.shipmentLeadId },
-                    { entityId: lead.loadNumber || undefined },
+                    ...(lead.loadNumber ? [{ entityId: lead.loadNumber }] : []),
                 ],
             },
             orderBy: { createdAt: "asc" },
@@ -202,7 +201,6 @@ async function main() {
                 createdAt: true,
                 oldValue: true,
                 newValue: true,
-                reason: true,
             },
         });
     } catch (e) {
@@ -216,7 +214,6 @@ async function main() {
             module: a.module,
             action: a.action,
             actor: actor?.name || a.userId,
-            reason: a.reason,
             old: (a.oldValue || "").slice(0, 120),
             new: (a.newValue || "").slice(0, 120),
         });
