@@ -40,6 +40,11 @@ export function canCloseBigProblemCase(role: string | null | undefined): boolean
     return isBpOpsLead(role);
 }
 
+/** Hard-delete cases — Owner / Administrator (main account) only. */
+export function canDeleteBigProblemCase(role: string | null | undefined): boolean {
+    return role === Roles.Owner || role === Roles.Administrator;
+}
+
 export function canEditBigProblemFinancials(role: string | null | undefined): boolean {
     return isBpOpsLead(role) || isBpAccounting(role);
 }

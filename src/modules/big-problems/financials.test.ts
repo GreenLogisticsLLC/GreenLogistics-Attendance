@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { computeBigProblemFinancials } from "./financials.js";
 import {
+    canDeleteBigProblemCase,
     canEditBigProblemFinancials,
     canViewBigProblemCase,
     canViewBigProblemFinancials,
@@ -55,6 +56,15 @@ test("broker cannot view or edit financials; accounting can", () => {
     assert.equal(canViewBigProblemFinancials("Accounting"), true);
     assert.equal(canEditBigProblemFinancials("Accounting"), true);
     assert.equal(canEditBigProblemFinancials("Manager"), true);
+});
+
+test("only Owner / Administrator may hard-delete cases", () => {
+    assert.equal(canDeleteBigProblemCase("Owner"), true);
+    assert.equal(canDeleteBigProblemCase("Administrator"), true);
+    assert.equal(canDeleteBigProblemCase("Manager"), false);
+    assert.equal(canDeleteBigProblemCase("Team Lead"), false);
+    assert.equal(canDeleteBigProblemCase("Broker"), false);
+    assert.equal(canDeleteBigProblemCase("Accounting"), false);
 });
 
 test("broker case visibility is scoped to participation or task assignment", () => {

@@ -61,6 +61,11 @@
       return r === "Owner" || r === "Administrator" || r === "Manager" || r === "Team Lead";
     },
 
+    canDelete: function () {
+      var r = this.role();
+      return r === "Owner" || r === "Administrator";
+    },
+
     canFin: function () {
       var r = this.role();
       return this.isOps() || r === "Accounting";
@@ -262,6 +267,8 @@
         }
         var data = res.data || {};
         var showFin = data.canViewFinancials;
+        var canDelete = !!(data.canDelete || self.canDelete());
+        var colSpan = 11 + (showFin ? 1 : 0) + (canDelete ? 1 : 0);
         var rows =
           (data.items || [])
             .map(function (c) {
@@ -299,11 +306,19 @@
                 (showFin ? "<td>" + self.fmtMoney(c.financialExposure) + "</td>" : "") +
                 "<td>" +
                 self.fmtDate(c.nextDeadlineAt) +
-                "</td></tr>"
+                "</td>" +
+                (canDelete
+                  ? '<td><button type="button" class="gos-btn" style="color:#f87171;border-color:rgba(248,113,113,0.35)" data-delete-case="' +
+                    self.esc(c.caseId) +
+                    '" data-delete-label="' +
+                    self.esc(c.caseNumber) +
+                    '">Delete</button></td>'
+                  : "") +
+                "</tr>"
               );
             })
             .join("") ||
-          '<tr><td colspan="11" class="gos-muted">No cases</td></tr>';
+          '<tr><td colspan="' + colSpan + '" class="gos-muted">No cases</td></tr>';
 
         var catOpts = (this._meta.categories || [])
           .map(function (c) {
@@ -375,7 +390,9 @@
           "<th>Case ID</th><th>Title</th><th>Category</th><th>Severity</th><th>Status</th>" +
           "<th>Shipment ID</th><th>Customer</th><th>Carrier</th><th>Manager</th>" +
           (showFin ? "<th>Exposure</th>" : "") +
-          "<th>Next Deadline</th></tr></thead><tbody>" +
+          "<th>Next Deadline</th>" +
+          (canDelete ? "<th></th>" : "") +
+          "</tr></thead><tbody>" +
           rows +
           "</tbody></table></div>" +
           '<div style="display:flex;gap:0.75rem;align-items:center;margin-top:0.75rem">' +
@@ -394,6 +411,22 @@
           ">Next</button></div>";
 
         this.bindCaseLinks(el);
+        el.querySelectorAll("[data-delete-case]").forEach(function (btn) {
+          btn.addEventListener("click", async function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var id = btn.getAttribute("data-delete-case");
+            var label = btn.getAttribute("data-delete-label") || id;
+            if (!id) return;
+            if (!confirm("Delete " + label + " permanently? This cannot be undone.")) return;
+            var r = await self.api("/cases/" + encodeURIComponent(id), { method: "DELETE" });
+            if (!r.success) {
+              alert(r.message || "Delete failed");
+              return;
+            }
+            self.paintCases(el, opts);
+          });
+        });
         var apply = function () {
           el._bpQ = (el.querySelector("#bp-q") || {}).value || "";
           el._bpSeverity = (el.querySelector("#bp-severity") || {}).value || "";
@@ -729,6 +762,9 @@
           (c.permissions && c.permissions.canClose && c.status === "CLOSED"
             ? '<button type="button" class="gos-btn" id="bp-reopen">Reopen</button>'
             : "") +
+          (c.permissions && c.permissions.canDelete
+            ? '<button type="button" class="gos-btn" id="bp-delete" style="color:#f87171;border-color:rgba(248,113,113,0.35)">Delete</button>'
+            : "") +
           "</div></section>" +
           '<nav class="gos-subnav" style="margin-bottom:1rem">' +
           tabNav +
@@ -756,6 +792,26 @@
             });
             if (!r.success) alert(r.message);
             else self.paintCaseDetail(el, caseId);
+          });
+        }
+        var deleteBtn = el.querySelector("#bp-delete");
+        if (deleteBtn) {
+          deleteBtn.addEventListener("click", async function () {
+            if (
+              !confirm(
+                "Delete " + (c.caseNumber || "this case") + " permanently? This cannot be undone."
+              )
+            ) {
+              return;
+            }
+            var r = await self.api("/cases/" + encodeURIComponent(caseId), { method: "DELETE" });
+            if (!r.success) {
+              alert(r.message || "Delete failed");
+              return;
+            }
+            self._caseId = null;
+            var body = el.closest("#problems-body");
+            self.render(body, "all-cases");
           });
         }
         var reopenBtn = el.querySelector("#bp-reopen");

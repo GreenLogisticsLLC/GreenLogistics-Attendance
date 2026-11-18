@@ -72,6 +72,37 @@ test("create / task / financial / close Big Problem case end-to-end", async () =
     assert.ok(Array.isArray(late));
 });
 
+test("Owner can hard-delete a Big Problem case", async () => {
+    const stamp = Date.now();
+    const ownerRole = await prisma.role.upsert({
+        where: { roleName: "Owner" },
+        update: {},
+        create: { roleName: "Owner", description: "Owner" },
+    });
+    const owner = await prisma.user.create({
+        data: {
+            username: `bp-del-owner-${stamp}`,
+            passwordHash: "x",
+            firstName: "Del",
+            lastName: "Owner",
+            email: `bp-del-owner-${stamp}@example.com`,
+            roleId: ownerRole.roleId,
+        },
+    });
+    const actor = { userId: owner.userId, role: "Owner" };
+    const created = await bigProblemsService.createCase(actor, {
+        title: `Delete me ${stamp}`,
+        category: "OTHER",
+        severity: "LOW",
+    });
+    const deleted = await bigProblemsService.deleteCase(actor, String(created.caseId));
+    assert.equal(deleted.deleted, true);
+    const gone = await prisma.bigProblemCase.findUnique({
+        where: { caseId: String(created.caseId) },
+    });
+    assert.equal(gone, null);
+});
+
 test("broker cannot create cases or edit financials", async () => {
     const stamp = Date.now();
     const brokerRole = await prisma.role.upsert({
