@@ -666,7 +666,7 @@ where: { loadNumber: { not: null } },
                 })
             );
         } else if (f === "carrier-payment") {
-            // Carrier Payments: VERIFIED + carrier invoice + customer PAID + carrier UNPAID.
+            // Carrier Payments: carrier invoice uploaded + carrier UNPAID (AR does not gate AP).
             list = list.filter((r) =>
                 belongsInCarrierPayments({
                     status: r.status,

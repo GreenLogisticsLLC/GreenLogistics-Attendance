@@ -4,13 +4,11 @@
  * Rules (confirmed with Accounting):
  *   - Customer Billing = VERIFIED loads still waiting for customer payment.
  *     PENDING / Needs Correction stay in Loads for Review — not Billing.
- *   - Carrier Payments = VERIFIED + carrier invoice added + customer PAID +
- *     carrier still UNPAID.
+ *   - Carrier Payments = carrier invoice uploaded (CARRIER_INVOICE doc and/or
+ *     accountingReadyForCarrierPayment) + carrier still UNPAID.
+ *     Customer payment status does NOT gate this queue — AP runs in parallel with AR.
  *   - Customer UNPAID + Carrier PAID → Customer Billing only.
  *   - Customer PAID + Carrier PAID → neither (Archive).
- *
- * Carrier invoice = accountingReadyForCarrierPayment and/or a current
- * CARRIER_INVOICE document (set when Accounting uploads/sends the invoice).
  */
 
 export type PaymentSectionInput = {
@@ -56,13 +54,12 @@ export function belongsInCustomerBilling(row: PaymentSectionInput): boolean {
 }
 
 /**
- * Carrier Payments: verified docs + carrier invoice + customer paid + carrier unpaid.
+ * Carrier Payments: carrier invoice on the load + carrier still unpaid.
+ * Does not require customer paid — Accounting pays carriers independently of AR.
  */
 export function belongsInCarrierPayments(row: PaymentSectionInput): boolean {
     if (isVoided(row.status)) return false;
     if (row.accountingEligible === false) return false;
-    if (!isAccountingDocumentsVerified(row)) return false;
     if (!hasCarrierInvoiceForAp(row)) return false;
-    if (!isPaid(row.customerPaidAt)) return false;
     return !isPaid(row.carrierPaidAt);
 }
