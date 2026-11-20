@@ -76,52 +76,77 @@ jobs:
               rmdir node_modules 2>/dev/null || true
             fi
           }
-          # Never delete node_modules while greenos is still running — that caused
-          # ERR_MODULE_NOT_FOUND for express/index.js under live PM2 workers.
-          echo "=== stop PM2 greenos before dependency swap ==="
-          pm2 stop greenos 2>/dev/null || true
-          sleep 1
-          rm -rf node_modules.trash.* 2>/dev/null || true
-          wipe_node_modules || true
-          rm -f .npm-lock 2>/dev/null || true
+          # Keep PM2 serving the previous build while we prepare the next one in a
+          # sibling staging tree. Stopping up-front caused multi-minute 502s on
+          # greengrouplogistics.com/greenos.html ("Could not reach GreenOS server").
+          LIVE_ROOT="$(pwd)"
+          STAGE_ROOT="/root/greenos-deploy-stage"
+          echo "=== prepare staging tree at $STAGE_ROOT (live PM2 keeps serving) ==="
+          rm -rf "$STAGE_ROOT"
+          mkdir -p "$STAGE_ROOT"
+          # Current worktree already matches origin/main after reset --hard.
+          if command -v rsync >/dev/null 2>&1; then
+            rsync -a \
+              --exclude node_modules \
+              --exclude .git \
+              --exclude data \
+              --exclude greenos-deploy-stage \
+              --exclude node_modules.trash.* \
+              "$LIVE_ROOT"/ "$STAGE_ROOT"/
+          else
+            tar -C "$LIVE_ROOT" \
+              --exclude=node_modules --exclude=.git --exclude=data \
+              --exclude=greenos-deploy-stage --exclude='node_modules.trash.*' \
+              -cf - . | tar -C "$STAGE_ROOT" -xf -
+          fi
+          # Share the live SQLite file + env with staging (absolute DATABASE_URL).
+          if [ -f "$LIVE_ROOT/.env" ]; then
+            cp -a "$LIVE_ROOT/.env" "$STAGE_ROOT/.env"
+          else
+            touch "$STAGE_ROOT/.env"
+          fi
+          mkdir -p "$LIVE_ROOT/data"
+          ln -sfn "$LIVE_ROOT/data" "$STAGE_ROOT/data"
+
           if ! command -v tesseract >/dev/null 2>&1; then
             apt-get update -qq && apt-get install -y -qq tesseract-ocr || echo "WARN: tesseract not installed"
           fi
-          install_deps() {
+
+          wipe_stage_node_modules() {
+            chmod -R u+w "$STAGE_ROOT/node_modules" 2>/dev/null || true
+            rm -rf "$STAGE_ROOT/node_modules" 2>/dev/null || true
+          }
+          install_stage_deps() {
             if ! npm ci --prefer-offline; then
-              echo "WARN: npm ci failed — retrying with npm install"
-              wipe_node_modules || true
+              echo "WARN: staging npm ci failed — retrying with npm install"
+              wipe_stage_node_modules || true
               npm install --no-audit --no-fund
             fi
           }
-          install_deps
-          # Race/corruption check — dotenv + express must exist before restart.
+
+          cd "$STAGE_ROOT"
+          install_stage_deps
           if [ ! -f node_modules/dotenv/package.json ] \
             || [ ! -f node_modules/@prisma/client/package.json ] \
             || [ ! -f node_modules/express/package.json ]; then
-            echo "WARN: node_modules incomplete after install — wiping and retrying once"
-            wipe_node_modules || true
-            install_deps
+            echo "WARN: staging node_modules incomplete — wiping and retrying once"
+            wipe_stage_node_modules || true
+            install_stage_deps
           fi
-          if [ ! -f node_modules/dotenv/package.json ]; then
-            echo "ERROR: dotenv still missing after retry"
-            ls -la node_modules | head -50 || true
-            exit 1
-          fi
-          if [ ! -f node_modules/express/package.json ]; then
-            echo "ERROR: express still missing after retry — refusing PM2 start"
+          if [ ! -f node_modules/dotenv/package.json ] || [ ! -f node_modules/express/package.json ]; then
+            echo "ERROR: staging deps still incomplete — refusing cutover"
             ls -la node_modules | head -50 || true
             exit 1
           fi
 
-          # Sync schema to the canonical absolute SQLite path (or Postgres)
+          # Sync schema against the live DB file (server may still be reading it).
           npm run db:push
           node scripts/verify-email-schema.mjs
 
           # Persist absolute SQLite URL so PM2 always hits the same file
           DB_URL="$(grep -E '^DATABASE_URL=' .env | head -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
           if ! echo "${DB_URL:-}" | grep -qiE '^postgres(ql)?://'; then
-            ABS_URL="file:$(pwd)/data/attendance.db"
+            ABS_URL="file:${LIVE_ROOT}/data/attendance.db"
             if grep -qE '^DATABASE_URL=' .env; then
               sed -i "s|^DATABASE_URL=.*|DATABASE_URL=\"${ABS_URL}\"|" .env
             else
@@ -187,19 +212,43 @@ jobs:
           fi
 
           npm run build
-          # Refuse restart if Express / dist entry cannot resolve (MODULE_NOT_FOUND guard).
+          # Refuse cutover if Express / dist entry cannot resolve (MODULE_NOT_FOUND guard).
           node scripts/validate-runtime.mjs
-          git rev-parse --short HEAD > frontend/public/deploy-version.txt
+          git -C "$LIVE_ROOT" rev-parse --short HEAD > frontend/public/deploy-version.txt
           chmod +x tools/pm2-greenos-env.sh
           install -m 755 tools/contabo-autodeploy/greenos-autodeploy.sh /usr/local/bin/greenos-autodeploy.sh 2>/dev/null || true
-          # One PM2 process only — duplicate "greenos" entries caused stale env/code.
+
+          echo "=== brief cutover: stop live → sync staging → start ==="
           pm2 delete greenos 2>/dev/null || true
           fuser -k 3847/tcp 2>/dev/null || true
           sleep 1
+          # Replace live code/deps/dist from staging; never touch live data/ or wipe .git.
+          if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete \
+              --exclude data \
+              --exclude .git \
+              --exclude greenos-deploy-stage \
+              "$STAGE_ROOT"/ "$LIVE_ROOT"/
+          else
+            # Fallback: move staging node_modules + dist + built files over live.
+            rm -rf "$LIVE_ROOT/node_modules" "$LIVE_ROOT/dist"
+            cp -a "$STAGE_ROOT/node_modules" "$LIVE_ROOT/node_modules"
+            cp -a "$STAGE_ROOT/dist" "$LIVE_ROOT/dist"
+            cp -a "$STAGE_ROOT/.env" "$LIVE_ROOT/.env"
+            cp -a "$STAGE_ROOT/frontend/public/deploy-version.txt" "$LIVE_ROOT/frontend/public/deploy-version.txt" 2>/dev/null || true
+          fi
+          # Staging used a symlink for data/; ensure live keeps a real directory.
+          if [ -L "$LIVE_ROOT/data" ]; then
+            rm -f "$LIVE_ROOT/data"
+            mkdir -p "$LIVE_ROOT/data"
+          fi
+          mkdir -p "$LIVE_ROOT/data"
+          cd "$LIVE_ROOT"
           # shellcheck disable=SC1091
           source ./tools/pm2-greenos-env.sh ./.env
           pm2 start dist/index.js --name greenos --update-env --cwd "$(pwd)"
           pm2 save
+          rm -rf "$STAGE_ROOT" || true
           echo "=== health poll (up to 90s) ==="
           HEALTH_JSON=""
           for i in $(seq 1 30); do

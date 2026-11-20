@@ -37,7 +37,8 @@ function approvalPage(title: string, message: string, ok: boolean) {
 }
 
 export async function loginController(req: Request, res: Response) {
-    const { username, password } = req.body;
+    const username = String(req.body?.username || req.body?.email || "").trim();
+    const password = req.body?.password;
     if (!username || !password) {
         return res.status(422).json(apiResponse(false, "Username or email and password required"));
     }
