@@ -28,30 +28,41 @@ async function accessOr404(req: AuthRequest, res: Response, id: string) {
 async function archiveRcBolOntoCarrier(
     shipmentLeadId: string,
     docType: string,
-    actorUserId?: string | null
-): Promise<void> {
+    actor?: { userId?: string; role?: string } | null
+): Promise<{
+    carrierId: string | null;
+    rateConDocumentId: string | null;
+    bolDocumentId: string | null;
+} | null> {
     const normalizedType = String(docType || "").toUpperCase();
-    if (normalizedType !== "RATE_CONFIRMATION" && normalizedType !== "BOL") return;
+    if (normalizedType !== "RATE_CONFIRMATION" && normalizedType !== "BOL") return null;
     try {
-        const { prisma } = await import("../../../config/database.js");
         const { carrierService } = await import(
             "../../carriers/services/carrier.service.js"
         );
-        const lead = await prisma.shipmentLead.findUnique({
-            where: { shipmentLeadId },
-            select: { carrierProfileId: true },
-        });
-        if (!lead?.carrierProfileId) return;
-        await carrierService.archiveSignedRcBolPdfs({
-            carrierId: lead.carrierProfileId,
+        const carrierId = await carrierService.ensureCarrierLinkedOnLoad(shipmentLeadId, actor);
+        if (!carrierId) {
+            console.warn(
+                `[load-docs] auto-archive skipped for ${shipmentLeadId}: no carrier on load yet`
+            );
+            return null;
+        }
+        const archived = await carrierService.archiveSignedRcBolPdfs({
+            carrierId,
             shipmentLeadId,
-            uploadedBy: actorUserId || "STAFF",
+            uploadedBy: actor?.userId || "STAFF",
         });
+        return {
+            carrierId,
+            rateConDocumentId: archived.rateConDocumentId,
+            bolDocumentId: archived.bolDocumentId,
+        };
     } catch (err) {
         console.warn(
             `[load-docs] auto-archive RC/BOL skipped for ${shipmentLeadId}:`,
             err instanceof Error ? err.message : err
         );
+        return null;
     }
 }
 
@@ -399,9 +410,20 @@ export const loadController = {
                 contentOverrides: req.body?.content,
                 changeReason: req.body?.changeReason || "GENERATED",
             });
-            // Await archive so Carrier Documents has BOL/RC before the broker clicks View.
-            await archiveRcBolOntoCarrier(id, String(docType || ""), req.user?.userId);
-            res.json({ success: true, data: row });
+            // Link carrier if needed, then archive so Carrier Documents shows BOL/RC.
+            const archived = await archiveRcBolOntoCarrier(id, String(docType || ""), {
+                userId: req.user?.userId,
+                role: req.user?.role,
+            });
+            res.json({
+                success: true,
+                data: {
+                    ...row,
+                    archivedToCarrierId: archived?.carrierId || null,
+                    archivedBolDocumentId: archived?.bolDocumentId || null,
+                    archivedRateConDocumentId: archived?.rateConDocumentId || null,
+                },
+            });
         } catch (err) {
             res.status(errStatus(err)).json({
                 success: false,
@@ -434,8 +456,19 @@ export const loadController = {
             });
             // BOL/RC "Save & Generate" often hits /edit after the first version —
             // archive must run here too (previously only /generate archived).
-            await archiveRcBolOntoCarrier(id, String(docType || ""), req.user?.userId);
-            res.json({ success: true, data: row });
+            const archived = await archiveRcBolOntoCarrier(id, String(docType || ""), {
+                userId: req.user?.userId,
+                role: req.user?.role,
+            });
+            res.json({
+                success: true,
+                data: {
+                    ...row,
+                    archivedToCarrierId: archived?.carrierId || null,
+                    archivedBolDocumentId: archived?.bolDocumentId || null,
+                    archivedRateConDocumentId: archived?.rateConDocumentId || null,
+                },
+            });
         } catch (err) {
             res.status(errStatus(err)).json({
                 success: false,
