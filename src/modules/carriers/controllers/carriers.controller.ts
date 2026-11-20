@@ -229,9 +229,18 @@ export const carriersController = {
 
     async regenerateRcBolPdfs(req: AuthRequest, res: Response) {
         try {
+            const body = (req.body || {}) as Record<string, unknown>;
             const data = await carrierService.regenerateRcBolPdfs(
                 String(req.params.id),
-                actorFrom(req)
+                actorFrom(req),
+                {
+                    shipmentLeadId: body.shipmentLeadId
+                        ? String(body.shipmentLeadId)
+                        : body.loadId
+                          ? String(body.loadId)
+                          : null,
+                    loadNumber: body.loadNumber ? String(body.loadNumber) : null,
+                }
             );
             res.json({ success: true, data });
         } catch (err) {

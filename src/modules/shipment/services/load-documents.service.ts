@@ -14,6 +14,7 @@ import {
     generateLoadDocumentPdf,
     GREEN_LOGISTICS_RC,
     LOAD_DOCS_ROOT,
+    resolveLoadDocumentAbsolutePath,
     type LoadDocumentContent,
 } from "./load-pdf.service.js";
 import {
@@ -281,10 +282,172 @@ export class LoadDocumentsService {
                 err instanceof Error ? err.message : err
             );
         });
+        const rows = await prisma.loadDocument.findMany({
+            where: { shipmentLeadId, isCurrent: true, status: { not: "ARCHIVED" } },
+            orderBy: [{ docType: "asc" }, { version: "desc" }],
+        });
+        // Heal PDFs wiped by deploys / disk moves when contentJson still exists.
+        for (const row of rows) {
+            if (["RATE_CONFIRMATION", "BOL", "CUSTOMER_INVOICE", "POD"].includes(row.docType)) {
+                await this.ensureFileOnDisk(row.documentId).catch((err) => {
+                    console.warn(
+                        `[load-docs] ensure file failed for ${row.documentId}:`,
+                        err instanceof Error ? err.message : err
+                    );
+                });
+            }
+        }
         return prisma.loadDocument.findMany({
             where: { shipmentLeadId, isCurrent: true, status: { not: "ARCHIVED" } },
             orderBy: [{ docType: "asc" }, { version: "desc" }],
         });
+    }
+
+    /**
+     * Resolve a load PDF on disk. If the DB row exists but the file was deleted
+     * (deploy race, cwd change), rebuild from contentJson when possible.
+     */
+    async ensureFileOnDisk(documentId: string): Promise<{
+        documentId: string;
+        shipmentLeadId: string;
+        docType: string;
+        storedName: string;
+        absolutePath: string;
+        fileName: string | null;
+        mimeType: string | null;
+        fileSize: number | null;
+        version: number;
+    } | null> {
+        const row = await prisma.loadDocument.findUnique({ where: { documentId } });
+        if (!row?.storedName) return null;
+        let abs = resolveLoadDocumentAbsolutePath(row.shipmentLeadId, row.storedName);
+        if (abs) {
+            return {
+                documentId: row.documentId,
+                shipmentLeadId: row.shipmentLeadId,
+                docType: row.docType,
+                storedName: row.storedName,
+                absolutePath: abs,
+                fileName: row.fileName,
+                mimeType: row.mimeType,
+                fileSize: row.fileSize,
+                version: row.version,
+            };
+        }
+
+        let content: LoadDocumentContent = {};
+        try {
+            content = JSON.parse(row.contentJson || "{}") as LoadDocumentContent;
+        } catch {
+            content = {};
+        }
+        const hasContent = Object.keys(content).length > 0;
+        if (!hasContent) {
+            // Prefer any older version of the same type that still has a file.
+            const prior = await prisma.loadDocument.findMany({
+                where: {
+                    shipmentLeadId: row.shipmentLeadId,
+                    docType: row.docType,
+                    NOT: { documentId: row.documentId },
+                },
+                orderBy: { version: "desc" },
+            });
+            for (const v of prior) {
+                if (!v.storedName) continue;
+                const priorAbs = resolveLoadDocumentAbsolutePath(v.shipmentLeadId, v.storedName);
+                if (!priorAbs) continue;
+                try {
+                    content = JSON.parse(v.contentJson || "{}") as LoadDocumentContent;
+                } catch {
+                    content = {};
+                }
+                if (Object.keys(content).length === 0) {
+                    // Copy the surviving binary onto the current row's expected name path.
+                    const dir = path.join(LOAD_DOCS_ROOT, row.shipmentLeadId);
+                    fs.mkdirSync(dir, { recursive: true });
+                    const restoredName = `${row.docType}_v${row.version}_${Date.now()}_restored${path.extname(v.storedName) || ".pdf"}`;
+                    const dest = path.join(dir, restoredName);
+                    fs.copyFileSync(priorAbs, dest);
+                    const updated = await prisma.loadDocument.update({
+                        where: { documentId: row.documentId },
+                        data: {
+                            storedName: restoredName,
+                            fileName: v.fileName || row.fileName,
+                            mimeType: v.mimeType || row.mimeType || "application/pdf",
+                            fileSize: fs.statSync(dest).size,
+                            fileUrl: `/api/loads/${row.shipmentLeadId}/documents/${row.documentId}/download`,
+                        },
+                    });
+                    return {
+                        documentId: updated.documentId,
+                        shipmentLeadId: updated.shipmentLeadId,
+                        docType: updated.docType,
+                        storedName: updated.storedName!,
+                        absolutePath: dest,
+                        fileName: updated.fileName,
+                        mimeType: updated.mimeType,
+                        fileSize: updated.fileSize,
+                        version: updated.version,
+                    };
+                }
+                break;
+            }
+        }
+
+        if (Object.keys(content).length === 0) return null;
+
+        const pdf = await generateLoadDocumentPdf({
+            shipmentLeadId: row.shipmentLeadId,
+            docType: row.docType,
+            version: row.version,
+            content,
+        });
+        const updated = await prisma.loadDocument.update({
+            where: { documentId: row.documentId },
+            data: {
+                storedName: pdf.storedName,
+                fileName: pdf.fileName,
+                mimeType: pdf.mimeType,
+                fileSize: pdf.fileSize,
+                fileUrl: pdf.fileUrl,
+            },
+        });
+        abs = resolveLoadDocumentAbsolutePath(updated.shipmentLeadId, updated.storedName!);
+        if (!abs) return null;
+        return {
+            documentId: updated.documentId,
+            shipmentLeadId: updated.shipmentLeadId,
+            docType: updated.docType,
+            storedName: updated.storedName!,
+            absolutePath: abs,
+            fileName: updated.fileName,
+            mimeType: updated.mimeType,
+            fileSize: updated.fileSize,
+            version: updated.version,
+        };
+    }
+
+    /** Ensure current RC/BOL (etc.) files exist on disk for a load — rebuild if wiped. */
+    async ensureCurrentDocsOnDisk(
+        shipmentLeadId: string,
+        docTypes: string[] = ["RATE_CONFIRMATION", "BOL"]
+    ) {
+        const out: Array<NonNullable<Awaited<ReturnType<typeof this.ensureFileOnDisk>>>> = [];
+        for (const docType of docTypes) {
+            const current = await prisma.loadDocument.findFirst({
+                where: {
+                    shipmentLeadId,
+                    docType,
+                    isCurrent: true,
+                    status: { not: "ARCHIVED" },
+                },
+                orderBy: { version: "desc" },
+            });
+            if (!current) continue;
+            const healed = await this.ensureFileOnDisk(current.documentId);
+            if (healed) out.push(healed);
+        }
+        return out;
     }
 
     /**
@@ -634,13 +797,8 @@ export class LoadDocumentsService {
         const version = (last?.version || 0) + 1;
         const changeReason = input.changeReason || (version === 1 ? "GENERATED" : "BROKER_EDITED");
 
-        if (last?.isCurrent) {
-            await prisma.loadDocument.update({
-                where: { documentId: last.documentId },
-                data: { isCurrent: false },
-            });
-        }
-
+        // Write the PDF first. Only demote the previous current after the new row
+        // exists — otherwise a mid-flight failure leaves the Load with no current doc.
         const pdf = await generateLoadDocumentPdf({
             shipmentLeadId: input.shipmentLeadId,
             docType,
@@ -649,27 +807,36 @@ export class LoadDocumentsService {
         });
 
         const title = `${LOAD_DOC_TYPE_LABELS[docType] || docType} v${version}`;
-        const row = await prisma.loadDocument.create({
-            data: {
-                shipmentLeadId: input.shipmentLeadId,
-                docType,
-                version,
-                changeReason,
-                title,
-                status: "READY",
-                isCurrent: true,
-                contentJson: JSON.stringify({
-                    ...content,
+        const contentJson = JSON.stringify({
+            ...content,
+            carrierAssignmentId: lead.activeCarrierAssignmentId || null,
+        });
+        const row = await prisma.$transaction(async (tx) => {
+            if (last?.isCurrent) {
+                await tx.loadDocument.update({
+                    where: { documentId: last.documentId },
+                    data: { isCurrent: false },
+                });
+            }
+            return tx.loadDocument.create({
+                data: {
+                    shipmentLeadId: input.shipmentLeadId,
+                    docType,
+                    version,
+                    changeReason,
+                    title,
+                    status: "READY",
+                    isCurrent: true,
+                    contentJson,
+                    fileName: pdf.fileName,
+                    mimeType: pdf.mimeType,
+                    storedName: pdf.storedName,
+                    fileUrl: pdf.fileUrl,
+                    fileSize: pdf.fileSize,
+                    createdById: input.actorUserId || null,
                     carrierAssignmentId: lead.activeCarrierAssignmentId || null,
-                }),
-                fileName: pdf.fileName,
-                mimeType: pdf.mimeType,
-                storedName: pdf.storedName,
-                fileUrl: pdf.fileUrl,
-                fileSize: pdf.fileSize,
-                createdById: input.actorUserId || null,
-                carrierAssignmentId: lead.activeCarrierAssignmentId || null,
-            },
+                },
+            });
         });
 
         const reasonLabel = LOAD_DOC_CHANGE_LABELS[changeReason] || changeReason;
@@ -950,18 +1117,13 @@ export class LoadDocumentsService {
         const version = (last?.version || 0) + 1;
         // Extra Accounting attachments stack — do not replace prior ATTACHMENT files.
         const keepPriorCurrent = docType === "ATTACHMENT";
-        if (last?.isCurrent && !keepPriorCurrent) {
-            await prisma.loadDocument.update({
-                where: { documentId: last.documentId },
-                data: { isCurrent: false },
-            });
-        }
 
         const ext = path.extname(input.originalName || "").toLowerCase() || ".bin";
         const storedName = `${docType}_v${version}_${Date.now()}${ext}`;
         const dir = path.join(LOAD_DOCS_ROOT, input.shipmentLeadId);
         fs.mkdirSync(dir, { recursive: true });
         const dest = path.join(dir, storedName);
+        // Persist the file before flipping isCurrent so a failed copy cannot hide the prior doc.
         fs.copyFileSync(input.tempPath, dest);
         try {
             fs.unlinkSync(input.tempPath);
@@ -975,24 +1137,32 @@ export class LoadDocumentsService {
                 ? fileName || `${LOAD_DOC_TYPE_LABELS[docType] || docType} v${version}`
                 : `${LOAD_DOC_TYPE_LABELS[docType] || docType} v${version}`;
 
-        const row = await prisma.loadDocument.create({
-            data: {
-                shipmentLeadId: input.shipmentLeadId,
-                docType,
-                version,
-                changeReason:
-                    keepPriorCurrent || version === 1 ? "UPLOADED" : "REPLACED",
-                title,
-                status: "READY",
-                isCurrent: true,
-                fileName,
-                mimeType: input.mimeType || "application/octet-stream",
-                storedName,
-                fileUrl: `/api/loads/${input.shipmentLeadId}/documents/file/${storedName}`,
-                fileSize: stat.size,
-                createdById: input.actorUserId || null,
-                carrierAssignmentId: lead.activeCarrierAssignmentId || null,
-            },
+        const row = await prisma.$transaction(async (tx) => {
+            if (last?.isCurrent && !keepPriorCurrent) {
+                await tx.loadDocument.update({
+                    where: { documentId: last.documentId },
+                    data: { isCurrent: false },
+                });
+            }
+            return tx.loadDocument.create({
+                data: {
+                    shipmentLeadId: input.shipmentLeadId,
+                    docType,
+                    version,
+                    changeReason:
+                        keepPriorCurrent || version === 1 ? "UPLOADED" : "REPLACED",
+                    title,
+                    status: "READY",
+                    isCurrent: true,
+                    fileName,
+                    mimeType: input.mimeType || "application/octet-stream",
+                    storedName,
+                    fileUrl: `/api/loads/${input.shipmentLeadId}/documents/file/${storedName}`,
+                    fileSize: stat.size,
+                    createdById: input.actorUserId || null,
+                    carrierAssignmentId: lead.activeCarrierAssignmentId || null,
+                },
+            });
         });
 
         const eventType =
