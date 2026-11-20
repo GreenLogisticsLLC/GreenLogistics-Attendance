@@ -13,9 +13,11 @@ import {
 } from "../gmail/gmail-oauth.service.js";
 import {
     brokerGmailOAuthService,
+    isMailboxListRole,
     isMailboxRole,
     mailboxAccountWhere,
     normalizeLoginHint,
+    normalizeMailboxRole,
     parseBrokerGmailInvite,
     parseBrokerOAuthState,
 } from "../gmail/broker-gmail-oauth.service.js";
@@ -23,6 +25,7 @@ import { ensureAttendanceBadgeForUser } from "../../../services/user-attendance-
 import { brokerGmailSyncService } from "../gmail/broker-gmail-sync.service.js";
 import { prisma } from "../../../config/database.js";
 import { authService } from "../../../services/auth.service.js";
+import { usersService } from "../../../services/users.service.js";
 
 function htmlPage(title: string, bodyHtml: string, ok = true) {
     return `<!DOCTYPE html>
@@ -331,6 +334,8 @@ export async function listBrokerGmailAccountsController(req: AuthRequest, res: R
                 username: broker.username,
                 email: broker.email || null,
                 role: broker.role.roleName,
+                mailboxReady: isMailboxRole(broker.role.roleName),
+                needsMailboxRole: !isMailboxRole(broker.role.roleName),
                 name:
                     `${broker.employee?.firstName || broker.firstName} ${
                         broker.employee?.lastName || broker.lastName
@@ -457,13 +462,44 @@ export async function adminConnectBrokerGmailController(req: AuthRequest, res: R
             }
         }
 
-        const broker = await prisma.user.findUnique({
+        let broker = await prisma.user.findUnique({
             where: { userId },
             include: { role: true, employee: true },
         });
-        if (!broker || !broker.isActive || !isMailboxRole(broker.role.roleName)) {
-            return res.status(404).json(apiResponse(false, "Broker or Team Lead not found"));
+        if (!broker || !broker.isActive || !isMailboxListRole(broker.role.roleName)) {
+            return res.status(404).json(apiResponse(false, "Person not found in Email Accounts list"));
         }
+
+        // Manager (etc.) must be set to Broker or Team Lead before OAuth.
+        if (!isMailboxRole(broker.role.roleName)) {
+            const desired = normalizeMailboxRole(
+                typeof req.query.mailboxRole === "string"
+                    ? req.query.mailboxRole
+                    : typeof req.body?.mailboxRole === "string"
+                      ? req.body.mailboxRole
+                      : ""
+            );
+            if (!desired) {
+                return res.status(400).json(
+                    apiResponse(
+                        false,
+                        "Choose Broker or Team Lead for this person, then Connect Gmail"
+                    )
+                );
+            }
+            const roleResult = await usersService.updateUserRole(req.user, userId, desired, {});
+            if (!roleResult.ok) {
+                return res.status(roleResult.status).json(apiResponse(false, roleResult.message));
+            }
+            broker = await prisma.user.findUnique({
+                where: { userId },
+                include: { role: true, employee: true },
+            });
+            if (!broker || !isMailboxRole(broker.role.roleName)) {
+                return res.status(500).json(apiResponse(false, "Role update did not apply"));
+            }
+        }
+
         let employeeId = broker.employee?.status === "ACTIVE" ? broker.employeeId : null;
         if (!employeeId) {
             const badge = await ensureAttendanceBadgeForUser(broker.userId);
@@ -488,6 +524,7 @@ export async function adminConnectBrokerGmailController(req: AuthRequest, res: R
                 apiResponse(true, "OK", {
                     url,
                     brokerName: `${broker.firstName} ${broker.lastName}`.trim() || broker.username,
+                    role: broker.role.roleName,
                     hint: "On Google, choose (or sign into) the personal Gmail that receives this broker's uShip emails. One consent — then GreenOS syncs automatically.",
                 })
             );
