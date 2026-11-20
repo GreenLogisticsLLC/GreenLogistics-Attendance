@@ -24,6 +24,37 @@ async function accessOr404(req: AuthRequest, res: Response, id: string) {
     return assertShipmentAccess(req, res, id);
 }
 
+/** Copy current load RC/BOL PDFs onto the linked carrier profile (best-effort). */
+async function archiveRcBolOntoCarrier(
+    shipmentLeadId: string,
+    docType: string,
+    actorUserId?: string | null
+): Promise<void> {
+    const normalizedType = String(docType || "").toUpperCase();
+    if (normalizedType !== "RATE_CONFIRMATION" && normalizedType !== "BOL") return;
+    try {
+        const { prisma } = await import("../../../config/database.js");
+        const { carrierService } = await import(
+            "../../carriers/services/carrier.service.js"
+        );
+        const lead = await prisma.shipmentLead.findUnique({
+            where: { shipmentLeadId },
+            select: { carrierProfileId: true },
+        });
+        if (!lead?.carrierProfileId) return;
+        await carrierService.archiveSignedRcBolPdfs({
+            carrierId: lead.carrierProfileId,
+            shipmentLeadId,
+            uploadedBy: actorUserId || "STAFF",
+        });
+    } catch (err) {
+        console.warn(
+            `[load-docs] auto-archive RC/BOL skipped for ${shipmentLeadId}:`,
+            err instanceof Error ? err.message : err
+        );
+    }
+}
+
 const MONEY_PATCH_KEYS = [
     "carrierRate",
     "fuelSurcharge",
@@ -368,34 +399,8 @@ export const loadController = {
                 contentOverrides: req.body?.content,
                 changeReason: req.body?.changeReason || "GENERATED",
             });
-            // Best-effort: copy RC/BOL onto the linked carrier profile so Documents
-            // does not stay empty until a later Generate / Archive click.
-            const normalizedType = String(docType || "").toUpperCase();
-            if (normalizedType === "RATE_CONFIRMATION" || normalizedType === "BOL") {
-                void (async () => {
-                    try {
-                        const { prisma } = await import("../../../config/database.js");
-                        const { carrierService } = await import(
-                            "../../carriers/services/carrier.service.js"
-                        );
-                        const lead = await prisma.shipmentLead.findUnique({
-                            where: { shipmentLeadId: id },
-                            select: { carrierProfileId: true },
-                        });
-                        if (!lead?.carrierProfileId) return;
-                        await carrierService.archiveSignedRcBolPdfs({
-                            carrierId: lead.carrierProfileId,
-                            shipmentLeadId: id,
-                            uploadedBy: req.user?.userId || "STAFF",
-                        });
-                    } catch (err) {
-                        console.warn(
-                            `[load-docs] auto-archive RC/BOL skipped for ${id}:`,
-                            err instanceof Error ? err.message : err
-                        );
-                    }
-                })();
-            }
+            // Await archive so Carrier Documents has BOL/RC before the broker clicks View.
+            await archiveRcBolOntoCarrier(id, String(docType || ""), req.user?.userId);
             res.json({ success: true, data: row });
         } catch (err) {
             res.status(errStatus(err)).json({
@@ -427,6 +432,9 @@ export const loadController = {
                 acknowledgeComplianceReview:
                     req.body?.acknowledgeComplianceReview === true,
             });
+            // BOL/RC "Save & Generate" often hits /edit after the first version —
+            // archive must run here too (previously only /generate archived).
+            await archiveRcBolOntoCarrier(id, String(docType || ""), req.user?.userId);
             res.json({ success: true, data: row });
         } catch (err) {
             res.status(errStatus(err)).json({

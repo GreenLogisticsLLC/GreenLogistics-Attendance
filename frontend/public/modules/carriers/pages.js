@@ -909,7 +909,7 @@ window.GreenOSModules.carriers = {
             dlId +
             '">Download PDF</button>' +
             "</div>"
-          : '<p class="gos-muted">PDF not archived on this carrier yet.</p>') +
+          : '<p class="gos-muted">PDF not archived on this carrier yet — generate it on the Load, then use Generate / Archive PDFs.</p>') +
         "</div>"
       );
     }
@@ -922,6 +922,12 @@ window.GreenOSModules.carriers = {
         break;
       }
     }
+    var searchLoadHint = "";
+    try {
+      var searchEl = document.getElementById("gos-global-search");
+      var rawSearch = searchEl ? String(searchEl.value || "").trim() : "";
+      if (/^(GL)?\d{4,}$/i.test(rawSearch)) searchLoadHint = rawSearch;
+    } catch (e) {}
     el.innerHTML =
       pdfPanel("Rate Confirmation PDF", rcPdf, "cr-view-rc", "cr-dl-rc") +
       pdfPanel("Bill of Lading PDF", bolPdf, "cr-view-bol", "cr-dl-bol") +
@@ -1015,10 +1021,22 @@ window.GreenOSModules.carriers = {
         if (msg) msg.textContent = "Archiving PDFs from Load…";
         var body = {};
         if (linkedLeadId) body.shipmentLeadId = linkedLeadId;
-        await self.api("/" + encodeURIComponent(c.carrierId) + "/rc-bol/regenerate-pdf", {
-          method: "POST",
-          body: body,
-        });
+        if (searchLoadHint) body.loadNumber = searchLoadHint;
+        var result = await self.api(
+          "/" + encodeURIComponent(c.carrierId) + "/rc-bol/regenerate-pdf",
+          {
+            method: "POST",
+            body: body,
+          }
+        );
+        var warn =
+          result &&
+          result.data &&
+          Array.isArray(result.data.warnings) &&
+          result.data.warnings.length
+            ? result.data.warnings.join(" ")
+            : "";
+        if (warn && msg) msg.textContent = warn;
         self._tab = "documents";
         self.showDetail(document.getElementById("cr-main") || el.parentElement, c.carrierId);
       } catch (e) {
