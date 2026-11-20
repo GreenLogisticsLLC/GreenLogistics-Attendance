@@ -39,6 +39,10 @@ import {
 import { isAccountingWorkEligible } from "../accounting-eligibility.js";
 import { computeDashboardPaymentKpis } from "../dashboard-payment-kpis.js";
 import {
+    belongsInCarrierPayments,
+    belongsInCustomerBilling,
+} from "../payment-section-membership.js";
+import {
     accountingCarrierPaymentMethodLabel,
     formatAccountingPaymentDateInput,
     normalizeAccountingCarrierPaymentMethod,
@@ -247,6 +251,23 @@ export class AccountingService {
         const paidBoth = enriched.filter(
             (r) => Boolean(r.customerPaidAt) && Boolean(r.carrierPaidAt)
         ).length;
+        // Outstanding section membership (payment statuses, independent of ready flags).
+        const customerBillingOpen = enriched.filter((r) =>
+            belongsInCustomerBilling({
+                status: r.status,
+                customerPaidAt: r.customerPaidAt,
+                carrierPaidAt: r.carrierPaidAt,
+                accountingEligible: true,
+            })
+        ).length;
+        const carrierPaymentsOpen = enriched.filter((r) =>
+            belongsInCarrierPayments({
+                status: r.status,
+                customerPaidAt: r.customerPaidAt,
+                carrierPaidAt: r.carrierPaidAt,
+                accountingEligible: true,
+            })
+        ).length;
 
         const arToReceive = enriched.reduce((sum, r) => sum + (r.outstandingCustomer || 0), 0);
         const apToPay = enriched.reduce((sum, r) => sum + (r.outstandingCarrier || 0), 0);
@@ -392,8 +413,9 @@ export class AccountingService {
             },
             queues: {
                 forReview,
-                readyBilling,
-                readyCarrierPay,
+                // Dashboard billing/carrier tabs list by unpaid status (same as nav sections).
+                readyBilling: customerBillingOpen,
+                readyCarrierPay: carrierPaymentsOpen,
                 paid: paidBoth,
                 all: enriched.length,
                 voided: voidedCount,
@@ -608,17 +630,25 @@ where: { loadNumber: { not: null } },
                     r.accountingDocStatus === AccountingDocStatus.Verified
             );
         } else if (f === "billing") {
-            // Billing (AR): unpaid loads ready for / already in customer billing.
-            list = list.filter(
-                (r) =>
-                    !r.isVoided &&
-                    !r.customerPaidAt &&
-                    (r.accountingReadyForBilling || Boolean(r.invoiceNumber))
+            // Customer Billing: customer still UNPAID — independent of carrier paid/unpaid.
+            // Do not gate on ready-for-billing flags (those caused wrong-section disappearances).
+            list = list.filter((r) =>
+                belongsInCustomerBilling({
+                    status: r.status,
+                    customerPaidAt: r.customerPaidAt,
+                    carrierPaidAt: r.carrierPaidAt,
+                    accountingEligible: r.accountingEligible,
+                })
             );
         } else if (f === "carrier-payment") {
-            list = list.filter(
-                (r) =>
-                    !r.isVoided && r.accountingReadyForCarrierPayment && !r.carrierPaidAt
+            // Carrier Payments: carrier still UNPAID — independent of customer paid/unpaid.
+            list = list.filter((r) =>
+                belongsInCarrierPayments({
+                    status: r.status,
+                    customerPaidAt: r.customerPaidAt,
+                    carrierPaidAt: r.carrierPaidAt,
+                    accountingEligible: r.accountingEligible,
+                })
             );
         } else if (f === "customer-payments") {
             list = list.filter(

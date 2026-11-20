@@ -1814,15 +1814,16 @@ window.GreenOSModules.accounting = {
     var list = rows || [];
     var filtered;
     if (queue === "billing") {
+      // Customer Billing: customer UNPAID — independent of carrier status.
       filtered = list.filter(function (r) {
-        return (
-          !r.customerPaidAt &&
-          (r.accountingReadyForBilling || Boolean(r.invoiceNumber))
-        );
+        if (String(r.status || "").toUpperCase() === "VOIDED") return false;
+        return !r.customerPaidAt;
       });
     } else if (queue === "carrier") {
+      // Carrier Payments: carrier UNPAID — independent of customer status.
       filtered = list.filter(function (r) {
-        return r.accountingReadyForCarrierPayment && !r.carrierPaidAt;
+        if (String(r.status || "").toUpperCase() === "VOIDED") return false;
+        return !r.carrierPaidAt;
       });
     } else if (queue === "paid") {
       filtered = list.filter(function (r) {
