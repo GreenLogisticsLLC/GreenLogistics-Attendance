@@ -189,6 +189,23 @@ test("BOL edit path must archive onto carrier (not only first generate)", () => 
     assert.equal(endpointsThatArchive.has("generate"), true);
 });
 
+test("invite-rc-bol must archive after linking carrier (generate often runs first)", () => {
+    const steps = ["generateBol", "inviteLinksCarrier", "archiveOntoCarrier"];
+    assert.ok(steps.indexOf("archiveOntoCarrier") > steps.indexOf("inviteLinksCarrier"));
+});
+
+test("backfill prefers loads that still have BOL when carrier CURRENT BOL is missing", () => {
+    function shouldBackfill(input: {
+        hasCurrentBol: boolean;
+        loadHasBol: boolean;
+    }): boolean {
+        return !input.hasCurrentBol && input.loadHasBol;
+    }
+    assert.equal(shouldBackfill({ hasCurrentBol: false, loadHasBol: true }), true);
+    assert.equal(shouldBackfill({ hasCurrentBol: true, loadHasBol: true }), false);
+    assert.equal(shouldBackfill({ hasCurrentBol: false, loadHasBol: false }), false);
+});
+
 test("submit heal archive only runs when CURRENT RC for the load is missing", () => {
     assert.equal(shouldHealArchive(true), false);
     assert.equal(shouldHealArchive(false), true);

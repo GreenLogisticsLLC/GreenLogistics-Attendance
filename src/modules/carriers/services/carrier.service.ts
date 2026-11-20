@@ -506,27 +506,28 @@ export class CarrierService {
 
     async get(carrierId: string, actor: Actor) {
         await this.assertCarrierAccess(carrierId, actor);
-        const carrier = await prisma.carrier.findUnique({
-            where: { carrierId },
-            include: {
-                assignedBroker: {
-                    select: {
-                        userId: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        brokerGmailAccount: { select: { gmailAddress: true, isActive: true } },
-                    },
+        const carrierInclude = {
+            assignedBroker: {
+                select: {
+                    userId: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true,
+                    brokerGmailAccount: { select: { gmailAddress: true, isActive: true } },
                 },
-                documents: { orderBy: [{ documentType: "asc" }, { version: "desc" }] },
-                agreementSigns: {
-                    orderBy: { signedAt: "desc" },
-                    include: { template: true },
-                },
-                rcSignatures: { orderBy: { signedAt: "desc" } },
-                events: { orderBy: { createdAt: "desc" }, take: 100 },
-                sessions: { orderBy: { createdAt: "desc" }, take: 10 },
             },
+            documents: { orderBy: [{ documentType: "asc" as const }, { version: "desc" as const }] },
+            agreementSigns: {
+                orderBy: { signedAt: "desc" as const },
+                include: { template: true },
+            },
+            rcSignatures: { orderBy: { signedAt: "desc" as const } },
+            events: { orderBy: { createdAt: "desc" as const }, take: 100 },
+            sessions: { orderBy: { createdAt: "desc" as const }, take: 10 },
+        };
+        let carrier = await prisma.carrier.findUnique({
+            where: { carrierId },
+            include: carrierInclude,
         });
         if (!carrier) throw Object.assign(new Error("Carrier not found"), { status: 404 });
         const template = await this.ensureAgreementTemplate();
@@ -538,6 +539,27 @@ export class CarrierService {
                 assignedBrokerId: carrier.assignedBrokerId,
             },
         ]);
+        // If Load has RC/BOL but Carrier Documents never got a copy (generate-before-link),
+        // backfill now so the Documents tab is not stuck on "PDF not archived".
+        try {
+            const backfilled = await this.backfillMissingRcBolArchives(
+                carrierId,
+                actor.userId || "SYSTEM"
+            );
+            if (backfilled) {
+                const refreshed = await prisma.carrier.findUnique({
+                    where: { carrierId },
+                    include: carrierInclude,
+                });
+                if (refreshed) carrier = refreshed;
+            }
+        } catch (err) {
+            console.warn(
+                `[carrier-docs] backfill on get skipped for ${carrierId}:`,
+                err instanceof Error ? err.message : err
+            );
+        }
+
         // Packet audit copies (RC/BOL/POD): show CURRENT only — archived duplicates
         // from older sign/heal runs clutter the Documents tab.
         const packetTypes = new Set(["RATE_CONFIRMATION", "BOL", "POD"]);
@@ -836,32 +858,12 @@ export class CarrierService {
         if (actor.role === "Broker" && lead.assignedBrokerId && lead.assignedBrokerId !== actor.userId) {
             throw Object.assign(new Error("Access denied"), { status: 403 });
         }
-        if (!lead.carrierProfileId) {
-            const email = String(lead.carrierEmail || "").trim().toLowerCase();
-            const legalName = String(lead.carrierName || "").trim();
-            if (!legalName || !email) {
-                throw Object.assign(
-                    new Error("Carrier name and email are required on the load before the carrier link"),
-                    { status: 400 }
-                );
-            }
-            const brokerId =
-                actor.role === "Broker" ? actor.userId : lead.assignedBrokerId || actor.userId;
-            const created = await prisma.carrier.create({
-                data: {
-                    legalName,
-                    email,
-                    phone: lead.carrierPhone,
-                    mcNumber: lead.carrierMc,
-                    dotNumber: lead.carrierDot,
-                    assignedBrokerId: brokerId || null,
-                    onboardingStatus: "IN_PROGRESS",
-                },
-            });
-            await prisma.shipmentLead.update({
-                where: { shipmentLeadId },
-                data: { carrierProfileId: created.carrierId },
-            });
+        const linkedId = await this.ensureCarrierLinkedOnLoad(shipmentLeadId, actor);
+        if (!linkedId) {
+            throw Object.assign(
+                new Error("Carrier name and email are required on the load before the carrier link"),
+                { status: 400 }
+            );
         }
         const refreshed = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
         if (!refreshed?.carrierProfileId) {
@@ -915,7 +917,147 @@ export class CarrierService {
             shipmentLeadId,
             purpose,
         });
-        return { invite, carrierId: refreshed.carrierProfileId, purpose };
+        // BOL generate often runs before the carrier profile is linked; archive here
+        // so Carrier → Documents shows RC/BOL immediately after Save & Generate.
+        let archived: { rateConDocumentId: string | null; bolDocumentId: string | null } | null =
+            null;
+        try {
+            archived = await this.archiveSignedRcBolPdfs({
+                carrierId: refreshed.carrierProfileId,
+                shipmentLeadId,
+                uploadedBy: actor.userId || "STAFF",
+            });
+        } catch (err) {
+            console.warn(
+                `[carrier-docs] archive after invite-rc-bol skipped for ${shipmentLeadId}:`,
+                err instanceof Error ? err.message : err
+            );
+        }
+        return {
+            invite,
+            carrierId: refreshed.carrierProfileId,
+            purpose,
+            archivedRateConDocumentId: archived?.rateConDocumentId || null,
+            archivedBolDocumentId: archived?.bolDocumentId || null,
+        };
+    }
+
+    /**
+     * Ensure ShipmentLead.carrierProfileId is set (match email/MC or create).
+     * BOL generate used to archive before invite linked the profile → empty Carrier Documents.
+     */
+    async ensureCarrierLinkedOnLoad(
+        shipmentLeadId: string,
+        actor?: { userId?: string; role?: string } | null
+    ): Promise<string | null> {
+        const lead = await prisma.shipmentLead.findUnique({ where: { shipmentLeadId } });
+        if (!lead) return null;
+        if (lead.carrierProfileId) return lead.carrierProfileId;
+
+        const email = String(lead.carrierEmail || "").trim().toLowerCase();
+        const legalName = String(lead.carrierName || "").trim();
+        const mc = String(lead.carrierMc || "").trim();
+        if (!legalName && !email && !mc) return null;
+
+        let existing = null as { carrierId: string } | null;
+        if (email) {
+            existing = await prisma.carrier.findFirst({
+                where: { email },
+                orderBy: { createdAt: "desc" },
+                select: { carrierId: true },
+            });
+        }
+        if (!existing && mc) {
+            existing = await prisma.carrier.findFirst({
+                where: {
+                    OR: [{ mcNumber: mc }, { mcNumber: mc.replace(/^MC-?/i, "") }],
+                },
+                orderBy: { createdAt: "desc" },
+                select: { carrierId: true },
+            });
+        }
+        if (existing) {
+            await prisma.shipmentLead.update({
+                where: { shipmentLeadId },
+                data: { carrierProfileId: existing.carrierId },
+            });
+            return existing.carrierId;
+        }
+        if (!legalName || !email) return null;
+
+        const brokerId =
+            actor?.role === "Broker"
+                ? actor.userId
+                : lead.assignedBrokerId || actor?.userId || null;
+        const created = await prisma.carrier.create({
+            data: {
+                legalName,
+                email,
+                phone: lead.carrierPhone,
+                mcNumber: lead.carrierMc,
+                dotNumber: lead.carrierDot,
+                assignedBrokerId: brokerId || null,
+                onboardingStatus: "IN_PROGRESS",
+            },
+        });
+        await prisma.shipmentLead.update({
+            where: { shipmentLeadId },
+            data: { carrierProfileId: created.carrierId },
+        });
+        return created.carrierId;
+    }
+
+    /**
+     * When Carrier Documents has no CURRENT RC/BOL but a linked load does,
+     * copy the newest load packet onto the carrier (fixes "PDF not archived").
+     */
+    async backfillMissingRcBolArchives(carrierId: string, uploadedBy = "SYSTEM") {
+        const [hasRc, hasBol] = await Promise.all([
+            prisma.carrierDocument.findFirst({
+                where: { carrierId, documentType: "RATE_CONFIRMATION", status: "CURRENT" },
+                select: { documentId: true },
+            }),
+            prisma.carrierDocument.findFirst({
+                where: { carrierId, documentType: "BOL", status: "CURRENT" },
+                select: { documentId: true },
+            }),
+        ]);
+        if (hasRc && hasBol) return null;
+
+        const leads = await prisma.shipmentLead.findMany({
+            where: { carrierProfileId: carrierId },
+            orderBy: { updatedAt: "desc" },
+            take: 20,
+            select: { shipmentLeadId: true, loadNumber: true },
+        });
+        for (const lead of leads) {
+            const loadDocs = await prisma.loadDocument.findMany({
+                where: {
+                    shipmentLeadId: lead.shipmentLeadId,
+                    docType: { in: ["RATE_CONFIRMATION", "BOL"] },
+                    isCurrent: true,
+                    status: { not: "ARCHIVED" },
+                },
+                select: { docType: true },
+            });
+            if (!loadDocs.length) continue;
+            const types = new Set(loadDocs.map((d) => d.docType));
+            const needRc = !hasRc && types.has("RATE_CONFIRMATION");
+            const needBol = !hasBol && types.has("BOL");
+            if (!needRc && !needBol) continue;
+            const archived = await this.archiveSignedRcBolPdfs({
+                carrierId,
+                shipmentLeadId: lead.shipmentLeadId,
+                uploadedBy,
+            });
+            if (archived.rateConDocumentId || archived.bolDocumentId) {
+                console.warn(
+                    `[carrier-docs] backfilled RC/BOL for ${carrierId} from load ${lead.loadNumber || lead.shipmentLeadId}`
+                );
+                return { ...archived, shipmentLeadId: lead.shipmentLeadId, loadNumber: lead.loadNumber };
+            }
+        }
+        return null;
     }
 
     async createSessionAndSendInvite(
