@@ -285,7 +285,7 @@ window.GreenOSModules['administration'] = {
       '</div>' +
       '<div id="email-accounts-add-panel" class="gos-card" style="display:none;margin-bottom:1rem;padding:1rem 1.25rem">' +
       '<strong style="display:block;margin-bottom:0.5rem">Add Gmail broker</strong>' +
-      '<p class="gos-muted" style="margin:0 0 0.75rem">Pick the broker or team lead, type the Gmail that receives their uShip mail, then connect. Google will ask you to sign in as that address.</p>' +
+      '<p class="gos-muted" style="margin:0 0 0.75rem">Find the person (Broker, Team Lead, or Manager), choose mailbox status Broker or Team Lead if needed, type their Gmail, then connect. Google will ask you to sign in as that address.</p>' +
       '<div style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap">' +
       '<label style="display:flex;flex-direction:column;gap:0.35rem;min-width:180px;flex:1">' +
       '<span class="gos-muted">Find</span>' +
@@ -294,6 +294,13 @@ window.GreenOSModules['administration'] = {
       '<label style="display:flex;flex-direction:column;gap:0.35rem;min-width:220px;flex:1.2">' +
       '<span class="gos-muted">Person</span>' +
       '<select id="email-accounts-add-select" style="padding:0.55rem 0.65rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)"></select>' +
+      '</label>' +
+      '<label style="display:flex;flex-direction:column;gap:0.35rem;min-width:160px;flex:0.9">' +
+      '<span class="gos-muted">Status (mailbox role)</span>' +
+      '<select id="email-accounts-add-role" style="padding:0.55rem 0.65rem;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">' +
+      '<option value="Broker">Broker</option>' +
+      '<option value="Team Lead">Team Lead</option>' +
+      '</select>' +
       '</label>' +
       '<label style="display:flex;flex-direction:column;gap:0.35rem;min-width:240px;flex:1.2">' +
       '<span class="gos-muted">Gmail</span>' +
@@ -406,8 +413,8 @@ window.GreenOSModules['administration'] = {
         addSelect.innerHTML =
           '<option value="">' +
           (q
-            ? "No matching broker or team lead"
-            : "No brokers / team leads loaded") +
+            ? "No matching person"
+            : "No people loaded") +
           "</option>";
         return;
       }
@@ -418,9 +425,11 @@ window.GreenOSModules['administration'] = {
         "</option>" +
         options
           .map(function (row) {
+            var needsRole = row.needsMailboxRole || (row.role && row.role !== "Broker" && row.role !== "Team Lead");
             var label =
               row.name +
               (row.role ? " · " + row.role : "") +
+              (needsRole ? " → set status" : "") +
               (row.employeeNumber ? " (" + row.employeeNumber + ")" : "") +
               (row.gmailAddress ? " — " + row.gmailAddress : row.email ? " — " + row.email : "") +
               (row.status === "CONNECTED" && row.isActive ? " ✓" : "");
@@ -429,6 +438,10 @@ window.GreenOSModules['administration'] = {
               esc(row.userId) +
               '" data-email="' +
               esc(row.email || "") +
+              '" data-role="' +
+              esc(row.role || "") +
+              '" data-needs-role="' +
+              (needsRole ? "1" : "0") +
               '"' +
               (autoId && row.userId === autoId ? " selected" : "") +
               ">" +
@@ -439,10 +452,22 @@ window.GreenOSModules['administration'] = {
           .join("");
       if (autoId) {
         addSelect.value = autoId;
+        syncRoleFromSelectedPerson();
         var opt = addSelect.options[addSelect.selectedIndex];
         var stored = opt ? opt.getAttribute("data-email") || "" : "";
         var input = body.querySelector("#email-accounts-add-gmail");
         if (input && stored && !String(input.value || "").trim()) input.value = stored;
+      }
+    }
+
+    function syncRoleFromSelectedPerson() {
+      var roleSelect = body.querySelector("#email-accounts-add-role");
+      if (!addSelect || !roleSelect) return;
+      var opt = addSelect.options[addSelect.selectedIndex];
+      if (!opt || !opt.value) return;
+      var role = opt.getAttribute("data-role") || "";
+      if (role === "Broker" || role === "Team Lead") {
+        roleSelect.value = role;
       }
     }
 
@@ -456,18 +481,20 @@ window.GreenOSModules['administration'] = {
       }
     }
 
-    async function connectBroker(userId, button, loginHint) {
+    async function connectBroker(userId, button, loginHint, mailboxRole) {
       if (button) {
         button.disabled = true;
         button.textContent = 'Opening Google…';
       }
       try {
         var hint = String(loginHint || "").trim();
+        var role = String(mailboxRole || "").trim();
         var result = await api(
           '/broker/accounts/' +
             encodeURIComponent(userId) +
             '/connect?json=1' +
-            (hint ? '&loginHint=' + encodeURIComponent(hint) : '')
+            (hint ? '&loginHint=' + encodeURIComponent(hint) : '') +
+            (role ? '&mailboxRole=' + encodeURIComponent(role) : '')
         );
         if (!result.success || !result.data || !result.data.url) {
           alert(result.message || 'Could not start Gmail connect');
@@ -679,11 +706,19 @@ window.GreenOSModules['administration'] = {
       var stored = opt ? opt.getAttribute('data-email') || '' : '';
       var input = body.querySelector('#email-accounts-add-gmail');
       if (input && stored) input.value = stored;
+      syncRoleFromSelectedPerson();
+      if (addMsg && opt && opt.getAttribute('data-needs-role') === '1') {
+        addMsg.textContent = 'This person is ' + (opt.getAttribute('data-role') || 'not a mailbox role') + '. Choose Status: Broker or Team Lead, then Connect Gmail.';
+      } else if (addMsg) {
+        addMsg.textContent = '';
+      }
     });
     body.querySelector('#email-accounts-add-connect')?.addEventListener('click', async function () {
       var searchInput = body.querySelector('#email-accounts-add-search');
       var gmailInput = body.querySelector('#email-accounts-add-gmail');
+      var roleSelect = body.querySelector('#email-accounts-add-role');
       var gmail = gmailInput ? String(gmailInput.value || '').trim() : '';
+      var mailboxRole = roleSelect ? String(roleSelect.value || '').trim() : 'Broker';
       var userId = addSelect && addSelect.value;
       if (!userId) {
         var resolved = resolvePerson(
@@ -696,15 +731,21 @@ window.GreenOSModules['administration'] = {
           if (addSelect) {
             fillAddSelect(lastRows, searchInput && searchInput.value);
             addSelect.value = userId;
+            syncRoleFromSelectedPerson();
+            mailboxRole = roleSelect ? String(roleSelect.value || '').trim() : mailboxRole;
           }
         }
       }
       if (!userId) {
         if (addMsg) {
           addMsg.textContent = lastRows.length
-            ? 'Select a broker or team lead first. Only Brokers and Team Leads appear here (not Manager / Owner). Clear Find or try first name, last name, or email.'
-            : 'Broker list not loaded yet — press Refresh, then try again.';
+            ? 'Select a person first (Broker, Team Lead, or Manager). Clear Find or try first/last name or email.'
+            : 'Person list not loaded yet — press Refresh, then try again.';
         }
+        return;
+      }
+      if (mailboxRole !== 'Broker' && mailboxRole !== 'Team Lead') {
+        if (addMsg) addMsg.textContent = 'Choose Status: Broker or Team Lead.';
         return;
       }
       if (gmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gmail)) {
@@ -713,7 +754,7 @@ window.GreenOSModules['administration'] = {
       }
       var btn = body.querySelector('#email-accounts-add-connect');
       if (addMsg) addMsg.textContent = 'Opening Google…';
-      await connectBroker(userId, btn, gmail);
+      await connectBroker(userId, btn, gmail, mailboxRole);
     });
 
     body.querySelector('#email-accounts-refresh').addEventListener('click', load);

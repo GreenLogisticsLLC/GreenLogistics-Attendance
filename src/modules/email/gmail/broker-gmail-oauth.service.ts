@@ -11,6 +11,26 @@ export function isMailboxRole(roleName: string | null | undefined): boolean {
     return roleName === Roles.Broker || roleName === Roles.TeamLead;
 }
 
+/**
+ * People shown in Email Accounts → Person picker.
+ * Managers are included so Owner can pick them and set Broker / Team Lead before Connect.
+ */
+export function mailboxListRoles(): string[] {
+    return [Roles.Broker, Roles.TeamLead, Roles.Manager];
+}
+
+export function isMailboxListRole(roleName: string | null | undefined): boolean {
+    return mailboxListRoles().includes(String(roleName || ""));
+}
+
+/** Normalize Owner-chosen mailbox role for Connect. */
+export function normalizeMailboxRole(value: string | null | undefined): "Broker" | "Team Lead" | "" {
+    const raw = String(value || "").trim();
+    if (raw === Roles.Broker) return Roles.Broker;
+    if (raw === Roles.TeamLead || raw === "TeamLead" || raw === "team lead") return Roles.TeamLead;
+    return "";
+}
+
 /** Google login_hint. Empty when the value is not an email. */
 export function normalizeLoginHint(value: string | null | undefined): string {
     const hint = String(value || "").trim().toLowerCase();
@@ -19,12 +39,11 @@ export function normalizeLoginHint(value: string | null | undefined): string {
 }
 
 export function mailboxAccountWhere(teamUserIds?: string[] | null): Record<string, unknown> {
-    // List every active Broker / Team Lead. Do not hide people whose Attendance
-    // badge is missing or inactive — Owner must still be able to find them in
-    // Email Accounts → Add Gmail / Connect (connect creates or refreshes the badge).
+    // List Brokers, Team Leads, and Managers. Managers need a role pick before
+    // Connect; Attendance badge may be missing/inactive (connect creates/refreshes it).
     const where: Record<string, unknown> = {
         isActive: true,
-        role: { roleName: { in: [Roles.Broker, Roles.TeamLead] } },
+        role: { roleName: { in: mailboxListRoles() } },
     };
     if (teamUserIds) {
         where.userId = { in: teamUserIds.length ? teamUserIds : ["__none__"] };
