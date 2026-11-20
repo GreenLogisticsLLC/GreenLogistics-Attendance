@@ -408,6 +408,11 @@ model ShipmentLead {
   customerPaymentMethod String?                 @map("customer_payment_method")
   /// Accounting can waive the configured handling fee without changing the payment method.
   waiveCustomerPaymentFee Boolean               @default(false) @map("waive_customer_payment_fee")
+  /// Split / 50-50 customer receipts — calendar dates + amounts (does not imply customerPaidAt).
+  customerFirstPaymentDate   DateTime?          @map("customer_first_payment_date")
+  customerFirstPaymentAmount Float?             @map("customer_first_payment_amount")
+  customerSecondPaymentDate  DateTime?          @map("customer_second_payment_date")
+  customerSecondPaymentAmount Float?            @map("customer_second_payment_amount")
   /// Locked Invoice Pricing policy version when the customer invoice was recorded.
   invoicePricingVersion     Int?                @map("invoice_pricing_version")
   /// none | percentage | fixed — snapshotted at invoice create.

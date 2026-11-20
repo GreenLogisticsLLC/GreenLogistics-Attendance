@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+    canEditCustomerSplitPayments,
     canWaiveCustomerPaymentFee,
+    parseCustomerPaymentAmount,
+    sumCustomerSplitPayments,
     customerPaymentQuote,
     normalizeCustomerPaymentMethod,
 } from "./customer-payment.js";
@@ -89,4 +92,34 @@ test("accounting, owner, manager, and administrator can waive the handling fee",
     assert.equal(canWaiveCustomerPaymentFee("Manager"), true);
     assert.equal(canWaiveCustomerPaymentFee("Administrator"), true);
     assert.equal(canWaiveCustomerPaymentFee("Broker"), false);
+});
+
+test("same roles can edit 50/50 customer payment days", () => {
+    assert.equal(canEditCustomerSplitPayments("Accounting"), true);
+    assert.equal(canEditCustomerSplitPayments("Broker"), false);
+});
+
+test("parseCustomerPaymentAmount accepts money strings and clears empty", () => {
+    assert.equal(parseCustomerPaymentAmount(""), null);
+    assert.equal(parseCustomerPaymentAmount(null), null);
+    assert.equal(parseCustomerPaymentAmount("1,850.50"), 1850.5);
+    assert.equal(parseCustomerPaymentAmount("$2000"), 2000);
+    assert.equal(parseCustomerPaymentAmount("-1"), "invalid");
+});
+
+test("sumCustomerSplitPayments adds first + second amounts", () => {
+    assert.equal(
+        sumCustomerSplitPayments({
+            customerFirstPaymentAmount: 1850,
+            customerSecondPaymentAmount: 1850,
+        }),
+        3700
+    );
+    assert.equal(
+        sumCustomerSplitPayments({
+            customerFirstPaymentAmount: 1000,
+            customerSecondPaymentAmount: null,
+        }),
+        1000
+    );
 });

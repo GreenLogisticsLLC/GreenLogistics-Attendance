@@ -2581,6 +2581,20 @@ window.GreenOSModules.accounting = {
         '<div class="acc-carrier-pay-meta">Received: <strong>' +
         self.money(cust.amountReceived) +
         "</strong></div>" +
+        (cust.firstPaymentDate || cust.firstPaymentAmount != null
+          ? '<div class="acc-carrier-pay-meta">1st: <strong>' +
+            self.esc(cust.firstPaymentDate || "—") +
+            "</strong> · " +
+            self.money(cust.firstPaymentAmount) +
+            "</div>"
+          : "") +
+        (cust.secondPaymentDate || cust.secondPaymentAmount != null
+          ? '<div class="acc-carrier-pay-meta">2nd: <strong>' +
+            self.esc(cust.secondPaymentDate || "—") +
+            "</strong> · " +
+            self.money(cust.secondPaymentAmount) +
+            "</div>"
+          : "") +
         (cust.paidAt || self.isCustomerSidePaid({ paymentStatus: custPayStatus, customerPaidAt: cust.paidAt })
           ? ""
           : '<div class="acc-invoice-actions" style="margin-top:0.65rem">' +
@@ -2741,6 +2755,32 @@ window.GreenOSModules.accounting = {
         '<label class="acc-check"><input type="checkbox" id="acc-pay-fee"' +
         (cust.paymentFeeWaived ? "" : " checked") +
         "> Apply handling fee (when enabled in Payment Settings)</label>" +
+        '<div class="acc-split-pay" style="margin-top:0.65rem;padding-top:0.55rem;border-top:1px solid rgba(255,255,255,0.08)">' +
+        '<div class="gos-muted" style="font-size:0.78rem;margin-bottom:0.45rem">Customer payment days (50/50)</div>' +
+        "<label>1st payment day" +
+        '<input id="acc-cust-pay1-date" type="date" value="' +
+        self.esc(cust.firstPaymentDate || "") +
+        '"></label>' +
+        '<label>Amount paid (1st)<input id="acc-cust-pay1-amt" inputmode="decimal" value="' +
+        self.esc(
+          cust.firstPaymentAmount == null || cust.firstPaymentAmount === ""
+            ? ""
+            : cust.firstPaymentAmount
+        ) +
+        '"></label>' +
+        "<label>2nd payment day" +
+        '<input id="acc-cust-pay2-date" type="date" value="' +
+        self.esc(cust.secondPaymentDate || "") +
+        '"></label>' +
+        '<label>Amount paid (2nd)<input id="acc-cust-pay2-amt" inputmode="decimal" value="' +
+        self.esc(
+          cust.secondPaymentAmount == null || cust.secondPaymentAmount === ""
+            ? ""
+            : cust.secondPaymentAmount
+        ) +
+        '"></label>' +
+        '<p class="gos-muted" style="margin:0.35rem 0 0;font-size:0.75rem">For customers who pay in two parts. Saving here does not mark the customer paid.</p>' +
+        "</div>" +
         '<div class="acc-rate-summary">' +
         "<div>Subtotal: <strong>" +
         self.money(cust.paymentSubtotal != null ? cust.paymentSubtotal : cust.rate) +
@@ -3174,6 +3214,25 @@ window.GreenOSModules.accounting = {
             alert("Payment option is required");
             return;
           }
+          var pay1Date = (
+            (host.querySelector("#acc-cust-pay1-date") || {}).value || ""
+          ).trim();
+          var pay2Date = (
+            (host.querySelector("#acc-cust-pay2-date") || {}).value || ""
+          ).trim();
+          var pay1AmtRaw = (host.querySelector("#acc-cust-pay1-amt") || {}).value;
+          var pay2AmtRaw = (host.querySelector("#acc-cust-pay2-amt") || {}).value;
+          function parseAmt(raw) {
+            if (raw == null || String(raw).trim() === "") return null;
+            var n = Number(String(raw).replace(/[$,\s]/g, ""));
+            return Number.isFinite(n) ? n : NaN;
+          }
+          var pay1Amt = parseAmt(pay1AmtRaw);
+          var pay2Amt = parseAmt(pay2AmtRaw);
+          if (Number.isNaN(pay1Amt) || Number.isNaN(pay2Amt)) {
+            alert("Payment amounts must be valid numbers");
+            return;
+          }
           savePay.disabled = true;
           try {
             await self.loadApi("/" + encodeURIComponent(id), {
@@ -3182,6 +3241,12 @@ window.GreenOSModules.accounting = {
                 customerRate: String(rate),
                 customerPaymentMethod: method,
                 waiveCustomerPaymentFee: waive,
+                customerFirstPaymentDate: pay1Date || null,
+                customerFirstPaymentAmount:
+                  pay1Amt == null ? null : String(pay1Amt),
+                customerSecondPaymentDate: pay2Date || null,
+                customerSecondPaymentAmount:
+                  pay2Amt == null ? null : String(pay2Amt),
               },
             });
             self.openShipment(host, id);

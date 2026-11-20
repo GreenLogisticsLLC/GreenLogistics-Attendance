@@ -26,10 +26,13 @@ import {
     statusAfterUnvoid,
 } from "../carrier-history.js";
 import {
+    canEditCustomerSplitPayments,
     canWaiveCustomerPaymentFee,
+    parseCustomerPaymentAmount,
     customerPaymentQuote,
     normalizeCustomerPaymentMethod,
 } from "../customer-payment.js";
+import { parseAccountingPaymentDate } from "../carrier-payment-method.js";
 import { carrierMissingOnPickup } from "../carrier-missing-on-pickup.js";
 import { config } from "../../../config/env.js";
 import { AccountingDocStatus } from "../../accounting/accounting.constants.js";
@@ -1165,6 +1168,19 @@ export class LoadService {
                 { status: 403 }
             );
         }
+        const splitKeys = [
+            "customerFirstPaymentDate",
+            "customerFirstPaymentAmount",
+            "customerSecondPaymentDate",
+            "customerSecondPaymentAmount",
+        ] as const;
+        const wantsSplitEdit = splitKeys.some((k) => body[k] !== undefined);
+        if (wantsSplitEdit && !canEditCustomerSplitPayments(actorRole)) {
+            throw Object.assign(
+                new Error("Only Accounting can save customer payment days and amounts"),
+                { status: 403 }
+            );
+        }
 
         const nextName =
             body.carrierName !== undefined
@@ -1241,6 +1257,42 @@ export class LoadService {
         if (body.waiveCustomerPaymentFee !== undefined) {
             data.waiveCustomerPaymentFee =
                 body.waiveCustomerPaymentFee === true || body.waiveCustomerPaymentFee === "true";
+        }
+        if (body.customerFirstPaymentDate !== undefined) {
+            if (body.customerFirstPaymentDate == null || body.customerFirstPaymentDate === "") {
+                data.customerFirstPaymentDate = null;
+            } else {
+                const d = parseAccountingPaymentDate(body.customerFirstPaymentDate);
+                if (!d) {
+                    throw Object.assign(new Error("First payment day is invalid"), { status: 422 });
+                }
+                data.customerFirstPaymentDate = d;
+            }
+        }
+        if (body.customerSecondPaymentDate !== undefined) {
+            if (body.customerSecondPaymentDate == null || body.customerSecondPaymentDate === "") {
+                data.customerSecondPaymentDate = null;
+            } else {
+                const d = parseAccountingPaymentDate(body.customerSecondPaymentDate);
+                if (!d) {
+                    throw Object.assign(new Error("Second payment day is invalid"), { status: 422 });
+                }
+                data.customerSecondPaymentDate = d;
+            }
+        }
+        if (body.customerFirstPaymentAmount !== undefined) {
+            const amt = parseCustomerPaymentAmount(body.customerFirstPaymentAmount);
+            if (amt === "invalid") {
+                throw Object.assign(new Error("First payment amount is invalid"), { status: 422 });
+            }
+            data.customerFirstPaymentAmount = amt;
+        }
+        if (body.customerSecondPaymentAmount !== undefined) {
+            const amt = parseCustomerPaymentAmount(body.customerSecondPaymentAmount);
+            if (amt === "invalid") {
+                throw Object.assign(new Error("Second payment amount is invalid"), { status: 422 });
+            }
+            data.customerSecondPaymentAmount = amt;
         }
         if (body.status !== undefined) {
             const nextStatus = String(body.status || "").trim().toUpperCase();

@@ -115,3 +115,27 @@ export function canWaiveCustomerPaymentFee(role: string | null | undefined): boo
         role === "Administrator"
     );
 }
+
+/** Same roles that may waive fees may record split / 50-50 customer payment days. */
+export function canEditCustomerSplitPayments(role: string | null | undefined): boolean {
+    return canWaiveCustomerPaymentFee(role);
+}
+
+/** Parse a money input; empty clears to null. Invalid throws via caller. */
+export function parseCustomerPaymentAmount(value: unknown): number | null | "invalid" {
+    if (value == null || value === "") return null;
+    const n = Number(String(value).replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(n) || n < 0) return "invalid";
+    return Math.round(n * 100) / 100;
+}
+
+export function sumCustomerSplitPayments(input: {
+    customerFirstPaymentAmount?: number | null;
+    customerSecondPaymentAmount?: number | null;
+}): number {
+    const a = Number(input.customerFirstPaymentAmount);
+    const b = Number(input.customerSecondPaymentAmount);
+    const first = Number.isFinite(a) && a > 0 ? a : 0;
+    const second = Number.isFinite(b) && b > 0 ? b : 0;
+    return Math.round((first + second) * 100) / 100;
+}
