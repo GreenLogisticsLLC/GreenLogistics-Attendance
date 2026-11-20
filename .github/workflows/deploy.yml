@@ -242,16 +242,37 @@ jobs:
             cp -a "$STAGE_ROOT/.env" "$LIVE_ROOT/.env"
             cp -a "$STAGE_ROOT/frontend/public/deploy-version.txt" "$LIVE_ROOT/frontend/public/deploy-version.txt" 2>/dev/null || true
           fi
-          # Staging used a symlink for data/uploads; ensure live keeps real directories.
+          # Staging usually symlinks uploads → live. If staging ever held a real
+          # uploads/ tree, merge it into live BEFORE deleting the stage folder.
+          if [ -d "$STAGE_ROOT/uploads" ] && [ ! -L "$STAGE_ROOT/uploads" ]; then
+            echo "Merging staging uploads into live (stage held real files)"
+            mkdir -p "$LIVE_ROOT/uploads"
+            rsync -a "$STAGE_ROOT/uploads"/ "$LIVE_ROOT/uploads"/ 2>/dev/null || cp -a "$STAGE_ROOT/uploads"/. "$LIVE_ROOT/uploads"/ 2>/dev/null || true
+          fi
+          if [ -d "$STAGE_ROOT/data" ] && [ ! -L "$STAGE_ROOT/data" ]; then
+            mkdir -p "$LIVE_ROOT/data"
+            rsync -a "$STAGE_ROOT/data"/ "$LIVE_ROOT/data"/ 2>/dev/null || cp -a "$STAGE_ROOT/data"/. "$LIVE_ROOT/data"/ 2>/dev/null || true
+          fi
+          # Never replace live uploads with an empty folder when unwrapping a symlink
+          # (that wiped carrier MC/W9/Insurance historically).
           if [ -L "$LIVE_ROOT/data" ]; then
+            TARGET="$(readlink -f "$LIVE_ROOT/data" || true)"
             rm -f "$LIVE_ROOT/data"
             mkdir -p "$LIVE_ROOT/data"
+            if [ -n "${TARGET:-}" ] && [ -d "$TARGET" ] && [ "$TARGET" != "$LIVE_ROOT/data" ]; then
+              rsync -a "$TARGET"/ "$LIVE_ROOT/data"/ 2>/dev/null || cp -a "$TARGET"/. "$LIVE_ROOT/data"/ 2>/dev/null || true
+            fi
           fi
           if [ -L "$LIVE_ROOT/uploads" ]; then
+            TARGET="$(readlink -f "$LIVE_ROOT/uploads" || true)"
             rm -f "$LIVE_ROOT/uploads"
             mkdir -p "$LIVE_ROOT/uploads"
+            if [ -n "${TARGET:-}" ] && [ -d "$TARGET" ] && [ "$TARGET" != "$LIVE_ROOT/uploads" ]; then
+              echo "Restoring uploads content from former symlink target $TARGET"
+              rsync -a "$TARGET"/ "$LIVE_ROOT/uploads"/ 2>/dev/null || cp -a "$TARGET"/. "$LIVE_ROOT/uploads"/ 2>/dev/null || true
+            fi
           fi
-          mkdir -p "$LIVE_ROOT/data" "$LIVE_ROOT/uploads"
+          mkdir -p "$LIVE_ROOT/data" "$LIVE_ROOT/uploads" "$LIVE_ROOT/uploads/carriers" "$LIVE_ROOT/uploads/loads"
           cd "$LIVE_ROOT"
           # shellcheck disable=SC1091
           source ./tools/pm2-greenos-env.sh ./.env

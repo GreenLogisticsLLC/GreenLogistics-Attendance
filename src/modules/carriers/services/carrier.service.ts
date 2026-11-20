@@ -24,6 +24,8 @@ import { carrierEmailService } from "./carrier-email.service.js";
 import {
     carrierStorageService,
     CARRIER_UPLOADS_ROOT,
+    carrierDocumentExists,
+    recoverLooseCarrierFile,
     resolveCarrierDocumentAbsolutePath,
 } from "./carrier-storage.service.js";
 import { storeCarrierAgreementPdf } from "./carrier-agreement-pdf.service.js";
@@ -539,9 +541,12 @@ export class CarrierService {
         // Packet audit copies (RC/BOL/POD): show CURRENT only — archived duplicates
         // from older sign/heal runs clutter the Documents tab.
         const packetTypes = new Set(["RATE_CONFIRMATION", "BOL", "POD"]);
-        const documents = (carrier.documents || []).filter(
-            (d) => !packetTypes.has(d.documentType) || d.status === "CURRENT"
-        );
+        const documents = (carrier.documents || [])
+            .filter((d) => !packetTypes.has(d.documentType) || d.status === "CURRENT")
+            .map((d) => ({
+                ...d,
+                fileMissing: !carrierDocumentExists(carrierId, d.storageKey),
+            }));
         return {
             ...carrier,
             documents,
@@ -3086,17 +3091,46 @@ export class CarrierService {
 
     async downloadDocument(carrierId: string, documentId: string, actor: Actor) {
         await this.assertCarrierAccess(carrierId, actor);
-        const doc = await prisma.carrierDocument.findFirst({
+        let doc = await prisma.carrierDocument.findFirst({
             where: { documentId, carrierId },
         });
         if (!doc) throw Object.assign(new Error("Document not found"), { status: 404 });
         let absolutePath = resolveCarrierDocumentAbsolutePath(carrierId, doc.storageKey);
+
+        if (!absolutePath) {
+            const recovered = recoverLooseCarrierFile({
+                carrierId,
+                documentType: doc.documentType,
+                version: doc.version,
+                originalFilename: doc.originalFilename,
+                checksum: doc.checksum,
+                storageKey: doc.storageKey,
+            });
+            if (recovered) {
+                absolutePath = recovered.absolutePath;
+                if (recovered.storageKey !== doc.storageKey) {
+                    doc = await prisma.carrierDocument.update({
+                        where: { documentId: doc.documentId },
+                        data: { storageKey: recovered.storageKey },
+                    });
+                }
+                console.warn(
+                    `[carrier-docs] recovered ${doc.documentType} for ${carrierId} → ${recovered.storageKey}`
+                );
+            }
+        }
+
         if (!absolutePath && doc.documentType === "BROKER_CARRIER_AGREEMENT") {
             const healed = await this.healMissingAgreementPdf(carrierId, doc);
             if (healed) return healed;
         }
         if (!absolutePath) {
-            throw Object.assign(new Error("File missing on disk"), { status: 404 });
+            throw Object.assign(
+                new Error(
+                    `File missing on disk — re-upload ${doc.documentType.replace(/_/g, " ")} (${doc.originalFilename || "document"}). Packet files must live under uploads/carriers (not dist/).`
+                ),
+                { status: 404 }
+            );
         }
         return { doc, absolutePath };
     }
