@@ -1826,9 +1826,14 @@ window.GreenOSModules.accounting = {
         return !r.customerPaidAt;
       });
     } else if (queue === "carrier") {
-      // Carrier Payments: customer PAID + carrier UNPAID.
+      // Carrier Payments: VERIFIED + carrier invoice + customer PAID + carrier UNPAID.
       filtered = list.filter(function (r) {
         if (String(r.status || "").toUpperCase() === "VOIDED") return false;
+        var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
+        if (doc !== "VERIFIED" && doc !== "APPROVED") return false;
+        var hasInvoice =
+          Boolean(r.accountingReadyForCarrierPayment) || Boolean(r.hasCarrierInvoice);
+        if (!hasInvoice) return false;
         return Boolean(r.customerPaidAt) && !r.carrierPaidAt;
       });
     } else if (queue === "paid") {

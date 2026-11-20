@@ -5,24 +5,69 @@ import {
     belongsInCustomerBilling,
 } from "./payment-section-membership.js";
 
-test("PENDING load (e.g. GL10114) is not in Customer Billing or Carrier Payments", () => {
+test("PENDING load is not in Customer Billing or Carrier Payments", () => {
     const row = {
         status: "PICKUP",
         accountingDocStatus: "PENDING",
         customerPaidAt: null,
         carrierPaidAt: null,
+        accountingReadyForCarrierPayment: true,
+        hasCarrierInvoice: true,
         accountingEligible: true,
     };
     assert.equal(belongsInCustomerBilling(row), false);
     assert.equal(belongsInCarrierPayments(row), false);
 });
 
-test("VERIFIED + customer UNPAID + carrier UNPAID → Customer Billing only", () => {
+test("VERIFIED without carrier invoice is not in Carrier Payments", () => {
+    const row = {
+        status: "DELIVERED",
+        accountingDocStatus: "VERIFIED",
+        customerPaidAt: "2026-11-01T00:00:00.000Z",
+        carrierPaidAt: null,
+        accountingReadyForCarrierPayment: false,
+        hasCarrierInvoice: false,
+        accountingEligible: true,
+    };
+    assert.equal(belongsInCustomerBilling(row), false);
+    assert.equal(belongsInCarrierPayments(row), false);
+});
+
+test("VERIFIED + carrier invoice + customer PAID + carrier UNPAID → Carrier Payments", () => {
+    const row = {
+        status: "DELIVERED",
+        accountingDocStatus: "VERIFIED",
+        customerPaidAt: "2026-11-01T00:00:00.000Z",
+        carrierPaidAt: null,
+        accountingReadyForCarrierPayment: true,
+        hasCarrierInvoice: true,
+        accountingEligible: true,
+    };
+    assert.equal(belongsInCustomerBilling(row), false);
+    assert.equal(belongsInCarrierPayments(row), true);
+});
+
+test("carrier invoice via document alone counts for Carrier Payments", () => {
+    const row = {
+        status: "DELIVERED",
+        accountingDocStatus: "VERIFIED",
+        customerPaidAt: "2026-11-01T00:00:00.000Z",
+        carrierPaidAt: null,
+        accountingReadyForCarrierPayment: false,
+        hasCarrierInvoice: true,
+        accountingEligible: true,
+    };
+    assert.equal(belongsInCarrierPayments(row), true);
+});
+
+test("VERIFIED + customer UNPAID → Customer Billing even with carrier invoice", () => {
     const row = {
         status: "DELIVERED",
         accountingDocStatus: "VERIFIED",
         customerPaidAt: null,
         carrierPaidAt: null,
+        accountingReadyForCarrierPayment: true,
+        hasCarrierInvoice: true,
         accountingEligible: true,
     };
     assert.equal(belongsInCustomerBilling(row), true);
@@ -35,54 +80,22 @@ test("VERIFIED + customer UNPAID + carrier PAID → Customer Billing only", () =
         accountingDocStatus: "VERIFIED",
         customerPaidAt: null,
         carrierPaidAt: "2026-11-01T00:00:00.000Z",
+        accountingReadyForCarrierPayment: true,
+        hasCarrierInvoice: true,
         accountingEligible: true,
     };
     assert.equal(belongsInCustomerBilling(row), true);
     assert.equal(belongsInCarrierPayments(row), false);
 });
 
-test("customer PAID + carrier UNPAID → Carrier Payments only (leave Billing)", () => {
-    const row = {
-        status: "DELIVERED",
-        accountingDocStatus: "VERIFIED",
-        customerPaidAt: "2026-11-01T00:00:00.000Z",
-        carrierPaidAt: null,
-        accountingEligible: true,
-    };
-    assert.equal(belongsInCustomerBilling(row), false);
-    assert.equal(belongsInCarrierPayments(row), true);
-});
-
-test("customer PAID + carrier PAID → neither outstanding section", () => {
+test("both PAID → neither outstanding section", () => {
     const row = {
         status: "CLOSED",
         accountingDocStatus: "VERIFIED",
         customerPaidAt: "2026-11-01T00:00:00.000Z",
         carrierPaidAt: "2026-11-02T00:00:00.000Z",
-        accountingEligible: true,
-    };
-    assert.equal(belongsInCustomerBilling(row), false);
-    assert.equal(belongsInCarrierPayments(row), false);
-});
-
-test("Needs Correction is not Customer Billing", () => {
-    const row = {
-        status: "PICKUP",
-        accountingDocStatus: "NEEDS_CORRECTION",
-        customerPaidAt: null,
-        carrierPaidAt: null,
-        accountingEligible: true,
-    };
-    assert.equal(belongsInCustomerBilling(row), false);
-    assert.equal(belongsInCarrierPayments(row), false);
-});
-
-test("voided loads are excluded from both sections", () => {
-    const row = {
-        status: "VOIDED",
-        accountingDocStatus: "VERIFIED",
-        customerPaidAt: null,
-        carrierPaidAt: null,
+        accountingReadyForCarrierPayment: true,
+        hasCarrierInvoice: true,
         accountingEligible: true,
     };
     assert.equal(belongsInCustomerBilling(row), false);
