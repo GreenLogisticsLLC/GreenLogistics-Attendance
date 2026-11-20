@@ -627,10 +627,16 @@ window.GreenOSModules.carriers = {
         "<th>Type</th><th>File</th><th>Version</th><th>Status</th><th>AI</th><th>Uploaded</th><th></th>" +
         "</tr></thead><tbody>" +
         docs.map(function (d) {
+          var missing = Boolean(d.fileMissing);
           return (
             "<tr data-doc-id=\"" + self.esc(d.documentId) + "\">" +
             "<td>" + self.esc(d.documentType) + "</td>" +
-            "<td>" + self.esc(d.originalFilename) + "</td>" +
+            "<td>" +
+            self.esc(d.originalFilename) +
+            (missing
+              ? ' <span style="color:#b42318;font-weight:600">MISSING FILE</span>'
+              : "") +
+            "</td>" +
             "<td>" + d.version + "</td>" +
             "<td>" + self.esc(d.status) + "</td>" +
             '<td class="cr-doc-ai" data-id="' + self.esc(d.documentId) + '"><span class="gos-muted">—</span></td>' +
@@ -640,7 +646,9 @@ window.GreenOSModules.carriers = {
             self.esc(d.documentId) +
             '" data-name="' +
             self.esc(d.originalFilename) +
-            '">View</button> ' +
+            '"' +
+            (missing ? " title=\"File missing on disk — re-upload required\"" : "") +
+            ">View</button> " +
             '<button type="button" class="btn-secondary cr-doc-dl" data-id="' +
             self.esc(d.documentId) +
             '" data-name="' +
@@ -665,7 +673,7 @@ window.GreenOSModules.carriers = {
         (canDeleteDocs
           ? " Owner / Administrator can permanently delete documents."
           : "") +
-        "</p>";
+        ' If a row shows <strong>MISSING FILE</strong>, re-upload that document from the carrier portal or staff upload — the DB row stayed after a past deploy wiped <code>dist/uploads</code>.</p>';
 
     el.innerHTML =
       docsHtml +

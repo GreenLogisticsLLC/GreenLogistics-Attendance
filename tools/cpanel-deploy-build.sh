@@ -26,7 +26,8 @@ node scripts/validate-runtime.mjs
 log "database schema push (no seed)..."
 npx prisma db push --skip-generate
 
-mkdir -p "$REPO/tmp"
+# Packet PDFs must survive builds — never under dist/.
+mkdir -p "$REPO/uploads/carriers" "$REPO/uploads/loads" "$REPO/tmp"
 touch "$REPO/tmp/restart.txt"
 
 log "Build complete."

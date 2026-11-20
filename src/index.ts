@@ -166,6 +166,19 @@ app.listen(config.port, config.host, async () => {
         console.warn("[birthday] scheduler skipped:", err);
     }
     try {
+        const { migrateLegacyCarrierUploads } = await import(
+            "./modules/carriers/services/carrier-storage.service.js"
+        );
+        const migrated = migrateLegacyCarrierUploads();
+        if (migrated.copied > 0) {
+            console.log(
+                `[carrier-docs] migrated ${migrated.copied}/${migrated.scanned} file(s) from legacy upload folders → uploads/carriers`
+            );
+        }
+    } catch (err) {
+        console.warn("[carrier-docs] legacy upload migrate skipped:", err);
+    }
+    try {
         await carrierService.collapseDuplicateAgreementDocuments();
         await carrierService.regenerateAllSignedAgreementPdfsOnce();
     } catch (err) {
