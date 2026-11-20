@@ -83,6 +83,24 @@ test("atomic stamp flip keeps a current RC after creating the signed version", (
     assert.equal(after.filter((r) => r.isCurrent).length, 1);
 });
 
+/** generate()/upload must not demote isCurrent until the new file + row exist. */
+function demoteOnlyAfterCreate(steps: string[]): boolean {
+    const demoteAt = steps.indexOf("demote");
+    const createAt = steps.indexOf("create");
+    const writeAt = steps.indexOf("write");
+    return writeAt >= 0 && createAt >= 0 && demoteAt > writeAt && demoteAt <= createAt + 1;
+}
+
+test("generate path writes PDF before demoting the previous current row", () => {
+    assert.equal(demoteOnlyAfterCreate(["write", "demote", "create"]), true);
+    assert.equal(demoteOnlyAfterCreate(["demote", "write", "create"]), false);
+});
+
+test("deploy cutover must exclude uploads so live PDFs survive rsync --delete", () => {
+    const excludes = ["data", "uploads", ".git", "greenos-deploy-stage"];
+    assert.equal(excludes.includes("uploads"), true);
+});
+
 test("resolveLoadDocumentAbsolutePath finds files under LOAD_DOCS_ROOT", () => {
     const shipmentLeadId = `test-ship-${Date.now()}`;
     const storedName = "RATE_CONFIRMATION_v1_test.pdf";

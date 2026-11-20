@@ -90,12 +90,14 @@ jobs:
               --exclude node_modules \
               --exclude .git \
               --exclude data \
+              --exclude uploads \
               --exclude greenos-deploy-stage \
               --exclude node_modules.trash.* \
               "$LIVE_ROOT"/ "$STAGE_ROOT"/
           else
             tar -C "$LIVE_ROOT" \
               --exclude=node_modules --exclude=.git --exclude=data \
+              --exclude=uploads \
               --exclude=greenos-deploy-stage --exclude='node_modules.trash.*' \
               -cf - . | tar -C "$STAGE_ROOT" -xf -
           fi
@@ -105,8 +107,10 @@ jobs:
           else
             touch "$STAGE_ROOT/.env"
           fi
-          mkdir -p "$LIVE_ROOT/data"
+          mkdir -p "$LIVE_ROOT/data" "$LIVE_ROOT/uploads"
           ln -sfn "$LIVE_ROOT/data" "$STAGE_ROOT/data"
+          # Keep load/carrier PDFs on the live volume — never copy or delete via staging.
+          ln -sfn "$LIVE_ROOT/uploads" "$STAGE_ROOT/uploads"
 
           if ! command -v tesseract >/dev/null 2>&1; then
             apt-get update -qq && apt-get install -y -qq tesseract-ocr || echo "WARN: tesseract not installed"
@@ -226,6 +230,7 @@ jobs:
           if command -v rsync >/dev/null 2>&1; then
             rsync -a --delete \
               --exclude data \
+              --exclude uploads \
               --exclude .git \
               --exclude greenos-deploy-stage \
               "$STAGE_ROOT"/ "$LIVE_ROOT"/
@@ -237,12 +242,16 @@ jobs:
             cp -a "$STAGE_ROOT/.env" "$LIVE_ROOT/.env"
             cp -a "$STAGE_ROOT/frontend/public/deploy-version.txt" "$LIVE_ROOT/frontend/public/deploy-version.txt" 2>/dev/null || true
           fi
-          # Staging used a symlink for data/; ensure live keeps a real directory.
+          # Staging used a symlink for data/uploads; ensure live keeps real directories.
           if [ -L "$LIVE_ROOT/data" ]; then
             rm -f "$LIVE_ROOT/data"
             mkdir -p "$LIVE_ROOT/data"
           fi
-          mkdir -p "$LIVE_ROOT/data"
+          if [ -L "$LIVE_ROOT/uploads" ]; then
+            rm -f "$LIVE_ROOT/uploads"
+            mkdir -p "$LIVE_ROOT/uploads"
+          fi
+          mkdir -p "$LIVE_ROOT/data" "$LIVE_ROOT/uploads"
           cd "$LIVE_ROOT"
           # shellcheck disable=SC1091
           source ./tools/pm2-greenos-env.sh ./.env

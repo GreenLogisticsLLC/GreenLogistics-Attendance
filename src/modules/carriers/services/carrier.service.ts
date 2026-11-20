@@ -2195,7 +2195,7 @@ export class CarrierService {
         };
 
         for (const docType of ["RATE_CONFIRMATION", "BOL"] as const) {
-            const loadDoc = await prisma.loadDocument.findFirst({
+            let loadDoc = await prisma.loadDocument.findFirst({
                 where: {
                     shipmentLeadId: input.shipmentLeadId,
                     docType,
@@ -2204,9 +2204,18 @@ export class CarrierService {
                 },
                 orderBy: { version: "desc" },
             });
-            if (!loadDoc?.storedName) continue;
-            const src = resolveLoadDocumentAbsolutePath(input.shipmentLeadId, loadDoc.storedName);
-            if (!src) continue;
+            // Prefer current; if missing, any latest version (healed below).
+            if (!loadDoc) {
+                loadDoc = await prisma.loadDocument.findFirst({
+                    where: { shipmentLeadId: input.shipmentLeadId, docType },
+                    orderBy: { version: "desc" },
+                });
+            }
+            if (!loadDoc) continue;
+
+            const healed = await loadDocumentsService.ensureFileOnDisk(loadDoc.documentId);
+            if (!healed?.absolutePath) continue;
+            const src = healed.absolutePath;
 
             const buf = fs.readFileSync(src);
             const checksum = crypto.createHash("sha256").update(buf).digest("hex");
@@ -2270,10 +2279,10 @@ export class CarrierService {
 
             const dir = carrierStorageService.ensureDir(input.carrierId);
             const originalFilename =
-                loadDoc.fileName ||
+                healed.fileName ||
                 (docType === "RATE_CONFIRMATION"
-                    ? `Rate-Confirmation-v${loadDoc.version}-signed.pdf`
-                    : `BOL-v${loadDoc.version}-signed.pdf`);
+                    ? `Rate-Confirmation-v${healed.version}-signed.pdf`
+                    : `BOL-v${healed.version}-signed.pdf`);
             const storageKey = `${docType}_v${version}_${Date.now()}_signed.pdf`;
             const absolutePath = path.join(dir, storageKey);
             fs.copyFileSync(src, absolutePath);
@@ -2285,7 +2294,7 @@ export class CarrierService {
                     documentType: docType,
                     originalFilename,
                     storageKey,
-                    mimeType: loadDoc.mimeType || "application/pdf",
+                    mimeType: healed.mimeType || "application/pdf",
                     fileSize: buf.length,
                     checksum,
                     uploadedBy: input.uploadedBy || "SYSTEM",
@@ -2383,42 +2392,103 @@ export class CarrierService {
         });
     }
 
-    /** Backfill: stamp the latest portal RC signature onto the load Rate Confirmation PDF and archive copies. */
-    async regenerateRcBolPdfs(carrierId: string, actor: Actor) {
+    /**
+     * Backfill: stamp the portal RC signature (when present) onto the load Rate Confirmation
+     * PDF, heal missing load files from contentJson, and archive RC/BOL onto the carrier.
+     */
+    async regenerateRcBolPdfs(
+        carrierId: string,
+        actor: Actor,
+        opts?: { shipmentLeadId?: string | null; loadNumber?: string | null }
+    ) {
         await this.assertCarrierAccess(carrierId, actor);
+        let requestedLeadId = String(opts?.shipmentLeadId || "").trim() || null;
+        const loadNumber = String(opts?.loadNumber || "").trim();
+        if (!requestedLeadId && loadNumber) {
+            const byNumber = await prisma.shipmentLead.findFirst({
+                where: {
+                    OR: [{ loadNumber }, { loadNumber: loadNumber.replace(/^GL/i, "GL") }],
+                    carrierProfileId: carrierId,
+                },
+                orderBy: { updatedAt: "desc" },
+                select: { shipmentLeadId: true },
+            });
+            requestedLeadId = byNumber?.shipmentLeadId || null;
+            if (!requestedLeadId) {
+                const anyNumber = await prisma.shipmentLead.findFirst({
+                    where: { loadNumber },
+                    orderBy: { updatedAt: "desc" },
+                    select: { shipmentLeadId: true },
+                });
+                requestedLeadId = anyNumber?.shipmentLeadId || null;
+            }
+        }
         const latest = await prisma.carrierRcSignature.findFirst({
-            where: { carrierId },
+            where: {
+                carrierId,
+                ...(requestedLeadId ? { shipmentLeadId: requestedLeadId } : {}),
+            },
             orderBy: { signedAt: "desc" },
         });
-        if (!latest?.shipmentLeadId) {
-            throw Object.assign(new Error("No RC signature with a linked load found"), { status: 404 });
+        let shipmentLeadId =
+            requestedLeadId || latest?.shipmentLeadId || null;
+        if (!shipmentLeadId) {
+            const linked = await prisma.shipmentLead.findFirst({
+                where: {
+                    carrierProfileId: carrierId,
+                    loadNumber: { not: null },
+                },
+                orderBy: { updatedAt: "desc" },
+                select: { shipmentLeadId: true },
+            });
+            shipmentLeadId = linked?.shipmentLeadId || null;
         }
-        const stamped = await loadDocumentsService.stampCarrierSignatureOnRateCon({
-            shipmentLeadId: latest.shipmentLeadId,
-            signerName: latest.signerName,
-            signatureData: latest.signatureData,
-            signedAt: latest.signedAt,
-            actorUserId: actor.userId || null,
-        });
-        if (!stamped) {
+        if (!shipmentLeadId) {
             throw Object.assign(
                 new Error(
-                    "Could not create or stamp the Rate Confirmation for that load. Check load details and try again."
+                    "No linked load found for this carrier. Open the Load, generate RC/BOL, then archive again."
+                ),
+                { status: 404 }
+            );
+        }
+
+        let stamped: Awaited<
+            ReturnType<typeof loadDocumentsService.stampCarrierSignatureOnRateCon>
+        > = null;
+        if (latest?.signatureData && latest.signerName) {
+            stamped = await loadDocumentsService.stampCarrierSignatureOnRateCon({
+                shipmentLeadId,
+                signerName: latest.signerName,
+                signatureData: latest.signatureData,
+                signedAt: latest.signedAt,
+                actorUserId: actor.userId || null,
+            });
+        }
+
+        await loadDocumentsService.ensureCurrentDocsOnDisk(shipmentLeadId, [
+            "RATE_CONFIRMATION",
+            "BOL",
+        ]);
+
+        const archived = await this.archiveSignedRcBolPdfs({
+            carrierId,
+            shipmentLeadId,
+            sessionId: latest?.sessionId || null,
+            uploadedBy: actor.userId || "STAFF",
+        });
+        if (!archived.rateConDocumentId && !archived.bolDocumentId) {
+            throw Object.assign(
+                new Error(
+                    "Could not archive RC/BOL — generate them on the Load first, then click Generate / Archive PDFs again."
                 ),
                 { status: 422 }
             );
         }
-        const archived = await this.archiveSignedRcBolPdfs({
-            carrierId,
-            shipmentLeadId: latest.shipmentLeadId,
-            sessionId: latest.sessionId,
-            uploadedBy: actor.userId || "STAFF",
-        });
         return {
-            shipmentLeadId: latest.shipmentLeadId,
-            rateConDocumentId: stamped.documentId,
-            version: stamped.version,
-            changeReason: stamped.changeReason,
+            shipmentLeadId,
+            rateConDocumentId: stamped?.documentId || archived.rateConDocumentId,
+            version: stamped?.version || null,
+            changeReason: stamped?.changeReason || "ARCHIVED",
             archivedRateConDocumentId: archived.rateConDocumentId,
             archivedBolDocumentId: archived.bolDocumentId,
         };

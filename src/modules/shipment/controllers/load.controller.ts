@@ -368,6 +368,34 @@ export const loadController = {
                 contentOverrides: req.body?.content,
                 changeReason: req.body?.changeReason || "GENERATED",
             });
+            // Best-effort: copy RC/BOL onto the linked carrier profile so Documents
+            // does not stay empty until a later Generate / Archive click.
+            const normalizedType = String(docType || "").toUpperCase();
+            if (normalizedType === "RATE_CONFIRMATION" || normalizedType === "BOL") {
+                void (async () => {
+                    try {
+                        const { prisma } = await import("../../../config/database.js");
+                        const { carrierService } = await import(
+                            "../../carriers/services/carrier.service.js"
+                        );
+                        const lead = await prisma.shipmentLead.findUnique({
+                            where: { shipmentLeadId: id },
+                            select: { carrierProfileId: true },
+                        });
+                        if (!lead?.carrierProfileId) return;
+                        await carrierService.archiveSignedRcBolPdfs({
+                            carrierId: lead.carrierProfileId,
+                            shipmentLeadId: id,
+                            uploadedBy: req.user?.userId || "STAFF",
+                        });
+                    } catch (err) {
+                        console.warn(
+                            `[load-docs] auto-archive RC/BOL skipped for ${id}:`,
+                            err instanceof Error ? err.message : err
+                        );
+                    }
+                })();
+            }
             res.json({ success: true, data: row });
         } catch (err) {
             res.status(errStatus(err)).json({
@@ -536,7 +564,17 @@ export const loadController = {
                 res.status(404).json({ success: false, message: "PDF file missing" });
                 return;
             }
-            const abs = resolveLoadDocumentAbsolutePath(id, row.storedName);
+            let abs = row.storedName
+                ? resolveLoadDocumentAbsolutePath(id, row.storedName)
+                : null;
+            if (!abs) {
+                const healed = await loadDocumentsService.ensureFileOnDisk(documentId);
+                abs = healed?.absolutePath || null;
+                if (healed) {
+                    row.fileName = healed.fileName;
+                    row.mimeType = healed.mimeType;
+                }
+            }
             if (!abs) {
                 res.status(404).json({ success: false, message: "PDF file missing on disk" });
                 return;

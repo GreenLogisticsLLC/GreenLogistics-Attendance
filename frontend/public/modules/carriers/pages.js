@@ -906,7 +906,14 @@ window.GreenOSModules.carriers = {
       );
     }
 
-    var needsGenerate = rows.length && (!rcPdf || !bolPdf);
+    var needsGenerate = !rcPdf || !bolPdf;
+    var linkedLeadId = "";
+    for (var si = 0; si < rows.length; si++) {
+      if (rows[si] && rows[si].shipmentLeadId) {
+        linkedLeadId = String(rows[si].shipmentLeadId);
+        break;
+      }
+    }
     el.innerHTML =
       pdfPanel("Rate Confirmation PDF", rcPdf, "cr-view-rc", "cr-dl-rc") +
       pdfPanel("Bill of Lading PDF", bolPdf, "cr-view-bol", "cr-dl-bol") +
@@ -916,7 +923,10 @@ window.GreenOSModules.carriers = {
           '<button type="button" class="btn-secondary" id="cr-gen-rcbol">Generate / Archive PDFs</button>' +
           '<p id="cr-rcbol-msg" class="gos-muted" style="margin-top:0.5rem"></p>' +
           "</div>"
-        : '<p id="cr-rcbol-msg" class="gos-muted"></p>') +
+        : '<div class="load-edit-panel" style="margin-bottom:0.75rem">' +
+          '<button type="button" class="btn-secondary" id="cr-gen-rcbol">Refresh archived PDFs</button>' +
+          '<p id="cr-rcbol-msg" class="gos-muted" style="margin-top:0.5rem"></p>' +
+          "</div>") +
       (rows.length
         ? rows
             .map(function (r) {
@@ -995,9 +1005,11 @@ window.GreenOSModules.carriers = {
       var msg = el.querySelector("#cr-rcbol-msg");
       try {
         if (msg) msg.textContent = "Archiving PDFs from Load…";
+        var body = {};
+        if (linkedLeadId) body.shipmentLeadId = linkedLeadId;
         await self.api("/" + encodeURIComponent(c.carrierId) + "/rc-bol/regenerate-pdf", {
           method: "POST",
-          body: "{}",
+          body: body,
         });
         self._tab = "documents";
         self.showDetail(document.getElementById("cr-main") || el.parentElement, c.carrierId);
