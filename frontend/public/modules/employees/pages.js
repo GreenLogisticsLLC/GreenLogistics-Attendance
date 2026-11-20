@@ -374,19 +374,22 @@ window.GreenOSModules["employees"] = {
 
     body.innerHTML =
       "<h2>Platform users</h2>" +
-      "<p class=\"gos-muted\">After signup approval, each person has a Green OS account. " +
-      "<strong>Change</strong> edits name, last name, phone, Gmail, birthday, and status. " +
-      "Assign Brokers to any <strong>Team Lead</strong> (any employee can be promoted to that role). " +
-      "Each Team Lead sees only their brokers. If you remove Team Lead role from someone who has brokers, " +
-      "pick who takes the team — brokers and notifications move automatically. Users must sign in again after a role change.</p>" +
-      '<p id="emp-users-status" class="gos-muted">Loading…</p>' +
+      "<p class=\"gos-muted\">Full directory of GreenOS logins. Passwords are stored only as secure hashes — " +
+      "they can never be shown again. Use <strong>Change</strong> to edit name/Gmail, or set a <strong>new login / temporary password</strong> " +
+      "and tell the employee. Assign Brokers to a Team Lead; users must sign in again after a role change.</p>" +
+      '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin:0.5rem 0 0.75rem">' +
+      '<button type="button" class="btn-secondary" id="emp-users-copy" style="width:auto">Copy directory (name / login / Gmail / role)</button>' +
+      '<button type="button" class="btn-secondary" id="emp-users-refresh" style="width:auto">Refresh</button>' +
+      '<span id="emp-users-status" class="gos-muted">Loading…</span>' +
+      "</div>" +
       '<div class="emp-users-wrap"><table class="emp-users-table" id="emp-users-table">' +
       "<thead><tr>" +
-      "<th>Name</th><th>Username</th><th>Email</th><th>Role / Accounting function</th><th>Team Lead / transfer</th><th>Actions</th>" +
+      "<th>Name</th><th>Username (login)</th><th>Gmail</th><th>Role / Accounting function</th><th>Team Lead / transfer</th><th>Actions</th>" +
       "</tr></thead><tbody></tbody></table></div>";
 
     var statusEl = body.querySelector("#emp-users-status");
     var tbody = body.querySelector("#emp-users-table tbody");
+    var directoryUsers = [];
 
     async function api(path, options) {
       return self.empApi(path, options);
@@ -479,6 +482,7 @@ window.GreenOSModules["employees"] = {
 
         var roles = rolesRes.data || [];
         var users = usersRes.data || [];
+        directoryUsers = users;
         var teamLeads = (leadsRes && leadsRes.success && leadsRes.data) || [];
         statusEl.textContent = users.length + " account(s)";
         statusEl.style.color = "";
@@ -775,6 +779,10 @@ window.GreenOSModules["employees"] = {
             '<label>Last name <input class="emp-ch-last" value="' +
             esc(person.lastName || "") +
             '" required></label>' +
+            '<label>Login (username) <input class="emp-ch-username" value="' +
+            esc(person.username || "") +
+            '" autocomplete="off" required></label>' +
+            '<label>New password <input class="emp-ch-password" type="password" minlength="6" placeholder="Leave blank to keep current" autocomplete="new-password"></label>' +
             '<label>Phone number <input class="emp-ch-phone" type="tel" value="' +
             esc(person.phone || "") +
             '"></label>' +
@@ -799,6 +807,15 @@ window.GreenOSModules["employees"] = {
             (person.accountingSubRole === "PAYMENTS" ? " selected" : "") +
             ">Accounting Payments</option>" +
             "</select></label>" +
+            '<label>Account active <select class="emp-ch-active">' +
+            '<option value="1"' +
+            (person.isActive ? " selected" : "") +
+            ">Active — can sign in</option>" +
+            '<option value="0"' +
+            (!person.isActive ? " selected" : "") +
+            ">Inactive — blocked</option>" +
+            "</select></label>" +
+            '<p class="gos-muted" style="margin:0.35rem 0 0">Password tip: set a temporary password here, copy it, and send it to the employee. Old passwords cannot be recovered.</p>' +
             '<div class="emp-change-actions">' +
             '<button type="button" class="btn-primary emp-ch-save" style="width:auto">Save</button>' +
             '<button type="button" class="btn-secondary emp-ch-cancel" style="width:auto">Cancel</button>' +
@@ -826,8 +843,22 @@ window.GreenOSModules["employees"] = {
             var saveBtn = row.querySelector(".emp-ch-save");
             var first = (row.querySelector(".emp-ch-first").value || "").trim();
             var last = (row.querySelector(".emp-ch-last").value || "").trim();
+            var username = (row.querySelector(".emp-ch-username").value || "").trim();
+            var password = row.querySelector(".emp-ch-password").value || "";
+            var activeSelect = row.querySelector(".emp-ch-active");
+            var wantActive = !activeSelect || activeSelect.value === "1";
             if (!first || !last) {
               statusEl.textContent = "Name and last name are required";
+              statusEl.style.color = "#ef4444";
+              return;
+            }
+            if (!username) {
+              statusEl.textContent = "Login (username) is required";
+              statusEl.style.color = "#ef4444";
+              return;
+            }
+            if (password && password.length < 6) {
+              statusEl.textContent = "New password must be at least 6 characters";
               statusEl.style.color = "#ef4444";
               return;
             }
@@ -856,7 +887,31 @@ window.GreenOSModules["employees"] = {
                 if (saveBtn) saveBtn.disabled = false;
                 return;
               }
-              statusEl.textContent = data.message || "Saved";
+              var credBody = {};
+              if (username !== String(person.username || "")) credBody.username = username;
+              if (password) credBody.password = password;
+              if (Boolean(person.isActive) !== wantActive) credBody.isActive = wantActive;
+              if (Object.keys(credBody).length) {
+                var cred = await api(
+                  "/users/" + encodeURIComponent(userId) + "/credentials",
+                  { method: "PATCH", body: credBody }
+                );
+                if (!cred.success) {
+                  statusEl.textContent = cred.message || "Login/password save failed";
+                  statusEl.style.color = "#ef4444";
+                  if (saveBtn) saveBtn.disabled = false;
+                  return;
+                }
+                statusEl.textContent =
+                  (data.message || "Saved") +
+                  " · " +
+                  (cred.message || "credentials updated") +
+                  (password
+                    ? " · Temporary password is what you typed — copy it now; it will not be shown again."
+                    : "");
+              } else {
+                statusEl.textContent = data.message || "Saved";
+              }
               statusEl.style.color = "#22c55e";
               await loadTable();
             } catch (e) {
@@ -924,6 +979,36 @@ window.GreenOSModules["employees"] = {
         tbody.innerHTML = "";
       }
     }
+
+    body.querySelector("#emp-users-copy")?.addEventListener("click", async function () {
+      var lines = ["Name\tUsername\tGmail\tRole\tActive"];
+      (directoryUsers || []).forEach(function (u) {
+        lines.push(
+          [
+            ((u.firstName || "") + " " + (u.lastName || "")).trim(),
+            u.username || "",
+            u.email || "",
+            u.role || "",
+            u.isActive ? "yes" : "no",
+          ].join("\t")
+        );
+      });
+      var text = lines.join("\n");
+      try {
+        await navigator.clipboard.writeText(text);
+        statusEl.textContent =
+          "Copied " +
+          directoryUsers.length +
+          " account(s) to clipboard (passwords are never included — set them via Change).";
+        statusEl.style.color = "#22c55e";
+      } catch (e) {
+        statusEl.textContent = "Could not copy — select the table manually";
+        statusEl.style.color = "#ef4444";
+      }
+    });
+    body.querySelector("#emp-users-refresh")?.addEventListener("click", function () {
+      loadTable();
+    });
 
     await loadTable();
   },

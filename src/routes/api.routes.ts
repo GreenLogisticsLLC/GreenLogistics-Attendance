@@ -57,6 +57,7 @@ import {
     listAssignableRolesController,
     updateUserRoleController,
     updateUserProfileController,
+    setUserCredentialsController,
     updateUserTeamLeadController,
     removeUserController,
     deleteUserController,
@@ -169,6 +170,12 @@ apiRouter.patch(
     authMiddleware,
     requireRole("Administrator", "Owner", "Manager", "HR"),
     updateUserProfileController
+);
+apiRouter.patch(
+    "/v1/users/:userId/credentials",
+    authMiddleware,
+    requireRole("Administrator", "Owner", "Manager", "HR"),
+    setUserCredentialsController
 );
 apiRouter.post(
     "/v1/users/:userId/remove",

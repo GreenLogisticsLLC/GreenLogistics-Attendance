@@ -120,6 +120,14 @@ export async function updateUserProfileController(req: AuthRequest, res: Respons
     return res.json(apiResponse(true, result.data.message, result.data));
 }
 
+export async function setUserCredentialsController(req: AuthRequest, res: Response) {
+    if (!req.user) return res.status(401).json(apiResponse(false, "Unauthorized"));
+    const userId = String(req.params.userId || "");
+    const result = await usersService.setUserCredentials(req.user, userId, req.body || {});
+    if (!result.ok) return res.status(result.status).json(apiResponse(false, result.message));
+    return res.json(apiResponse(true, result.data.message, result.data));
+}
+
 export async function syncAttendanceBadgesController(_req: AuthRequest, res: Response) {
     try {
         const result = await usersService.backfillAttendanceBadges();

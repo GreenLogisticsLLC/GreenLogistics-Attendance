@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import {
     prisma,
     beginAdminWrite,
@@ -858,6 +859,137 @@ export class UsersService {
         return {
             ok: true as const,
             data: { userId, firstName, lastName, message },
+        };
+    }
+
+    /**
+     * Owner/Admin/Manager/HR may change login username and/or set a new password.
+     * Plaintext passwords are never stored or returned — only a bcrypt hash.
+     */
+    async setUserCredentials(
+        actor: { userId: string; role: string },
+        userId: string,
+        input: { username?: unknown; password?: unknown; isActive?: unknown }
+    ) {
+        if (!canManageUserRoles(actor.role)) {
+            return { ok: false as const, status: 403, message: "Forbidden" };
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { userId },
+            include: { role: true },
+        });
+        if (!user) return { ok: false as const, status: 404, message: "User not found" };
+
+        if (
+            (user.role.roleName === Roles.Owner || user.role.roleName === Roles.Administrator) &&
+            actor.role !== Roles.Owner &&
+            actor.role !== Roles.Administrator
+        ) {
+            return {
+                ok: false as const,
+                status: 403,
+                message: "Only Owner/Administrator can change Owner or Administrator credentials",
+            };
+        }
+
+        const data: {
+            username?: string;
+            passwordHash?: string;
+            isActive?: boolean;
+        } = {};
+        const notes: string[] = [];
+
+        if (input.username !== undefined) {
+            const username = String(input.username ?? "").trim();
+            if (!username) {
+                return { ok: false as const, status: 422, message: "Username is required" };
+            }
+            if (username.length < 2 || username.length > 80) {
+                return { ok: false as const, status: 422, message: "Username must be 2–80 characters" };
+            }
+            if (!/^[a-zA-Z0-9._@+-]+$/.test(username)) {
+                return {
+                    ok: false as const,
+                    status: 422,
+                    message: "Username may only use letters, numbers, and . _ @ + -",
+                };
+            }
+            if (username !== user.username) {
+                const taken = await prisma.user.findFirst({
+                    where: {
+                        userId: { not: userId },
+                        OR: [{ username }, { email: username.toLowerCase() }],
+                    },
+                    select: { userId: true },
+                });
+                if (taken) {
+                    return {
+                        ok: false as const,
+                        status: 409,
+                        message: "That username is already used",
+                    };
+                }
+                data.username = username;
+                notes.push("username updated");
+            }
+        }
+
+        if (input.password !== undefined && String(input.password ?? "") !== "") {
+            const password = String(input.password);
+            if (password.length < 6) {
+                return {
+                    ok: false as const,
+                    status: 422,
+                    message: "Password must be at least 6 characters",
+                };
+            }
+            if (password.length > 200) {
+                return { ok: false as const, status: 422, message: "Password is too long" };
+            }
+            data.passwordHash = await bcrypt.hash(password, 10);
+            notes.push("password set");
+        }
+
+        if (input.isActive !== undefined && input.isActive !== null && input.isActive !== "") {
+            data.isActive = Boolean(input.isActive);
+            notes.push(data.isActive ? "account activated" : "account deactivated");
+        }
+
+        if (Object.keys(data).length === 0) {
+            return {
+                ok: false as const,
+                status: 422,
+                message: "Provide a new username and/or password",
+            };
+        }
+
+        const updated = await prisma.user.update({
+            where: { userId },
+            data,
+            select: {
+                userId: true,
+                username: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                isActive: true,
+                role: { select: { roleName: true } },
+            },
+        });
+
+        return {
+            ok: true as const,
+            data: {
+                userId: updated.userId,
+                username: updated.username,
+                email: updated.email,
+                firstName: updated.firstName,
+                lastName: updated.lastName,
+                isActive: updated.isActive,
+                role: updated.role.roleName,
+                message: `Credentials saved (${notes.join(", ")}). Old passwords cannot be recovered — share the new password with the employee directly.`,
+            },
         };
     }
 }
