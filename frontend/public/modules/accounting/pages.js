@@ -975,10 +975,14 @@ window.GreenOSModules.accounting = {
   rowUrgencyClass(r) {
     var status = String(r.status || "").toUpperCase();
     if (r.isVoided || status === "VOIDED") return "acc-row-voided";
-    if (r.isReactivated) return "acc-row-reactivated";
     var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
-    if (doc === "NEEDS_CORRECTION" || doc.indexOf("CORRECTION") >= 0) return "acc-row-correction";
+    // Loads for Review must stay orange even when the load was reactivated —
+    // reactivated used to win first and left the default green load-link color.
+    if (doc === "NEEDS_CORRECTION" || doc.indexOf("CORRECTION") >= 0) {
+      return "acc-row-correction";
+    }
     if (!r.accountingDocStatus || doc === "PENDING") return "acc-row-pending";
+    if (r.isReactivated) return "acc-row-reactivated";
     if (r.accountingReadyForBilling && !r.customerPaidAt) return "acc-row-billing";
     if (r.accountingReadyForCarrierPayment && !r.carrierPaidAt) return "acc-row-carrier-pay";
     if (r.invoiceNumber && !r.customerPaidAt) return "acc-row-billing";

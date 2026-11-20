@@ -4779,7 +4779,8 @@ button.acc-load-link:hover {
 }
 
 tr.acc-row-pending button.acc-load-link,
-tr.acc-row-billing button.acc-load-link {
+tr.acc-row-billing button.acc-load-link,
+tr.acc-row-reactivated button.acc-load-link {
   color: var(--gos-warn);
 }
 
