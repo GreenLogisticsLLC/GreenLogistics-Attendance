@@ -5,20 +5,34 @@ import {
     belongsInCustomerBilling,
 } from "./payment-section-membership.js";
 
-test("Customer PAID / Carrier UNPAID → Carrier Payments only", () => {
+test("PENDING load (e.g. GL10114) is not in Customer Billing or Carrier Payments", () => {
     const row = {
-        status: "DELIVERED",
-        customerPaidAt: "2026-11-01T00:00:00.000Z",
+        status: "PICKUP",
+        accountingDocStatus: "PENDING",
+        customerPaidAt: null,
         carrierPaidAt: null,
         accountingEligible: true,
     };
     assert.equal(belongsInCustomerBilling(row), false);
-    assert.equal(belongsInCarrierPayments(row), true);
+    assert.equal(belongsInCarrierPayments(row), false);
 });
 
-test("Customer UNPAID / Carrier PAID → Customer Billing only", () => {
+test("VERIFIED + customer UNPAID + carrier UNPAID → Customer Billing only", () => {
     const row = {
         status: "DELIVERED",
+        accountingDocStatus: "VERIFIED",
+        customerPaidAt: null,
+        carrierPaidAt: null,
+        accountingEligible: true,
+    };
+    assert.equal(belongsInCustomerBilling(row), true);
+    assert.equal(belongsInCarrierPayments(row), false);
+});
+
+test("VERIFIED + customer UNPAID + carrier PAID → Customer Billing only", () => {
+    const row = {
+        status: "DELIVERED",
+        accountingDocStatus: "VERIFIED",
         customerPaidAt: null,
         carrierPaidAt: "2026-11-01T00:00:00.000Z",
         accountingEligible: true,
@@ -27,22 +41,36 @@ test("Customer UNPAID / Carrier PAID → Customer Billing only", () => {
     assert.equal(belongsInCarrierPayments(row), false);
 });
 
-test("Customer UNPAID / Carrier UNPAID → both sections", () => {
+test("customer PAID + carrier UNPAID → Carrier Payments only (leave Billing)", () => {
     const row = {
-        status: "PICKUP",
-        customerPaidAt: null,
+        status: "DELIVERED",
+        accountingDocStatus: "VERIFIED",
+        customerPaidAt: "2026-11-01T00:00:00.000Z",
         carrierPaidAt: null,
         accountingEligible: true,
     };
-    assert.equal(belongsInCustomerBilling(row), true);
+    assert.equal(belongsInCustomerBilling(row), false);
     assert.equal(belongsInCarrierPayments(row), true);
 });
 
-test("Customer PAID / Carrier PAID → neither outstanding section", () => {
+test("customer PAID + carrier PAID → neither outstanding section", () => {
     const row = {
         status: "CLOSED",
+        accountingDocStatus: "VERIFIED",
         customerPaidAt: "2026-11-01T00:00:00.000Z",
         carrierPaidAt: "2026-11-02T00:00:00.000Z",
+        accountingEligible: true,
+    };
+    assert.equal(belongsInCustomerBilling(row), false);
+    assert.equal(belongsInCarrierPayments(row), false);
+});
+
+test("Needs Correction is not Customer Billing", () => {
+    const row = {
+        status: "PICKUP",
+        accountingDocStatus: "NEEDS_CORRECTION",
+        customerPaidAt: null,
+        carrierPaidAt: null,
         accountingEligible: true,
     };
     assert.equal(belongsInCustomerBilling(row), false);
@@ -52,21 +80,11 @@ test("Customer PAID / Carrier PAID → neither outstanding section", () => {
 test("voided loads are excluded from both sections", () => {
     const row = {
         status: "VOIDED",
+        accountingDocStatus: "VERIFIED",
         customerPaidAt: null,
         carrierPaidAt: null,
         accountingEligible: true,
     };
     assert.equal(belongsInCustomerBilling(row), false);
     assert.equal(belongsInCarrierPayments(row), false);
-});
-
-test("membership ignores rates and ready flags — paid timestamps only", () => {
-    const customerPaidCarrierUnpaid = {
-        status: "PICKUP",
-        customerPaidAt: new Date(),
-        carrierPaidAt: null,
-        accountingEligible: true,
-    };
-    assert.equal(belongsInCarrierPayments(customerPaidCarrierUnpaid), true);
-    assert.equal(belongsInCustomerBilling(customerPaidCarrierUnpaid), false);
 });
