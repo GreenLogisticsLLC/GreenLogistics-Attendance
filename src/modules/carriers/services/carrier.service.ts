@@ -2188,6 +2188,67 @@ export class CarrierService {
      * Idempotent: if a CURRENT (or same-checksum) copy already exists for this load,
      * do not create another version — sign + submit heal used to double every packet.
      */
+    /**
+     * Ensure a carrier-archived RC/BOL row has bytes on disk (re-copy from load if wiped).
+     * Returns absolute path or null.
+     */
+    private ensureCarrierPacketFileFromLoad(input: {
+        carrierId: string;
+        carrierDoc: {
+            documentId: string;
+            storageKey: string;
+            originalFilename?: string | null;
+            mimeType?: string | null;
+            version: number;
+        };
+        srcAbsolutePath: string;
+        buf: Buffer;
+        checksum: string;
+    }): string | null {
+        const existing = resolveCarrierDocumentAbsolutePath(
+            input.carrierId,
+            input.carrierDoc.storageKey
+        );
+        if (existing) return existing;
+
+        const dir = carrierStorageService.ensureDir(input.carrierId);
+        const storageKey =
+            String(input.carrierDoc.storageKey || "").trim() ||
+            `packet_${input.carrierDoc.documentId}.pdf`;
+        const absolutePath = path.join(dir, storageKey);
+        try {
+            fs.copyFileSync(input.srcAbsolutePath, absolutePath);
+        } catch (err) {
+            console.warn(
+                `[carrier-docs] re-copy RC/BOL to carrier failed for ${input.carrierDoc.documentId}:`,
+                err
+            );
+            return null;
+        }
+        try {
+            // Fire-and-forget DB sync is fine; bytes are already on disk for download.
+            prisma.carrierDocument
+                .update({
+                    where: { documentId: input.carrierDoc.documentId },
+                    data: {
+                        storageKey,
+                        checksum: input.checksum,
+                        fileSize: input.buf.length,
+                        mimeType: input.carrierDoc.mimeType || "application/pdf",
+                        originalFilename:
+                            input.carrierDoc.originalFilename ||
+                            path.basename(input.srcAbsolutePath),
+                    },
+                })
+                .catch((err) =>
+                    console.warn("[carrier-docs] update after RC/BOL re-copy failed:", err)
+                );
+        } catch (err) {
+            console.warn("[carrier-docs] update after RC/BOL re-copy failed:", err);
+        }
+        return absolutePath;
+    }
+
     async archiveSignedRcBolPdfs(input: {
         carrierId: string;
         shipmentLeadId: string;
@@ -2235,9 +2296,22 @@ export class CarrierService {
                 },
             });
             if (sameCurrent) {
-                if (docType === "RATE_CONFIRMATION") out.rateConDocumentId = sameCurrent.documentId;
-                else out.bolDocumentId = sameCurrent.documentId;
-                continue;
+                // Checksum match is not enough — deploy may have wiped the bytes.
+                const abs = this.ensureCarrierPacketFileFromLoad({
+                    carrierId: input.carrierId,
+                    carrierDoc: sameCurrent,
+                    srcAbsolutePath: src,
+                    buf,
+                    checksum,
+                });
+                if (abs) {
+                    if (docType === "RATE_CONFIRMATION") {
+                        out.rateConDocumentId = sameCurrent.documentId;
+                    } else {
+                        out.bolDocumentId = sameCurrent.documentId;
+                    }
+                    continue;
+                }
             }
 
             const sameAny = await prisma.carrierDocument.findFirst({
@@ -2263,13 +2337,25 @@ export class CarrierService {
             });
 
             if (sameAny) {
-                const revived = await prisma.carrierDocument.update({
-                    where: { documentId: sameAny.documentId },
-                    data: { status: "CURRENT" },
+                const abs = this.ensureCarrierPacketFileFromLoad({
+                    carrierId: input.carrierId,
+                    carrierDoc: sameAny,
+                    srcAbsolutePath: src,
+                    buf,
+                    checksum,
                 });
-                if (docType === "RATE_CONFIRMATION") out.rateConDocumentId = revived.documentId;
-                else out.bolDocumentId = revived.documentId;
-                continue;
+                if (abs) {
+                    const revived = await prisma.carrierDocument.update({
+                        where: { documentId: sameAny.documentId },
+                        data: { status: "CURRENT" },
+                    });
+                    if (docType === "RATE_CONFIRMATION") {
+                        out.rateConDocumentId = revived.documentId;
+                    } else {
+                        out.bolDocumentId = revived.documentId;
+                    }
+                    continue;
+                }
             }
 
             const prev = await prisma.carrierDocument.findFirst({
@@ -2410,18 +2496,29 @@ export class CarrierService {
         let requestedLeadId = String(opts?.shipmentLeadId || "").trim() || null;
         const loadNumber = String(opts?.loadNumber || "").trim();
         if (!requestedLeadId && loadNumber) {
+            const digits = loadNumber.replace(/^GL/i, "").replace(/\D+/g, "");
+            const candidates = Array.from(
+                new Set(
+                    [
+                        loadNumber,
+                        loadNumber.toUpperCase(),
+                        digits ? `GL${digits}` : "",
+                        digits,
+                    ].filter(Boolean)
+                )
+            );
             const byNumber = await prisma.shipmentLead.findFirst({
                 where: {
-                    OR: [{ loadNumber }, { loadNumber: loadNumber.replace(/^GL/i, "GL") }],
+                    loadNumber: { in: candidates },
                     carrierProfileId: carrierId,
                 },
                 orderBy: { updatedAt: "desc" },
-                select: { shipmentLeadId: true },
+                select: { shipmentLeadId: true, loadNumber: true },
             });
             requestedLeadId = byNumber?.shipmentLeadId || null;
             if (!requestedLeadId) {
                 const anyNumber = await prisma.shipmentLead.findFirst({
-                    where: { loadNumber },
+                    where: { loadNumber: { in: candidates } },
                     orderBy: { updatedAt: "desc" },
                     select: { shipmentLeadId: true },
                 });
@@ -2489,6 +2586,17 @@ export class CarrierService {
                 { status: 422 }
             );
         }
+        const warnings: string[] = [];
+        if (!archived.bolDocumentId) {
+            warnings.push(
+                "BOL was not archived — open the Load, Save & Generate BOL PDF, then Refresh archived PDFs."
+            );
+        }
+        if (!archived.rateConDocumentId) {
+            warnings.push(
+                "Rate Confirmation was not archived — generate RC on the Load first, then Refresh."
+            );
+        }
         return {
             shipmentLeadId,
             rateConDocumentId: stamped?.documentId || archived.rateConDocumentId,
@@ -2496,6 +2604,7 @@ export class CarrierService {
             changeReason: stamped?.changeReason || "ARCHIVED",
             archivedRateConDocumentId: archived.rateConDocumentId,
             archivedBolDocumentId: archived.bolDocumentId,
+            warnings,
         };
     }
 
@@ -3124,10 +3233,44 @@ export class CarrierService {
             const healed = await this.healMissingAgreementPdf(carrierId, doc);
             if (healed) return healed;
         }
+        if (
+            !absolutePath &&
+            (doc.documentType === "RATE_CONFIRMATION" || doc.documentType === "BOL") &&
+            doc.shipmentLeadId
+        ) {
+            const healedArchive = await this.archiveSignedRcBolPdfs({
+                carrierId,
+                shipmentLeadId: doc.shipmentLeadId,
+                uploadedBy: actor.userId || "STAFF",
+            });
+            const healedId =
+                doc.documentType === "RATE_CONFIRMATION"
+                    ? healedArchive.rateConDocumentId
+                    : healedArchive.bolDocumentId;
+            if (healedId) {
+                const refreshed = await prisma.carrierDocument.findFirst({
+                    where: { documentId: healedId, carrierId },
+                });
+                if (refreshed) {
+                    const abs = resolveCarrierDocumentAbsolutePath(
+                        carrierId,
+                        refreshed.storageKey
+                    );
+                    if (abs) {
+                        console.warn(
+                            `[carrier-docs] healed ${doc.documentType} for ${carrierId} via load archive → ${refreshed.storageKey}`
+                        );
+                        return { doc: refreshed, absolutePath: abs };
+                    }
+                }
+            }
+        }
         if (!absolutePath) {
             throw Object.assign(
                 new Error(
-                    `File missing on disk — re-upload ${doc.documentType.replace(/_/g, " ")} (${doc.originalFilename || "document"}). Packet files must live under uploads/carriers (not dist/).`
+                    doc.documentType === "RATE_CONFIRMATION" || doc.documentType === "BOL"
+                        ? `${doc.documentType === "BOL" ? "BOL" : "Rate Confirmation"} file missing — open the Load, generate the PDF, then Generate / Archive PDFs on the carrier.`
+                        : `File missing on disk — re-upload ${doc.documentType.replace(/_/g, " ")} (${doc.originalFilename || "document"}). Packet files must live under uploads/carriers (not dist/).`
                 ),
                 { status: 404 }
             );

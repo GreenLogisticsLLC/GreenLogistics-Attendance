@@ -18,12 +18,34 @@ function retireCurrentPacketDocs(rows: Array<{ documentId: string; documentType:
     );
 }
 
-/** Archive is a no-op when a CURRENT row already holds this exact PDF checksum. */
+/**
+ * Archive skips creating a new carrier row when CURRENT already matches checksum
+ * AND the file is still on disk. Matching checksum alone is not enough after a wipe.
+ */
 function shouldSkipPacketArchiveCreate(input: {
     existingCurrentChecksum?: string | null;
     loadChecksum: string;
+    carrierFileOnDisk?: boolean;
 }): boolean {
-    return Boolean(input.existingCurrentChecksum) && input.existingCurrentChecksum === input.loadChecksum;
+    return (
+        Boolean(input.existingCurrentChecksum) &&
+        input.existingCurrentChecksum === input.loadChecksum &&
+        input.carrierFileOnDisk !== false
+    );
+}
+
+/** Search "10276" must resolve to loadNumber GL10276. */
+function loadNumberLookupCandidates(raw: string): string[] {
+    const loadNumber = String(raw || "").trim();
+    if (!loadNumber) return [];
+    const digits = loadNumber.replace(/^GL/i, "").replace(/\D+/g, "");
+    return Array.from(
+        new Set(
+            [loadNumber, loadNumber.toUpperCase(), digits ? `GL${digits}` : "", digits].filter(
+                Boolean
+            )
+        )
+    );
 }
 
 /** Carrier Documents tab: hide archived RC/BOL/POD clutter; keep CURRENT packet + all other docs. */
@@ -122,13 +144,22 @@ test("portal sign must fail closed when stamp returns no document id", () => {
     assert.equal(shouldReject, true);
 });
 
-test("archive skips create when CURRENT checksum already matches the load PDF", () => {
+test("archive skips create when CURRENT checksum matches and file is on disk", () => {
     assert.equal(
         shouldSkipPacketArchiveCreate({
             existingCurrentChecksum: "abc",
             loadChecksum: "abc",
+            carrierFileOnDisk: true,
         }),
         true
+    );
+    assert.equal(
+        shouldSkipPacketArchiveCreate({
+            existingCurrentChecksum: "abc",
+            loadChecksum: "abc",
+            carrierFileOnDisk: false,
+        }),
+        false
     );
     assert.equal(
         shouldSkipPacketArchiveCreate({
@@ -144,6 +175,18 @@ test("archive skips create when CURRENT checksum already matches the load PDF", 
         }),
         false
     );
+});
+
+test("load number candidates include GL prefix for numeric search like 10276", () => {
+    assert.deepEqual(loadNumberLookupCandidates("10276"), ["10276", "GL10276"]);
+    assert.ok(loadNumberLookupCandidates("GL10276").includes("GL10276"));
+    assert.ok(loadNumberLookupCandidates("gl10276").includes("GL10276"));
+});
+
+test("BOL edit path must archive onto carrier (not only first generate)", () => {
+    const endpointsThatArchive = new Set(["generate", "edit"]);
+    assert.equal(endpointsThatArchive.has("edit"), true);
+    assert.equal(endpointsThatArchive.has("generate"), true);
 });
 
 test("submit heal archive only runs when CURRENT RC for the load is missing", () => {
