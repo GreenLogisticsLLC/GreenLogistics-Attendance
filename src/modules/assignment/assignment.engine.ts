@@ -371,10 +371,14 @@ export class AssignmentEngine {
         const now = Date.now();
         if (lastPassedFlagRepairAt && now - lastPassedFlagRepairAt < 15_000) return;
         lastPassedFlagRepairAt = now;
-        await prisma.shipmentLead.updateMany({
-            where: { wasEverReassigned: true, isReassignment: false },
-            data: { isReassignment: true },
-        });
+        // Raw UPDATEs on purpose: Prisma updateMany always bumps @updatedAt, and this
+        // repair runs on every New/Other board load — that made every "Updated" cell
+        // show the same clock time and looked like wrong arrival timestamps.
+        await prisma.$executeRawUnsafe(`
+            UPDATE shipment_leads
+            SET is_reassignment = 1
+            WHERE was_ever_reassigned = 1 AND is_reassignment = 0
+        `);
 
         const [fromLogs, fromEvents] = await Promise.all([
             prisma.assignmentLog.findMany({
@@ -409,13 +413,21 @@ export class AssignmentEngine {
             ),
         ];
         if (!ids.length) return;
-        await prisma.shipmentLead.updateMany({
-            where: {
-                shipmentLeadId: { in: ids },
-                OR: [{ isReassignment: false }, { wasEverReassigned: false }],
-            },
-            data: { isReassignment: true, wasEverReassigned: true },
-        });
+        // Chunk IN lists for SQLite parameter limits.
+        const chunkSize = 200;
+        for (let i = 0; i < ids.length; i += chunkSize) {
+            const chunk = ids.slice(i, i + chunkSize);
+            const placeholders = chunk.map(() => "?").join(",");
+            await prisma.$executeRawUnsafe(
+                `
+                UPDATE shipment_leads
+                SET is_reassignment = 1, was_ever_reassigned = 1
+                WHERE shipment_lead_id IN (${placeholders})
+                  AND (is_reassignment = 0 OR was_ever_reassigned = 0)
+                `,
+                ...chunk
+            );
+        }
     }
 
     private async otherOfferCounts(shipmentLeadId: string): Promise<Map<string, number>> {

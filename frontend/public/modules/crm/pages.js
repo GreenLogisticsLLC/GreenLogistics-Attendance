@@ -222,7 +222,18 @@ window.GreenOSModules.crm = {
   fmtDate(v) {
     if (!v) return "—";
     try {
-      return new Date(v).toLocaleString();
+      var d = new Date(v);
+      if (isNaN(d.getTime())) return "—";
+      // Office + Owner board times are Yerevan (same as Received / First Entry).
+      return d.toLocaleString("en-GB", {
+        timeZone: "Asia/Yerevan",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      });
     } catch {
       return String(v);
     }
@@ -231,11 +242,11 @@ window.GreenOSModules.crm = {
   fmtDateShort(v) {
     if (!v) return "—";
     try {
-      return new Date(v).toLocaleDateString("en-US", {
-        month: "numeric",
+      return new Date(v).toLocaleDateString("en-GB", {
         day: "numeric",
+        month: "short",
         year: "numeric",
-        timeZone: "UTC",
+        timeZone: "Asia/Yerevan",
       });
     } catch {
       return String(v);
@@ -822,10 +833,14 @@ window.GreenOSModules.crm = {
             '<div class="table-wrap crm-table-wrap crm-ship-scroll"><table class="crm-table">' +
             "<thead><tr>" +
             "<th>#</th><th>Shipment</th><th>Customer</th><th>Broker</th>" +
-            (arrivalTabs ? "<th>Received</th>" : "") +
+            (arrivalTabs
+              ? "<th title=\"When this broker received the shipment (Yerevan)\">Received</th>"
+              : "") +
             "<th>Pickup</th><th>Delivery</th>" +
             "<th>Miles</th><th>Equipment</th><th>Price</th><th>Status</th><th>Priority</th>" +
-            "<th>Created</th><th>Updated</th>" +
+            // New/Other boards already have Received = arrival time. Created/Updated here
+            // were misleading after flag-repair bumped every updatedAt to the same second.
+            (arrivalTabs ? "" : "<th>Created</th><th>Updated</th>") +
             (function () {
               var me = (window.GreenOS && window.GreenOS.user) || window.GreenOSUser || {};
               return me.role === "Owner" || me.role === "Manager" || me.role === "Administrator"
@@ -887,7 +902,7 @@ window.GreenOSModules.crm = {
       if (!rows.length) {
         tbody.innerHTML =
           '<tr><td colspan="' +
-          ((arrivalTabs ? 14 : 13) + (canDeleteShip ? 1 : 0)) +
+          ((arrivalTabs ? 12 : 13) + (canDeleteShip ? 1 : 0)) +
           '">' +
           (statusGroup
             ? "No shipments with this status"
@@ -998,12 +1013,14 @@ window.GreenOSModules.crm = {
             "<td>" +
             esc(s.priority || "NORMAL") +
             "</td>" +
-            "<td>" +
-            fmt(s.createdAt) +
-            "</td>" +
-            "<td>" +
-            fmt(s.updatedAt) +
-            "</td>" +
+            (arrivalTabs
+              ? ""
+              : "<td>" +
+                fmt(s.createdAt) +
+                "</td>" +
+                "<td>" +
+                fmt(s.updatedAt) +
+                "</td>") +
             (canDeleteShip
               ? '<td class="gos-delete-cell">' +
                 '<button type="button" class="btn-secondary gos-delete-ship-btn" data-delete="' +
