@@ -255,6 +255,7 @@ export class AccountingService {
         const customerBillingOpen = enriched.filter((r) =>
             belongsInCustomerBilling({
                 status: r.status,
+                accountingDocStatus: r.accountingDocStatus,
                 customerPaidAt: r.customerPaidAt,
                 carrierPaidAt: r.carrierPaidAt,
                 accountingEligible: true,
@@ -263,6 +264,7 @@ export class AccountingService {
         const carrierPaymentsOpen = enriched.filter((r) =>
             belongsInCarrierPayments({
                 status: r.status,
+                accountingDocStatus: r.accountingDocStatus,
                 customerPaidAt: r.customerPaidAt,
                 carrierPaidAt: r.carrierPaidAt,
                 accountingEligible: true,
@@ -630,21 +632,22 @@ where: { loadNumber: { not: null } },
                     r.accountingDocStatus === AccountingDocStatus.Verified
             );
         } else if (f === "billing") {
-            // Customer Billing: customer still UNPAID — independent of carrier paid/unpaid.
-            // Do not gate on ready-for-billing flags (those caused wrong-section disappearances).
+            // Customer Billing: VERIFIED + customer UNPAID (PENDING stays in Loads for Review).
             list = list.filter((r) =>
                 belongsInCustomerBilling({
                     status: r.status,
+                    accountingDocStatus: r.accountingDocStatus,
                     customerPaidAt: r.customerPaidAt,
                     carrierPaidAt: r.carrierPaidAt,
                     accountingEligible: r.accountingEligible,
                 })
             );
         } else if (f === "carrier-payment") {
-            // Carrier Payments: carrier still UNPAID — independent of customer paid/unpaid.
+            // Carrier Payments: customer PAID + carrier UNPAID (not waiting on customer).
             list = list.filter((r) =>
                 belongsInCarrierPayments({
                     status: r.status,
+                    accountingDocStatus: r.accountingDocStatus,
                     customerPaidAt: r.customerPaidAt,
                     carrierPaidAt: r.carrierPaidAt,
                     accountingEligible: r.accountingEligible,

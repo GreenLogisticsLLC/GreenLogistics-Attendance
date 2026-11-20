@@ -1818,16 +1818,18 @@ window.GreenOSModules.accounting = {
     var list = rows || [];
     var filtered;
     if (queue === "billing") {
-      // Customer Billing: customer UNPAID — independent of carrier status.
+      // Customer Billing: VERIFIED + customer UNPAID (PENDING stays in review).
       filtered = list.filter(function (r) {
         if (String(r.status || "").toUpperCase() === "VOIDED") return false;
+        var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
+        if (doc !== "VERIFIED" && doc !== "APPROVED") return false;
         return !r.customerPaidAt;
       });
     } else if (queue === "carrier") {
-      // Carrier Payments: carrier UNPAID — independent of customer status.
+      // Carrier Payments: customer PAID + carrier UNPAID.
       filtered = list.filter(function (r) {
         if (String(r.status || "").toUpperCase() === "VOIDED") return false;
-        return !r.carrierPaidAt;
+        return Boolean(r.customerPaidAt) && !r.carrierPaidAt;
       });
     } else if (queue === "paid") {
       filtered = list.filter(function (r) {
