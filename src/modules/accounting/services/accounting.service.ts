@@ -258,6 +258,7 @@ export class AccountingService {
                 accountingDocStatus: r.accountingDocStatus,
                 customerPaidAt: r.customerPaidAt,
                 carrierPaidAt: r.carrierPaidAt,
+                accountingReadyForCarrierPayment: r.accountingReadyForCarrierPayment,
                 accountingEligible: true,
             })
         ).length;
@@ -267,6 +268,7 @@ export class AccountingService {
                 accountingDocStatus: r.accountingDocStatus,
                 customerPaidAt: r.customerPaidAt,
                 carrierPaidAt: r.carrierPaidAt,
+                accountingReadyForCarrierPayment: r.accountingReadyForCarrierPayment,
                 accountingEligible: true,
             })
         ).length;
@@ -548,20 +550,36 @@ where: { loadNumber: { not: null } },
 
         // Prefer current Rate Con Flat Rate over a stale books carrierRate.
         const rcByLead = new Map<string, string | null>();
+        const carrierInvoiceLeads = new Set<string>();
         if (rows.length) {
-            const rcDocs = await prisma.loadDocument.findMany({
-                where: {
-                    shipmentLeadId: { in: rows.map((r) => r.shipmentLeadId) },
-                    isCurrent: true,
-                    docType: "RATE_CONFIRMATION",
-                    status: { not: "ARCHIVED" },
-                },
-                select: { shipmentLeadId: true, contentJson: true },
-            });
+            const leadIds = rows.map((r) => r.shipmentLeadId);
+            const [rcDocs, carrierInvDocs] = await Promise.all([
+                prisma.loadDocument.findMany({
+                    where: {
+                        shipmentLeadId: { in: leadIds },
+                        isCurrent: true,
+                        docType: "RATE_CONFIRMATION",
+                        status: { not: "ARCHIVED" },
+                    },
+                    select: { shipmentLeadId: true, contentJson: true },
+                }),
+                prisma.loadDocument.findMany({
+                    where: {
+                        shipmentLeadId: { in: leadIds },
+                        isCurrent: true,
+                        docType: "CARRIER_INVOICE",
+                        status: { not: "ARCHIVED" },
+                    },
+                    select: { shipmentLeadId: true },
+                }),
+            ]);
             for (const d of rcDocs) {
                 if (!rcByLead.has(d.shipmentLeadId)) {
                     rcByLead.set(d.shipmentLeadId, d.contentJson);
                 }
+            }
+            for (const d of carrierInvDocs) {
+                carrierInvoiceLeads.add(d.shipmentLeadId);
             }
         }
 
@@ -585,6 +603,7 @@ where: { loadNumber: { not: null } },
             const pickupDay = r.opsPickupAt || r.pickupFrom || r.pickupTo || null;
             const deliveryDay = r.opsDeliveryAt || r.deliveryFrom || r.deliveryTo || null;
             const status = String(r.status || "").toUpperCase();
+            const hasCarrierInvoice = carrierInvoiceLeads.has(r.shipmentLeadId);
             return {
                 ...r,
                 carrierRate,
@@ -604,6 +623,7 @@ where: { loadNumber: { not: null } },
                 isVoided: status === "VOIDED",
                 isReactivated: Boolean(r.accountingReactivatedAt) && status !== "VOIDED",
                 accountingEligible: isAccountingWorkEligible(r),
+                hasCarrierInvoice,
             };
         });
 
@@ -643,13 +663,15 @@ where: { loadNumber: { not: null } },
                 })
             );
         } else if (f === "carrier-payment") {
-            // Carrier Payments: customer PAID + carrier UNPAID (not waiting on customer).
+            // Carrier Payments: VERIFIED + carrier invoice + customer PAID + carrier UNPAID.
             list = list.filter((r) =>
                 belongsInCarrierPayments({
                     status: r.status,
                     accountingDocStatus: r.accountingDocStatus,
                     customerPaidAt: r.customerPaidAt,
                     carrierPaidAt: r.carrierPaidAt,
+                    accountingReadyForCarrierPayment: r.accountingReadyForCarrierPayment,
+                    hasCarrierInvoice: r.hasCarrierInvoice,
                     accountingEligible: r.accountingEligible,
                 })
             );

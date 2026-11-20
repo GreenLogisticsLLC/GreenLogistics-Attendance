@@ -4,11 +4,13 @@
  * Rules (confirmed with Accounting):
  *   - Customer Billing = VERIFIED loads still waiting for customer payment.
  *     PENDING / Needs Correction stay in Loads for Review — not Billing.
- *   - Carrier Payments = customer already PAID and carrier still UNPAID.
+ *   - Carrier Payments = VERIFIED + carrier invoice added + customer PAID +
+ *     carrier still UNPAID.
  *   - Customer UNPAID + Carrier PAID → Customer Billing only.
  *   - Customer PAID + Carrier PAID → neither (Archive).
  *
- * Uses doc status + paid timestamps — never rates or ready flags alone.
+ * Carrier invoice = accountingReadyForCarrierPayment and/or a current
+ * CARRIER_INVOICE document (set when Accounting uploads/sends the invoice).
  */
 
 export type PaymentSectionInput = {
@@ -16,6 +18,9 @@ export type PaymentSectionInput = {
     accountingDocStatus?: string | null;
     customerPaidAt?: Date | string | null;
     carrierPaidAt?: Date | string | null;
+    accountingReadyForCarrierPayment?: boolean | null;
+    /** True when a current CARRIER_INVOICE load document exists. */
+    hasCarrierInvoice?: boolean | null;
     /** Precomputed eligibility; when omitted, voided status alone is checked. */
     accountingEligible?: boolean | null;
 };
@@ -37,6 +42,11 @@ export function isAccountingDocumentsVerified(row: PaymentSectionInput): boolean
     return doc === "VERIFIED" || doc === "APPROVED";
 }
 
+/** Carrier invoice uploaded and/or sent into the Carrier Payments (AP) queue. */
+export function hasCarrierInvoiceForAp(row: PaymentSectionInput): boolean {
+    return Boolean(row.accountingReadyForCarrierPayment) || Boolean(row.hasCarrierInvoice);
+}
+
 /** Customer Billing: VERIFIED + customer still UNPAID (carrier paid or not). */
 export function belongsInCustomerBilling(row: PaymentSectionInput): boolean {
     if (isVoided(row.status)) return false;
@@ -46,12 +56,13 @@ export function belongsInCustomerBilling(row: PaymentSectionInput): boolean {
 }
 
 /**
- * Carrier Payments: customer already PAID and carrier still UNPAID.
- * Does not show loads that are only waiting on the customer.
+ * Carrier Payments: verified docs + carrier invoice + customer paid + carrier unpaid.
  */
 export function belongsInCarrierPayments(row: PaymentSectionInput): boolean {
     if (isVoided(row.status)) return false;
     if (row.accountingEligible === false) return false;
+    if (!isAccountingDocumentsVerified(row)) return false;
+    if (!hasCarrierInvoiceForAp(row)) return false;
     if (!isPaid(row.customerPaidAt)) return false;
     return !isPaid(row.carrierPaidAt);
 }
