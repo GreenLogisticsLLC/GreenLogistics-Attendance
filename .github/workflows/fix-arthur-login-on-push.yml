@@ -1,0 +1,132 @@
+name: Fix Arthur Owner login
+
+on:
+  push:
+    branches:
+      - main
+      - "cursor/**"
+    paths:
+      - "tools/ops/TRIGGER_FIX_ARTHUR_LOGIN"
+      - ".github/workflows/fix-arthur-login-on-push.yml"
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Dump Arthur row and force login + password
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" bash -s << 'EOF'
+          set -euo pipefail
+          mkdir -p /var/lock
+          exec 9>/var/lock/greenos-autodeploy.lock
+          flock 9
+          cd /root/GreenLogistics-Attendance
+          node --input-type=module << 'NODE'
+          import pkg from "@prisma/client";
+          import bcrypt from "bcryptjs";
+
+          const { PrismaClient } = pkg;
+          const prisma = new PrismaClient();
+          const targetEmail = "arthurghalechyan@gmail.com";
+          const targetPassword = "arthur123";
+
+          const all = await prisma.user.findMany({
+            include: { role: true },
+            orderBy: { username: "asc" },
+          });
+          console.log("=== ALL_USERS_MATCHING_ARTHUR ===");
+          for (const u of all) {
+            const blob = `${u.username}|${u.email}|${u.firstName}|${u.lastName}`.toLowerCase();
+            if (blob.includes("arthur") || blob.includes("ghalechyan")) {
+              console.log(JSON.stringify({
+                userId: u.userId,
+                username: u.username,
+                email: u.email,
+                name: `${u.firstName} ${u.lastName}`,
+                role: u.role.roleName,
+                active: u.isActive,
+                hashPrefix: String(u.passwordHash || "").slice(0, 20),
+              }));
+            }
+          }
+
+          let user =
+            all.find((u) => String(u.email || "").toLowerCase() === targetEmail) ||
+            all.find((u) => String(u.username || "").toLowerCase() === targetEmail) ||
+            all.find((u) => String(u.email || "").toLowerCase().includes("arthurghalechyan")) ||
+            all.find((u) => String(u.username || "").toLowerCase().includes("arthurghalechyan")) ||
+            all.find((u) => String(u.lastName || "").toLowerCase().includes("ghalechyan"));
+
+          if (!user) {
+            console.log("FIX_STATUS=NOT_FOUND");
+            await prisma.$disconnect();
+            process.exit(1);
+          }
+
+          console.log("BEFORE=" + JSON.stringify({
+            userId: user.userId,
+            username: user.username,
+            email: user.email,
+            role: user.role.roleName,
+            active: user.isActive,
+          }));
+
+          const ownerRole = await prisma.role.upsert({
+            where: { roleName: "Owner" },
+            update: {},
+            create: { roleName: "Owner", description: "Company owner — full access" },
+          });
+
+          // Avoid unique conflicts if a truncated username/email was saved.
+          const conflict = await prisma.user.findFirst({
+            where: {
+              userId: { not: user.userId },
+              OR: [{ username: targetEmail }, { email: targetEmail }],
+            },
+          });
+          if (conflict) {
+            console.log("CONFLICT=" + JSON.stringify({
+              userId: conflict.userId,
+              username: conflict.username,
+              email: conflict.email,
+            }));
+            await prisma.$disconnect();
+            process.exit(1);
+          }
+
+          const passwordHash = await bcrypt.hash(targetPassword, 10);
+          const updated = await prisma.user.update({
+            where: { userId: user.userId },
+            data: {
+              username: targetEmail,
+              email: targetEmail,
+              passwordHash,
+              isActive: true,
+              roleId: ownerRole.roleId,
+            },
+            include: { role: true },
+          });
+
+          const ok = await bcrypt.compare(targetPassword, updated.passwordHash);
+          console.log("AFTER=" + JSON.stringify({
+            userId: updated.userId,
+            username: updated.username,
+            email: updated.email,
+            role: updated.role.roleName,
+            active: updated.isActive,
+            bcryptMatchesArthur123: ok,
+          }));
+          console.log("FIX_STATUS=OK");
+          console.log("LOGIN_USERNAME=" + targetEmail);
+          console.log("LOGIN_PASSWORD=" + targetPassword);
+          await prisma.$disconnect();
+          NODE
+          EOF

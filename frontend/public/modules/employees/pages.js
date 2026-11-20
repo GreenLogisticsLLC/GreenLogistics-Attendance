@@ -809,14 +809,14 @@ window.GreenOSModules["employees"] = {
             '<label>Last name <input class="emp-ch-last" value="' +
             esc(person.lastName || "") +
             '" required></label>' +
-            '<label>Login (username) <input class="emp-ch-username" value="' +
+            '<label>Login (username) <input class="emp-ch-username" style="min-width:16rem" size="36" value="' +
             esc(person.username || "") +
             '" autocomplete="off" required></label>' +
-            '<label>New password <input class="emp-ch-password" type="password" minlength="6" placeholder="Leave blank to keep current" autocomplete="new-password"></label>' +
+            '<label>New password <input class="emp-ch-password" type="password" minlength="6" style="min-width:12rem" placeholder="Leave blank to keep current" autocomplete="new-password"></label>' +
             '<label>Phone number <input class="emp-ch-phone" type="tel" value="' +
             esc(person.phone || "") +
             '"></label>' +
-            '<label>Gmail address <input class="emp-ch-gmail" type="email" value="' +
+            '<label>Gmail address <input class="emp-ch-gmail" type="email" style="min-width:16rem" size="36" value="' +
             esc(person.email || "") +
             '"></label>' +
             '<label>Birthday <input class="emp-ch-bday" type="date" value="' +
@@ -926,11 +926,13 @@ window.GreenOSModules["employees"] = {
                 if (saveBtn) saveBtn.disabled = false;
                 return;
               }
-              var credBody = {};
-              if (username !== String(person.username || "")) credBody.username = username;
+              // Always sync login credentials when username/password/active change.
+              // Also re-apply username even if unchanged when a password is set, so a
+              // truncated display never leaves a broken login after password-only edits.
+              var credBody = { username: username };
               if (password) credBody.password = password;
               if (Boolean(person.isActive) !== wantActive) credBody.isActive = wantActive;
-              if (Object.keys(credBody).length) {
+              if (password || username !== String(person.username || "") || credBody.isActive !== undefined) {
                 var cred = await api(
                   "/users/" + encodeURIComponent(userId) + "/credentials",
                   { method: "PATCH", body: credBody }
@@ -946,7 +948,9 @@ window.GreenOSModules["employees"] = {
                   " · " +
                   (cred.message || "credentials updated") +
                   (password
-                    ? " · Temporary password is what you typed — copy it now; it will not be shown again."
+                    ? " · New password saved for login " +
+                      username +
+                      " — use that exact login on Sign In."
                     : "");
               } else {
                 statusEl.textContent = data.message || "Saved";
