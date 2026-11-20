@@ -20,12 +20,14 @@ test("login hint keeps a real email and drops anything else", () => {
     assert.equal(normalizeLoginHint(""), "");
 });
 
-test("mailbox list includes team leads and people who still need an attendance link", () => {
+test("mailbox list includes brokers and team leads without filtering attendance badge status", () => {
     const where = mailboxAccountWhere(null);
     const role = where.role as { roleName: { in: string[] } };
     assert.deepEqual(role.roleName.in.sort(), ["Broker", "Team Lead"]);
-    const or = where.OR as Array<Record<string, unknown>>;
-    assert.equal(or.some((row) => row.employeeId === null), true);
+    assert.equal(where.isActive, true);
+    // Missing / inactive Attendance badges must still appear so Owner can Connect Gmail.
+    assert.equal(where.OR, undefined);
+    assert.equal(where.employeeId, undefined);
     const scoped = mailboxAccountWhere(["alen-id"]);
     assert.deepEqual(scoped.userId, { in: ["alen-id"] });
     assert.deepEqual(mailboxAccountWhere([]).userId, { in: ["__none__"] });

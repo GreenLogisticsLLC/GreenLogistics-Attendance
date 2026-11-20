@@ -19,10 +19,12 @@ export function normalizeLoginHint(value: string | null | undefined): string {
 }
 
 export function mailboxAccountWhere(teamUserIds?: string[] | null): Record<string, unknown> {
+    // List every active Broker / Team Lead. Do not hide people whose Attendance
+    // badge is missing or inactive — Owner must still be able to find them in
+    // Email Accounts → Add Gmail / Connect (connect creates or refreshes the badge).
     const where: Record<string, unknown> = {
         isActive: true,
         role: { roleName: { in: [Roles.Broker, Roles.TeamLead] } },
-        OR: [{ employee: { is: { status: "ACTIVE" } } }, { employeeId: null }],
     };
     if (teamUserIds) {
         where.userId = { in: teamUserIds.length ? teamUserIds : ["__none__"] };

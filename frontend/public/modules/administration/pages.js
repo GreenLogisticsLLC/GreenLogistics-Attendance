@@ -346,16 +346,56 @@ window.GreenOSModules['administration'] = {
       return response.json();
     }
 
+    function personSearchBlob(row) {
+      return [row.name, row.employeeNumber, row.email, row.gmailAddress, row.role, row.username]
+        .join(" ")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    /** Every word in the query must appear somewhere (order-independent). */
+    function personMatchesQuery(row, query) {
+      var q = String(query || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+      if (!q) return true;
+      var blob = personSearchBlob(row);
+      if (blob.indexOf(q) >= 0) return true;
+      var words = q.split(" ").filter(Boolean);
+      return words.every(function (word) {
+        return blob.indexOf(word) >= 0;
+      });
+    }
+
+    function filterPeople(rows, query) {
+      return (rows || []).filter(function (row) {
+        return personMatchesQuery(row, query);
+      });
+    }
+
+    function resolvePerson(rows, query, gmailHint) {
+      var matches = filterPeople(rows, query);
+      if (matches.length === 1) return matches[0];
+      var gmail = String(gmailHint || "")
+        .trim()
+        .toLowerCase();
+      if (gmail) {
+        var byMail = (rows || []).filter(function (row) {
+          var email = String(row.email || "").toLowerCase();
+          var g = String(row.gmailAddress || "").toLowerCase();
+          return email === gmail || g === gmail;
+        });
+        if (byMail.length === 1) return byMail[0];
+      }
+      return null;
+    }
+
     function fillAddSelect(rows, query) {
       if (!addSelect) return;
-      var q = String(query || "").trim().toLowerCase();
-      var options = (rows || []).filter(function (row) {
-        if (!q) return true;
-        var blob = [row.name, row.employeeNumber, row.email, row.gmailAddress, row.role, row.username]
-          .join(" ")
-          .toLowerCase();
-        return blob.indexOf(q) >= 0;
-      });
+      var q = String(query || "").trim();
+      var options = filterPeople(rows, q);
       options.sort(function (a, b) {
         var ac = a.status === "CONNECTED" && a.isActive ? 1 : 0;
         var bc = b.status === "CONNECTED" && b.isActive ? 1 : 0;
@@ -363,11 +403,19 @@ window.GreenOSModules['administration'] = {
         return String(a.name || "").localeCompare(String(b.name || ""));
       });
       if (!options.length) {
-        addSelect.innerHTML = '<option value="">No matching broker or team lead</option>';
+        addSelect.innerHTML =
+          '<option value="">' +
+          (q
+            ? "No matching broker or team lead"
+            : "No brokers / team leads loaded") +
+          "</option>";
         return;
       }
+      var autoId = options.length === 1 ? options[0].userId : "";
       addSelect.innerHTML =
-        '<option value="">Select person…</option>' +
+        '<option value="">' +
+        (options.length === 1 ? "1 match — selected" : "Select person…") +
+        "</option>" +
         options
           .map(function (row) {
             var label =
@@ -381,12 +429,21 @@ window.GreenOSModules['administration'] = {
               esc(row.userId) +
               '" data-email="' +
               esc(row.email || "") +
-              '">' +
+              '"' +
+              (autoId && row.userId === autoId ? " selected" : "") +
+              ">" +
               esc(label) +
               "</option>"
             );
           })
           .join("");
+      if (autoId) {
+        addSelect.value = autoId;
+        var opt = addSelect.options[addSelect.selectedIndex];
+        var stored = opt ? opt.getAttribute("data-email") || "" : "";
+        var input = body.querySelector("#email-accounts-add-gmail");
+        if (input && stored && !String(input.value || "").trim()) input.value = stored;
+      }
     }
 
     function showAddPanel(show) {
@@ -624,13 +681,32 @@ window.GreenOSModules['administration'] = {
       if (input && stored) input.value = stored;
     });
     body.querySelector('#email-accounts-add-connect')?.addEventListener('click', async function () {
-      var userId = addSelect && addSelect.value;
-      if (!userId) {
-        if (addMsg) addMsg.textContent = 'Select a broker or team lead first.';
-        return;
-      }
+      var searchInput = body.querySelector('#email-accounts-add-search');
       var gmailInput = body.querySelector('#email-accounts-add-gmail');
       var gmail = gmailInput ? String(gmailInput.value || '').trim() : '';
+      var userId = addSelect && addSelect.value;
+      if (!userId) {
+        var resolved = resolvePerson(
+          lastRows,
+          searchInput && searchInput.value,
+          gmail
+        );
+        if (resolved) {
+          userId = resolved.userId;
+          if (addSelect) {
+            fillAddSelect(lastRows, searchInput && searchInput.value);
+            addSelect.value = userId;
+          }
+        }
+      }
+      if (!userId) {
+        if (addMsg) {
+          addMsg.textContent = lastRows.length
+            ? 'Select a broker or team lead first. Only Brokers and Team Leads appear here (not Manager / Owner). Clear Find or try first name, last name, or email.'
+            : 'Broker list not loaded yet — press Refresh, then try again.';
+        }
+        return;
+      }
       if (gmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gmail)) {
         if (addMsg) addMsg.textContent = 'Enter a Gmail address like name@greengrouplogistics.com.';
         return;
