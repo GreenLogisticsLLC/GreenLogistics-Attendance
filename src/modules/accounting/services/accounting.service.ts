@@ -13,7 +13,10 @@ import { domainEventEngine } from "../../shipment/services/domain-event.engine.j
 import { AccountingDocStatus } from "../accounting.constants.js";
 import { buildAccountingDocuments } from "../accounting-documents.js";
 import { sendCustomerInvoiceEmail } from "../customer-invoice-email.js";
-import { customerPaymentQuote } from "../../shipment/customer-payment.js";
+import {
+    customerPaymentQuote,
+    sumCustomerSplitPayments,
+} from "../../shipment/customer-payment.js";
 import { carrierPaymentOptionLabel } from "../../carriers/constants.js";
 import { resolveLoadDocumentAbsolutePath } from "../../shipment/services/load-pdf.service.js";
 import { canTransition } from "../../shipment/shipment.lifecycle.js";
@@ -1048,8 +1051,41 @@ where: { loadNumber: { not: null } },
                 invoiceFeeAmountUsd: s.invoiceFeeAmountUsd,
                 invoiceSubtotalUsd: s.invoiceSubtotalUsd,
                 invoiceTotalUsd: s.invoiceTotalUsd,
-                amountReceived: s.customerPaidAt ? customerTotal : 0,
-                outstanding: s.customerPaidAt ? 0 : customerTotal,
+                firstPaymentDate: formatAccountingPaymentDateInput(
+                    s.customerFirstPaymentDate
+                ),
+                firstPaymentAmount:
+                    s.customerFirstPaymentAmount != null
+                        ? Number(s.customerFirstPaymentAmount)
+                        : null,
+                secondPaymentDate: formatAccountingPaymentDateInput(
+                    s.customerSecondPaymentDate
+                ),
+                secondPaymentAmount:
+                    s.customerSecondPaymentAmount != null
+                        ? Number(s.customerSecondPaymentAmount)
+                        : null,
+                amountReceived: s.customerPaidAt
+                    ? customerTotal
+                    : sumCustomerSplitPayments({
+                          customerFirstPaymentAmount: s.customerFirstPaymentAmount,
+                          customerSecondPaymentAmount: s.customerSecondPaymentAmount,
+                      }),
+                outstanding: s.customerPaidAt
+                    ? 0
+                    : Math.max(
+                          0,
+                          Math.round(
+                              ((customerTotal || 0) -
+                                  sumCustomerSplitPayments({
+                                      customerFirstPaymentAmount:
+                                          s.customerFirstPaymentAmount,
+                                      customerSecondPaymentAmount:
+                                          s.customerSecondPaymentAmount,
+                                  })) *
+                                  100
+                          ) / 100
+                      ),
                 paymentStatus: s.paymentStatus || (s.customerPaidAt ? "PAID" : "UNPAID"),
                 paidAt: s.customerPaidAt,
                 invoiceDoc: customerInvoice || null,
