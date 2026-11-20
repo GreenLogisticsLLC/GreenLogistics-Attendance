@@ -76,12 +76,50 @@ window.GreenOSModules.carriers = {
       "/download" +
       (inline ? "?inline=1" : "") +
       (token ? (inline ? "&" : "?") + "token=" + encodeURIComponent(token) : "");
-    var res = await fetch(url, { headers: this.authHeaders() });
-    if (!res.ok) throw new Error(inline ? "Failed to open document" : "Download failed");
-    var blob = await res.blob();
+    var res = await fetch(url, {
+      headers: this.authHeaders({ Accept: "application/pdf,image/*,*/*" }),
+      cache: "no-store",
+    });
+    var headerType = String(res.headers.get("content-type") || "")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    if (
+      !res.ok ||
+      headerType.indexOf("application/json") === 0 ||
+      headerType.indexOf("text/html") === 0
+    ) {
+      var errBody = await res.json().catch(function () {
+        return {};
+      });
+      throw new Error(
+        errBody.message || (inline ? "Failed to open document" : "Download failed")
+      );
+    }
+    var name = String(filename || "document.pdf");
+    var type = headerType;
+    if (
+      !type ||
+      type === "application/octet-stream" ||
+      type === "application/x-pdf" ||
+      /\.pdf$/i.test(name)
+    ) {
+      if (/\.pdf$/i.test(name) || type === "application/pdf" || type === "application/x-pdf") {
+        type = "application/pdf";
+      }
+    }
+    var bytes = await res.arrayBuffer();
+    var blob = new Blob([bytes], { type: type || "application/pdf" });
     var obj = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = obj;
     if (inline) {
-      window.open(obj, "_blank", "noopener");
+      // Native <a target=_blank> survives popup blockers; avoid window.open+noopener on blob: URLs.
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       setTimeout(function () {
         try {
           URL.revokeObjectURL(obj);
@@ -89,11 +127,15 @@ window.GreenOSModules.carriers = {
       }, 60000);
       return;
     }
-    var a = document.createElement("a");
-    a.href = obj;
-    a.download = filename || "document.pdf";
+    a.download = name;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(obj);
+    a.remove();
+    setTimeout(function () {
+      try {
+        URL.revokeObjectURL(obj);
+      } catch (e) {}
+    }, 1500);
   },
 
   render(root, subPageId) {

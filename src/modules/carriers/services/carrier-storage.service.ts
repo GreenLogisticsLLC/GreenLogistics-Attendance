@@ -5,7 +5,20 @@ import { fileURLToPath } from "url";
 import { MAX_UPLOAD_BYTES } from "../constants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const CARRIER_UPLOADS_ROOT = path.join(__dirname, "..", "..", "..", "uploads", "carriers");
+
+/**
+ * Canonical carrier-doc storage under the process working directory.
+ * Prefer cwd so `tsx` (src/) and `node dist/` share the same files — and so
+ * `tsc` / dist rebuilds do not wipe uploaded Broker–Carrier Agreements.
+ * Legacy roots (src/uploads, dist/uploads, __dirname-relative) are still resolved when reading.
+ */
+export const CARRIER_UPLOADS_ROOT = path.join(process.cwd(), "uploads", "carriers");
+
+const LEGACY_CARRIER_UPLOADS_ROOTS = [
+    path.join(__dirname, "..", "..", "..", "uploads", "carriers"),
+    path.join(process.cwd(), "src", "uploads", "carriers"),
+    path.join(process.cwd(), "dist", "uploads", "carriers"),
+];
 
 /** Deny-list only — carriers may upload any document format (PDF, Word, photos, HEIC, etc.). */
 const BLOCKED_EXT = new Set([
@@ -60,6 +73,39 @@ function safeFileName(name: string): string {
             .trim()
             .slice(0, 120) || "file"
     );
+}
+
+function assertSafeStorageKey(carrierId: string, storageKey: string, root: string): string {
+    const resolved = path.resolve(path.join(root, carrierId, storageKey));
+    const carrierRoot = path.resolve(path.join(root, carrierId));
+    if (!resolved.startsWith(carrierRoot + path.sep) && resolved !== carrierRoot) {
+        throw Object.assign(new Error("Invalid storage key"), { status: 400 });
+    }
+    return resolved;
+}
+
+/** Absolute path to a stored carrier file, checking cwd + legacy roots. */
+export function resolveCarrierDocumentAbsolutePath(
+    carrierId: string,
+    storageKey: string
+): string | null {
+    const id = String(carrierId || "").trim();
+    const key = String(storageKey || "").trim();
+    if (!id || !key) return null;
+    const roots = [CARRIER_UPLOADS_ROOT, ...LEGACY_CARRIER_UPLOADS_ROOTS];
+    const seen = new Set<string>();
+    for (const root of roots) {
+        let abs: string;
+        try {
+            abs = assertSafeStorageKey(id, key, root);
+        } catch {
+            continue;
+        }
+        if (seen.has(abs)) continue;
+        seen.add(abs);
+        if (fs.existsSync(abs)) return abs;
+    }
+    return null;
 }
 
 export class CarrierStorageService {
@@ -117,22 +163,29 @@ export class CarrierStorageService {
         };
     }
 
+    /**
+     * Preferred path for a storage key under the canonical root (for writes / DB).
+     * For reads prefer {@link resolveCarrierDocumentAbsolutePath}.
+     */
     absolutePath(carrierId: string, storageKey: string): string {
-        const resolved = path.resolve(path.join(CARRIER_UPLOADS_ROOT, carrierId, storageKey));
-        const root = path.resolve(path.join(CARRIER_UPLOADS_ROOT, carrierId));
-        if (!resolved.startsWith(root + path.sep) && resolved !== root) {
-            throw Object.assign(new Error("Invalid storage key"), { status: 400 });
-        }
-        return resolved;
+        const found = resolveCarrierDocumentAbsolutePath(carrierId, storageKey);
+        if (found) return found;
+        return assertSafeStorageKey(carrierId, storageKey, CARRIER_UPLOADS_ROOT);
     }
 
-    /** Best-effort unlink of a stored carrier file (missing file is OK). */
+    /** Best-effort unlink of a stored carrier file across canonical + legacy roots. */
     tryUnlink(carrierId: string, storageKey: string): void {
-        try {
-            const absolutePath = this.absolutePath(carrierId, storageKey);
-            if (fs.existsSync(absolutePath)) fs.unlinkSync(absolutePath);
-        } catch {
-            /* ignore invalid key / missing file */
+        const roots = [CARRIER_UPLOADS_ROOT, ...LEGACY_CARRIER_UPLOADS_ROOTS];
+        const seen = new Set<string>();
+        for (const root of roots) {
+            try {
+                const absolutePath = assertSafeStorageKey(carrierId, storageKey, root);
+                if (seen.has(absolutePath)) continue;
+                seen.add(absolutePath);
+                if (fs.existsSync(absolutePath)) fs.unlinkSync(absolutePath);
+            } catch {
+                /* ignore invalid key / missing file */
+            }
         }
     }
 }

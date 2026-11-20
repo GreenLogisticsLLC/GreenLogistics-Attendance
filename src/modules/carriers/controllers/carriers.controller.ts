@@ -310,12 +310,25 @@ export const carriersController = {
             if (!fs.existsSync(absolutePath)) {
                 return res.status(404).json({ success: false, message: "File missing on disk" });
             }
-            res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
             const inline = String(req.query.inline || "") === "1";
-            const safeName = encodeURIComponent(doc.originalFilename || "document.pdf");
+            const fileName = String(doc.originalFilename || "document.pdf");
+            const lowerName = fileName.toLowerCase();
+            let contentType = String(doc.mimeType || "").trim() || "application/octet-stream";
+            if (
+                lowerName.endsWith(".pdf") ||
+                contentType === "application/octet-stream" ||
+                contentType === "application/x-pdf"
+            ) {
+                if (lowerName.endsWith(".pdf") || doc.documentType === "BROKER_CARRIER_AGREEMENT") {
+                    contentType = "application/pdf";
+                }
+            }
+            res.setHeader("Content-Type", contentType);
+            const asciiName = fileName.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "");
+            const utf8Name = encodeURIComponent(fileName);
             res.setHeader(
                 "Content-Disposition",
-                `${inline ? "inline" : "attachment"}; filename="${safeName}"`
+                `${inline ? "inline" : "attachment"}; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`
             );
             fs.createReadStream(absolutePath).pipe(res);
         } catch (err) {

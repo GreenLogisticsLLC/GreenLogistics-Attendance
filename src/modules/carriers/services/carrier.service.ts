@@ -21,7 +21,11 @@ import {
     normName,
 } from "../carrier-superseded.js";
 import { carrierEmailService } from "./carrier-email.service.js";
-import { carrierStorageService, CARRIER_UPLOADS_ROOT } from "./carrier-storage.service.js";
+import {
+    carrierStorageService,
+    CARRIER_UPLOADS_ROOT,
+    resolveCarrierDocumentAbsolutePath,
+} from "./carrier-storage.service.js";
 import { storeCarrierAgreementPdf } from "./carrier-agreement-pdf.service.js";
 import { pickAgreementToKeep } from "../agreement-copies.js";
 import { shipmentService } from "../../shipment/services/shipment.service.js";
@@ -2940,13 +2944,90 @@ export class CarrierService {
         };
     }
 
+    /**
+     * Rebuild a missing Broker–Carrier Agreement PDF onto the same documentId
+     * (View keeps working after dist rebuilds wiped legacy upload folders).
+     */
+    private async healMissingAgreementPdf(
+        carrierId: string,
+        doc: {
+            documentId: string;
+            storageKey: string;
+            version: number;
+            originalFilename: string;
+        }
+    ) {
+        const carrier = await prisma.carrier.findUnique({ where: { carrierId } });
+        if (!carrier) return null;
+        const signature = await prisma.carrierAgreementSignature.findFirst({
+            where: { carrierId },
+            orderBy: { signedAt: "desc" },
+        });
+        if (!signature) return null;
+        const template = await this.ensureAgreementTemplate();
+        const oldKey = doc.storageKey;
+        const stored = await storeCarrierAgreementPdf({
+            carrierId,
+            version: doc.version || 1,
+            legalName: carrier.legalName,
+            dbaName: carrier.dbaName,
+            contactName: carrier.contactName,
+            email: carrier.email,
+            phone: carrier.phone,
+            fax: carrier.fax,
+            federalTaxId: carrier.federalTaxId,
+            mcNumber: carrier.mcNumber,
+            dotNumber: carrier.dotNumber,
+            address: carrier.address,
+            city: carrier.city,
+            state: carrier.state,
+            zip: carrier.zip,
+            equipmentNotes: carrier.equipmentNotes,
+            paymentOption: carrier.paymentOption,
+            factoringCompanyName: carrier.factoringCompanyName,
+            agreementTitle: template.title,
+            agreementVersion: template.version,
+            agreementBody: template.bodyText,
+            signerName: signature.signerName,
+            signerEmail: signature.signerEmail,
+            signatureDataUrl: signature.signatureData,
+            signedAt: signature.signedAt,
+            ipAddress: signature.ipAddress,
+            documentHash: signature.documentHash,
+        });
+        const updated = await prisma.carrierDocument.update({
+            where: { documentId: doc.documentId },
+            data: {
+                storageKey: stored.storageKey,
+                mimeType: "application/pdf",
+                fileSize: stored.fileSize,
+                checksum: stored.checksum,
+                status: "CURRENT",
+            },
+        });
+        if (oldKey && oldKey !== stored.storageKey) {
+            carrierStorageService.tryUnlink(carrierId, oldKey);
+        }
+        console.warn(
+            `[agreement-pdf] healed missing file for ${carrierId} doc ${doc.documentId} → ${stored.storageKey}`
+        );
+        return { doc: updated, absolutePath: stored.absolutePath };
+    }
+
     async downloadDocument(carrierId: string, documentId: string, actor: Actor) {
         await this.assertCarrierAccess(carrierId, actor);
         const doc = await prisma.carrierDocument.findFirst({
             where: { documentId, carrierId },
         });
         if (!doc) throw Object.assign(new Error("Document not found"), { status: 404 });
-        const absolutePath = carrierStorageService.absolutePath(carrierId, doc.storageKey);
+        let absolutePath = resolveCarrierDocumentAbsolutePath(carrierId, doc.storageKey);
+        if (!absolutePath && doc.documentType === "BROKER_CARRIER_AGREEMENT") {
+            const healed = await this.healMissingAgreementPdf(carrierId, doc);
+            if (healed) return healed;
+        }
+        if (!absolutePath) {
+            throw Object.assign(new Error("File missing on disk"), { status: 404 });
+        }
         return { doc, absolutePath };
     }
 
@@ -3074,7 +3155,17 @@ export class CarrierService {
             },
         });
         await prisma.carrier.delete({ where: { carrierId } });
-        fs.rmSync(path.join(CARRIER_UPLOADS_ROOT, carrierId), { recursive: true, force: true });
+        for (const root of [
+            CARRIER_UPLOADS_ROOT,
+            path.join(process.cwd(), "src", "uploads", "carriers"),
+            path.join(process.cwd(), "dist", "uploads", "carriers"),
+        ]) {
+            try {
+                fs.rmSync(path.join(root, carrierId), { recursive: true, force: true });
+            } catch {
+                /* ignore */
+            }
+        }
         return { carrierId, legalName: carrier.legalName };
     }
 }

@@ -2,7 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { prisma } from "../../../config/database.js";
-import { carrierStorageService } from "../../carriers/services/carrier-storage.service.js";
+import { resolveCarrierDocumentAbsolutePath } from "../../carriers/services/carrier-storage.service.js";
 import { resolveLoadDocumentAbsolutePath } from "../../shipment/services/load-pdf.service.js";
 import { classifyDocumentText, type DocAiType } from "./classify.js";
 import { extractFieldsForType, type ExtractedField } from "./extract.js";
@@ -96,7 +96,8 @@ async function resolveFilePath(job: {
     if (job.documentSource === "CARRIER") {
         const doc = await prisma.carrierDocument.findUnique({ where: { documentId: job.documentId } });
         if (!doc) return null;
-        const abs = carrierStorageService.absolutePath(doc.carrierId, doc.storageKey);
+        const abs = resolveCarrierDocumentAbsolutePath(doc.carrierId, doc.storageKey);
+        if (!abs) return null;
         return {
             absPath: abs,
             declaredType: doc.documentType,

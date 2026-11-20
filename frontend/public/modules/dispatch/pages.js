@@ -67,6 +67,7 @@ window.GreenOSModules["dispatch"] = {
     if (window.GreenOSModules && window.GreenOSModules.carriers && window.GreenOSModules.carriers.openCarrierDoc) {
       return window.GreenOSModules.carriers.openCarrierDoc(carrierId, documentId, filename, inline);
     }
+    // Fallback mirrors carriers.openCarrierDoc when the carriers module is not loaded.
     var token = localStorage.getItem("gl_token") || "";
     var url =
       "/api/carriers/" +
@@ -75,12 +76,39 @@ window.GreenOSModules["dispatch"] = {
       encodeURIComponent(documentId) +
       "/download" +
       (inline ? "?inline=1" : "");
-    var res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
-    if (!res.ok) throw new Error(inline ? "Failed to open document" : "Download failed");
-    var blob = await res.blob();
+    var headers = { Accept: "application/pdf,image/*,*/*" };
+    if (token) headers.Authorization = "Bearer " + token;
+    var res = await fetch(url, { headers: headers, cache: "no-store" });
+    var headerType = String(res.headers.get("content-type") || "")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    if (
+      !res.ok ||
+      headerType.indexOf("application/json") === 0 ||
+      headerType.indexOf("text/html") === 0
+    ) {
+      var errBody = await res.json().catch(function () {
+        return {};
+      });
+      throw new Error(errBody.message || (inline ? "Failed to open document" : "Download failed"));
+    }
+    var name = String(filename || "document.pdf");
+    var type =
+      /\.pdf$/i.test(name) || headerType === "application/pdf" || headerType === "application/x-pdf"
+        ? "application/pdf"
+        : headerType || "application/pdf";
+    var bytes = await res.arrayBuffer();
+    var blob = new Blob([bytes], { type: type });
     var obj = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = obj;
     if (inline) {
-      window.open(obj, "_blank", "noopener");
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       setTimeout(function () {
         try {
           URL.revokeObjectURL(obj);
@@ -88,11 +116,15 @@ window.GreenOSModules["dispatch"] = {
       }, 60000);
       return;
     }
-    var a = document.createElement("a");
-    a.href = obj;
-    a.download = filename || "document.pdf";
+    a.download = name;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(obj);
+    a.remove();
+    setTimeout(function () {
+      try {
+        URL.revokeObjectURL(obj);
+      } catch (e) {}
+    }, 1500);
   },
 
   carrierDocBotVerdictHtml(ai, opts) {
