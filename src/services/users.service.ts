@@ -794,13 +794,9 @@ export class UsersService {
         if (nextRole === Roles.Broker && user.role.roleName === Roles.Broker && input.teamLeadId !== undefined && !teamLeadId) {
             return { ok: false as const, status: 422, message: "Select a Team Lead for this Broker" };
         }
-        if (user.role.roleName === Roles.TeamLead && nextRole !== Roles.TeamLead && !transferTeamToUserId) {
-            return {
-                ok: false as const,
-                status: 422,
-                message: "Choose who takes this Team Lead's brokers before changing the status",
-            };
-        }
+        // Leaving Team Lead without a transfer target is allowed — brokers are
+        // unassigned (same as updateUserRole / clearTeamLeadership). UI may send
+        // transferTeamToUserId when Owner wants to hand the team to someone else.
 
         try {
             await prisma.user.update({

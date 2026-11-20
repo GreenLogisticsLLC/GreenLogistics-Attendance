@@ -425,7 +425,9 @@ window.GreenOSModules["employees"] = {
     }
 
     function transferOptionsHtml(teamLeads, excludeUserId) {
-      var opts = '<option value="">Transfer team to… (required if leaving Team Lead)</option>';
+      var opts =
+        '<option value="">Transfer team to… (optional)</option>' +
+        '<option value="__vacant__">Leave vacant — unassign brokers</option>';
       (teamLeads || []).forEach(function (tl) {
         if (excludeUserId && tl.userId === excludeUserId) return;
         opts +=
@@ -436,7 +438,7 @@ window.GreenOSModules["employees"] = {
           "</option>";
       });
       return (
-        '<select class="emp-transfer-team-select" style="margin-top:0.35rem;display:none">' +
+        '<select class="emp-transfer-team-select" style="margin-top:0.35rem;display:none;min-width:12rem">' +
         opts +
         "</select>"
       );
@@ -559,7 +561,7 @@ window.GreenOSModules["employees"] = {
               teamLeadOptionsHtml(teamLeads, u.teamLeadId || "", isBroker, u.userId) +
               transferOptionsHtml(teamLeads, u.userId) +
               (isTeamLead
-                ? '<div class="gos-muted" style="font-size:0.8rem;margin-top:0.25rem">Team Lead — use transfer if changing role</div>'
+                ? '<div class="gos-muted" style="font-size:0.8rem;margin-top:0.25rem">Team Lead — if you change role, pick who takes the team (or Leave vacant)</div>'
                 : "") +
               "</td>" +
               '<td class="emp-actions">' +
@@ -584,12 +586,32 @@ window.GreenOSModules["employees"] = {
           var prev = roleSelect.getAttribute("data-prev") || "";
           if (tl) {
             tl.disabled = role !== "Broker";
-            if (role !== "Broker") tl.value = "";
+            if (role !== "Broker") {
+              tl.value = "";
+            } else if (!tl.value) {
+              // Auto-pick a real Team Lead when possible so Save is not blocked.
+              var pick = "";
+              for (var i = 0; i < tl.options.length; i++) {
+                if (!tl.options[i].value) continue;
+                // Prefer current Team Leads (no "(Role)" suffix) over promote-on-assign.
+                if (String(tl.options[i].text || "").indexOf("(") === -1) {
+                  pick = tl.options[i].value;
+                  break;
+                }
+                if (!pick) pick = tl.options[i].value;
+              }
+              if (pick) tl.value = pick;
+            }
           }
           if (transfer) {
             var showTransfer = prev === "Team Lead" && role !== "Team Lead";
             transfer.style.display = showTransfer ? "block" : "none";
-            if (!showTransfer) transfer.value = "";
+            if (!showTransfer) {
+              transfer.value = "";
+            } else if (!transfer.value) {
+              // Default: leave vacant so Save works immediately (Owner can still pick a person).
+              transfer.value = "__vacant__";
+            }
           }
           if (takeover) {
             var showTakeover = prev !== "Team Lead" && role === "Team Lead";
@@ -644,17 +666,24 @@ window.GreenOSModules["employees"] = {
               return;
             }
             if (role === "Broker" && !teamLeadId) {
-              statusEl.textContent = "Select a Team Lead for this Broker (any employee)";
-              statusEl.style.color = "#ef4444";
-              return;
-            }
-            if (prevRole === "Team Lead" && role !== "Team Lead" && !transferTo) {
               statusEl.textContent =
-                "Choose who takes this Team Lead's brokers before changing the role";
+                "Select a Team Lead for this Broker in the Team Lead / transfer column, then Save";
               statusEl.style.color = "#ef4444";
-              if (transferSelect) transferSelect.style.display = "block";
+              if (tlSelect) {
+                tlSelect.disabled = false;
+                tlSelect.focus();
+              }
               return;
             }
+            if (prevRole === "Team Lead" && role !== "Team Lead") {
+              if (transferSelect) transferSelect.style.display = "block";
+              if (!transferTo) {
+                transferTo = "__vacant__";
+                if (transferSelect) transferSelect.value = "__vacant__";
+              }
+            }
+            var transferTarget =
+              transferTo && transferTo !== "__vacant__" ? transferTo : null;
 
             btn.disabled = true;
             statusEl.textContent = "Saving…";
@@ -663,8 +692,9 @@ window.GreenOSModules["employees"] = {
             try {
               if (roleChanged || takeOverFrom || accChanged) {
                 var roleBody = { role: role };
-                if (prevRole === "Team Lead" && role !== "Team Lead" && transferTo) {
-                  roleBody.transferTeamToUserId = transferTo;
+                if (prevRole === "Team Lead" && role !== "Team Lead") {
+                  // null → backend clears brokers (leave vacant); id → hand team over.
+                  roleBody.transferTeamToUserId = transferTarget;
                 }
                 if (role === "Team Lead" && takeOverFrom) {
                   roleBody.takeOverFromUserId = takeOverFrom;
@@ -814,7 +844,12 @@ window.GreenOSModules["employees"] = {
             var showTransfer = person.role === "Team Lead" && role !== "Team Lead";
             if (transferWrap) transferWrap.style.display = showTransfer ? "" : "none";
             var transferSelect = row.querySelector(".emp-transfer-team-select");
-            if (transferSelect) transferSelect.style.display = showTransfer ? "block" : "none";
+            if (transferSelect) {
+              transferSelect.style.display = showTransfer ? "block" : "none";
+              if (showTransfer && !transferSelect.value) {
+                transferSelect.value = "__vacant__";
+              }
+            }
             if (accWrap) accWrap.style.display = role === "Accounting" ? "" : "none";
           }
           statusSelect?.addEventListener("change", syncChangeExtras);
@@ -845,8 +880,12 @@ window.GreenOSModules["employees"] = {
                   birthDate: row.querySelector(".emp-ch-bday").value || "",
                   role: statusSelect ? statusSelect.value : person.role,
                   teamLeadId: (row.querySelector(".emp-team-lead-select") || {}).value || null,
-                  transferTeamToUserId:
-                    (row.querySelector(".emp-transfer-team-select") || {}).value || null,
+                  transferTeamToUserId: (function () {
+                    var raw =
+                      (row.querySelector(".emp-transfer-team-select") || {}).value || "";
+                    if (!raw || raw === "__vacant__") return null;
+                    return raw;
+                  })(),
                   accountingSubRole: (row.querySelector(".emp-ch-acc") || {}).value || "DOCUMENTS",
                 },
               });
