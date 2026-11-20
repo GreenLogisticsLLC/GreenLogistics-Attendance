@@ -21,6 +21,7 @@ import {
 } from "../parsers/uship/listing-url.js";
 import {
     normalizeUshipTitle,
+    titleMatchesUshipHint,
     titlesFromQuestionAnsweredEmail,
 } from "../parsers/uship/uship-qa-match.js";
 
@@ -108,6 +109,7 @@ async function findShipmentForLifecycle(input: {
                     "DELETED_FROM_CUSTOMER",
                     "ACCEPTED_ANOTHER_COMPANY",
                     "COMPLETED",
+                    "VOIDED",
                 ],
             },
         },
@@ -124,17 +126,29 @@ async function findShipmentForLifecycle(input: {
             viewUrl: true,
             status: true,
             source: true,
+            loadNumber: true,
         },
         take: 400,
     });
     if (hinted.length) {
-        const titleHits = open.filter((lead) => {
-            const title = normalizeUshipTitle(String(lead.shipmentTitle || ""));
-            return title.length >= 4 && hinted.includes(title);
-        });
+        const titleHits = open.filter((lead) =>
+            hinted.some((hint) => titleMatchesUshipHint(String(lead.shipmentTitle || ""), hint))
+        );
         if (titleHits.length === 1) {
             return prisma.shipmentLead.findUnique({
                 where: { shipmentLeadId: titleHits[0].shipmentLeadId },
+            });
+        }
+        // Congrats / soft title "1 Pallet": prefer the Accepted card that still needs a GL#.
+        const needingLoad = titleHits.filter(
+            (lead) =>
+                ["ACCEPT_GREEN", "ACCEPTED", "BOOKED", "BID_SUBMITTED", "CUSTOMER_REPLIED"].includes(
+                    String(lead.status || "").toUpperCase()
+                ) && !String(lead.loadNumber || "").trim()
+        );
+        if (needingLoad.length === 1) {
+            return prisma.shipmentLead.findUnique({
+                where: { shipmentLeadId: needingLoad[0].shipmentLeadId },
             });
         }
     }

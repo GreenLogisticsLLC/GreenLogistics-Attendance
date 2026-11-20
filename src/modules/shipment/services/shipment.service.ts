@@ -129,16 +129,33 @@ export class ShipmentService {
             return shipment;
         }
 
-        if (!["ACCEPT_GREEN", "LOAD_CREATED"].includes(status)) {
+        // Booking Confirmation / Congrats can arrive while the card is still Bid /
+        // Customer Replied / Accept Green. Normalize to ACCEPT_GREEN first so Create
+        // Load always gets a GL# (idempotent if one already exists).
+        const canPromoteToAccept = new Set([
+            "ACCEPT_GREEN",
+            "ACCEPTED",
+            "BOOKED",
+            "BID_SUBMITTED",
+            "QUOTE_SENT",
+            "CUSTOMER_REPLIED",
+            "BROKER_REPLY",
+            "FOLLOW_UP",
+            "WORKING",
+            "AGENT_OPEN",
+            "LOAD_CREATED",
+        ]);
+        if (!canPromoteToAccept.has(status) && !isLoadPhase(status)) {
             throw Object.assign(
                 new Error("Load Number is generated only after Accept Green"),
                 { status: 422 }
             );
         }
 
-        // ACCEPTED / BOOKED aliases → ACCEPT_GREEN. Do NOT call transitionStatus here:
-        // that path also auto-creates a load and would allocate a second GL# (10208, 10210…).
-        if (status === "ACCEPT_GREEN" && shipment.status !== "ACCEPT_GREEN") {
+        // Promote aliases / pre-accept statuses → ACCEPT_GREEN. Do NOT call
+        // transitionStatus here: that path also auto-creates a load and would
+        // allocate a second GL# (10208, 10210…).
+        if (status !== "LOAD_CREATED" && !isLoadPhase(status) && shipment.status !== "ACCEPT_GREEN") {
             await prisma.shipmentLead.update({
                 where: { shipmentLeadId: input.shipmentLeadId },
                 data: {
