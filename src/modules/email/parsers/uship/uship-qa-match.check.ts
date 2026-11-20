@@ -3,7 +3,10 @@
  *   npx tsx src/modules/email/parsers/uship/uship-qa-match.check.ts
  */
 import { customerAnswerExcerpt, detectUshipLifecycleEvent } from "./uship-lifecycle.detector.js";
-import { titlesFromQuestionAnsweredEmail } from "./uship-qa-match.js";
+import {
+    titleMatchesUshipHint,
+    titlesFromQuestionAnsweredEmail,
+} from "./uship-qa-match.js";
 
 function assert(cond: unknown, msg: string) {
     if (!cond) {
@@ -47,4 +50,14 @@ const banner = detectUshipLifecycleEvent(
 );
 assert(banner.kind === "CUSTOMER_RESPOND", `banner kind=${banner.kind}`);
 
-console.log("OK: Question Answered → CUSTOMER_RESPOND + title hints");
+const bookingSubject =
+    "Booking Confirmation - 1 Pallet - CONGRATS! THIS CUSTOMER ACCEPTED YOUR QUOTE AND THIS SHIPMENT IS NOW BOOKED Please contact your shipping customer to confirm";
+const bookingHints = titlesFromQuestionAnsweredEmail(bookingSubject, "");
+assert(bookingHints.includes("1 pallet"), `booking hints=${JSON.stringify(bookingHints)}`);
+assert(
+    titleMatchesUshipHint("1 Pallet Soft Goods Miami", "1 pallet"),
+    "Congrats soft title must match long Instant Alert card title"
+);
+assert(!titleMatchesUshipHint("2 Pallets Dallas", "1 pallet"), "different pallet count must not match");
+
+console.log("OK: Question Answered → CUSTOMER_RESPOND + Booking Confirmation title hints");

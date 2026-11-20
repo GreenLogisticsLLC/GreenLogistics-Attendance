@@ -17,6 +17,7 @@ import {
 } from "../parsers/uship/listing-url.js";
 import {
     normalizeUshipTitle,
+    titleMatchesUshipHint,
     titlesFromQuestionAnsweredEmail,
 } from "../parsers/uship/uship-qa-match.js";
 import {
@@ -24,6 +25,54 @@ import {
     runtimeLog,
 } from "../../../utils/runtime-log.js";
 import { isBrokerGmailTerminalMethod } from "./broker-gmail-classify.js";
+import { isBookingConfirmation } from "../parsers/uship/uship-lifecycle.detector.js";
+import { normalizeStatus } from "../../shipment/shipment.lifecycle.js";
+
+/** Soft-title / listing match must never revive voided ghosts for Congrats. */
+const MATCH_EXCLUDED_STATUSES = [
+    "CLOSED",
+    "LOST",
+    "DELETED_FROM_CUSTOMER",
+    "ACCEPTED_ANOTHER_COMPANY",
+    "COMPLETED",
+    "VOIDED",
+] as const;
+
+/** Prefer cards already in play when Booking Confirmation / Congrats arrives. */
+const BOOKING_PREFERRED_STATUSES = new Set([
+    "ACCEPT_GREEN",
+    "ACCEPTED",
+    "BOOKED",
+    "BID_SUBMITTED",
+    "QUOTE_SENT",
+    "CUSTOMER_REPLIED",
+    "BROKER_REPLY",
+    "FOLLOW_UP",
+    "WORKING",
+    "AGENT_OPEN",
+]);
+
+function pickPreferredLead<T extends { status?: string | null; loadNumber?: string | null }>(
+    rows: T[],
+    preferBookingReady: boolean
+): T | null {
+    if (!rows.length) return null;
+    if (rows.length === 1) return rows[0];
+    if (!preferBookingReady) return null;
+    const preferred = rows.filter((row) => {
+        const status = normalizeStatus(String(row.status || ""));
+        if (!BOOKING_PREFERRED_STATUSES.has(status) && status !== "ACCEPT_GREEN") return false;
+        // Prefer cards that still need a GL# for Create Load.
+        if (status === "ACCEPT_GREEN" || status === "ACCEPTED" || status === "BOOKED") {
+            return !String(row.loadNumber || "").trim();
+        }
+        return true;
+    });
+    if (preferred.length === 1) return preferred[0];
+    const needingLoad = preferred.filter((row) => !String(row.loadNumber || "").trim());
+    if (needingLoad.length === 1) return needingLoad[0];
+    return null;
+}
 
 const USHIP_QUERY =
     "from:(uship.com OR email.uship.com OR notifications.uship.com OR mail.uship.com) newer_than:21d";
@@ -150,13 +199,15 @@ const STRONG_MATCH_METHODS = [
 
 async function matchExactListing(
     externalId: string,
-    userId: string
+    userId: string,
+    preferBookingReady = false
 ): Promise<{ shipmentLeadId: string; assignedBrokerId: string | null } | null> {
     const id = String(externalId || "").replace(/\D/g, "");
     if (!id) return null;
     const rows = await prisma.shipmentLead.findMany({
         where: {
             assignedBrokerId: userId,
+            status: { notIn: [...MATCH_EXCLUDED_STATUSES] },
             OR: [
                 { externalShipmentId: id },
                 { source: "USHIP", externalShipmentId: id },
@@ -171,6 +222,8 @@ async function matchExactListing(
             assignedBrokerId: true,
             viewUrl: true,
             externalShipmentId: true,
+            status: true,
+            loadNumber: true,
         },
         take: 12,
     });
@@ -185,8 +238,12 @@ async function matchExactListing(
         return view.includes(`/${id}/`) || view.endsWith(`/${id}`);
     });
     const unique = [...new Map(matched.map((r) => [r.shipmentLeadId, r])).values()];
-    if (unique.length !== 1) return null;
-    return unique[0];
+    const picked = pickPreferredLead(unique, preferBookingReady);
+    if (!picked) return null;
+    return {
+        shipmentLeadId: picked.shipmentLeadId,
+        assignedBrokerId: picked.assignedBrokerId,
+    };
 }
 
 async function openBrokerLeads(userId: string) {
@@ -194,13 +251,7 @@ async function openBrokerLeads(userId: string) {
         where: {
             assignedBrokerId: userId,
             status: {
-                notIn: [
-                    "CLOSED",
-                    "LOST",
-                    "DELETED_FROM_CUSTOMER",
-                    "ACCEPTED_ANOTHER_COMPANY",
-                    "COMPLETED",
-                ],
+                notIn: [...MATCH_EXCLUDED_STATUSES],
             },
         },
         select: {
@@ -211,6 +262,8 @@ async function openBrokerLeads(userId: string) {
             deliveryCity: true,
             pickupZip: true,
             deliveryZip: true,
+            status: true,
+            loadNumber: true,
         },
         take: 250,
     });
@@ -219,7 +272,8 @@ async function openBrokerLeads(userId: string) {
 async function matchByUniqueTitle(
     userId: string,
     subject: string,
-    body: string
+    body: string,
+    preferBookingReady = false
 ): Promise<{ shipmentLeadId: string; assignedBrokerId: string | null } | null> {
     const hay = normalizeUshipTitle(`${subject}\n${body.slice(0, 2500)}`);
     if (hay.length < 10) return null;
@@ -227,28 +281,35 @@ async function matchByUniqueTitle(
     const leads = await openBrokerLeads(userId);
 
     if (hinted.length) {
-        const exact = leads.filter((lead) => {
-            const title = normalizeUshipTitle(String(lead.shipmentTitle || ""));
-            if (title.length < 4) return false;
-            return hinted.some(
-                (hint) => hint === title || hint.startsWith(title + " ")
-            );
-        });
-        if (exact.length === 1) return exact[0];
+        const exact = leads.filter((lead) =>
+            hinted.some((hint) => titleMatchesUshipHint(String(lead.shipmentTitle || ""), hint))
+        );
+        const picked = pickPreferredLead(exact, preferBookingReady || exact.length > 1);
+        if (picked) {
+            return {
+                shipmentLeadId: picked.shipmentLeadId,
+                assignedBrokerId: picked.assignedBrokerId,
+            };
+        }
     }
 
     const hits = leads.filter((lead) => {
         const title = normalizeUshipTitle(String(lead.shipmentTitle || ""));
         return title.length >= 8 && hay.includes(title);
     });
-    if (hits.length !== 1) return null;
-    return hits[0];
+    const picked = pickPreferredLead(hits, preferBookingReady || hits.length > 1);
+    if (!picked) return null;
+    return {
+        shipmentLeadId: picked.shipmentLeadId,
+        assignedBrokerId: picked.assignedBrokerId,
+    };
 }
 
 async function matchByUniqueRoute(
     userId: string,
     subject: string,
-    body: string
+    body: string,
+    preferBookingReady = false
 ): Promise<{ shipmentLeadId: string; assignedBrokerId: string | null } | null> {
     const hay = `${subject}\n${body}`.toLowerCase();
     const leads = await openBrokerLeads(userId);
@@ -265,8 +326,12 @@ async function matchByUniqueRoute(
         }
         return false;
     });
-    if (hits.length !== 1) return null;
-    return hits[0];
+    const picked = pickPreferredLead(hits, preferBookingReady || hits.length > 1);
+    if (!picked) return null;
+    return {
+        shipmentLeadId: picked.shipmentLeadId,
+        assignedBrokerId: picked.assignedBrokerId,
+    };
 }
 
 async function matchShipment(input: {
@@ -281,6 +346,7 @@ async function matchShipment(input: {
 }): Promise<{ shipmentLeadId: string; method: string } | null> {
     let candidate: { shipmentLeadId: string; assignedBrokerId: string | null } | null = null;
     let method = "";
+    const preferBookingReady = isBookingConfirmation(input.subject, input.body);
 
     const viewListingId = (() => {
         if (!input.viewUrl) return undefined;
@@ -299,7 +365,7 @@ async function matchShipment(input: {
 
     const listingHits: Array<{ shipmentLeadId: string; assignedBrokerId: string | null }> = [];
     for (const listingId of listingIds) {
-        const hit = await matchExactListing(listingId, input.userId);
+        const hit = await matchExactListing(listingId, input.userId, preferBookingReady);
         if (hit) listingHits.push(hit);
     }
     const uniqueListings = [
@@ -312,8 +378,11 @@ async function matchShipment(input: {
 
     const gosSeq = `${input.subject} ${input.body}`.match(/\bGOS(\d{7,})\b/i);
     if (!candidate && gosSeq) {
-        candidate = await prisma.shipmentLead.findUnique({
-            where: { greenOsShipmentId: `GOS${gosSeq[1]}` },
+        candidate = await prisma.shipmentLead.findFirst({
+            where: {
+                greenOsShipmentId: `GOS${gosSeq[1]}`,
+                status: { notIn: [...MATCH_EXCLUDED_STATUSES] },
+            },
             select: { shipmentLeadId: true, assignedBrokerId: true },
         });
         method = "greenOsShipmentId";
@@ -321,8 +390,11 @@ async function matchShipment(input: {
 
     const gosLegacy = `${input.subject} ${input.body}`.match(/GOS-\d{8}-\d+/i);
     if (!candidate && gosLegacy) {
-        candidate = await prisma.shipmentLead.findUnique({
-            where: { greenOsShipmentId: gosLegacy[0].toUpperCase() },
+        candidate = await prisma.shipmentLead.findFirst({
+            where: {
+                greenOsShipmentId: gosLegacy[0].toUpperCase(),
+                status: { notIn: [...MATCH_EXCLUDED_STATUSES] },
+            },
             select: { shipmentLeadId: true, assignedBrokerId: true },
         });
         method = "greenOsShipmentId";
@@ -335,6 +407,7 @@ async function matchShipment(input: {
                 gmailThreadId: input.gmailThreadId,
                 shipmentLeadId: { not: null },
                 matchMethod: { in: STRONG_MATCH_METHODS },
+                shipmentLead: { status: { notIn: [...MATCH_EXCLUDED_STATUSES] } },
             },
             orderBy: { receivedAt: "desc" },
             select: {
@@ -348,12 +421,22 @@ async function matchShipment(input: {
     }
 
     if (!candidate) {
-        candidate = await matchByUniqueTitle(input.userId, input.subject, input.body);
+        candidate = await matchByUniqueTitle(
+            input.userId,
+            input.subject,
+            input.body,
+            preferBookingReady
+        );
         if (candidate) method = "listingTitle";
     }
 
     if (!candidate) {
-        candidate = await matchByUniqueRoute(input.userId, input.subject, input.body);
+        candidate = await matchByUniqueRoute(
+            input.userId,
+            input.subject,
+            input.body,
+            preferBookingReady
+        );
         if (candidate) method = "routeZip";
     }
 

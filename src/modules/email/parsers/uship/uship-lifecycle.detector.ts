@@ -653,7 +653,12 @@ export async function applyUshipLifecycleEvent(input: {
             source === "broker_gmail" && input.actorUserId === assignedBrokerId;
         const fromCompanyCustomerReply =
             source === "company_gmail" && customerReplyKinds.has(detected.kind);
-        if (!fromAssignedBroker && !fromCompanyCustomerReply) {
+        // Congrats / Booking Confirmation may land on company Gmail too — still
+        // Accept Green + Create Load for the assigned broker's card.
+        const fromCompanyBookingWin =
+            source === "company_gmail" &&
+            (detected.kind === "CUSTOMER_ACCEPTED" || detected.kind === "SHIPMENT_BOOKED");
+        if (!fromAssignedBroker && !fromCompanyCustomerReply && !fromCompanyBookingWin) {
             return {
                 applied: false as const,
                 detected,

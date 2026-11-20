@@ -66,6 +66,41 @@ test("createLoadAfterAccepted on ACCEPTED alias allocates only one GL number", a
     await prisma.shipmentLead.delete({ where: { shipmentLeadId: lead.shipmentLeadId } });
 });
 
+test("createLoadAfterAccepted from BID_SUBMITTED promotes Accept Green and Create Load", async () => {
+    await resetCounter(10230);
+    const lead = await prisma.shipmentLead.create({
+        data: {
+            source: "USHIP",
+            shipmentTitle: "1 Pallet Soft Goods Congrats",
+            status: "BID_SUBMITTED",
+        },
+    });
+    const updated = await shipmentService.createLoadAfterAccepted({
+        shipmentLeadId: lead.shipmentLeadId,
+    });
+    assert.equal(updated.loadNumber, "GL10230");
+    assert.equal(updated.status, "LOAD_CREATED");
+    await prisma.shipmentLead.delete({ where: { shipmentLeadId: lead.shipmentLeadId } });
+});
+
+test("createLoadAfterAccepted retries when already ACCEPT_GREEN without GL#", async () => {
+    await resetCounter(10231);
+    const lead = await prisma.shipmentLead.create({
+        data: {
+            source: "USHIP",
+            shipmentTitle: "1 Pallet already Accepted",
+            status: "ACCEPT_GREEN",
+            acceptedAt: new Date(),
+        },
+    });
+    const updated = await shipmentService.createLoadAfterAccepted({
+        shipmentLeadId: lead.shipmentLeadId,
+    });
+    assert.equal(updated.loadNumber, "GL10231");
+    assert.equal(updated.status, "LOAD_CREATED");
+    await prisma.shipmentLead.delete({ where: { shipmentLeadId: lead.shipmentLeadId } });
+});
+
 test.after(async () => {
     await prisma.$disconnect();
 });

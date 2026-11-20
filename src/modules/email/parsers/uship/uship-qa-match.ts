@@ -8,6 +8,24 @@ export function normalizeUshipTitle(value: string): string {
         .trim();
 }
 
+/**
+ * True when a card title matches a Booking Confirmation / Q&A subject hint.
+ * Subject often has only "1 Pallet" while the card title is longer
+ * ("1 Pallet Soft Goods Miami") — both directions must match.
+ */
+export function titleMatchesUshipHint(titleRaw: string, hintRaw: string): boolean {
+    const title = normalizeUshipTitle(titleRaw);
+    const hint = normalizeUshipTitle(hintRaw);
+    if (title.length < 4 || hint.length < 4) return false;
+    return (
+        hint === title ||
+        hint.startsWith(title + " ") ||
+        title.startsWith(hint + " ") ||
+        title.includes(" " + hint + " ") ||
+        hint.includes(" " + title + " ")
+    );
+}
+
 /** Titles hinted by uShip Q&A subjects and "SHIPMENT NAME" blocks. */
 export function titlesFromQuestionAnsweredEmail(subject: string, body: string): string[] {
     const out: string[] = [];
