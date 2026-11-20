@@ -922,6 +922,14 @@ window.GreenOSModules.carriers = {
         break;
       }
     }
+    // Background server backfill may finish after first paint — refresh once if needed.
+    if (needsGenerate && c.rcBolBackfillPending && !self._rcBolRefreshTried) {
+      self._rcBolRefreshTried = true;
+      setTimeout(function () {
+        self._tab = "documents";
+        self.showDetail(document.getElementById("cr-main") || el.parentElement, c.carrierId);
+      }, 2500);
+    }
     var searchLoadHint = "";
     try {
       var searchEl = document.getElementById("gos-global-search");

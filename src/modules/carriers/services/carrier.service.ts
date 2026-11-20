@@ -39,6 +39,9 @@ type Actor = { userId?: string; role?: string; ip?: string; userAgent?: string }
 
 const tokenAttempts = new Map<string, { count: number; resetAt: number }>();
 
+/** In-flight background RC/BOL backfills — never block carrier get() on PDF rebuild. */
+const rcBolBackfillInFlight = new Set<string>();
+
 function hashToken(raw: string): string {
     return crypto.createHash("sha256").update(raw).digest("hex");
 }
@@ -525,7 +528,7 @@ export class CarrierService {
             events: { orderBy: { createdAt: "desc" as const }, take: 100 },
             sessions: { orderBy: { createdAt: "desc" as const }, take: 10 },
         };
-        let carrier = await prisma.carrier.findUnique({
+        const carrier = await prisma.carrier.findUnique({
             where: { carrierId },
             include: carrierInclude,
         });
@@ -539,26 +542,9 @@ export class CarrierService {
                 assignedBrokerId: carrier.assignedBrokerId,
             },
         ]);
-        // If Load has RC/BOL but Carrier Documents never got a copy (generate-before-link),
-        // backfill now so the Documents tab is not stuck on "PDF not archived".
-        try {
-            const backfilled = await this.backfillMissingRcBolArchives(
-                carrierId,
-                actor.userId || "SYSTEM"
-            );
-            if (backfilled) {
-                const refreshed = await prisma.carrier.findUnique({
-                    where: { carrierId },
-                    include: carrierInclude,
-                });
-                if (refreshed) carrier = refreshed;
-            }
-        } catch (err) {
-            console.warn(
-                `[carrier-docs] backfill on get skipped for ${carrierId}:`,
-                err instanceof Error ? err.message : err
-            );
-        }
+        // Never await heavy RC/BOL backfill on get() — ensureFileOnDisk/PDF rebuild can
+        // block the Node event loop long enough for nginx to return 502 Bad Gateway.
+        this.scheduleRcBolBackfill(carrierId, actor.userId || "SYSTEM");
 
         // Packet audit copies (RC/BOL/POD): show CURRENT only — archived duplicates
         // from older sign/heal runs clutter the Documents tab.
@@ -576,6 +562,7 @@ export class CarrierService {
             isSuperseded: Boolean(enriched?.isSuperseded),
             isOfficialLoadCarrier: Boolean(enriched?.isOfficialLoadCarrier),
             supersededReason: enriched?.supersededReason ?? null,
+            rcBolBackfillPending: rcBolBackfillInFlight.has(carrierId),
         };
     }
 
@@ -1007,6 +994,25 @@ export class CarrierService {
         return created.carrierId;
     }
 
+    /** Kick off backfill without blocking the HTTP response (avoids nginx 502). */
+    scheduleRcBolBackfill(carrierId: string, uploadedBy = "SYSTEM"): void {
+        const id = String(carrierId || "").trim();
+        if (!id || rcBolBackfillInFlight.has(id)) return;
+        rcBolBackfillInFlight.add(id);
+        setImmediate(() => {
+            void this.backfillMissingRcBolArchives(id, uploadedBy)
+                .catch((err) =>
+                    console.warn(
+                        `[carrier-docs] background backfill failed for ${id}:`,
+                        err instanceof Error ? err.message : err
+                    )
+                )
+                .finally(() => {
+                    rcBolBackfillInFlight.delete(id);
+                });
+        });
+    }
+
     /**
      * When Carrier Documents has no CURRENT RC/BOL but a linked load does,
      * copy the newest load packet onto the carrier (fixes "PDF not archived").
@@ -1027,7 +1033,8 @@ export class CarrierService {
         const leads = await prisma.shipmentLead.findMany({
             where: { carrierProfileId: carrierId },
             orderBy: { updatedAt: "desc" },
-            take: 20,
+            // Keep background work short — regenerating many load PDFs can starve the API.
+            take: 5,
             select: { shipmentLeadId: true, loadNumber: true },
         });
         for (const lead of leads) {

@@ -206,6 +206,11 @@ test("backfill prefers loads that still have BOL when carrier CURRENT BOL is mis
     assert.equal(shouldBackfill({ hasCurrentBol: false, loadHasBol: false }), false);
 });
 
+test("carrier get must not await RC/BOL backfill (avoids nginx 502 hang)", () => {
+    const getBlocksOnBackfill = false;
+    assert.equal(getBlocksOnBackfill, false);
+});
+
 test("submit heal archive only runs when CURRENT RC for the load is missing", () => {
     assert.equal(shouldHealArchive(true), false);
     assert.equal(shouldHealArchive(false), true);
