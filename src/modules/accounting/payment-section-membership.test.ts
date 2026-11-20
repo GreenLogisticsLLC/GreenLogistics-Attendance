@@ -5,9 +5,23 @@ import {
     belongsInCustomerBilling,
 } from "./payment-section-membership.js";
 
-test("PENDING load is not in Customer Billing or Carrier Payments", () => {
+test("PENDING without invoice is not in Carrier Payments", () => {
     const row = {
         status: "PICKUP",
+        accountingDocStatus: "PENDING",
+        customerPaidAt: null,
+        carrierPaidAt: null,
+        accountingReadyForCarrierPayment: false,
+        hasCarrierInvoice: false,
+        accountingEligible: true,
+    };
+    assert.equal(belongsInCustomerBilling(row), false);
+    assert.equal(belongsInCarrierPayments(row), false);
+});
+
+test("carrier invoice alone (customer UNPAID) → Carrier Payments", () => {
+    const row = {
+        status: "DELIVERED",
         accountingDocStatus: "PENDING",
         customerPaidAt: null,
         carrierPaidAt: null,
@@ -15,8 +29,8 @@ test("PENDING load is not in Customer Billing or Carrier Payments", () => {
         hasCarrierInvoice: true,
         accountingEligible: true,
     };
+    assert.equal(belongsInCarrierPayments(row), true);
     assert.equal(belongsInCustomerBilling(row), false);
-    assert.equal(belongsInCarrierPayments(row), false);
 });
 
 test("VERIFIED without carrier invoice is not in Carrier Payments", () => {
@@ -51,7 +65,7 @@ test("carrier invoice via document alone counts for Carrier Payments", () => {
     const row = {
         status: "DELIVERED",
         accountingDocStatus: "VERIFIED",
-        customerPaidAt: "2026-11-01T00:00:00.000Z",
+        customerPaidAt: null,
         carrierPaidAt: null,
         accountingReadyForCarrierPayment: false,
         hasCarrierInvoice: true,
@@ -60,7 +74,7 @@ test("carrier invoice via document alone counts for Carrier Payments", () => {
     assert.equal(belongsInCarrierPayments(row), true);
 });
 
-test("VERIFIED + customer UNPAID → Customer Billing even with carrier invoice", () => {
+test("VERIFIED + customer UNPAID + carrier invoice → both Billing and Carrier Payments", () => {
     const row = {
         status: "DELIVERED",
         accountingDocStatus: "VERIFIED",
@@ -71,7 +85,7 @@ test("VERIFIED + customer UNPAID → Customer Billing even with carrier invoice"
         accountingEligible: true,
     };
     assert.equal(belongsInCustomerBilling(row), true);
-    assert.equal(belongsInCarrierPayments(row), false);
+    assert.equal(belongsInCarrierPayments(row), true);
 });
 
 test("VERIFIED + customer UNPAID + carrier PAID → Customer Billing only", () => {

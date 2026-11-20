@@ -1826,15 +1826,13 @@ window.GreenOSModules.accounting = {
         return !r.customerPaidAt;
       });
     } else if (queue === "carrier") {
-      // Carrier Payments: VERIFIED + carrier invoice + customer PAID + carrier UNPAID.
+      // Carrier Payments: carrier invoice uploaded + carrier UNPAID (customer paid optional).
       filtered = list.filter(function (r) {
         if (String(r.status || "").toUpperCase() === "VOIDED") return false;
-        var doc = String(r.accountingDocStatus || "PENDING").toUpperCase();
-        if (doc !== "VERIFIED" && doc !== "APPROVED") return false;
         var hasInvoice =
           Boolean(r.accountingReadyForCarrierPayment) || Boolean(r.hasCarrierInvoice);
         if (!hasInvoice) return false;
-        return Boolean(r.customerPaidAt) && !r.carrierPaidAt;
+        return !r.carrierPaidAt;
       });
     } else if (queue === "paid") {
       filtered = list.filter(function (r) {
@@ -2744,7 +2742,7 @@ window.GreenOSModules.accounting = {
             : ' disabled title="Upload the carrier invoice first"'
           : ' disabled title="Carrier invoice send permission required"') +
         ">Send</button></div>" +
-        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Upload the carrier invoice, then Send moves this load into Carrier Payments (AP). Paying the carrier happens later in Carrier Payments after documents are verified.</p>' +
+        '<p class="gos-muted" style="margin:0.45rem 0 0;font-size:0.78rem">Upload the carrier invoice to put this load in Carrier Payments (AP), whether or not the customer has paid. Send emails/queues the invoice; paying the carrier is a separate step.</p>' +
         "</section></div>" +
         paypalInvoiceSection +
         '<section class="acc-card acc-rate-card"><h3>Rate &amp; Payment</h3>' +
